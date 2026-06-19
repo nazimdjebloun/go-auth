@@ -19,7 +19,10 @@ func OriginCheck(allowedOrigins []string) func(http.Handler) http.Handler {
 			allowAll = true
 			break
 		}
-		origins[strings.TrimRight(o, "/")] = true
+		if o == "" {
+			continue
+		}
+		origins[normalizeOrigin(o)] = true
 	}
 
 	return func(next http.Handler) http.Handler {
