@@ -10,12 +10,13 @@ import (
 )
 
 type PasswordService struct {
-	users   port.UserRepository
-	tokens  port.TokenRepository
-	hasher  port.Hasher
-	gen     port.TokenGenerator
-	mailer  port.Mailer
-	config  Config
+	users    port.UserRepository
+	tokens   port.TokenRepository
+	hasher   port.Hasher
+	gen      port.TokenGenerator
+	mailer   port.Mailer
+	sessions port.SessionRepository
+	config   Config
 }
 
 func NewPasswordService(
@@ -24,15 +25,17 @@ func NewPasswordService(
 	hasher port.Hasher,
 	gen port.TokenGenerator,
 	mailer port.Mailer,
+	sessions port.SessionRepository,
 	config Config,
 ) *PasswordService {
 	return &PasswordService{
-		users:  users,
-		tokens: tokens,
-		hasher: hasher,
-		gen:    gen,
-		mailer: mailer,
-		config: config,
+		users:    users,
+		tokens:   tokens,
+		hasher:   hasher,
+		gen:      gen,
+		mailer:   mailer,
+		sessions: sessions,
+		config:   config,
 	}
 }
 
@@ -157,6 +160,16 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 
 	if err := s.users.Update(ctx, user); err != nil {
 		return domain.NewError("internal_error", "Failed to update password", 500)
+	}
+
+	if input.ExceptSessionID != "" {
+		if err := s.sessions.DeleteAllForUserExcept(ctx, input.UserID, input.ExceptSessionID); err != nil {
+			return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+		}
+	} else {
+		if err := s.sessions.DeleteAllForUser(ctx, input.UserID); err != nil {
+			return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+		}
 	}
 
 	return nil

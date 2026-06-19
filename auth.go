@@ -150,7 +150,7 @@ func New(config Config) (*Auth, error) {
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
 
 	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
-	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg)
+	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL)

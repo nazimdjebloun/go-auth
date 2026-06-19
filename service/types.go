@@ -53,9 +53,10 @@ type ResetPasswordInput struct {
 }
 
 type ChangePasswordInput struct {
-	UserID      string
-	OldPassword string
-	NewPassword string
+	UserID          string
+	OldPassword     string
+	NewPassword     string
+	ExceptSessionID string
 }
 
 type ListSessionsResult struct {

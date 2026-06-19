@@ -142,9 +142,10 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}
 
 	name := input.Name
-	if name == "" {
-		name = invite.Email[:strings.Index(invite.Email, "@")]
+	if strings.TrimSpace(name) == "" {
+		return nil, domain.NewError("name_required", "Name is required", 400)
 	}
+	name = strings.TrimSpace(name)
 
 	user := &domain.User{
 		ID:           generateID(),

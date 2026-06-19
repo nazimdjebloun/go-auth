@@ -72,9 +72,10 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	if err := validatePassword(input.Password); err != nil {
 		return nil, err
 	}
-	if input.Name == "" {
-		input.Name = input.Email[:strings.Index(input.Email, "@")]
+	if strings.TrimSpace(input.Name) == "" {
+		return nil, domain.NewError("name_required", "Name is required", 400)
 	}
+	input.Name = strings.TrimSpace(input.Name)
 
 	existing, _ := s.users.GetByEmail(ctx, input.Email)
 	if existing != nil {
