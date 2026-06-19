@@ -200,6 +200,27 @@ func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) *d
 	return nil
 }
 
+func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password string) *domain.AuthError {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+
+	if err := s.hasher.Compare(password, user.PasswordHash); err != nil {
+		return domain.NewError("wrong_password", "Password is incorrect", http.StatusBadRequest)
+	}
+
+	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
+		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+	}
+
+	if err := s.users.Delete(ctx, userID); err != nil {
+		return domain.NewError("internal_error", "Failed to delete account", 500)
+	}
+
+	return nil
+}
+
 func (s *AuthService) sendVerificationEmail(ctx context.Context, user *domain.User) *domain.AuthError {
 	raw, err := s.gen.Generate()
 	if err != nil {

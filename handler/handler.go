@@ -191,6 +191,24 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
 }
 
+func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r.Context())
+
+	var body struct {
+		Password string `json:"password"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	if err := h.services.Auth.DeleteAccount(r.Context(), user.ID, body.Password); err != nil {
+		writeError(w, err)
+		return
+	}
+	clearSessionCookie(w, h.services.Session)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
+}
+
 // --- Verification handlers ---
 
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
@@ -491,6 +509,19 @@ func setSessionCookie(w http.ResponseWriter, svc *service.SessionService, token 
 		Secure:   cfg.SecureCookie,
 		SameSite: http.SameSite(cfg.SameSite),
 		MaxAge:   int(cfg.Duration.Seconds()),
+	})
+}
+
+func clearSessionCookie(w http.ResponseWriter, svc *service.SessionService) {
+	cfg := svc.Config()
+	http.SetCookie(w, &http.Cookie{
+		Name:     cfg.CookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   cfg.SecureCookie,
+		SameSite: http.SameSite(cfg.SameSite),
+		MaxAge:   -1,
 	})
 }
 
