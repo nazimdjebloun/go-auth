@@ -59,6 +59,7 @@ type HandlerGroup struct {
 	InviteRegister     http.HandlerFunc
 	GetMe              http.HandlerFunc
 	ChangeName         http.HandlerFunc
+	DeleteAccount      http.HandlerFunc
 	ListUsers          http.HandlerFunc
 	UpdateUserRole     http.HandlerFunc
 	BanUser            http.HandlerFunc
@@ -202,6 +203,7 @@ func New(config Config) (*Auth, error) {
 			InviteRegister:     csrfMW(http.HandlerFunc(h.InviteRegister)).ServeHTTP,
 			GetMe:              authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
 			ChangeName:         csrfMW(authMW(http.HandlerFunc(h.ChangeName))).ServeHTTP,
+			DeleteAccount:      csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))).ServeHTTP,
 			ListUsers:          adminMW(authMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
 			UpdateUserRole:     csrfMW(adminMW(authMW(http.HandlerFunc(h.UpdateUserRole)))).ServeHTTP,
 			BanUser:            csrfMW(adminMW(authMW(http.HandlerFunc(h.BanUser)))).ServeHTTP,
@@ -246,6 +248,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("DELETE /auth/sessions", a.Handlers.RevokeAllSessions)
 	mux.Handle("PUT /auth/password", a.Handlers.ChangePassword)
 	mux.Handle("POST /auth/change-password", a.Handlers.ChangePassword)
+	mux.Handle("DELETE /auth/account", a.Handlers.DeleteAccount)
 	mux.Handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
 	mux.Handle("GET /admin/users", a.Handlers.ListUsers)
 	mux.Handle("PATCH /admin/users/{id}/role", a.Handlers.UpdateUserRole)
