@@ -49,6 +49,7 @@ type SMTPConfig struct {
 
 func DefaultConfig() Config {
 	return Config{
+		RequireEmailVerification: false,
 		InviteTTL:           7 * 24 * time.Hour,
 		VerificationCodeTTL: 15 * time.Minute,
 		SessionTTL:          30 * 24 * time.Hour,

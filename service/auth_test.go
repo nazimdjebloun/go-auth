@@ -285,13 +285,14 @@ func (m *mockInviteRepo) Update(ctx context.Context, invite *domain.Invite) erro
 
 func defaultTestConfig() Config {
 	return Config{
-		AppName:             "TestApp",
-		InviteTTL:           7 * 24 * time.Hour,
-		VerificationCodeTTL: 15 * time.Minute,
-		SessionTTL:          30 * 24 * time.Hour,
-		TokenTTL:            1 * time.Hour,
-		BcryptCost:          4,
-		TokenLength:         32,
+		AppName:                 "TestApp",
+		RequireEmailVerification: false,
+		InviteTTL:               7 * 24 * time.Hour,
+		VerificationCodeTTL:     15 * time.Minute,
+		SessionTTL:              30 * 24 * time.Hour,
+		TokenTTL:                1 * time.Hour,
+		BcryptCost:              4,
+		TokenLength:             32,
 	}
 }
 
@@ -498,11 +499,15 @@ func TestLoginWrongPassword(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
-	svc.Register(context.Background(), RegisterInput{
+	regResult, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test",
 	})
+
+	// manually verify so we reach the password check
+	regResult.User.IsVerified = true
+	users.Update(context.Background(), regResult.User)
 
 	_, err := svc.Login(context.Background(), LoginInput{
 		Email:    "test@example.com",
@@ -529,6 +534,80 @@ func TestLoginNonexistentUser(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Expected error for nonexistent user, got nil")
+	}
+}
+
+func TestLoginUnverifiedUser_WithVerificationDisabled(t *testing.T) {
+	users := newMockUserRepo()
+	sessions := newMockSessionRepo()
+	tokens := newMockTokenRepo()
+	hasher := &mockHasher{}
+	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+
+	cfg := defaultTestConfig()
+	cfg.RequireEmailVerification = false
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
+
+	regResult, _ := svc.Register(context.Background(), RegisterInput{
+		Email:    "unverified@example.com",
+		Password: "Passw0rd!",
+		Name:     "Test",
+	})
+	if !regResult.User.IsVerified {
+		t.Fatal("Expected user to be auto-verified when RequireEmailVerification is false")
+	}
+	if regResult.User.VerifiedAt == nil {
+		t.Fatal("Expected VerifiedAt to be set when email verification is disabled")
+	}
+
+	result, err := svc.Login(context.Background(), LoginInput{
+		Email:    "unverified@example.com",
+		Password: "Passw0rd!",
+	})
+	if err != nil {
+		t.Fatalf("Login should succeed when RequireEmailVerification is false: %v", err)
+	}
+	if result.User == nil {
+		t.Fatal("Expected user, got nil")
+	}
+	if result.SessionToken == "" {
+		t.Fatal("Expected session token, got empty")
+	}
+}
+
+func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
+	users := newMockUserRepo()
+	sessions := newMockSessionRepo()
+	tokens := newMockTokenRepo()
+	hasher := &mockHasher{}
+	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+
+	cfg := defaultTestConfig()
+	cfg.RequireEmailVerification = true
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
+
+	regResult, _ := svc.Register(context.Background(), RegisterInput{
+		Email:    "unverified@example.com",
+		Password: "Passw0rd!",
+		Name:     "Test",
+	})
+	if regResult.User.IsVerified {
+		t.Fatal("Expected user to be unverified after register with RequireEmailVerification=true")
+	}
+
+	_, err := svc.Login(context.Background(), LoginInput{
+		Email:    "unverified@example.com",
+		Password: "Passw0rd!",
+	})
+	if err == nil {
+		t.Fatal("Expected email_not_verified error, got nil")
+	}
+	if err.Code != "email_not_verified" {
+		t.Fatalf("Expected email_not_verified, got %s", err.Code)
 	}
 }
 
