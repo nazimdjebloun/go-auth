@@ -14,7 +14,7 @@ type PasswordService struct {
 	tokens  port.TokenRepository
 	hasher  port.Hasher
 	gen     port.TokenGenerator
-	email   port.EmailSender
+	mailer  port.Mailer
 	config  Config
 }
 
@@ -23,7 +23,7 @@ func NewPasswordService(
 	tokens port.TokenRepository,
 	hasher port.Hasher,
 	gen port.TokenGenerator,
-	email port.EmailSender,
+	mailer port.Mailer,
 	config Config,
 ) *PasswordService {
 	return &PasswordService{
@@ -31,7 +31,7 @@ func NewPasswordService(
 		tokens: tokens,
 		hasher: hasher,
 		gen:    gen,
-		email:  email,
+		mailer: mailer,
 		config: config,
 	}
 }
@@ -64,23 +64,13 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 		return domain.NewError("internal_error", "Failed to store token", 500)
 	}
 
-	if s.email == nil {
+	if s.mailer == nil {
 		return nil
 	}
 
-	data := map[string]any{
-		"Code":      raw,
-		"Email":     user.Email,
-		"AppName":   s.config.AppName,
-		"ExpiresIn": s.config.TokenTTL.String(),
-	}
+	body := "Your password reset code: " + raw + "\n\nExpires in: " + s.config.TokenTTL.String()
 
-	if err := s.email.Send(ctx, port.EmailData{
-		To:           user.Email,
-		Subject:      "Reset your password",
-		TemplateName: "password_reset",
-		TemplateData: data,
-	}); err != nil {
+	if err := s.mailer.Send(ctx, user.Email, "Reset your password - "+s.config.AppName, body); err != nil {
 		return domain.NewError("email_failed", "Failed to send reset email", 500)
 	}
 

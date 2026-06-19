@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/smtp"
-
-	"github.com/nazimdjebloun/go-auth/port"
 )
 
-type smtpEmailSender struct {
+type SMTPMailer struct {
 	host string
 	port int
 	user string
@@ -16,8 +14,8 @@ type smtpEmailSender struct {
 	from string
 }
 
-func NewSMTPEmailSender(cfg SMTPConfig, from string) *smtpEmailSender {
-	return &smtpEmailSender{
+func NewSMTPMailer(cfg SMTPConfig, from string) *SMTPMailer {
+	return &SMTPMailer{
 		host: cfg.Host,
 		port: cfg.Port,
 		user: cfg.User,
@@ -26,17 +24,12 @@ func NewSMTPEmailSender(cfg SMTPConfig, from string) *smtpEmailSender {
 	}
 }
 
-func (s *smtpEmailSender) Send(ctx context.Context, data port.EmailData) error {
+func (m *SMTPMailer) Send(ctx context.Context, to, subject, body string) error {
 	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=\"UTF-8\"\r\n\r\n%s",
-		s.from, data.To, data.Subject, data.HTML)
+		m.from, to, subject, body)
 
-	if data.HTML == "" {
-		msg = fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s",
-			s.from, data.To, data.Subject, data.Text)
-	}
+	auth := smtp.PlainAuth("", m.user, m.pass, m.host)
+	addr := fmt.Sprintf("%s:%d", m.host, m.port)
 
-	auth := smtp.PlainAuth("", s.user, s.pass, s.host)
-	addr := fmt.Sprintf("%s:%d", s.host, s.port)
-
-	return smtp.SendMail(addr, auth, s.from, []string{data.To}, []byte(msg))
+	return smtp.SendMail(addr, auth, m.from, []string{to}, []byte(msg))
 }

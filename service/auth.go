@@ -16,7 +16,7 @@ type AuthService struct {
 	tokens   port.TokenRepository
 	hasher   port.Hasher
 	gen      port.TokenGenerator
-	email    port.EmailSender
+	mailer   port.Mailer
 	config   Config
 }
 
@@ -30,13 +30,6 @@ type Config struct {
 	TokenTTL            time.Duration
 	BcryptCost          int
 	TokenLength         int
-	EmailTemplates      EmailTemplates
-}
-
-type EmailTemplates struct {
-	VerifyEmail   string
-	PasswordReset string
-	InviteEmail   string
 }
 
 func NewAuthService(
@@ -45,7 +38,7 @@ func NewAuthService(
 	tokens port.TokenRepository,
 	hasher port.Hasher,
 	gen port.TokenGenerator,
-	email port.EmailSender,
+	mailer port.Mailer,
 	config Config,
 ) *AuthService {
 	return &AuthService{
@@ -54,7 +47,7 @@ func NewAuthService(
 		tokens:   tokens,
 		hasher:   hasher,
 		gen:      gen,
-		email:    email,
+		mailer:   mailer,
 		config:   config,
 	}
 }
@@ -245,23 +238,13 @@ func (s *AuthService) sendVerificationEmail(ctx context.Context, user *domain.Us
 		return domain.NewError("internal_error", "Failed to store token", 500)
 	}
 
-	if s.email == nil {
+	if s.mailer == nil {
 		return nil
 	}
 
-	data := map[string]any{
-		"Code":      raw,
-		"Email":     user.Email,
-		"AppName":   s.config.AppName,
-		"ExpiresIn": s.config.TokenTTL.String(),
-	}
+	body := "Your verification code: " + raw + "\n\nExpires in: " + s.config.TokenTTL.String()
 
-	if err := s.email.Send(ctx, port.EmailData{
-		To:           user.Email,
-		Subject:      "Verify your email",
-		TemplateName: "verify_email",
-		TemplateData: data,
-	}); err != nil {
+	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, body); err != nil {
 		return domain.NewError("email_failed", "Failed to send verification email", 500)
 	}
 

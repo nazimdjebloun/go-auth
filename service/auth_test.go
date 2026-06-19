@@ -213,6 +213,75 @@ func (m *mockTokenGen) Hash(raw string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+type mockInviteRepo struct {
+	mu      sync.Mutex
+	invites map[string]*domain.Invite
+}
+
+func newMockInviteRepo() *mockInviteRepo {
+	return &mockInviteRepo{invites: make(map[string]*domain.Invite)}
+}
+
+func (m *mockInviteRepo) Create(ctx context.Context, invite *domain.Invite) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.invites[invite.ID] = invite
+	m.invites[invite.Code] = invite
+	m.invites["email:"+invite.Email] = invite
+	return nil
+}
+
+func (m *mockInviteRepo) GetByID(ctx context.Context, id string) (*domain.Invite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inv, ok := m.invites[id]
+	if !ok {
+		return nil, nil
+	}
+	return inv, nil
+}
+
+func (m *mockInviteRepo) GetByCode(ctx context.Context, code string) (*domain.Invite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inv, ok := m.invites[code]
+	if !ok {
+		return nil, nil
+	}
+	return inv, nil
+}
+
+func (m *mockInviteRepo) GetByEmail(ctx context.Context, email string) (*domain.Invite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inv, ok := m.invites["email:"+email]
+	if !ok {
+		return nil, nil
+	}
+	return inv, nil
+}
+
+func (m *mockInviteRepo) List(ctx context.Context, offset, limit int) ([]domain.Invite, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []domain.Invite
+	for _, inv := range m.invites {
+		if inv.ID != "" && inv.Code != "" {
+			result = append(result, *inv)
+		}
+	}
+	return result, len(result), nil
+}
+
+func (m *mockInviteRepo) Update(ctx context.Context, invite *domain.Invite) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.invites[invite.ID] = invite
+	m.invites[invite.Code] = invite
+	m.invites["email:"+invite.Email] = invite
+	return nil
+}
+
 func defaultTestConfig() Config {
 	return Config{
 		AppName:             "TestApp",
@@ -514,5 +583,130 @@ func TestLogout(t *testing.T) {
 	_, _, err = svc.ValidateSession(context.Background(), result.SessionToken)
 	if err == nil {
 		t.Fatal("Expected session to be invalid after logout")
+	}
+}
+
+func TestInviteRegister(t *testing.T) {
+	users := newMockUserRepo()
+	sessions := newMockSessionRepo()
+	invites := newMockInviteRepo()
+	hasher := &mockHasher{}
+	gen := &mockTokenGen{length: 32}
+
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig())
+
+	// Create invite
+	inviteResult, err := svc.CreateInvite(context.Background(), CreateInviteInput{
+		Email:   "invited@example.com",
+		AdminID: "admin-id",
+	})
+	if err != nil {
+		t.Fatalf("CreateInvite failed: %v", err)
+	}
+	if inviteResult == nil {
+		t.Fatal("Expected invite, got nil")
+	}
+
+	// Complete registration with the code stored in invite.Code (which is the hash)
+	// We need the raw token to register. In real flow, the email sends the raw token.
+	// Let's generate a raw token and store it properly.
+	raw, hash, _ := gen.Generate()
+	inviteResult.Code = hash
+	invites.Update(context.Background(), inviteResult)
+
+	result, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
+		Code:            raw,
+		Name:            "Invited User",
+		Password:        "password123",
+		ConfirmPassword: "password123",
+	})
+	if err != nil {
+		t.Fatalf("CompleteInviteRegistration failed: %v", err)
+	}
+	if result.User == nil {
+		t.Fatal("Expected user, got nil")
+	}
+	if result.User.Email != "invited@example.com" {
+		t.Fatalf("Expected email invited@example.com, got %s", result.User.Email)
+	}
+	if !result.User.IsVerified {
+		t.Fatal("Expected user to be auto-verified")
+	}
+	if result.SessionToken == "" {
+		t.Fatal("Expected session token, got empty")
+	}
+}
+
+func TestInviteRegisterExpired(t *testing.T) {
+	users := newMockUserRepo()
+	sessions := newMockSessionRepo()
+	invites := newMockInviteRepo()
+	hasher := &mockHasher{}
+	gen := &mockTokenGen{length: 32}
+
+	cfg := defaultTestConfig()
+	cfg.InviteTTL = -1 * time.Hour // expired
+
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, cfg)
+
+	raw, hash, _ := gen.Generate()
+	now := time.Now().UTC()
+	inviteResult := &domain.Invite{
+		ID:        generateID(),
+		Email:     "invited@example.com",
+		Code:      hash,
+		CreatedBy: "admin-id",
+		Status:    domain.InvitePending,
+		ExpiresAt: now.Add(cfg.InviteTTL),
+		CreatedAt: now,
+	}
+	invites.Create(context.Background(), inviteResult)
+
+	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
+		Code:            raw,
+		Name:            "Invited User",
+		Password:        "password123",
+		ConfirmPassword: "password123",
+	})
+	if err == nil {
+		t.Fatal("Expected error for expired invite, got nil")
+	}
+	if err.Code != "invite_expired" {
+		t.Fatalf("Expected invite_expired, got %s", err.Code)
+	}
+}
+
+func TestInviteRegisterPasswordMismatch(t *testing.T) {
+	users := newMockUserRepo()
+	sessions := newMockSessionRepo()
+	invites := newMockInviteRepo()
+	hasher := &mockHasher{}
+	gen := &mockTokenGen{length: 32}
+
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig())
+
+	raw, hash, _ := gen.Generate()
+	inviteResult := &domain.Invite{
+		ID:        generateID(),
+		Email:     "invited@example.com",
+		Code:      hash,
+		CreatedBy: "admin-id",
+		Status:    domain.InvitePending,
+		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
+		CreatedAt: time.Now().UTC(),
+	}
+	invites.Create(context.Background(), inviteResult)
+
+	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
+		Code:            raw,
+		Name:            "Invited User",
+		Password:        "password123",
+		ConfirmPassword: "different",
+	})
+	if err == nil {
+		t.Fatal("Expected error for password mismatch, got nil")
+	}
+	if err.Code != "passwords_dont_match" {
+		t.Fatalf("Expected passwords_dont_match, got %s", err.Code)
 	}
 }

@@ -29,16 +29,11 @@ type LoginResult struct {
 	SessionToken string
 }
 
-type VerifyInviteInput struct {
-	Email string
-	Code  string
-}
-
 type CompleteInviteInput struct {
-	Email            string
-	VerificationCode string
-	Password         string
-	Name             string
+	Code            string
+	Name            string
+	Password        string
+	ConfirmPassword string
 }
 
 type CompleteInviteResult struct {
@@ -80,8 +75,8 @@ type AdminListUsersResult struct {
 }
 
 type CreateInviteInput struct {
-	Email    string
-	AdminID  string
+	Email   string
+	AdminID string
 }
 
 type EmailData struct {

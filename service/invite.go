@@ -13,10 +13,9 @@ type InviteService struct {
 	users    port.UserRepository
 	sessions port.SessionRepository
 	invites  port.InviteRepository
-	tokens   port.TokenRepository
 	hasher   port.Hasher
 	gen      port.TokenGenerator
-	email    port.EmailSender
+	mailer   port.Mailer
 	config   Config
 }
 
@@ -24,20 +23,18 @@ func NewInviteService(
 	users port.UserRepository,
 	sessions port.SessionRepository,
 	invites port.InviteRepository,
-	tokens port.TokenRepository,
 	hasher port.Hasher,
 	gen port.TokenGenerator,
-	email port.EmailSender,
+	mailer port.Mailer,
 	config Config,
 ) *InviteService {
 	return &InviteService{
 		users:    users,
 		sessions: sessions,
 		invites:  invites,
-		tokens:   tokens,
 		hasher:   hasher,
 		gen:      gen,
-		email:    email,
+		mailer:   mailer,
 		config:   config,
 	}
 }
@@ -68,13 +65,10 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 
 	now := time.Now().UTC()
 
-	// Use first 8 chars of raw hash as a short readable invite code
-	shortCode := raw[:8]
-
 	invite := &domain.Invite{
 		ID:        generateID(),
 		Email:     input.Email,
-		Code:      shortCode,
+		Code:      hash,
 		CreatedBy: input.AdminID,
 		Status:    domain.InvitePending,
 		ExpiresAt: now.Add(s.config.InviteTTL),
@@ -85,138 +79,47 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 		return nil, domain.NewError("internal_error", "Failed to create invite", 500)
 	}
 
-	// Store full token for verification flow
-	token := &domain.VerificationToken{
-		ID:        generateID(),
-		Email:     input.Email,
-		TokenHash: hash,
-		Type:      domain.TokenInviteVerify,
-		ExpiresAt: now.Add(s.config.InviteTTL),
-	}
-	s.tokens.Create(ctx, token)
-
-	if s.email != nil {
-		data := map[string]any{
-			"Code":      shortCode,
-			"Email":     input.Email,
-			"AppName":   s.config.AppName,
-			"ExpiresIn": s.config.InviteTTL.String(),
+	if s.mailer != nil {
+		body := "You're invited to " + s.config.AppName + "!\n\nUse this code to register: " + raw + "\n\nExpires in: " + s.config.InviteTTL.String()
+		if err := s.mailer.Send(ctx, input.Email, "You're invited to "+s.config.AppName, body); err != nil {
+			return nil, domain.NewError("email_failed", "Failed to send invite email", 500)
 		}
-		s.email.Send(ctx, port.EmailData{
-			To:           input.Email,
-			Subject:      "You're invited!",
-			TemplateName: "invite_email",
-			TemplateData: data,
-		})
 	}
 
 	return invite, nil
 }
 
-func (s *InviteService) VerifyInvite(ctx context.Context, input VerifyInviteInput) *domain.AuthError {
-	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
-
-	invite, err := s.invites.GetByCode(ctx, input.Code)
-	if err != nil || invite == nil {
-		return domain.ErrInviteNotFound
-	}
-
-	if !strings.EqualFold(invite.Email, input.Email) {
-		return domain.ErrInviteNotFound
-	}
-
-	if invite.Status == domain.InviteAccepted {
-		return domain.ErrInviteAlreadyUsed
-	}
-	if invite.Status == domain.InviteRevoked {
-		return domain.ErrInviteRevoked
-	}
-	if time.Now().UTC().After(invite.ExpiresAt) {
-		invite.Status = domain.InviteExpired
-		s.invites.Update(ctx, invite)
-		return domain.ErrInviteExpired
-	}
-
-	existing, _ := s.users.GetByEmail(ctx, input.Email)
-	if existing != nil {
-		return domain.ErrAccountAlreadyExists
-	}
-
-	raw, hash, err := s.gen.Generate()
-	if err != nil {
-		return domain.NewError("internal_error", "Failed to generate verification code", 500)
-	}
-
-	now := time.Now().UTC()
-	token := &domain.VerificationToken{
-		ID:        generateID(),
-		Email:     input.Email,
-		TokenHash: hash,
-		Type:      domain.TokenInviteVerify,
-		ExpiresAt: now.Add(s.config.VerificationCodeTTL),
-	}
-
-	if err := s.tokens.Create(ctx, token); err != nil {
-		return domain.NewError("internal_error", "Failed to store verification code", 500)
-	}
-
-	if s.email != nil {
-		data := map[string]any{
-			"Code":      raw,
-			"Email":     input.Email,
-			"AppName":   s.config.AppName,
-			"ExpiresIn": s.config.VerificationCodeTTL.String(),
-		}
-		s.email.Send(ctx, port.EmailData{
-			To:           input.Email,
-			Subject:      "Your verification code",
-			TemplateName: "invite_verify",
-			TemplateData: data,
-		})
-	}
-
-	return nil
-}
-
 func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, *domain.AuthError) {
-	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
-
 	if err := validatePassword(input.Password); err != nil {
 		return nil, err
 	}
-
-	tokenHash := s.gen.Hash(input.VerificationCode)
-	token, err := s.tokens.GetByHash(ctx, tokenHash)
-	if err != nil || token == nil {
-		return nil, domain.ErrTokenInvalid
+	if input.Password != input.ConfirmPassword {
+		return nil, domain.NewError("passwords_dont_match", "Passwords do not match", 400)
 	}
 
-	if token.Type != domain.TokenInviteVerify {
-		return nil, domain.ErrTokenInvalid
-	}
-
-	if !strings.EqualFold(token.Email, input.Email) {
-		return nil, domain.ErrTokenInvalid
-	}
-
-	if token.UsedAt != nil {
-		return nil, domain.ErrTokenAlreadyUsed
-	}
-
-	if time.Now().UTC().After(token.ExpiresAt) {
-		return nil, domain.ErrTokenExpired
-	}
-
-	invite, err := s.invites.GetByEmail(ctx, input.Email)
+	codeHash := s.gen.Hash(input.Code)
+	invite, err := s.invites.GetByCode(ctx, codeHash)
 	if err != nil || invite == nil {
 		return nil, domain.ErrInviteNotFound
 	}
 
 	if invite.Status != domain.InvitePending {
-		return nil, domain.ErrInviteAlreadyUsed
+		if invite.Status == domain.InviteAccepted {
+			return nil, domain.ErrInviteAlreadyUsed
+		}
+		if invite.Status == domain.InviteRevoked {
+			return nil, domain.ErrInviteRevoked
+		}
+		return nil, domain.ErrInviteNotFound
 	}
 
-	existing, _ := s.users.GetByEmail(ctx, input.Email)
+	if time.Now().UTC().After(invite.ExpiresAt) {
+		invite.Status = domain.InviteExpired
+		s.invites.Update(ctx, invite)
+		return nil, domain.ErrInviteExpired
+	}
+
+	existing, _ := s.users.GetByEmail(ctx, invite.Email)
 	if existing != nil {
 		return nil, domain.ErrAccountAlreadyExists
 	}
@@ -229,23 +132,24 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	now := time.Now().UTC()
 	role := domain.RoleUser
 	for _, adminEmail := range s.config.AdminEmails {
-		if strings.EqualFold(input.Email, adminEmail) {
+		if strings.EqualFold(invite.Email, adminEmail) {
 			role = domain.RoleAdmin
 			break
 		}
 	}
 
-	if input.Name == "" {
-		input.Name = input.Email[:strings.Index(input.Email, "@")]
+	name := input.Name
+	if name == "" {
+		name = invite.Email[:strings.Index(invite.Email, "@")]
 	}
 
 	user := &domain.User{
 		ID:           generateID(),
-		Email:        input.Email,
+		Email:        invite.Email,
 		PasswordHash: hash,
-		Name:         input.Name,
+		Name:         name,
 		Role:         role,
-		IsVerified:   true, // auto-verified via invite
+		IsVerified:   true,
 		IsBanned:     false,
 		CreatedAt:    now,
 		UpdatedAt:    now,
@@ -258,8 +162,6 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	invite.Status = domain.InviteAccepted
 	invite.AcceptedAt = &now
 	s.invites.Update(ctx, invite)
-
-	s.tokens.MarkUsed(ctx, token.ID)
 
 	raw, sessionHash, err := s.gen.Generate()
 	if err != nil {
@@ -307,7 +209,7 @@ func (s *InviteService) ListInvites(ctx context.Context, offset, limit int) ([]d
 }
 
 func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) *domain.AuthError {
-	if s.email == nil {
+	if s.mailer == nil {
 		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
 
@@ -324,19 +226,19 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 		return domain.ErrInviteExpired
 	}
 
-	data := map[string]any{
-		"Code":      invite.Code,
-		"Email":     invite.Email,
-		"AppName":   s.config.AppName,
-		"ExpiresIn": s.config.InviteTTL.String(),
+	// Generate new code so we have the raw token for the link
+	raw, hash, err := s.gen.Generate()
+	if err != nil {
+		return domain.NewError("internal_error", "Failed to generate invite code", 500)
 	}
 
-	if err := s.email.Send(ctx, port.EmailData{
-		To:           invite.Email,
-		Subject:      "You're invited!",
-		TemplateName: "invite_email",
-		TemplateData: data,
-	}); err != nil {
+	invite.Code = hash
+	if err := s.invites.Update(ctx, invite); err != nil {
+		return domain.NewError("internal_error", "Failed to update invite", 500)
+	}
+
+	body := "You're invited to " + s.config.AppName + "!\n\nUse this code to register: " + raw + "\n\nExpires in: " + s.config.InviteTTL.String()
+	if err := s.mailer.Send(ctx, invite.Email, "You're invited to "+s.config.AppName, body); err != nil {
 		return domain.NewError("email_failed", "Failed to send invite email", 500)
 	}
 

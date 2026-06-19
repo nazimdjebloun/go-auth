@@ -27,16 +27,11 @@ type LoginResult struct {
 	SessionToken string
 }
 
-type VerifyInviteInput struct {
-	Email string
-	Code  string
-}
-
 type CompleteInviteInput struct {
-	Email            string
-	VerificationCode string
-	Password         string
-	Name             string
+	Code            string
+	Name            string
+	Password        string
+	ConfirmPassword string
 }
 
 type CompleteInviteResult struct {

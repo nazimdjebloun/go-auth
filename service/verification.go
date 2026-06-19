@@ -12,7 +12,7 @@ type VerificationService struct {
 	users  port.UserRepository
 	tokens port.TokenRepository
 	gen    port.TokenGenerator
-	email  port.EmailSender
+	mailer port.Mailer
 	config Config
 }
 
@@ -20,14 +20,14 @@ func NewVerificationService(
 	users port.UserRepository,
 	tokens port.TokenRepository,
 	gen port.TokenGenerator,
-	email port.EmailSender,
+	mailer port.Mailer,
 	config Config,
 ) *VerificationService {
 	return &VerificationService{
 		users:  users,
 		tokens: tokens,
 		gen:    gen,
-		email:  email,
+		mailer: mailer,
 		config: config,
 	}
 }
@@ -84,7 +84,7 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 		return domain.NewError("already_verified", "Email is already verified", 400)
 	}
 
-	if s.email == nil {
+	if s.mailer == nil {
 		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
 
@@ -107,19 +107,9 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 		return domain.NewError("internal_error", "Failed to store token", 500)
 	}
 
-	data := map[string]any{
-		"Code":      raw,
-		"Email":     user.Email,
-		"AppName":   s.config.AppName,
-		"ExpiresIn": s.config.TokenTTL.String(),
-	}
+	body := "Your verification code: " + raw + "\n\nExpires in: " + s.config.TokenTTL.String()
 
-	if err := s.email.Send(ctx, port.EmailData{
-		To:           user.Email,
-		Subject:      "Verify your email",
-		TemplateName: "verify_email",
-		TemplateData: data,
-	}); err != nil {
+	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, body); err != nil {
 		return domain.NewError("email_failed", "Failed to send verification email", 500)
 	}
 

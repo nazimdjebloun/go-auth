@@ -61,8 +61,9 @@ func (s *AdminService) BanUser(ctx context.Context, userID string) *domain.AuthE
 		return domain.NewError("internal_error", "Failed to ban user", 500)
 	}
 
-	// Revoke all sessions
-	s.sessions.RevokeAllForUser(ctx, userID)
+	if err := s.sessions.RevokeAllForUser(ctx, userID); err != nil {
+		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+	}
 
 	return nil
 }

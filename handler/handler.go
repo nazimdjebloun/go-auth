@@ -221,41 +221,22 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 
 // --- Invite handlers ---
 
-func (h *Handler) InviteVerify(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Email string `json:"email"`
-		Code  string `json:"code"`
-	}
-	if !decodeJSON(w, r, &body) {
-		return
-	}
-
-	if err := h.services.Invite.VerifyInvite(r.Context(), service.VerifyInviteInput{
-		Email: body.Email,
-		Code:  body.Code,
-	}); err != nil {
-		writeError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Email            string `json:"email"`
-		VerificationCode string `json:"verificationCode"`
-		Password         string `json:"password"`
-		Name             string `json:"name"`
+		Code            string `json:"code"`
+		Name            string `json:"name"`
+		Password        string `json:"password"`
+		ConfirmPassword string `json:"confirmPassword"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
 
 	result, err := h.services.Invite.CompleteInviteRegistration(r.Context(), service.CompleteInviteInput{
-		Email:            body.Email,
-		VerificationCode: body.VerificationCode,
-		Password:         body.Password,
-		Name:             body.Name,
+		Code:            body.Code,
+		Name:            body.Name,
+		Password:        body.Password,
+		ConfirmPassword: body.ConfirmPassword,
 	})
 	if err != nil {
 		writeError(w, err)
