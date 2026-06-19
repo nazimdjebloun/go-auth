@@ -1,19 +1,20 @@
 package goauth
 
 import (
+	"database/sql"
 	"time"
 
-	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
 type Config struct {
 	AppName     string
 	AdminEmails []string
-	SecretKey   string
 
 	Database  DatabaseConfig
+	Mailer    Mailer
 	Email     *EmailConfig
-	RateLimit *port.RateLimitConfig
+	RateLimit *ratelimit.Config
 
 	InviteOnly          bool
 	InviteTTL           time.Duration
@@ -22,14 +23,11 @@ type Config struct {
 	TokenTTL            time.Duration
 	BcryptCost          int
 	TokenLength         int
-
-	EmailTemplates EmailTemplates
 }
 
 type DatabaseConfig struct {
-	Driver string // "postgres"
-	DSN    string
-	Schema string // path to .sql file or "embedded"
+	DB     *sql.DB // existing database connection
+	Driver string  // "postgres", "mysql", "sqlite3"
 }
 
 type EmailConfig struct {
@@ -42,12 +40,6 @@ type SMTPConfig struct {
 	Port int
 	User string
 	Pass string
-}
-
-type EmailTemplates struct {
-	VerifyEmail   string // path to HTML template, or "" for default
-	PasswordReset string
-	InviteEmail   string
 }
 
 func DefaultConfig() Config {

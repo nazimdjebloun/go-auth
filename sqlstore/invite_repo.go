@@ -1,4 +1,4 @@
-package postgres
+package sqlstore
 
 import (
 	"context"
@@ -8,10 +8,10 @@ import (
 )
 
 type InviteRepository struct {
-	db *sql.DB
+	db *DB
 }
 
-func NewInviteRepository(db *sql.DB) *InviteRepository {
+func NewInviteRepository(db *DB) *InviteRepository {
 	return &InviteRepository{db: db}
 }
 

@@ -1,6 +1,11 @@
 package goauth
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
+
+var ErrNoDatabase = errors.New("go-auth: no database pool or DSN provided")
 
 func splitSQL(sql string) []string {
 	statements := strings.Split(sql, ";")

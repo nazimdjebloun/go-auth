@@ -1,17 +1,18 @@
-package postgres
+package sqlstore
 
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
 type SessionRepository struct {
-	db *sql.DB
+	db *DB
 }
 
-func NewSessionRepository(db *sql.DB) *SessionRepository {
+func NewSessionRepository(db *DB) *SessionRepository {
 	return &SessionRepository{db: db}
 }
 
@@ -19,7 +20,8 @@ func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO sessions (id, user_id, token_hash, ip_address, user_agent, is_revoked, expires_at, created_at, last_used_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		s.ID, s.UserID, s.TokenHash, s.IPAddress, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.CreatedAt, s.LastUsedAt)
+		s.ID, s.UserID, s.TokenHash, s.IPAddress, s.UserAgent,
+		s.IsRevoked, s.ExpiresAt, s.CreatedAt, s.LastUsedAt)
 	return err
 }
 
@@ -37,10 +39,11 @@ func (r *SessionRepository) GetByTokenHash(ctx context.Context, hash string) (*d
 }
 
 func (r *SessionRepository) ListByUserID(ctx context.Context, userID string) ([]domain.Session, error) {
+	now := time.Now().UTC()
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT id, user_id, token_hash, ip_address, user_agent, is_revoked, expires_at, created_at, last_used_at
-		FROM sessions WHERE user_id = $1 AND is_revoked = false AND expires_at > NOW()
-		ORDER BY created_at DESC`, userID)
+		FROM sessions WHERE user_id = $1 AND is_revoked = false AND expires_at > $2
+		ORDER BY created_at DESC`, userID, now)
 	if err != nil {
 		return nil, err
 	}
@@ -72,6 +75,6 @@ func (r *SessionRepository) RevokeAllForUser(ctx context.Context, userID string)
 }
 
 func (r *SessionRepository) DeleteExpired(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < NOW()`)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < $1`, time.Now().UTC())
 	return err
 }

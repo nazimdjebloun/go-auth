@@ -9,12 +9,12 @@ import (
 	"strings"
 
 	"github.com/nazimdjebloun/go-auth"
-	_ "github.com/lib/pq"
 )
 
 func main() {
 	cmd := flag.String("cmd", "", "Command: migrate, init-schema")
-	dsn := flag.String("dsn", os.Getenv("AUTH_DSN"), "PostgreSQL DSN")
+	dsn := flag.String("dsn", os.Getenv("AUTH_DSN"), "Database DSN")
+	driver := flag.String("driver", "postgres", "Database driver (postgres, mysql, sqlite3)")
 	flag.Parse()
 
 	switch *cmd {
@@ -22,19 +22,27 @@ func main() {
 		if *dsn == "" {
 			log.Fatal("DSN is required. Set AUTH_DSN env or use --dsn")
 		}
-		db, err := sql.Open("postgres", *dsn)
+		db, err := sql.Open(*driver, *dsn)
 		if err != nil {
 			log.Fatalf("Failed to connect: %v", err)
 		}
 		defer db.Close()
 
-		if err := migrate(db, goauth.EmbeddedSchema); err != nil {
+		schema, err := goauth.GetSchema(*driver)
+		if err != nil {
+			log.Fatal(err)
+		}
+		if err := migrate(db, schema); err != nil {
 			log.Fatal(err)
 		}
 		fmt.Println("Migration complete!")
 
 	case "init-schema":
-		fmt.Println(goauth.EmbeddedSchema)
+		schema, err := goauth.GetSchema(*driver)
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Println(schema)
 
 	default:
 		fmt.Println(`Usage: go-auth --cmd <command> [options]
@@ -44,7 +52,8 @@ Commands:
   init-schema   Print the embedded schema to stdout
 
 Options:
-  --dsn string     PostgreSQL DSN (or AUTH_DSN env)`)
+  --dsn string     Database DSN (or AUTH_DSN env)
+  --driver string  Database driver: postgres, mysql, sqlite3 (default "postgres")`)
 	}
 }
 

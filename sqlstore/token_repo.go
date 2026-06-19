@@ -1,17 +1,18 @@
-package postgres
+package sqlstore
 
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
 type TokenRepository struct {
-	db *sql.DB
+	db *DB
 }
 
-func NewTokenRepository(db *sql.DB) *TokenRepository {
+func NewTokenRepository(db *DB) *TokenRepository {
 	return &TokenRepository{db: db}
 }
 
@@ -47,11 +48,11 @@ func (r *TokenRepository) GetByHash(ctx context.Context, hash string) (*domain.V
 }
 
 func (r *TokenRepository) MarkUsed(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE verification_tokens SET used_at = NOW() WHERE id = $1 AND used_at IS NULL`, id)
+	_, err := r.db.ExecContext(ctx, `UPDATE verification_tokens SET used_at = $1 WHERE id = $2 AND used_at IS NULL`, time.Now().UTC(), id)
 	return err
 }
 
 func (r *TokenRepository) DeleteExpired(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM verification_tokens WHERE expires_at < NOW()`)
+	_, err := r.db.ExecContext(ctx, `DELETE FROM verification_tokens WHERE expires_at < $1`, time.Now().UTC())
 	return err
 }

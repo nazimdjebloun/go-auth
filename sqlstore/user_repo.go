@@ -1,4 +1,4 @@
-package postgres
+package sqlstore
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 )
 
 type UserRepository struct {
-	db *sql.DB
+	db *DB
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository {
+func NewUserRepository(db *DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
@@ -22,7 +22,8 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO users (id, email, password_hash, name, role, is_verified, is_banned, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		user.ID, user.Email, user.PasswordHash, user.Name, user.Role, user.IsVerified, user.IsBanned, user.CreatedAt, user.UpdatedAt)
+		user.ID, user.Email, user.PasswordHash, user.Name, user.Role,
+		user.IsVerified, user.IsBanned, user.CreatedAt, user.UpdatedAt)
 	return err
 }
 
@@ -87,7 +88,7 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 	argIdx := 1
 
 	if filter.Email != nil {
-		where = append(where, fmt.Sprintf("email ILIKE $%d", argIdx))
+		where = append(where, fmt.Sprintf("email LIKE $%d", argIdx))
 		args = append(args, "%"+*filter.Email+"%")
 		argIdx++
 	}
