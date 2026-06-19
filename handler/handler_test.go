@@ -261,7 +261,7 @@ func newTestHarness() *testHarness {
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
 	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
-	passSvc := service.NewPasswordService(users, tokens, hasher, gen, nil, cfg)
+	passSvc := service.NewPasswordService(users, tokens, hasher, gen, nil, sessions, cfg)
 	verifySvc := service.NewVerificationService(users, tokens, gen, nil, cfg)
 	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, nil, cfg, sessSvc)
 	adminSvc := service.NewAdminService(users, sessions)

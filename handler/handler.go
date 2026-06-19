@@ -165,6 +165,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	currentSession := middleware.GetSessionFromContext(r.Context())
 
 	var body struct {
 		OldPassword string `json:"oldPassword"`
@@ -174,15 +175,20 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Password.ChangePassword(r.Context(), service.ChangePasswordInput{
+	input := service.ChangePasswordInput{
 		UserID:      user.ID,
 		OldPassword: body.OldPassword,
 		NewPassword: body.NewPassword,
-	}); err != nil {
+	}
+	if currentSession != nil {
+		input.ExceptSessionID = currentSession.ID
+	}
+
+	if err := h.services.Password.ChangePassword(r.Context(), input); err != nil {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
 }
 
 // --- Verification handlers ---
