@@ -123,9 +123,9 @@ const EmbeddedSQLiteSchema = `CREATE TABLE IF NOT EXISTS users (
     role TEXT NOT NULL DEFAULT 'user',
     is_verified INTEGER NOT NULL DEFAULT 0,
     is_banned INTEGER NOT NULL DEFAULT 0,
-    banned_at TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    banned_at DATETIME,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
@@ -136,9 +136,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
     is_revoked INTEGER NOT NULL DEFAULT 0,
-    expires_at TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    revoked_at TEXT
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL,
+    revoked_at DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS verification_tokens (
@@ -147,8 +147,8 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     email TEXT NOT NULL,
     token_hash TEXT UNIQUE NOT NULL,
     type TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    used_at TEXT
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS invites (
@@ -157,9 +157,9 @@ CREATE TABLE IF NOT EXISTS invites (
     code TEXT UNIQUE NOT NULL,
     created_by TEXT NOT NULL REFERENCES users(id),
     status TEXT NOT NULL DEFAULT 'pending',
-    expires_at TEXT NOT NULL,
-    accepted_at TEXT,
-    created_at TEXT NOT NULL
+    expires_at DATETIME NOT NULL,
+    accepted_at DATETIME,
+    created_at DATETIME NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
