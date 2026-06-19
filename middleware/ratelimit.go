@@ -1,12 +1,14 @@
-package midlware
+package middleware
 
 import (
 	"log"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
-	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
 type rateEntry struct {
@@ -40,12 +42,27 @@ func (s *memoryStore) Reset(key string) error {
 	return nil
 }
 
-func RateLimit(cfg *port.RateLimitConfig) func(http.Handler) http.Handler {
+func realIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
+func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 	if cfg == nil || !cfg.Enabled {
 		return func(next http.Handler) http.Handler { return next }
 	}
 
-	var store port.RateLimitStore
+	var store ratelimit.Store
 	if cfg.Store != nil {
 		store = cfg.Store
 	} else {
@@ -64,7 +81,9 @@ func RateLimit(cfg *port.RateLimitConfig) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if trusted[r.RemoteAddr] {
+			clientIP := realIP(r)
+
+			if trusted[clientIP] {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -85,7 +104,7 @@ func RateLimit(cfg *port.RateLimitConfig) func(http.Handler) http.Handler {
 				return
 			}
 
-			clientKey := r.RemoteAddr + ":" + key
+			clientKey := clientIP + ":" + key
 			count, err := store.Increment(clientKey, rate.Window)
 			if err != nil {
 				log.Printf("rate limit error: %v", err)
