@@ -60,7 +60,9 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code, email strin
 	}
 
 	user.IsVerified = true
-	user.UpdatedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	user.VerifiedAt = &now
+	user.UpdatedAt = now
 
 	if err := s.users.Update(ctx, user); err != nil {
 		return domain.NewError("internal_error", "Failed to update user", 500)

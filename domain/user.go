@@ -16,6 +16,7 @@ type User struct {
 	Name         string     `json:"name"`
 	Role         Role       `json:"role"`
 	IsVerified   bool       `json:"isVerified"`
+	VerifiedAt   *time.Time `json:"verifiedAt,omitempty"`
 	IsBanned     bool       `json:"isBanned"`
 	BannedAt     *time.Time `json:"bannedAt,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`

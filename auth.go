@@ -132,6 +132,7 @@ func New(config Config) (*Auth, error) {
 		AppName:             config.AppName,
 		AdminEmails:         config.AdminEmails,
 		InviteOnly:          config.InviteOnly,
+		RequireEmailVerification: config.RequireEmailVerification,
 		InviteTTL:           config.InviteTTL,
 		VerificationCodeTTL: config.VerificationCodeTTL,
 		SessionTTL:          config.SessionTTL,

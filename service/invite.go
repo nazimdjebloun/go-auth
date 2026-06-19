@@ -153,6 +153,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 		Name:         name,
 		Role:         role,
 		IsVerified:   true,
+		VerifiedAt:   &now,
 		IsBanned:     false,
 		CreatedAt:    now,
 		UpdatedAt:    now,

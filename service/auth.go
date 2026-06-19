@@ -29,6 +29,7 @@ type Config struct {
 	AppName             string
 	AdminEmails         []string
 	InviteOnly          bool
+	RequireEmailVerification bool
 	InviteTTL           time.Duration
 	VerificationCodeTTL time.Duration
 	SessionTTL          time.Duration
@@ -100,10 +101,14 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		PasswordHash: hash,
 		Name:         input.Name,
 		Role:         role,
-		IsVerified:   false,
+		IsVerified:   !s.config.RequireEmailVerification,
 		IsBanned:     false,
 		CreatedAt:    now,
 		UpdatedAt:    now,
+	}
+
+	if !s.config.RequireEmailVerification {
+		user.VerifiedAt = &now
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
@@ -134,7 +139,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		return nil, domain.ErrUserBanned
 	}
 
-	if !user.IsVerified && !isAdmin(user, s.config.AdminEmails) {
+	if s.config.RequireEmailVerification && !user.IsVerified && !isAdmin(user, s.config.AdminEmails) {
 		return nil, domain.ErrEmailNotVerified
 	}
 

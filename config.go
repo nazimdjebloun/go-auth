@@ -17,13 +17,14 @@ type Config struct {
 	Email     *EmailConfig
 	RateLimit *ratelimit.Config
 
-	InviteOnly          bool
-	InviteTTL           time.Duration
-	VerificationCodeTTL time.Duration
-	SessionTTL          time.Duration
-	TokenTTL            time.Duration
-	BcryptCost          int
-	TokenLength         int
+	InviteOnly              bool
+	RequireEmailVerification bool
+	InviteTTL               time.Duration
+	VerificationCodeTTL     time.Duration
+	SessionTTL              time.Duration
+	TokenTTL                time.Duration
+	BcryptCost              int
+	TokenLength             int
 
 	AllowedOrigins []string // for Origin/Referer CSRF validation on cookie auth
 }
