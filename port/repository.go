@@ -33,6 +33,7 @@ type SessionRepository interface {
 	Delete(ctx context.Context, tokenHash string) error
 	DeleteByID(ctx context.Context, id string) error
 	DeleteAllForUser(ctx context.Context, userID string) error
+	DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error
 	DeleteExpired(ctx context.Context) error
 }
 

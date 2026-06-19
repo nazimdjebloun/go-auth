@@ -221,13 +221,21 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	currentSession := middleware.GetSessionFromContext(r.Context())
 
 	sessions, err := h.services.Session.List(r.Context(), user.ID)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+	currentSessionID := ""
+	if currentSession != nil {
+		currentSessionID = currentSession.ID
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"sessions":           sessions,
+		"current_session_id": currentSessionID,
+	})
 }
 
 func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
@@ -261,10 +269,18 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	currentSession := middleware.GetSessionFromContext(r.Context())
 
-	if err := h.services.Session.RevokeAll(r.Context(), user.ID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
-		return
+	if currentSession != nil {
+		if err := h.services.Session.RevokeAllExcept(r.Context(), user.ID, currentSession.ID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
+	} else {
+		if err := h.services.Session.RevokeAll(r.Context(), user.ID); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

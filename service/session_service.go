@@ -99,6 +99,13 @@ func (s *SessionService) RevokeAll(ctx context.Context, userID string) error {
 	return nil
 }
 
+func (s *SessionService) RevokeAllExcept(ctx context.Context, userID string, exceptSessionID string) error {
+	if err := s.repo.DeleteAllForUserExcept(ctx, userID, exceptSessionID); err != nil {
+		return fmt.Errorf("session revoke all except: %w", err)
+	}
+	return nil
+}
+
 func (s *SessionService) List(ctx context.Context, userID string) ([]domain.Session, error) {
 	return s.repo.ListByUserID(ctx, userID)
 }
