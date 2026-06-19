@@ -72,6 +72,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 		ID:        generateID(),
 		Email:     input.Email,
 		Code:      hashToken(raw),
+		RawCode:   raw,
 		CreatedBy: input.AdminID,
 		Status:    domain.InvitePending,
 		ExpiresAt: now.Add(s.config.InviteTTL),

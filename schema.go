@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
     refresh_token TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
-    token_hash TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'invite_verify')),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
 CREATE TABLE IF NOT EXISTS invites (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL,
-    code TEXT NOT NULL,
+    code TEXT UNIQUE NOT NULL,
     created_by UUID NOT NULL REFERENCES users(id),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
     expires_at TIMESTAMPTZ NOT NULL,
@@ -74,7 +74,7 @@ const EmbeddedMySQLSchema = `CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL,
-    token_hash VARCHAR(255) NOT NULL,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
     refresh_token TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL,
     user_agent TEXT NOT NULL,
@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36),
     email TEXT NOT NULL,
-    token_hash VARCHAR(255) NOT NULL,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
     type VARCHAR(30) NOT NULL,
     expires_at DATETIME NOT NULL,
     used_at DATETIME,
@@ -99,7 +99,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
 CREATE TABLE IF NOT EXISTS invites (
     id VARCHAR(36) PRIMARY KEY,
     email TEXT NOT NULL,
-    code VARCHAR(255) NOT NULL,
+    code VARCHAR(255) UNIQUE NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     expires_at DATETIME NOT NULL,
@@ -131,7 +131,7 @@ const EmbeddedSQLiteSchema = `CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
     refresh_token TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     id TEXT PRIMARY KEY,
     user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
-    token_hash TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
     type TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     used_at TEXT
@@ -154,7 +154,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
 CREATE TABLE IF NOT EXISTS invites (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL,
-    code TEXT NOT NULL,
+    code TEXT UNIQUE NOT NULL,
     created_by TEXT NOT NULL REFERENCES users(id),
     status TEXT NOT NULL DEFAULT 'pending',
     expires_at TEXT NOT NULL,

@@ -53,6 +53,7 @@ type Invite struct {
 	ID         string       `json:"id"`
 	Email      string       `json:"email"`
 	Code       string       `json:"code"`
+	RawCode    string       `json:"rawCode,omitempty"`
 	CreatedBy  string       `json:"createdBy"`
 	Status     InviteStatus `json:"status"`
 	ExpiresAt  time.Time    `json:"expiresAt"`

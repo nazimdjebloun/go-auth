@@ -79,7 +79,7 @@ func (s *SessionService) Validate(ctx context.Context, token string) (*domain.Se
 }
 
 func (s *SessionService) Revoke(ctx context.Context, token string) error {
-	if err := s.repo.Delete(ctx, token); err != nil {
+	if err := s.repo.Delete(ctx, hashToken(token)); err != nil {
 		return fmt.Errorf("session revoke: %w", err)
 	}
 	return nil

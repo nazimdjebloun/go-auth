@@ -52,6 +52,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
+	result.SessionToken = ""
 	writeJSON(w, http.StatusCreated, result)
 }
 
@@ -76,10 +77,15 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
+	result.SessionToken = ""
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("goauth_session")
+	if err == nil && cookie.Value != "" {
+		h.services.Session.Revoke(r.Context(), cookie.Value)
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:   "goauth_session",
 		Value:  "",
@@ -258,6 +264,7 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
+	result.SessionToken = ""
 	writeJSON(w, http.StatusCreated, result)
 }
 
