@@ -94,7 +94,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		Path:   "/",
 		MaxAge: -1,
 	})
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 }
 
 func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
@@ -304,7 +304,7 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
 }
 
 func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
@@ -322,7 +322,7 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Sessions revoked"})
 }
 
 // --- Invite handlers ---
