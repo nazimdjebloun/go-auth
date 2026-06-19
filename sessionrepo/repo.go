@@ -107,6 +107,10 @@ func (r *SessionRepository) DeleteAllForUser(ctx context.Context, userID string)
 	return r.exec(ctx, "DELETE FROM sessions WHERE user_id = $1", userID)
 }
 
+func (r *SessionRepository) DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error {
+	return r.exec(ctx, "DELETE FROM sessions WHERE user_id = $1 AND id != $2", userID, exceptSessionID)
+}
+
 func (r *SessionRepository) DeleteExpired(ctx context.Context) error {
 	return r.exec(ctx, "DELETE FROM sessions WHERE expires_at < $1", time.Now().UTC())
 }

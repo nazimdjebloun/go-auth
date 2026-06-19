@@ -153,6 +153,17 @@ func (m *mockSessionRepo) DeleteAllForUser(ctx context.Context, userID string) e
 	return nil
 }
 
+func (m *mockSessionRepo) DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, s := range m.sessions {
+		if s.UserID == userID && s.ID != exceptSessionID {
+			delete(m.sessions, k)
+		}
+	}
+	return nil
+}
+
 func (m *mockSessionRepo) DeleteExpired(ctx context.Context) error {
 	return nil
 }

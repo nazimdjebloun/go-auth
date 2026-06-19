@@ -79,6 +79,11 @@ func (r *SessionRepository) DeleteAllForUser(ctx context.Context, userID string)
 	return err
 }
 
+func (r *SessionRepository) DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = $1 AND id != $2`, userID, exceptSessionID)
+	return err
+}
+
 func (r *SessionRepository) DeleteExpired(ctx context.Context) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE expires_at < $1`, time.Now().UTC())
 	return err
