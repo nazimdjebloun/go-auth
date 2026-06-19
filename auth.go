@@ -2,9 +2,12 @@ package goauth
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
+
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -93,15 +96,31 @@ func New(config Config) (*Auth, error) {
 	var sqlDB *sqlstore.DB
 	var sessRepo *sessionrepo.SessionRepository
 
-	if config.Database.Pool != nil {
+	switch {
+	case config.Database.Pool != nil:
 		pool = config.Database.Pool
 		rawDB := stdlib.OpenDBFromPool(pool)
 		sqlDB = sqlstore.NewDB(rawDB, config.Database.Driver)
 		sessRepo = sessionrepo.New(pool)
-	} else if config.Database.DB != nil {
+	case config.Database.DB != nil:
 		sqlDB = sqlstore.NewDB(config.Database.DB, config.Database.Driver)
 		sessRepo = sessionrepo.NewFromDB(config.Database.DB)
-	} else {
+	case config.Database.URL != "":
+		driverName := sqlDriverName(config.Database.Driver)
+		db, err := sql.Open(driverName, config.Database.URL)
+		if err != nil {
+			return nil, fmt.Errorf("go-auth: open database: %w", err)
+		}
+		sqlDB = sqlstore.NewDB(db, config.Database.Driver)
+		sessRepo = sessionrepo.NewFromDB(db)
+		if config.Database.Driver == "postgres" || config.Database.Driver == "pg" {
+			pool, err = pgxpool.New(context.Background(), config.Database.URL)
+			if err != nil {
+				return nil, fmt.Errorf("go-auth: create connection pool: %w", err)
+			}
+			sessRepo = sessionrepo.New(pool)
+		}
+	default:
 		return nil, ErrNoDatabase
 	}
 
@@ -350,4 +369,15 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func sqlDriverName(driver string) string {
+	switch driver {
+	case "postgres", "pg":
+		return "pgx"
+	case "sqlite3", "sqlite":
+		return "sqlite3"
+	default:
+		return driver
+	}
 }

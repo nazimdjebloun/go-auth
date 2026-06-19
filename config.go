@@ -33,6 +33,7 @@ type DatabaseConfig struct {
 	Pool   *pgxpool.Pool // pgx pool (session repo uses this directly)
 	DB     *sql.DB       // standard DB (sqlstore repos use this)
 	Driver string        // "postgres", "mysql", "sqlite3"
+	URL    string        // connection string (used if Pool and DB are nil)
 }
 
 type EmailConfig struct {
