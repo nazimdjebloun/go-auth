@@ -106,6 +106,22 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, user)
 }
 
+func (h *Handler) CheckAuth(w http.ResponseWriter, r *http.Request) {
+	cookie, err := r.Cookie("goauth_session")
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"user": nil})
+		return
+	}
+
+	user, _, aerr := h.services.Auth.ValidateSession(r.Context(), cookie.Value)
+	if aerr != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"user": nil})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"user": user})
+}
+
 func (h *Handler) ChangeName(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {

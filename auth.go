@@ -60,6 +60,7 @@ type HandlerGroup struct {
 	RevokeSession      http.HandlerFunc
 	RevokeAllSessions  http.HandlerFunc
 	InviteRegister     http.HandlerFunc
+	CheckSession   http.HandlerFunc
 	GetMe              http.HandlerFunc
 	ChangeName         http.HandlerFunc
 	DeleteAccount      http.HandlerFunc
@@ -222,6 +223,7 @@ func New(config Config) (*Auth, error) {
 			RevokeAllSessions:  csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))).ServeHTTP,
 			InviteRegister:     csrfMW(http.HandlerFunc(h.InviteRegister)).ServeHTTP,
 			GetMe:              authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
+		CheckSession:       http.HandlerFunc(h.CheckAuth).ServeHTTP,
 			ChangeName:         csrfMW(authMW(http.HandlerFunc(h.ChangeName))).ServeHTTP,
 			DeleteAccount:      csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))).ServeHTTP,
 			ListUsers:          adminMW(authMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
@@ -262,6 +264,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /auth/logout", a.Handlers.Logout)
 	mux.Handle("POST /auth/signout", a.Handlers.Logout)
 	mux.Handle("GET /auth/me", a.Handlers.GetMe)
+	mux.Handle("GET /auth/check", a.Handlers.CheckSession)
 	mux.Handle("PUT /auth/name", a.Handlers.ChangeName)
 	mux.Handle("GET /auth/sessions", a.Handlers.ListSessions)
 	mux.Handle("DELETE /auth/sessions/{id}", a.Handlers.RevokeSession)
