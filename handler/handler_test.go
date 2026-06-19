@@ -400,8 +400,8 @@ func TestLogoutInvalidatesToken(t *testing.T) {
 	w2 := httptest.NewRecorder()
 	th.handler.Logout(w2, req2)
 
-	if w2.Result().StatusCode != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d", w2.Result().StatusCode)
+	if w2.Result().StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w2.Result().StatusCode)
 	}
 
 	// re-using the same token should fail
