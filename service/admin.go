@@ -89,6 +89,26 @@ func (s *AdminService) UnbanUser(ctx context.Context, userID string) *domain.Aut
 	return nil
 }
 
+func (s *AdminService) UpdateUserRole(ctx context.Context, userID string, role string) *domain.AuthError {
+	if role != "user" && role != "admin" {
+		return domain.NewError("invalid_role", "Role must be 'user' or 'admin'", 400)
+	}
+
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+
+	user.Role = domain.Role(role)
+	user.UpdatedAt = time.Now().UTC()
+
+	if err := s.users.Update(ctx, user); err != nil {
+		return domain.NewError("internal_error", "Failed to update role", 500)
+	}
+
+	return nil
+}
+
 func (s *AdminService) DeleteUser(ctx context.Context, userID string) *domain.AuthError {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {

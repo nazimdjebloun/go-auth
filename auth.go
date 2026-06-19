@@ -60,6 +60,7 @@ type HandlerGroup struct {
 	GetMe              http.HandlerFunc
 	ChangeName         http.HandlerFunc
 	ListUsers          http.HandlerFunc
+	UpdateUserRole     http.HandlerFunc
 	BanUser            http.HandlerFunc
 	UnbanUser          http.HandlerFunc
 	DeleteUser         http.HandlerFunc
@@ -202,6 +203,7 @@ func New(config Config) (*Auth, error) {
 			GetMe:              authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
 			ChangeName:         csrfMW(authMW(http.HandlerFunc(h.ChangeName))).ServeHTTP,
 			ListUsers:          adminMW(authMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
+			UpdateUserRole:     csrfMW(adminMW(authMW(http.HandlerFunc(h.UpdateUserRole)))).ServeHTTP,
 			BanUser:            csrfMW(adminMW(authMW(http.HandlerFunc(h.BanUser)))).ServeHTTP,
 			UnbanUser:          csrfMW(adminMW(authMW(http.HandlerFunc(h.UnbanUser)))).ServeHTTP,
 			DeleteUser:         csrfMW(adminMW(authMW(http.HandlerFunc(h.DeleteUser)))).ServeHTTP,
@@ -246,6 +248,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /auth/change-password", a.Handlers.ChangePassword)
 	mux.Handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
 	mux.Handle("GET /admin/users", a.Handlers.ListUsers)
+	mux.Handle("PATCH /admin/users/{id}/role", a.Handlers.UpdateUserRole)
 	mux.Handle("PATCH /admin/users/{id}/ban", a.Handlers.BanUser)
 	mux.Handle("PATCH /admin/users/{id}/unban", a.Handlers.UnbanUser)
 	mux.Handle("DELETE /admin/users/{id}", a.Handlers.DeleteUser)

@@ -342,6 +342,21 @@ func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	var body struct {
+		Role string `json:"role"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if err := h.services.Admin.UpdateUserRole(r.Context(), userID, body.Role); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
+}
+
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("id")
 	if err := h.services.Admin.DeleteUser(r.Context(), userID); err != nil {
