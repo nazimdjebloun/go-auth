@@ -72,8 +72,17 @@ func (m *mockUserRepo) Delete(ctx context.Context, id string) error {
 func (m *mockUserRepo) List(ctx context.Context, filter port.UserFilter) ([]domain.User, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// simplified for test
 	return nil, 0, nil
+}
+
+type mockTokenGen struct {
+	length int
+}
+
+func (m *mockTokenGen) Generate() (string, error) {
+	b := make([]byte, m.length)
+	rand.Read(b)
+	return hex.EncodeToString(b), nil
 }
 
 type mockSessionRepo struct {
@@ -115,22 +124,30 @@ func (m *mockSessionRepo) ListByUserID(ctx context.Context, userID string) ([]do
 	return result, nil
 }
 
-func (m *mockSessionRepo) Revoke(ctx context.Context, id string) error {
+func (m *mockSessionRepo) Delete(ctx context.Context, tokenHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.sessions, tokenHash)
+	return nil
+}
+
+func (m *mockSessionRepo) DeleteByID(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s, ok := m.sessions[id]
 	if ok {
-		s.IsRevoked = true
+		delete(m.sessions, s.TokenHash)
+		delete(m.sessions, id)
 	}
 	return nil
 }
 
-func (m *mockSessionRepo) RevokeAllForUser(ctx context.Context, userID string) error {
+func (m *mockSessionRepo) DeleteAllForUser(ctx context.Context, userID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for _, s := range m.sessions {
+	for k, s := range m.sessions {
 		if s.UserID == userID {
-			s.IsRevoked = true
+			delete(m.sessions, k)
 		}
 	}
 	return nil
@@ -195,22 +212,6 @@ func (m *mockHasher) Compare(password, hash string) error {
 		return domain.ErrInvalidCredentials
 	}
 	return nil
-}
-
-type mockTokenGen struct {
-	length int
-}
-
-func (m *mockTokenGen) Generate() (string, string, error) {
-	b := make([]byte, m.length)
-	rand.Read(b)
-	raw := hex.EncodeToString(b)
-	return raw, m.Hash(raw), nil
-}
-
-func (m *mockTokenGen) Hash(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
 }
 
 type mockInviteRepo struct {
@@ -294,18 +295,23 @@ func defaultTestConfig() Config {
 	}
 }
 
+func newTestSessionService(repo port.SessionRepository, gen port.TokenGenerator) *SessionService {
+	return NewSessionService(repo, gen, DefaultSessionConfig())
+}
+
 func TestRegister(t *testing.T) {
 	users := newMockUserRepo()
 	sessions := newMockSessionRepo()
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	result, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 		Name:     "Test User",
 	})
 	if err != nil {
@@ -334,18 +340,19 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 		Name:     "Test",
 	})
 
 	_, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
-		Password: "password456",
+		Password: "Passw0rd!",
 		Name:     "Test 2",
 	})
 	if err == nil {
@@ -362,8 +369,9 @@ func TestRegisterWeakPassword(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	_, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
@@ -381,12 +389,13 @@ func TestRegisterInvalidEmail(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	_, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "not-an-email",
-		Password: "password123",
+		Password: "Passw0rd!",
 		Name:     "Test",
 	})
 	if err == nil {
@@ -400,15 +409,16 @@ func TestRegisterAdminSeed(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
 	cfg := defaultTestConfig()
 	cfg.AdminEmails = []string{"admin@example.com"}
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
 
 	result, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "admin@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 		Name:     "Admin",
 	})
 	if err != nil {
@@ -425,15 +435,16 @@ func TestRegisterInviteOnly(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
 	cfg := defaultTestConfig()
 	cfg.InviteOnly = true
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
 
 	_, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 		Name:     "Test",
 	})
 	if err == nil {
@@ -447,18 +458,23 @@ func TestLogin(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
-	svc.Register(context.Background(), RegisterInput{
+	regResult, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 		Name:     "Test",
 	})
 
+	// manually verify the user for login test
+	regResult.User.IsVerified = true
+	users.Update(context.Background(), regResult.User)
+
 	result, err := svc.Login(context.Background(), LoginInput{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 		IP:       "127.0.0.1",
 	})
 	if err != nil {
@@ -478,12 +494,13 @@ func TestLoginWrongPassword(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 		Name:     "Test",
 	})
 
@@ -502,12 +519,13 @@ func TestLoginNonexistentUser(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	_, err := svc.Login(context.Background(), LoginInput{
 		Email:    "nobody@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 	})
 	if err == nil {
 		t.Fatal("Expected error for nonexistent user, got nil")
@@ -520,12 +538,13 @@ func TestValidateSession(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	registerResult, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 		Name:     "Test",
 	})
 
@@ -550,8 +569,9 @@ func TestValidateSessionInvalidToken(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	_, _, err := svc.ValidateSession(context.Background(), "invalid-token")
 	if err == nil {
@@ -565,12 +585,13 @@ func TestLogout(t *testing.T) {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig())
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	result, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
-		Password: "password123",
+		Password: "Passw0rd!",
 		Name:     "Test",
 	})
 
@@ -579,7 +600,6 @@ func TestLogout(t *testing.T) {
 		t.Fatalf("Logout failed: %v", err)
 	}
 
-	// session should be expired now
 	_, _, err = svc.ValidateSession(context.Background(), result.SessionToken)
 	if err == nil {
 		t.Fatal("Expected session to be invalid after logout")
@@ -592,33 +612,28 @@ func TestInviteRegister(t *testing.T) {
 	invites := newMockInviteRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig())
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
-	// Create invite
-	inviteResult, err := svc.CreateInvite(context.Background(), CreateInviteInput{
-		Email:   "invited@example.com",
-		AdminID: "admin-id",
-	})
-	if err != nil {
-		t.Fatalf("CreateInvite failed: %v", err)
+	raw, _ := gen.Generate()
+	now := time.Now().UTC()
+	invite := &domain.Invite{
+		ID:        raw,
+		Email:     "invited@example.com",
+		Code:      hashToken(raw),
+		CreatedBy: "admin-id",
+		Status:    domain.InvitePending,
+		ExpiresAt: now.Add(defaultTestConfig().InviteTTL),
+		CreatedAt: now,
 	}
-	if inviteResult == nil {
-		t.Fatal("Expected invite, got nil")
-	}
-
-	// Complete registration with the code stored in invite.Code (which is the hash)
-	// We need the raw token to register. In real flow, the email sends the raw token.
-	// Let's generate a raw token and store it properly.
-	raw, hash, _ := gen.Generate()
-	inviteResult.Code = hash
-	invites.Update(context.Background(), inviteResult)
+	invites.Create(context.Background(), invite)
 
 	result, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
 		Code:            raw,
 		Name:            "Invited User",
-		Password:        "password123",
-		ConfirmPassword: "password123",
+		Password:        "Passw0rd!",
+		ConfirmPassword: "Passw0rd!",
 	})
 	if err != nil {
 		t.Fatalf("CompleteInviteRegistration failed: %v", err)
@@ -643,30 +658,31 @@ func TestInviteRegisterExpired(t *testing.T) {
 	invites := newMockInviteRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
 	cfg := defaultTestConfig()
-	cfg.InviteTTL = -1 * time.Hour // expired
+	cfg.InviteTTL = -1 * time.Hour
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, cfg)
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, cfg, sessSvc)
 
-	raw, hash, _ := gen.Generate()
+	raw, _ := gen.Generate()
 	now := time.Now().UTC()
-	inviteResult := &domain.Invite{
-		ID:        generateID(),
+	invite := &domain.Invite{
+		ID:        raw,
 		Email:     "invited@example.com",
-		Code:      hash,
+		Code:      hashToken(raw),
 		CreatedBy: "admin-id",
 		Status:    domain.InvitePending,
 		ExpiresAt: now.Add(cfg.InviteTTL),
 		CreatedAt: now,
 	}
-	invites.Create(context.Background(), inviteResult)
+	invites.Create(context.Background(), invite)
 
 	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
 		Code:            raw,
 		Name:            "Invited User",
-		Password:        "password123",
-		ConfirmPassword: "password123",
+		Password:        "Passw0rd!",
+		ConfirmPassword: "Passw0rd!",
 	})
 	if err == nil {
 		t.Fatal("Expected error for expired invite, got nil")
@@ -682,25 +698,25 @@ func TestInviteRegisterPasswordMismatch(t *testing.T) {
 	invites := newMockInviteRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig())
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
-	raw, hash, _ := gen.Generate()
-	inviteResult := &domain.Invite{
-		ID:        generateID(),
+	raw, _ := gen.Generate()
+	invite := &domain.Invite{
+		ID:        raw,
 		Email:     "invited@example.com",
-		Code:      hash,
-		CreatedBy: "admin-id",
+		Code:      hashToken(raw),		CreatedBy: "admin-id",
 		Status:    domain.InvitePending,
 		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
 		CreatedAt: time.Now().UTC(),
 	}
-	invites.Create(context.Background(), inviteResult)
+	invites.Create(context.Background(), invite)
 
 	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
 		Code:            raw,
 		Name:            "Invited User",
-		Password:        "password123",
+		Password:        "Passw0rd!",
 		ConfirmPassword: "different",
 	})
 	if err == nil {

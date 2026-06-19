@@ -33,8 +33,7 @@ func NewVerificationService(
 }
 
 func (s *VerificationService) VerifyEmail(ctx context.Context, code, email string) *domain.AuthError {
-	tokenHash := s.gen.Hash(code)
-	token, err := s.tokens.GetByHash(ctx, tokenHash)
+	token, err := s.tokens.GetByHash(ctx, hashToken(code))
 	if err != nil || token == nil {
 		return domain.ErrTokenInvalid
 	}
@@ -88,7 +87,7 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
 
-	raw, hash, err := s.gen.Generate()
+	raw, err := s.gen.Generate()
 	if err != nil {
 		return domain.NewError("internal_error", "Failed to generate token", 500)
 	}
@@ -98,7 +97,7 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 		ID:        generateID(),
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hash,
+		TokenHash: hashToken(raw),
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(s.config.TokenTTL),
 	}

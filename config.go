@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
@@ -26,8 +27,9 @@ type Config struct {
 }
 
 type DatabaseConfig struct {
-	DB     *sql.DB // existing database connection
-	Driver string  // "postgres", "mysql", "sqlite3"
+	Pool   *pgxpool.Pool // pgx pool (session repo uses this directly)
+	DB     *sql.DB       // standard DB (sqlstore repos use this)
+	Driver string        // "postgres", "mysql", "sqlite3"
 }
 
 type EmailConfig struct {

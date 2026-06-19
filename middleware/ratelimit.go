@@ -42,19 +42,22 @@ func (s *memoryStore) Reset(key string) error {
 	return nil
 }
 
-func realIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.Split(xff, ",")
-		return strings.TrimSpace(parts[0])
-	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
-	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+func realIP(r *http.Request, trustedProxies map[string]bool) string {
+	directIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		directIP = r.RemoteAddr
 	}
-	return ip
+
+	if trustedProxies[directIP] || trustedProxies["*"] {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			return strings.TrimSpace(parts[0])
+		}
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
+	}
+	return directIP
 }
 
 func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
@@ -81,7 +84,7 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			clientIP := realIP(r)
+			clientIP := realIP(r, trusted)
 
 			if trusted[clientIP] {
 				next.ServeHTTP(w, r)

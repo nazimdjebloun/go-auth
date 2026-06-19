@@ -6,18 +6,22 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/handler"
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
+	"github.com/nazimdjebloun/go-auth/sessionrepo"
 	"github.com/nazimdjebloun/go-auth/sqlstore"
 	"github.com/nazimdjebloun/go-auth/token"
 )
 
 type Auth struct {
 	Config     Config
+	Pool       *pgxpool.Pool
 	DB         *sqlstore.DB
 	Services   Services
 	Handlers   HandlerGroup
@@ -81,16 +85,21 @@ func New(config Config) (*Auth, error) {
 		config.TokenTTL = 1 * time.Hour
 	}
 
-	if config.Database.DB == nil {
+	var pool *pgxpool.Pool
+	var sqlDB *sqlstore.DB
+	var sessRepo *sessionrepo.SessionRepository
+
+	if config.Database.Pool != nil {
+		pool = config.Database.Pool
+		rawDB := stdlib.OpenDBFromPool(pool)
+		sqlDB = sqlstore.NewDB(rawDB, config.Database.Driver)
+		sessRepo = sessionrepo.New(pool)
+	} else if config.Database.DB != nil {
+		sqlDB = sqlstore.NewDB(config.Database.DB, config.Database.Driver)
+		sessRepo = sessionrepo.NewFromDB(config.Database.DB)
+	} else {
 		return nil, ErrNoDatabase
 	}
-
-	driver := config.Database.Driver
-	if driver == "" {
-		driver = "postgres"
-	}
-
-	db := sqlstore.NewDB(config.Database.DB, driver)
 
 	if config.Database.Driver == "" {
 		config.Database.Driver = "postgres"
@@ -100,17 +109,17 @@ func New(config Config) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := runMigrations(db, rawSchema); err != nil {
+	if err := runMigrations(sqlDB, rawSchema); err != nil {
 		return nil, err
 	}
 
-	userRepo := sqlstore.NewUserRepository(db)
-	sessionRepo := sqlstore.NewSessionRepository(db)
-	tokenRepo := sqlstore.NewTokenRepository(db)
-	inviteRepo := sqlstore.NewInviteRepository(db)
+	userRepo := sqlstore.NewUserRepository(sqlDB)
+	sessionRepoSQL := sqlstore.NewSessionRepository(sqlDB)
+	tokenRepo := sqlstore.NewTokenRepository(sqlDB)
+	inviteRepo := sqlstore.NewInviteRepository(sqlDB)
 
 	hasherImpl := hasher.New(config.BcryptCost)
-	genImpl := token.New(config.TokenLength)
+	genImpl := token.New()
 
 	var mailer port.Mailer
 	if config.Mailer != nil {
@@ -131,12 +140,16 @@ func New(config Config) (*Auth, error) {
 		TokenLength:         config.TokenLength,
 	}
 
-	authSvc := service.NewAuthService(userRepo, sessionRepo, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg)
+	sessionCfg := service.DefaultSessionConfig()
+	sessionCfg.Duration = config.SessionTTL
+
+	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
+
+	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg)
-	sessSvc := service.NewSessionService(sessionRepo)
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, serviceCfg)
-	inviteSvc := service.NewInviteService(userRepo, sessionRepo, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg)
-	adminSvc := service.NewAdminService(userRepo, sessionRepo)
+	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
+	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL)
 
 	h := handler.New(handler.Services{
 		Auth:     authSvc,
@@ -147,13 +160,14 @@ func New(config Config) (*Auth, error) {
 		Admin:    adminSvc,
 	})
 
-	authMW := middleware.Authenticate(authSvc)
-	adminMW := middleware.RequireAdmin()
+	authMW := middleware.AuthMiddleware(sessSvc, userRepo)
+	adminMW := middleware.RequireRole(domain.RoleAdmin)
 	rateLimitMW := middleware.RateLimit(config.RateLimit)
 
 	return &Auth{
 		Config:          config,
-		DB:              db,
+		Pool:            pool,
+		DB:              sqlDB,
 		authService:     authSvc,
 		passwordService: passSvc,
 		sessionService:  sessSvc,
@@ -197,6 +211,12 @@ func New(config Config) (*Auth, error) {
 			RateLimit:    rateLimitMW,
 		},
 	}, nil
+}
+
+func (a *Auth) Close() {
+	if a.Pool != nil {
+		a.Pool.Close()
+	}
 }
 
 func (a *Auth) Mount(mux *http.ServeMux) {

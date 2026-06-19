@@ -2,10 +2,13 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"net/mail"
 	"strings"
 	"time"
+	"unicode"
 
+	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -18,6 +21,8 @@ type AuthService struct {
 	gen      port.TokenGenerator
 	mailer   port.Mailer
 	config   Config
+
+	sessionSvc *SessionService
 }
 
 type Config struct {
@@ -40,15 +45,17 @@ func NewAuthService(
 	gen port.TokenGenerator,
 	mailer port.Mailer,
 	config Config,
+	sessionSvc *SessionService,
 ) *AuthService {
 	return &AuthService{
-		users:    users,
-		sessions: sessions,
-		tokens:   tokens,
-		hasher:   hasher,
-		gen:      gen,
-		mailer:   mailer,
-		config:   config,
+		users:      users,
+		sessions:   sessions,
+		tokens:     tokens,
+		hasher:     hasher,
+		gen:        gen,
+		mailer:     mailer,
+		config:     config,
+		sessionSvc: sessionSvc,
 	}
 }
 
@@ -88,7 +95,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	}
 
 	user := &domain.User{
-		ID:           generateID(),
+		ID:           uuid.New().String(),
 		Email:        input.Email,
 		PasswordHash: hash,
 		Name:         input.Name,
@@ -103,35 +110,15 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		return nil, domain.NewError("internal_error", "Failed to create user", 500)
 	}
 
-	raw, tokenHash, err := s.gen.Generate()
+	session, rawToken, err := s.sessionSvc.Create(ctx, user.ID, "", "")
 	if err != nil {
-		s.users.Delete(ctx, user.ID)
-		return nil, domain.NewError("internal_error", "Failed to generate session", 500)
-	}
-
-	session := &domain.Session{
-		ID:         generateID(),
-		UserID:     user.ID,
-		TokenHash:  tokenHash,
-		ExpiresAt:  now.Add(s.config.SessionTTL),
-		CreatedAt:  now,
-		LastUsedAt: now,
-	}
-
-	if err := s.sessions.Create(ctx, session); err != nil {
-		s.users.Delete(ctx, user.ID)
 		return nil, domain.NewError("internal_error", "Failed to create session", 500)
-	}
-
-	// send verification email
-	if err := s.sendVerificationEmail(ctx, user); err != nil {
-		// non-fatal: log in production
 	}
 
 	return &RegisterResult{
 		User:         user,
 		Session:      session,
-		SessionToken: raw,
+		SessionToken: rawToken,
 	}, nil
 }
 
@@ -139,10 +126,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
-	if err != nil {
-		return nil, domain.ErrInvalidCredentials
-	}
-	if user == nil {
+	if err != nil || user == nil {
 		return nil, domain.ErrInvalidCredentials
 	}
 
@@ -150,60 +134,29 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		return nil, domain.ErrUserBanned
 	}
 
+	if !user.IsVerified && !isAdmin(user, s.config.AdminEmails) {
+		return nil, domain.ErrEmailNotVerified
+	}
+
 	if err := s.hasher.Compare(input.Password, user.PasswordHash); err != nil {
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	now := time.Now().UTC()
-
-	raw, tokenHash, err := s.gen.Generate()
+	session, rawToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
-		return nil, domain.NewError("internal_error", "Failed to generate session", 500)
-	}
-
-	session := &domain.Session{
-		ID:         generateID(),
-		UserID:     user.ID,
-		TokenHash:  tokenHash,
-		IPAddress:  input.IP,
-		UserAgent:  input.UserAgent,
-		ExpiresAt:  now.Add(s.config.SessionTTL),
-		CreatedAt:  now,
-		LastUsedAt: now,
-	}
-
-	if err := s.sessions.Create(ctx, session); err != nil {
 		return nil, domain.NewError("internal_error", "Failed to create session", 500)
 	}
 
 	return &LoginResult{
 		User:         user,
 		Session:      session,
-		SessionToken: raw,
+		SessionToken: rawToken,
 	}, nil
 }
 
-func (s *AuthService) Logout(ctx context.Context, sessionID string) *domain.AuthError {
-	if err := s.sessions.Revoke(ctx, sessionID); err != nil {
-		return domain.NewError("internal_error", "Failed to revoke session", 500)
-	}
-	return nil
-}
-
 func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*domain.User, *domain.Session, *domain.AuthError) {
-	tokenHash := s.gen.Hash(tokenRaw)
-
-	session, err := s.sessions.GetByTokenHash(ctx, tokenHash)
+	session, err := s.sessionSvc.Validate(ctx, tokenRaw)
 	if err != nil {
-		return nil, nil, domain.ErrSessionExpired
-	}
-	if session == nil {
-		return nil, nil, domain.ErrSessionExpired
-	}
-	if session.IsRevoked {
-		return nil, nil, domain.ErrSessionExpired
-	}
-	if time.Now().UTC().After(session.ExpiresAt) {
 		return nil, nil, domain.ErrSessionExpired
 	}
 
@@ -218,18 +171,26 @@ func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*do
 	return user, session, nil
 }
 
+func (s *AuthService) Logout(ctx context.Context, sessionID string) *domain.AuthError {
+	if err := s.sessionSvc.RevokeByID(ctx, sessionID); err != nil {
+		return domain.NewError("internal_error", "Failed to revoke session", 500)
+	}
+	return nil
+}
+
 func (s *AuthService) sendVerificationEmail(ctx context.Context, user *domain.User) *domain.AuthError {
-	raw, hash, err := s.gen.Generate()
+	raw, err := s.gen.Generate()
 	if err != nil {
 		return domain.NewError("internal_error", "Failed to generate token", 500)
 	}
 
+	// For verification tokens we store the token directly (stateless verification uses code)
 	now := time.Now().UTC()
 	token := &domain.VerificationToken{
-		ID:        generateID(),
+		ID:        uuid.New().String(),
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hash,
+		TokenHash: hashToken(raw),
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(s.config.TokenTTL),
 	}
@@ -251,6 +212,15 @@ func (s *AuthService) sendVerificationEmail(ctx context.Context, user *domain.Us
 	return nil
 }
 
+func isAdmin(user *domain.User, adminEmails []string) bool {
+	for _, e := range adminEmails {
+		if strings.EqualFold(user.Email, e) {
+			return true
+		}
+	}
+	return false
+}
+
 func validateEmail(email string) *domain.AuthError {
 	_, err := mail.ParseAddress(email)
 	if err != nil {
@@ -262,6 +232,22 @@ func validateEmail(email string) *domain.AuthError {
 func validatePassword(password string) *domain.AuthError {
 	if len(password) < 8 {
 		return domain.ErrWeakPassword
+	}
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	for _, ch := range password {
+		switch {
+		case unicode.IsUpper(ch):
+			hasUpper = true
+		case unicode.IsLower(ch):
+			hasLower = true
+		case unicode.IsDigit(ch):
+			hasDigit = true
+		case unicode.IsPunct(ch) || unicode.IsSymbol(ch):
+			hasSpecial = true
+		}
+	}
+	if !hasUpper || !hasLower || !hasDigit || !hasSpecial {
+		return domain.NewError("weak_password", "Password must be at least 8 characters with uppercase, lowercase, digit, and special character", http.StatusBadRequest)
 	}
 	return nil
 }

@@ -2,63 +2,96 @@ package middleware
 
 import (
 	"context"
+	"errors"
 	"net/http"
-	"strings"
 
-	"github.com/nazimdjebloun/go-auth/handler"
+	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/service"
 )
 
-func Authenticate(authService *service.AuthService) func(http.Handler) http.Handler {
+type ctxKey string
+
+const (
+	ctxSession ctxKey = "session"
+	ctxUser    ctxKey = "user"
+)
+
+func GetSessionFromContext(ctx context.Context) *domain.Session {
+	v, _ := ctx.Value(ctxSession).(*domain.Session)
+	return v
+}
+
+func GetUserFromContext(ctx context.Context) *domain.User {
+	v, _ := ctx.Value(ctxUser).(*domain.User)
+	return v
+}
+
+func AuthMiddleware(sessionSvc *service.SessionService, userRepo interface {
+	GetByID(ctx context.Context, id string) (*domain.User, error)
+}) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			authHeader := r.Header.Get("Authorization")
-			if authHeader == "" {
-				writeUnauthorized(w, "Missing authorization header")
-				return
-			}
-
-			parts := strings.SplitN(authHeader, " ", 2)
-			if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
-				writeUnauthorized(w, "Invalid authorization header")
-				return
-			}
-
-			token := parts[1]
-			user, session, err := authService.ValidateSession(r.Context(), token)
+			cookie, err := r.Cookie("goauth_session")
 			if err != nil {
-				writeUnauthorized(w, err.Message)
+				writeJSON(w, http.StatusUnauthorized, map[string]string{
+					"error":   "unauthorized",
+					"message": "Missing session cookie",
+				})
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), handler.CtxUserID, user.ID)
-			ctx = context.WithValue(ctx, handler.CtxUserRole, string(user.Role))
-			ctx = context.WithValue(ctx, handler.CtxSessionID, session.ID)
+			session, err := sessionSvc.Validate(r.Context(), cookie.Value)
+			if err != nil {
+				if errors.Is(err, domain.ErrSessionExpired) {
+					writeJSON(w, http.StatusUnauthorized, map[string]string{
+						"error":   "session_expired",
+						"message": "Session has expired",
+					})
+					return
+				}
+				writeJSON(w, http.StatusUnauthorized, map[string]string{
+					"error":   "unauthorized",
+					"message": "Invalid session",
+				})
+				return
+			}
 
+			user, err := userRepo.GetByID(r.Context(), session.UserID)
+			if err != nil || user == nil {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{
+					"error":   "unauthorized",
+					"message": "User not found",
+				})
+				return
+			}
+
+			if user.IsBanned {
+				writeJSON(w, http.StatusForbidden, map[string]string{
+					"error":   "user_banned",
+					"message": "This account has been banned",
+				})
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), ctxSession, session)
+			ctx = context.WithValue(ctx, ctxUser, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
 }
 
-func RequireAdmin() func(http.Handler) http.Handler {
+func RequireRole(role domain.Role) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			role := r.Context().Value(handler.CtxUserRole)
-			if role == nil || role.(string) != "admin" {
+			user := GetUserFromContext(r.Context())
+			if user == nil || user.Role != role {
 				writeJSON(w, http.StatusForbidden, map[string]string{
 					"error":   "forbidden",
-					"message": "Admin access required",
+					"message": "Insufficient permissions",
 				})
 				return
 			}
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-func writeUnauthorized(w http.ResponseWriter, msg string) {
-	writeJSON(w, http.StatusUnauthorized, map[string]string{
-		"error":   "unauthorized",
-		"message": msg,
-	})
 }

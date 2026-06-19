@@ -1,6 +1,5 @@
 package port
 
 type TokenGenerator interface {
-	Generate() (raw string, hash string, err error)
-	Hash(raw string) string
+	Generate() (string, error) // 32 random bytes → hex, crypto/rand only
 }

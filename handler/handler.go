@@ -8,15 +8,8 @@ import (
 	"strconv"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/service"
-)
-
-type contextKey string
-
-const (
-	CtxUserID    contextKey = "user_id"
-	CtxUserRole  contextKey = "user_role"
-	CtxSessionID contextKey = "session_id"
 )
 
 type Services struct {
@@ -58,6 +51,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setSessionCookie(w, h.services.Session, result.SessionToken)
 	writeJSON(w, http.StatusCreated, result)
 }
 
@@ -81,15 +75,17 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	setSessionCookie(w, h.services.Session, result.SessionToken)
 	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	sessionID := r.Context().Value(CtxSessionID).(string)
-	if err := h.services.Auth.Logout(r.Context(), sessionID); err != nil {
-		writeError(w, err)
-		return
-	}
+	http.SetCookie(w, &http.Cookie{
+		Name:   "goauth_session",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -132,7 +128,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(CtxUserID).(string)
+	user := middleware.GetUserFromContext(r.Context())
 
 	var body struct {
 		OldPassword string `json:"oldPassword"`
@@ -143,7 +139,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.services.Password.ChangePassword(r.Context(), service.ChangePasswordInput{
-		UserID:      userID,
+		UserID:      user.ID,
 		OldPassword: body.OldPassword,
 		NewPassword: body.NewPassword,
 	}); err != nil {
@@ -172,13 +168,13 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
-	userID, ok := r.Context().Value(CtxUserID).(string)
-	if !ok {
-		writeError(w, domain.ErrForbidden)
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeError(w, domain.NewError("forbidden", "Not authenticated", 403))
 		return
 	}
 
-	if err := h.services.Verify.ResendVerification(r.Context(), userID); err != nil {
+	if err := h.services.Verify.ResendVerification(r.Context(), user.ID); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -188,32 +184,50 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 // --- Session handlers ---
 
 func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(CtxUserID).(string)
+	user := middleware.GetUserFromContext(r.Context())
 
-	sessions, err := h.services.Session.ListSessions(r.Context(), userID)
+	sessions, err := h.services.Session.List(r.Context(), user.ID)
 	if err != nil {
-		writeError(w, err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
 }
 
 func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(CtxUserID).(string)
+	user := middleware.GetUserFromContext(r.Context())
 	sessionID := r.PathValue("id")
 
-	if err := h.services.Session.RevokeSession(r.Context(), sessionID, userID); err != nil {
-		writeError(w, err)
+	sessions, err := h.services.Session.List(r.Context(), user.ID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		return
+	}
+
+	found := false
+	for _, s := range sessions {
+		if s.ID == sessionID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		writeError(w, domain.NewError("session_not_found", "Session not found", http.StatusNotFound))
+		return
+	}
+
+	if err := h.services.Session.RevokeByID(r.Context(), sessionID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
-	userID := r.Context().Value(CtxUserID).(string)
+	user := middleware.GetUserFromContext(r.Context())
 
-	if err := h.services.Session.RevokeAllSessions(r.Context(), userID); err != nil {
-		writeError(w, err)
+	if err := h.services.Session.RevokeAll(r.Context(), user.ID); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -242,6 +256,8 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+
+	setSessionCookie(w, h.services.Session, result.SessionToken)
 	writeJSON(w, http.StatusCreated, result)
 }
 
@@ -308,7 +324,7 @@ func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
-	adminID := r.Context().Value(CtxUserID).(string)
+	user := middleware.GetUserFromContext(r.Context())
 
 	var body struct {
 		Email string `json:"email"`
@@ -319,7 +335,7 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.services.Invite.CreateInvite(r.Context(), service.CreateInviteInput{
 		Email:   body.Email,
-		AdminID: adminID,
+		AdminID: user.ID,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -363,7 +379,23 @@ func (h *Handler) ResendInvite(w http.ResponseWriter, r *http.Request) {
 
 // --- Helpers ---
 
+const maxBodySize = 1 << 16 // 64 KB
+
+func setSessionCookie(w http.ResponseWriter, svc *service.SessionService, token string) {
+	cfg := svc.Config()
+	http.SetCookie(w, &http.Cookie{
+		Name:     cfg.CookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   cfg.SecureCookie,
+		SameSite: http.SameSite(cfg.SameSite),
+		MaxAge:   int(cfg.Duration.Seconds()),
+	})
+}
+
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "message": "Invalid request body"})
 		return false
@@ -390,17 +422,11 @@ func writeError(w http.ResponseWriter, err *domain.AuthError) {
 	})
 }
 
+// Deprecated: use middleware.GetUserFromContext instead.
 func GetUserID(ctx context.Context) string {
-	v, _ := ctx.Value(CtxUserID).(string)
-	return v
-}
-
-func GetUserRole(ctx context.Context) string {
-	v, _ := ctx.Value(CtxUserRole).(string)
-	return v
-}
-
-func GetSessionID(ctx context.Context) string {
-	v, _ := ctx.Value(CtxSessionID).(string)
-	return v
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return ""
+	}
+	return user.ID
 }

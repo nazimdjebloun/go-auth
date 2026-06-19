@@ -25,10 +25,11 @@ type UserRepository interface {
 
 type SessionRepository interface {
 	Create(ctx context.Context, s *domain.Session) error
-	GetByTokenHash(ctx context.Context, hash string) (*domain.Session, error)
+	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Session, error)
 	ListByUserID(ctx context.Context, userID string) ([]domain.Session, error)
-	Revoke(ctx context.Context, id string) error
-	RevokeAllForUser(ctx context.Context, userID string) error
+	Delete(ctx context.Context, tokenHash string) error
+	DeleteByID(ctx context.Context, id string) error
+	DeleteAllForUser(ctx context.Context, userID string) error
 	DeleteExpired(ctx context.Context) error
 }
 

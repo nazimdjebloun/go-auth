@@ -45,7 +45,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 		return nil
 	}
 
-	raw, hash, err := s.gen.Generate()
+	raw, err := s.gen.Generate()
 	if err != nil {
 		return domain.NewError("internal_error", "Failed to generate token", 500)
 	}
@@ -55,7 +55,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 		ID:        generateID(),
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hash,
+		TokenHash: hashToken(raw),
 		Type:      domain.TokenResetPass,
 		ExpiresAt: now.Add(s.config.TokenTTL),
 	}
@@ -84,8 +84,7 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 		return err
 	}
 
-	tokenHash := s.gen.Hash(input.Code)
-	token, err := s.tokens.GetByHash(ctx, tokenHash)
+	token, err := s.tokens.GetByHash(ctx, hashToken(input.Code))
 	if err != nil || token == nil {
 		return domain.ErrTokenInvalid
 	}

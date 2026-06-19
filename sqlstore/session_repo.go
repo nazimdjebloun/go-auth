@@ -18,20 +18,20 @@ func NewSessionRepository(db *DB) *SessionRepository {
 
 func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error {
 	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO sessions (id, user_id, token_hash, ip_address, user_agent, is_revoked, expires_at, created_at, last_used_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-		s.ID, s.UserID, s.TokenHash, s.IPAddress, s.UserAgent,
-		s.IsRevoked, s.ExpiresAt, s.CreatedAt, s.LastUsedAt)
+		INSERT INTO sessions (id, user_id, token_hash, refresh_token, ip_address, user_agent, is_revoked, expires_at, created_at, revoked_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		s.ID, s.UserID, s.TokenHash, s.RefreshToken, s.IP, s.UserAgent,
+		s.IsRevoked, s.ExpiresAt, s.CreatedAt, s.RevokedAt)
 	return err
 }
 
 func (r *SessionRepository) GetByTokenHash(ctx context.Context, hash string) (*domain.Session, error) {
 	s := &domain.Session{}
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, user_id, token_hash, ip_address, user_agent, is_revoked, expires_at, created_at, last_used_at
+		SELECT id, user_id, token_hash, refresh_token, ip_address, user_agent, is_revoked, expires_at, created_at, revoked_at
 		FROM sessions WHERE token_hash = $1`, hash).Scan(
-		&s.ID, &s.UserID, &s.TokenHash, &s.IPAddress, &s.UserAgent,
-		&s.IsRevoked, &s.ExpiresAt, &s.CreatedAt, &s.LastUsedAt)
+		&s.ID, &s.UserID, &s.TokenHash, &s.RefreshToken, &s.IP, &s.UserAgent,
+		&s.IsRevoked, &s.ExpiresAt, &s.CreatedAt, &s.RevokedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -41,7 +41,7 @@ func (r *SessionRepository) GetByTokenHash(ctx context.Context, hash string) (*d
 func (r *SessionRepository) ListByUserID(ctx context.Context, userID string) ([]domain.Session, error) {
 	now := time.Now().UTC()
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, user_id, token_hash, ip_address, user_agent, is_revoked, expires_at, created_at, last_used_at
+		SELECT id, user_id, token_hash, refresh_token, ip_address, user_agent, is_revoked, expires_at, created_at, revoked_at
 		FROM sessions WHERE user_id = $1 AND is_revoked = false AND expires_at > $2
 		ORDER BY created_at DESC`, userID, now)
 	if err != nil {
@@ -52,8 +52,8 @@ func (r *SessionRepository) ListByUserID(ctx context.Context, userID string) ([]
 	var sessions []domain.Session
 	for rows.Next() {
 		var s domain.Session
-		if err := rows.Scan(&s.ID, &s.UserID, &s.TokenHash, &s.IPAddress, &s.UserAgent,
-			&s.IsRevoked, &s.ExpiresAt, &s.CreatedAt, &s.LastUsedAt); err != nil {
+		if err := rows.Scan(&s.ID, &s.UserID, &s.TokenHash, &s.RefreshToken, &s.IP, &s.UserAgent,
+			&s.IsRevoked, &s.ExpiresAt, &s.CreatedAt, &s.RevokedAt); err != nil {
 			return nil, err
 		}
 		sessions = append(sessions, s)
@@ -64,13 +64,18 @@ func (r *SessionRepository) ListByUserID(ctx context.Context, userID string) ([]
 	return sessions, rows.Err()
 }
 
-func (r *SessionRepository) Revoke(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE sessions SET is_revoked = true WHERE id = $1`, id)
+func (r *SessionRepository) Delete(ctx context.Context, tokenHash string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
 	return err
 }
 
-func (r *SessionRepository) RevokeAllForUser(ctx context.Context, userID string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE sessions SET is_revoked = true WHERE user_id = $1 AND is_revoked = false`, userID)
+func (r *SessionRepository) DeleteByID(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE id = $1`, id)
+	return err
+}
+
+func (r *SessionRepository) DeleteAllForUser(ctx context.Context, userID string) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID)
 	return err
 }
 

@@ -20,20 +20,21 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT UNIQUE NOT NULL,
+    token_hash TEXT NOT NULL,
+    refresh_token TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_used_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    revoked_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS verification_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
-    token_hash TEXT UNIQUE NOT NULL,
+    token_hash TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'invite_verify')),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ
@@ -42,7 +43,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
 CREATE TABLE IF NOT EXISTS invites (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL,
-    code TEXT UNIQUE NOT NULL,
+    code TEXT NOT NULL,
     created_by UUID NOT NULL REFERENCES users(id),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
     expires_at TIMESTAMPTZ NOT NULL,
@@ -73,13 +74,14 @@ const EmbeddedMySQLSchema = `CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL,
-    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    token_hash VARCHAR(255) NOT NULL,
+    refresh_token TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL,
     user_agent TEXT NOT NULL,
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_used_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at DATETIME,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -87,7 +89,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36),
     email TEXT NOT NULL,
-    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    token_hash VARCHAR(255) NOT NULL,
     type VARCHAR(30) NOT NULL,
     expires_at DATETIME NOT NULL,
     used_at DATETIME,
@@ -97,7 +99,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
 CREATE TABLE IF NOT EXISTS invites (
     id VARCHAR(36) PRIMARY KEY,
     email TEXT NOT NULL,
-    code VARCHAR(255) UNIQUE NOT NULL,
+    code VARCHAR(255) NOT NULL,
     created_by VARCHAR(36) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     expires_at DATETIME NOT NULL,
@@ -129,20 +131,21 @@ const EmbeddedSQLiteSchema = `CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT UNIQUE NOT NULL,
+    token_hash TEXT NOT NULL,
+    refresh_token TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
     is_revoked INTEGER NOT NULL DEFAULT 0,
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    last_used_at TEXT NOT NULL
+    revoked_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS verification_tokens (
     id TEXT PRIMARY KEY,
     user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
-    token_hash TEXT UNIQUE NOT NULL,
+    token_hash TEXT NOT NULL,
     type TEXT NOT NULL,
     expires_at TEXT NOT NULL,
     used_at TEXT
@@ -151,7 +154,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
 CREATE TABLE IF NOT EXISTS invites (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL,
-    code TEXT UNIQUE NOT NULL,
+    code TEXT NOT NULL,
     created_by TEXT NOT NULL REFERENCES users(id),
     status TEXT NOT NULL DEFAULT 'pending',
     expires_at TEXT NOT NULL,

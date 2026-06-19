@@ -10,13 +10,14 @@ import (
 )
 
 type InviteService struct {
-	users    port.UserRepository
-	sessions port.SessionRepository
-	invites  port.InviteRepository
-	hasher   port.Hasher
-	gen      port.TokenGenerator
-	mailer   port.Mailer
-	config   Config
+	users      port.UserRepository
+	sessions   port.SessionRepository
+	invites    port.InviteRepository
+	hasher     port.Hasher
+	gen        port.TokenGenerator
+	mailer     port.Mailer
+	config     Config
+	sessionSvc *SessionService
 }
 
 func NewInviteService(
@@ -27,15 +28,17 @@ func NewInviteService(
 	gen port.TokenGenerator,
 	mailer port.Mailer,
 	config Config,
+	sessionSvc *SessionService,
 ) *InviteService {
 	return &InviteService{
-		users:    users,
-		sessions: sessions,
-		invites:  invites,
-		hasher:   hasher,
-		gen:      gen,
-		mailer:   mailer,
-		config:   config,
+		users:      users,
+		sessions:   sessions,
+		invites:    invites,
+		hasher:     hasher,
+		gen:        gen,
+		mailer:     mailer,
+		config:     config,
+		sessionSvc: sessionSvc,
 	}
 }
 
@@ -58,7 +61,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 		}
 	}
 
-	raw, hash, err := s.gen.Generate()
+	raw, err := s.gen.Generate()
 	if err != nil {
 		return nil, domain.NewError("internal_error", "Failed to generate invite code", 500)
 	}
@@ -68,7 +71,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	invite := &domain.Invite{
 		ID:        generateID(),
 		Email:     input.Email,
-		Code:      hash,
+		Code:      hashToken(raw),
 		CreatedBy: input.AdminID,
 		Status:    domain.InvitePending,
 		ExpiresAt: now.Add(s.config.InviteTTL),
@@ -97,8 +100,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 		return nil, domain.NewError("passwords_dont_match", "Passwords do not match", 400)
 	}
 
-	codeHash := s.gen.Hash(input.Code)
-	invite, err := s.invites.GetByCode(ctx, codeHash)
+	invite, err := s.invites.GetByCode(ctx, hashToken(input.Code))
 	if err != nil || invite == nil {
 		return nil, domain.ErrInviteNotFound
 	}
@@ -163,28 +165,15 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	invite.AcceptedAt = &now
 	s.invites.Update(ctx, invite)
 
-	raw, sessionHash, err := s.gen.Generate()
+	session, rawToken, err := s.sessionSvc.Create(ctx, user.ID, "", "")
 	if err != nil {
-		return nil, domain.NewError("internal_error", "Failed to generate session", 500)
-	}
-
-	session := &domain.Session{
-		ID:         generateID(),
-		UserID:     user.ID,
-		TokenHash:  sessionHash,
-		ExpiresAt:  now.Add(s.config.SessionTTL),
-		CreatedAt:  now,
-		LastUsedAt: now,
-	}
-
-	if err := s.sessions.Create(ctx, session); err != nil {
 		return nil, domain.NewError("internal_error", "Failed to create session", 500)
 	}
 
 	return &CompleteInviteResult{
 		User:         user,
 		Session:      session,
-		SessionToken: raw,
+		SessionToken: rawToken,
 	}, nil
 }
 
@@ -227,12 +216,12 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 	}
 
 	// Generate new code so we have the raw token for the link
-	raw, hash, err := s.gen.Generate()
+	raw, err := s.gen.Generate()
 	if err != nil {
 		return domain.NewError("internal_error", "Failed to generate invite code", 500)
 	}
 
-	invite.Code = hash
+	invite.Code = hashToken(raw)
 	if err := s.invites.Update(ctx, invite); err != nil {
 		return domain.NewError("internal_error", "Failed to update invite", 500)
 	}

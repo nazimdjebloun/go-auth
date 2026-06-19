@@ -61,7 +61,7 @@ func (s *AdminService) BanUser(ctx context.Context, userID string) *domain.AuthE
 		return domain.NewError("internal_error", "Failed to ban user", 500)
 	}
 
-	if err := s.sessions.RevokeAllForUser(ctx, userID); err != nil {
+	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
 		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
 	}
 
@@ -95,7 +95,7 @@ func (s *AdminService) DeleteUser(ctx context.Context, userID string) *domain.Au
 		return domain.ErrUserNotFound
 	}
 
-	if err := s.sessions.RevokeAllForUser(ctx, userID); err != nil {
+	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
 		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
 	}
 
@@ -112,7 +112,7 @@ func (s *AdminService) RevokeUserSessions(ctx context.Context, userID string) *d
 		return domain.ErrUserNotFound
 	}
 
-	if err := s.sessions.RevokeAllForUser(ctx, userID); err != nil {
+	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
 		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
 	}
 

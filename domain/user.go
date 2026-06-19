@@ -22,18 +22,6 @@ type User struct {
 	UpdatedAt    time.Time  `json:"updatedAt"`
 }
 
-type Session struct {
-	ID         string    `json:"id"`
-	UserID     string    `json:"userId"`
-	TokenHash  string    `json:"-"`
-	IPAddress  string    `json:"ipAddress"`
-	UserAgent  string    `json:"userAgent"`
-	IsRevoked  bool      `json:"isRevoked"`
-	ExpiresAt  time.Time `json:"expiresAt"`
-	CreatedAt  time.Time `json:"createdAt"`
-	LastUsedAt time.Time `json:"lastUsedAt"`
-}
-
 type TokenType string
 
 const (
