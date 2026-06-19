@@ -162,6 +162,7 @@ func New(config Config) (*Auth, error) {
 		TokenTTL:            config.TokenTTL,
 		BcryptCost:          config.BcryptCost,
 		TokenLength:         config.TokenLength,
+		PasswordPolicy:      service.PasswordPolicy(config.PasswordPolicy),
 	}
 
 	sessionCfg := service.DefaultSessionConfig()

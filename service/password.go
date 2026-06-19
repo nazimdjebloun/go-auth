@@ -83,7 +83,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPasswordInput) *domain.AuthError {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 
-	if err := validatePassword(input.NewPassword); err != nil {
+	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
 		return err
 	}
 
@@ -146,7 +146,7 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 		return domain.NewError("wrong_password", "Current password is incorrect", 400)
 	}
 
-	if err := validatePassword(input.NewPassword); err != nil {
+	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
 		return err
 	}
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/mail"
 	"strings"
@@ -36,6 +37,14 @@ type Config struct {
 	TokenTTL            time.Duration
 	BcryptCost          int
 	TokenLength         int
+	PasswordPolicy      PasswordPolicy
+}
+
+type PasswordPolicy struct {
+	MinLength        int
+	RequireUppercase bool
+	RequireDigit     bool
+	RequireSpecial   bool
 }
 
 func NewAuthService(
@@ -48,6 +57,12 @@ func NewAuthService(
 	config Config,
 	sessionSvc *SessionService,
 ) *AuthService {
+	if config.PasswordPolicy.MinLength == 0 {
+		config.PasswordPolicy.MinLength = 8
+	}
+	if !config.PasswordPolicy.RequireDigit && !config.PasswordPolicy.RequireUppercase && !config.PasswordPolicy.RequireSpecial {
+		config.PasswordPolicy.RequireDigit = true
+	}
 	return &AuthService{
 		users:      users,
 		sessions:   sessions,
@@ -69,7 +84,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	if err := validateEmail(input.Email); err != nil {
 		return nil, err
 	}
-	if err := validatePassword(input.Password); err != nil {
+	if err := s.config.PasswordPolicy.Validate(input.Password); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(input.Name) == "" {
@@ -264,33 +279,62 @@ func isAdmin(user *domain.User, adminEmails []string) bool {
 	return false
 }
 
-func validateEmail(email string) *domain.AuthError {
-	_, err := mail.ParseAddress(email)
-	if err != nil {
-		return domain.ErrInvalidEmail
+func (p PasswordPolicy) Validate(password string) *domain.AuthError {
+	if p.MinLength == 0 {
+		p.MinLength = 8
 	}
-	return nil
-}
+	if len(password) < p.MinLength {
+		return domain.NewError("weak_password",
+			fmt.Sprintf("Password must be at least %d characters", p.MinLength),
+			http.StatusBadRequest)
+	}
+	if len(password) > 128 {
+		return domain.NewError("weak_password", "Password must be no more than 128 characters", http.StatusBadRequest)
+	}
 
-func validatePassword(password string) *domain.AuthError {
-	if len(password) < 8 {
-		return domain.ErrWeakPassword
-	}
-	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	var hasLetter, hasUpper, hasDigit, hasSpecial bool
 	for _, ch := range password {
 		switch {
 		case unicode.IsUpper(ch):
 			hasUpper = true
+			hasLetter = true
 		case unicode.IsLower(ch):
-			hasLower = true
+			hasLetter = true
+		case unicode.IsLetter(ch):
+			hasLetter = true
 		case unicode.IsDigit(ch):
 			hasDigit = true
 		case unicode.IsPunct(ch) || unicode.IsSymbol(ch):
 			hasSpecial = true
 		}
 	}
-	if !hasUpper || !hasLower || !hasDigit || !hasSpecial {
-		return domain.NewError("weak_password", "Password must be at least 8 characters with uppercase, lowercase, digit, and special character", http.StatusBadRequest)
+
+	var missing []string
+	if p.RequireUppercase && !hasUpper {
+		missing = append(missing, "an uppercase letter")
+	}
+	if !hasLetter {
+		missing = append(missing, "a letter")
+	}
+	if p.RequireDigit && !hasDigit {
+		missing = append(missing, "a digit")
+	}
+	if p.RequireSpecial && !hasSpecial {
+		missing = append(missing, "a special character")
+	}
+
+	if len(missing) > 0 {
+		msg := fmt.Sprintf("Password must be at least %d characters with %s", p.MinLength, strings.Join(missing, ", "))
+		return domain.NewError("weak_password", msg, http.StatusBadRequest)
+	}
+
+	return nil
+}
+
+func validateEmail(email string) *domain.AuthError {
+	_, err := mail.ParseAddress(email)
+	if err != nil {
+		return domain.ErrInvalidEmail
 	}
 	return nil
 }

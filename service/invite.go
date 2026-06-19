@@ -94,7 +94,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 }
 
 func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, *domain.AuthError) {
-	if err := validatePassword(input.Password); err != nil {
+	if err := s.config.PasswordPolicy.Validate(input.Password); err != nil {
 		return nil, err
 	}
 	if input.Password != input.ConfirmPassword {
