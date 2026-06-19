@@ -396,3 +396,328 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 		t.Errorf("invite status = %q, want accepted", status)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CheckSession / GetSession
+// ---------------------------------------------------------------------------
+
+func TestCheckSession_ValidToken(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "check@test.com",
+		Password: "V@lidPswd1",
+		Name:     "Check",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	if !a.CheckSession(ctx, res.SessionToken) {
+		t.Error("CheckSession returned false for a valid token")
+	}
+}
+
+func TestCheckSession_InvalidToken(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	if a.CheckSession(context.Background(), "this-token-does-not-exist") {
+		t.Error("CheckSession returned true for an invalid token")
+	}
+}
+
+func TestCheckSession_EmptyToken(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	if a.CheckSession(context.Background(), "") {
+		t.Error("CheckSession returned true for an empty token")
+	}
+}
+
+func TestCheckSession_ExpiredSession(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	cfg := testConfig(db, &testMailer{})
+	cfg.SessionTTL = 1 * time.Millisecond // expire immediately
+	a, err := goauth.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "expire@test.com",
+		Password: "V@lidPswd1",
+		Name:     "Expire",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	// Wait for session to expire
+	time.Sleep(50 * time.Millisecond)
+
+	if a.CheckSession(ctx, res.SessionToken) {
+		t.Error("CheckSession returned true for an expired token")
+	}
+}
+
+func TestCheckSession_BannedUser(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "banned@test.com",
+		Password: "V@lidPswd1",
+		Name:     "Banned",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	// Ban the user via admin service
+	if aerr := a.Services.Admin.BanUser(ctx, res.User.ID); aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	if a.CheckSession(ctx, res.SessionToken) {
+		t.Error("CheckSession returned true for a banned user's session")
+	}
+}
+
+func TestCheckSession_AfterLogout(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "logout@test.com",
+		Password: "V@lidPswd1",
+		Name:     "Logout",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	// Logout
+	if aerr = a.Services.Auth.Logout(ctx, res.Session.ID); aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	if a.CheckSession(ctx, res.SessionToken) {
+		t.Error("CheckSession returned true after logout (session revoked)")
+	}
+}
+
+func TestGetSession_ValidToken(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "getsession@test.com",
+		Password: "V@lidPswd1",
+		Name:     "GetSession",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	user, session, err := a.GetSession(ctx, res.SessionToken)
+	if err != nil {
+		t.Fatalf("GetSession returned error: %v", err)
+	}
+	if user == nil {
+		t.Fatal("GetSession returned nil user")
+	}
+	if user.ID != res.User.ID {
+		t.Errorf("user.ID = %q, want %q", user.ID, res.User.ID)
+	}
+	if user.Email != "getsession@test.com" {
+		t.Errorf("user.Email = %q, want getsession@test.com", user.Email)
+	}
+	if session == nil {
+		t.Fatal("GetSession returned nil session")
+	}
+	if session.ID != res.Session.ID {
+		t.Errorf("session.ID = %q, want %q", session.ID, res.Session.ID)
+	}
+	if session.IsRevoked {
+		t.Error("session should not be revoked")
+	}
+}
+
+func TestGetSession_InvalidToken(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	user, session, err := a.GetSession(context.Background(), "invalid-token")
+	if err == nil {
+		t.Fatal("expected error for invalid token, got nil")
+	}
+	if user != nil {
+		t.Error("expected nil user for invalid token")
+	}
+	if session != nil {
+		t.Error("expected nil session for invalid token")
+	}
+}
+
+func TestGetSession_ExpiredToken(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	cfg := testConfig(db, &testMailer{})
+	cfg.SessionTTL = 1 * time.Millisecond
+	a, err := goauth.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "expire-get@test.com",
+		Password: "V@lidPswd1",
+		Name:     "ExpireGet",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	user, session, err := a.GetSession(ctx, res.SessionToken)
+	if err == nil {
+		t.Fatal("expected error for expired session, got nil")
+	}
+	if user != nil {
+		t.Error("expected nil user for expired session")
+	}
+	if session != nil {
+		t.Error("expected nil session for expired session")
+	}
+}
+
+func TestGetSession_BannedUser(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "banned-get@test.com",
+		Password: "V@lidPswd1",
+		Name:     "BannedGet",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	// Ban the user
+	if aerr = a.Services.Admin.BanUser(ctx, res.User.ID); aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	user, session, err := a.GetSession(ctx, res.SessionToken)
+	if err == nil {
+		t.Fatal("expected error for banned user's session, got nil")
+	}
+	if user != nil {
+		t.Error("expected nil user for banned user")
+	}
+	if session != nil {
+		t.Error("expected nil session for banned user")
+		_ = session
+	}
+}
+
+func TestGetSession_ReturnsFullUserWithRole(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "role-check@test.com",
+		Password: "V@lidPswd1",
+		Name:     "RoleCheck",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	user, session, err := a.GetSession(ctx, res.SessionToken)
+	if err != nil {
+		t.Fatalf("GetSession failed: %v", err)
+	}
+	if user.Role != "user" {
+		t.Errorf("user.Role = %q, want user", user.Role)
+	}
+	if user.ID == "" {
+		t.Error("user.ID is empty")
+	}
+	if user.Email != "role-check@test.com" {
+		t.Errorf("user.Email = %q, want role-check@test.com", user.Email)
+	}
+	if user.Name != "RoleCheck" {
+		t.Errorf("user.Name = %q, want RoleCheck", user.Name)
+	}
+	if session.UserID != user.ID {
+		t.Errorf("session.UserID = %q, want %q", session.UserID, user.ID)
+	}
+}
+
+func TestGetSession_AfterLogoutReturnsError(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "revoked-get@test.com",
+		Password: "V@lidPswd1",
+		Name:     "RevokedGet",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	// Logout (revokes session)
+	if aerr = a.Services.Auth.Logout(ctx, res.Session.ID); aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	user, session, err := a.GetSession(ctx, res.SessionToken)
+	if err == nil {
+		t.Fatal("expected error for revoked session, got nil")
+	}
+	if user != nil {
+		t.Error("expected nil user for revoked session, got non-nil")
+	}
+	if session != nil {
+		t.Error("expected nil session for revoked session, got non-nil")
+	}
+}

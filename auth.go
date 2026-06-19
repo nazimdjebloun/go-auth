@@ -57,6 +57,8 @@ type HandlerGroup struct {
 	RevokeSession      http.HandlerFunc
 	RevokeAllSessions  http.HandlerFunc
 	InviteRegister     http.HandlerFunc
+	GetMe              http.HandlerFunc
+	ChangeName         http.HandlerFunc
 	ListUsers          http.HandlerFunc
 	BanUser            http.HandlerFunc
 	UnbanUser          http.HandlerFunc
@@ -197,6 +199,8 @@ func New(config Config) (*Auth, error) {
 			RevokeSession:      csrfMW(authMW(http.HandlerFunc(h.RevokeSession))).ServeHTTP,
 			RevokeAllSessions:  csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))).ServeHTTP,
 			InviteRegister:     csrfMW(http.HandlerFunc(h.InviteRegister)).ServeHTTP,
+			GetMe:              authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
+			ChangeName:         csrfMW(authMW(http.HandlerFunc(h.ChangeName))).ServeHTTP,
 			ListUsers:          adminMW(authMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
 			BanUser:            csrfMW(adminMW(authMW(http.HandlerFunc(h.BanUser)))).ServeHTTP,
 			UnbanUser:          csrfMW(adminMW(authMW(http.HandlerFunc(h.UnbanUser)))).ServeHTTP,
@@ -224,16 +228,22 @@ func (a *Auth) Close() {
 func (a *Auth) Mount(mux *http.ServeMux) {
 	// All middleware (csrf, auth, admin) is already baked into a.Handlers.
 	mux.Handle("POST /auth/register", a.Handlers.Register)
+	mux.Handle("POST /auth/signup", a.Handlers.Register)
 	mux.Handle("POST /auth/login", a.Handlers.Login)
+	mux.Handle("POST /auth/signin", a.Handlers.Login)
 	mux.Handle("POST /auth/forgot-password", a.Handlers.ForgotPassword)
 	mux.Handle("POST /auth/reset-password", a.Handlers.ResetPassword)
 	mux.Handle("POST /auth/verify-email", a.Handlers.VerifyEmail)
 	mux.Handle("POST /auth/invite/register", a.Handlers.InviteRegister)
 	mux.Handle("POST /auth/logout", a.Handlers.Logout)
+	mux.Handle("POST /auth/signout", a.Handlers.Logout)
+	mux.Handle("GET /auth/me", a.Handlers.GetMe)
+	mux.Handle("PUT /auth/name", a.Handlers.ChangeName)
 	mux.Handle("GET /auth/sessions", a.Handlers.ListSessions)
 	mux.Handle("DELETE /auth/sessions/{id}", a.Handlers.RevokeSession)
 	mux.Handle("DELETE /auth/sessions", a.Handlers.RevokeAllSessions)
 	mux.Handle("PUT /auth/password", a.Handlers.ChangePassword)
+	mux.Handle("POST /auth/change-password", a.Handlers.ChangePassword)
 	mux.Handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
 	mux.Handle("GET /admin/users", a.Handlers.ListUsers)
 	mux.Handle("PATCH /admin/users/{id}/ban", a.Handlers.BanUser)
@@ -294,6 +304,24 @@ func (a *Auth) CompleteInviteRegistration(ctx context.Context, input CompleteInv
 		Session:      result.Session,
 		SessionToken: result.SessionToken,
 	}, nil
+}
+
+// CheckSession validates a raw session token and returns whether it is valid.
+// It checks the session exists, is not expired, and the associated user exists and is not banned.
+func (a *Auth) CheckSession(ctx context.Context, tokenRaw string) bool {
+	_, _, err := a.authService.ValidateSession(ctx, tokenRaw)
+	return err == nil
+}
+
+// GetSession validates a raw session token and returns the associated user and session.
+// Returns the user, session, and nil error on success.
+// Returns nil, nil, error if the token is invalid, expired, or the user is banned.
+func (a *Auth) GetSession(ctx context.Context, tokenRaw string) (*domain.User, *domain.Session, error) {
+	user, session, err := a.authService.ValidateSession(ctx, tokenRaw)
+	if err != nil {
+		return nil, nil, err
+	}
+	return user, session, nil
 }
 
 func loadSchema(driver string) (string, error) {

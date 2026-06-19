@@ -183,6 +183,22 @@ func (s *AuthService) Logout(ctx context.Context, sessionID string) *domain.Auth
 	return nil
 }
 
+func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) *domain.AuthError {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+	if newName == "" {
+		return domain.NewError("validation_error", "Name cannot be empty", 400)
+	}
+	user.Name = newName
+	user.UpdatedAt = time.Now().UTC()
+	if err := s.users.Update(ctx, user); err != nil {
+		return domain.NewError("internal_error", "Failed to update name", 500)
+	}
+	return nil
+}
+
 func (s *AuthService) sendVerificationEmail(ctx context.Context, user *domain.User) *domain.AuthError {
 	raw, err := s.gen.Generate()
 	if err != nil {
