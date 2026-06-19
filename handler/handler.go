@@ -84,7 +84,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie("goauth_session")
 	if err == nil && cookie.Value != "" {
-		h.services.Session.Revoke(r.Context(), cookie.Value)
+		if err := h.services.Session.Revoke(r.Context(), cookie.Value); err != nil {
+			log.Printf("logout revoke error: %v", err)
+		}
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:   "goauth_session",

@@ -52,8 +52,8 @@ const (
 type Invite struct {
 	ID         string       `json:"id"`
 	Email      string       `json:"email"`
-	Code       string       `json:"code"`
-	RawCode    string       `json:"rawCode,omitempty"`
+	Code       string       `json:"-"`            // sha256 hash, never exposed
+	RawCode    string       `json:"rawCode,omitempty"` // populated once on creation, omitted in list
 	CreatedBy  string       `json:"createdBy"`
 	Status     InviteStatus `json:"status"`
 	ExpiresAt  time.Time    `json:"expiresAt"`

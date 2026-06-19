@@ -1,0 +1,400 @@
+package handler
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/nazimdjebloun/go-auth/service"
+)
+
+type mockUserRepo struct {
+	mu    sync.Mutex
+	users map[string]*domain.User
+}
+
+func newMockUserRepo() *mockUserRepo {
+	return &mockUserRepo{users: make(map[string]*domain.User)}
+}
+
+func (m *mockUserRepo) Create(_ context.Context, user *domain.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.users[user.ID] = user
+	m.users[user.Email] = user
+	return nil
+}
+
+func (m *mockUserRepo) GetByID(_ context.Context, id string) (*domain.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[id]
+	if !ok {
+		return nil, nil
+	}
+	return u, nil
+}
+
+func (m *mockUserRepo) GetByEmail(_ context.Context, email string) (*domain.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[email]
+	if !ok {
+		return nil, nil
+	}
+	return u, nil
+}
+
+func (m *mockUserRepo) Update(_ context.Context, user *domain.User) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.users[user.ID] = user
+	m.users[user.Email] = user
+	return nil
+}
+
+func (m *mockUserRepo) Delete(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u := m.users[id]
+	if u != nil {
+		delete(m.users, u.Email)
+	}
+	delete(m.users, id)
+	return nil
+}
+
+func (m *mockUserRepo) List(_ context.Context, _ port.UserFilter) ([]domain.User, int, error) {
+	return nil, 0, nil
+}
+
+type mockSessionRepo struct {
+	mu       sync.Mutex
+	sessions map[string]*domain.Session
+	byID     map[string]*domain.Session
+}
+
+func newMockSessionRepo() *mockSessionRepo {
+	return &mockSessionRepo{
+		sessions: make(map[string]*domain.Session),
+		byID:     make(map[string]*domain.Session),
+	}
+}
+
+func (m *mockSessionRepo) Create(_ context.Context, s *domain.Session) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sessions[s.TokenHash] = s
+	m.byID[s.ID] = s
+	return nil
+}
+
+func (m *mockSessionRepo) GetByTokenHash(_ context.Context, hash string) (*domain.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[hash]
+	if !ok {
+		return nil, nil
+	}
+	return s, nil
+}
+
+func (m *mockSessionRepo) ListByUserID(_ context.Context, userID string) ([]domain.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var res []domain.Session
+	for _, s := range m.byID {
+		if s.UserID == userID {
+			res = append(res, *s)
+		}
+	}
+	return res, nil
+}
+
+func (m *mockSessionRepo) Delete(_ context.Context, tokenHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.sessions[tokenHash]
+	if ok {
+		delete(m.sessions, tokenHash)
+		delete(m.byID, s.ID)
+	}
+	return nil
+}
+
+func (m *mockSessionRepo) DeleteByID(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.byID[id]
+	if ok {
+		delete(m.byID, id)
+		delete(m.sessions, s.TokenHash)
+	}
+	return nil
+}
+
+func (m *mockSessionRepo) DeleteAllForUser(_ context.Context, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for k, s := range m.byID {
+		if s.UserID == userID {
+			delete(m.byID, k)
+			delete(m.sessions, s.TokenHash)
+		}
+	}
+	return nil
+}
+
+func (m *mockSessionRepo) DeleteExpired(_ context.Context) error {
+	return nil
+}
+
+type mockTokenRepo struct {
+	mu     sync.Mutex
+	tokens map[string]*domain.VerificationToken
+}
+
+func newMockTokenRepo() *mockTokenRepo {
+	return &mockTokenRepo{tokens: make(map[string]*domain.VerificationToken)}
+}
+
+func (m *mockTokenRepo) Create(_ context.Context, t *domain.VerificationToken) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tokens[t.ID] = t
+	m.tokens[t.TokenHash] = t
+	return nil
+}
+
+func (m *mockTokenRepo) GetByHash(_ context.Context, hash string) (*domain.VerificationToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[hash]
+	if !ok {
+		return nil, nil
+	}
+	return t, nil
+}
+
+func (m *mockTokenRepo) MarkUsed(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[id]
+	if ok {
+		now := time.Now().UTC()
+		t.UsedAt = &now
+	}
+	return nil
+}
+
+func (m *mockTokenRepo) DeleteExpired(_ context.Context) error {
+	return nil
+}
+
+type mockTokenGen struct{}
+
+func (m *mockTokenGen) Generate() (string, error) {
+	b := sha256.Sum256([]byte(time.Now().String()))
+	return hex.EncodeToString(b[:16]), nil
+}
+
+type mockHasher struct{}
+
+func (m *mockHasher) Hash(password string) (string, error) {
+	sum := sha256.Sum256([]byte(password))
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func (m *mockHasher) Compare(password, hash string) error {
+	sum := sha256.Sum256([]byte(password))
+	if hex.EncodeToString(sum[:]) != hash {
+		return domain.ErrInvalidCredentials
+	}
+	return nil
+}
+
+type testHarness struct {
+	handler  *Handler
+	users    *mockUserRepo
+	sessions *mockSessionRepo
+}
+
+func newTestHarness() *testHarness {
+	users := newMockUserRepo()
+	sessions := newMockSessionRepo()
+	tokens := newMockTokenRepo()
+	hasher := &mockHasher{}
+	gen := &mockTokenGen{}
+
+	cfg := service.Config{
+		AppName:     "TestApp",
+		InviteTTL:   7 * 24 * time.Hour,
+		SessionTTL:  30 * 24 * time.Hour,
+		TokenTTL:    1 * time.Hour,
+		BcryptCost:  4,
+		TokenLength: 32,
+	}
+
+	sessCfg := service.DefaultSessionConfig()
+	sessCfg.Duration = 30 * 24 * time.Hour
+	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+
+	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
+	passSvc := service.NewPasswordService(users, tokens, hasher, gen, nil, cfg)
+	verifySvc := service.NewVerificationService(users, tokens, gen, nil, cfg)
+	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, nil, cfg, sessSvc)
+	adminSvc := service.NewAdminService(users, sessions)
+
+	h := New(Services{
+		Auth:     authSvc,
+		Password: passSvc,
+		Session:  sessSvc,
+		Verify:   verifySvc,
+		Invite:   inviteSvc,
+		Admin:    adminSvc,
+	})
+	return &testHarness{handler: h, users: users, sessions: sessions}
+}
+
+func TestRegisterSetsCookieAndHidesToken(t *testing.T) {
+	th := newTestHarness()
+
+	body := `{"email":"alice@example.com","password":"Passw0rd!","name":"Alice"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.Register(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", res.StatusCode)
+	}
+
+	// cookie is set
+	var sessionCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == "goauth_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("expected goauth_session cookie to be set")
+	}
+	if !sessionCookie.HttpOnly {
+		t.Error("expected cookie to be HttpOnly")
+	}
+	if sessionCookie.Value == "" {
+		t.Error("expected non-empty cookie value")
+	}
+
+	// sessionToken is NOT in the response body
+	var resp map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := resp["sessionToken"]; ok {
+		t.Error("sessionToken must not appear in JSON response body")
+	}
+}
+
+func TestLoginSetsCookieAndHidesToken(t *testing.T) {
+	th := newTestHarness()
+
+	// pre-register
+	regBody := `{"email":"bob@example.com","password":"Passw0rd!","name":"Bob"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(regBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.Register(w, req)
+
+	// manually mark verified
+	user, _ := th.users.GetByEmail(nil, "bob@example.com")
+	if user != nil {
+		user.IsVerified = true
+	}
+
+	// login
+	loginBody := `{"email":"bob@example.com","password":"Passw0rd!"}`
+	req2 := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(loginBody))
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	th.handler.Login(w2, req2)
+
+	res := w2.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+
+	var sessionCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == "goauth_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("expected goauth_session cookie after login")
+	}
+	if sessionCookie.Value == "" {
+		t.Error("expected non-empty cookie value")
+	}
+
+	// sessionToken not in body
+	var resp map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := resp["sessionToken"]; ok {
+		t.Error("sessionToken must not appear in JSON response body")
+	}
+}
+
+func TestLogoutInvalidatesToken(t *testing.T) {
+	th := newTestHarness()
+
+	// register
+	body := `{"email":"carol@example.com","password":"Passw0rd!","name":"Carol"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.Register(w, req)
+
+	// extract token from cookie
+	var token string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "goauth_session" {
+			token = c.Value
+			break
+		}
+	}
+	if token == "" {
+		t.Fatal("no session cookie received")
+	}
+
+	// logout with the cookie
+	req2 := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	req2.Header.Set("Content-Type", "application/json")
+	req2.AddCookie(&http.Cookie{Name: "goauth_session", Value: token})
+	w2 := httptest.NewRecorder()
+	th.handler.Logout(w2, req2)
+
+	if w2.Result().StatusCode != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w2.Result().StatusCode)
+	}
+
+	// re-using the same token should fail
+	_, err := th.handler.services.Session.Validate(nil, token)
+	if err == nil {
+		t.Fatal("expected session to be invalid after logout")
+	}
+}
