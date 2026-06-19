@@ -115,6 +115,12 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 		args = append(args, *filter.IsVerified)
 		argIdx++
 	}
+	if filter.Search != nil && *filter.Search != "" {
+		searchTerm := "%" + *filter.Search + "%"
+		where = append(where, fmt.Sprintf("(name ILIKE $%d OR email ILIKE $%d)", argIdx, argIdx))
+		args = append(args, searchTerm)
+		argIdx++
+	}
 
 	whereClause := strings.Join(where, " AND ")
 
@@ -124,15 +130,58 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 		return nil, 0, err
 	}
 
-	limit := filter.Limit
-	if limit <= 0 {
-		limit = 20
+	// Build ORDER BY
+	orderCol := "created_at"
+	if filter.OrderBy == "updated_at" {
+		orderCol = "updated_at"
 	}
+	orderDir := "DESC"
+	if filter.OrderDirection == "asc" {
+		orderDir = "ASC"
+	}
+
+	colList := "id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at"
+
+	// When Limit is 0, return all matching users (no pagination)
+	if filter.Limit <= 0 {
+		query := fmt.Sprintf(`
+			SELECT %s FROM users WHERE %s ORDER BY %s %s`, colList, whereClause, orderCol, orderDir)
+
+		rows, err := r.db.QueryContext(ctx, query, args...)
+		if err != nil {
+			return nil, 0, err
+		}
+		defer rows.Close()
+
+		var users []domain.User
+		for rows.Next() {
+			var u domain.User
+			var bannedAt sql.NullTime
+			var verifiedAt sql.NullTime
+			if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
+				&u.IsVerified, &verifiedAt, &u.IsBanned, &bannedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+				return nil, 0, err
+			}
+			if verifiedAt.Valid {
+				u.VerifiedAt = &verifiedAt.Time
+			}
+			if bannedAt.Valid {
+				u.BannedAt = &bannedAt.Time
+			}
+			users = append(users, u)
+		}
+		if users == nil {
+			users = []domain.User{}
+		}
+		return users, total, rows.Err()
+	}
+
+	limit := filter.Limit
 	offset := filter.Offset
 
 	query := fmt.Sprintf(`
-		SELECT id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at
-		FROM users WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, whereClause, argIdx, argIdx+1)
+		SELECT %s FROM users WHERE %s ORDER BY %s %s LIMIT $%d OFFSET $%d`,
+		colList, whereClause, orderCol, orderDir, argIdx, argIdx+1)
 	args = append(args, limit, offset)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)

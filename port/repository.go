@@ -6,12 +6,15 @@ import (
 )
 
 type UserFilter struct {
-	Email    *string
-	Role     *domain.Role
-	IsBanned *bool
-	IsVerified *bool
-	Offset   int
-	Limit    int
+	Email          *string
+	Role           *domain.Role
+	IsBanned       *bool
+	IsVerified     *bool
+	Search         *string
+	OrderBy        string // "created_at" or "updated_at"
+	OrderDirection string // "asc" or "desc"
+	Offset         int
+	Limit          int // 0 means unlimited
 }
 
 type UserRepository interface {

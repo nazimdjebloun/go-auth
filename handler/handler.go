@@ -303,8 +303,15 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit == 0 || limit > 100 {
-		limit = 20
+	paginatedParam := r.URL.Query().Get("paginated")
+	paginated := paginatedParam != "false"
+
+	if paginated {
+		if limit <= 0 || limit > 100 {
+			limit = 20
+		}
+	} else {
+		limit = 0
 	}
 
 	var email *string
@@ -312,15 +319,47 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		email = &e
 	}
 
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	var role *domain.Role
+	if rl := r.URL.Query().Get("role"); rl == "admin" || rl == "user" {
+		r := domain.Role(rl)
+		role = &r
+	}
+
+	orderBy := r.URL.Query().Get("orderBy")
+	if orderBy != "created_at" && orderBy != "updated_at" {
+		orderBy = "created_at"
+	}
+
+	orderDirection := r.URL.Query().Get("orderDirection")
+	if orderDirection != "asc" && orderDirection != "desc" {
+		orderDirection = "desc"
+	}
+
 	result, err := h.services.Admin.ListUsers(r.Context(), service.AdminListUsersInput{
-		Offset: offset,
-		Limit:  limit,
-		Email:  email,
+		Offset:         offset,
+		Limit:          limit,
+		Email:          email,
+		Role:           role,
+		Search:         search,
+		OrderBy:        orderBy,
+		OrderDirection: orderDirection,
 	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
+
+	// When not paginated, return users array directly (flat) for convenience
+	if !paginated {
+		writeJSON(w, http.StatusOK, result.Users)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, result)
 }
 

@@ -25,10 +25,13 @@ func NewAdminService(
 
 func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput) (*AdminListUsersResult, *domain.AuthError) {
 	filter := port.UserFilter{
-		Email:  input.Email,
-		Role:   input.Role,
-		Offset: input.Offset,
-		Limit:  input.Limit,
+		Email:          input.Email,
+		Role:           input.Role,
+		Offset:         input.Offset,
+		Limit:          input.Limit,
+		Search:         input.Search,
+		OrderBy:        input.OrderBy,
+		OrderDirection: input.OrderDirection,
 	}
 
 	users, total, err := s.users.List(ctx, filter)
@@ -36,9 +39,15 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 		return nil, domain.NewError("internal_error", "Failed to list users", 500)
 	}
 
+	if users == nil {
+		users = []domain.User{}
+	}
+
 	return &AdminListUsersResult{
-		Users: users,
-		Total: total,
+		Users:  users,
+		Total:  total,
+		Limit:  input.Limit,
+		Offset: input.Offset,
 	}, nil
 }
 

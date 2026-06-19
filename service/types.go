@@ -63,15 +63,20 @@ type ListSessionsResult struct {
 }
 
 type AdminListUsersInput struct {
-	Offset int
-	Limit  int
-	Email  *string
-	Role   *domain.Role
+	Offset         int
+	Limit          int // 0 = unlimited
+	Email          *string
+	Role           *domain.Role
+	Search         *string
+	OrderBy        string // "created_at" or "updated_at"
+	OrderDirection string // "asc" or "desc"
 }
 
 type AdminListUsersResult struct {
-	Users []domain.User
-	Total int
+	Users  []domain.User `json:"users"`
+	Total  int           `json:"total"`
+	Limit  int           `json:"limit,omitempty"`
+	Offset int           `json:"offset,omitempty"`
 }
 
 type CreateInviteInput struct {
