@@ -193,8 +193,8 @@ func New(config Config) (*Auth, error) {
 			VerifyEmail:        csrfMW(http.HandlerFunc(h.VerifyEmail)).ServeHTTP,
 			ResendVerification: csrfMW(authMW(http.HandlerFunc(h.ResendVerification))).ServeHTTP,
 			ListSessions:       authMW(http.HandlerFunc(h.ListSessions)).ServeHTTP,
-			RevokeSession:      authMW(http.HandlerFunc(h.RevokeSession)).ServeHTTP,
-			RevokeAllSessions:  authMW(http.HandlerFunc(h.RevokeAllSessions)).ServeHTTP,
+			RevokeSession:      csrfMW(authMW(http.HandlerFunc(h.RevokeSession))).ServeHTTP,
+			RevokeAllSessions:  csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))).ServeHTTP,
 			InviteRegister:     csrfMW(http.HandlerFunc(h.InviteRegister)).ServeHTTP,
 			ListUsers:          adminMW(authMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
 			BanUser:            csrfMW(adminMW(authMW(http.HandlerFunc(h.BanUser)))).ServeHTTP,
@@ -221,32 +221,28 @@ func (a *Auth) Close() {
 }
 
 func (a *Auth) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("POST /auth/register", a.Handlers.Register)
-	mux.HandleFunc("POST /auth/login", a.Handlers.Login)
-	mux.HandleFunc("POST /auth/forgot-password", a.Handlers.ForgotPassword)
-	mux.HandleFunc("POST /auth/reset-password", a.Handlers.ResetPassword)
-	mux.HandleFunc("POST /auth/verify-email", a.Handlers.VerifyEmail)
-	mux.HandleFunc("POST /auth/invite/register", a.Handlers.InviteRegister)
-
-	mux.Handle("POST /auth/logout", a.Middleware.Authenticate(a.Handlers.Logout))
-	mux.Handle("GET /auth/sessions", a.Middleware.Authenticate(a.Handlers.ListSessions))
-	mux.Handle("DELETE /auth/sessions/{id}", a.Middleware.Authenticate(http.HandlerFunc(a.Handlers.RevokeSession)))
-	mux.Handle("DELETE /auth/sessions", a.Middleware.Authenticate(a.Handlers.RevokeAllSessions))
-	mux.Handle("PUT /auth/password", a.Middleware.Authenticate(a.Handlers.ChangePassword))
-	mux.Handle("POST /auth/resend-verification", a.Middleware.Authenticate(a.Handlers.ResendVerification))
-
-	admin := func(next http.Handler) http.Handler {
-		return a.Middleware.Authenticate(a.Middleware.RequireAdmin(next))
-	}
-	mux.Handle("GET /admin/users", admin(a.Handlers.ListUsers))
-	mux.Handle("PATCH /admin/users/{id}/ban", admin(http.HandlerFunc(a.Handlers.BanUser)))
-	mux.Handle("PATCH /admin/users/{id}/unban", admin(http.HandlerFunc(a.Handlers.UnbanUser)))
-	mux.Handle("DELETE /admin/users/{id}", admin(http.HandlerFunc(a.Handlers.DeleteUser)))
-	mux.Handle("DELETE /admin/users/{id}/sessions", admin(http.HandlerFunc(a.Handlers.RevokeUserSessions)))
-	mux.Handle("POST /admin/invites", admin(a.Handlers.CreateInvite))
-	mux.Handle("GET /admin/invites", admin(a.Handlers.ListInvites))
-	mux.Handle("DELETE /admin/invites/{id}", admin(http.HandlerFunc(a.Handlers.RevokeInvite)))
-	mux.Handle("POST /admin/invites/{id}/resend", admin(http.HandlerFunc(a.Handlers.ResendInvite)))
+	// All middleware (csrf, auth, admin) is already baked into a.Handlers.
+	mux.Handle("POST /auth/register", a.Handlers.Register)
+	mux.Handle("POST /auth/login", a.Handlers.Login)
+	mux.Handle("POST /auth/forgot-password", a.Handlers.ForgotPassword)
+	mux.Handle("POST /auth/reset-password", a.Handlers.ResetPassword)
+	mux.Handle("POST /auth/verify-email", a.Handlers.VerifyEmail)
+	mux.Handle("POST /auth/invite/register", a.Handlers.InviteRegister)
+	mux.Handle("POST /auth/logout", a.Handlers.Logout)
+	mux.Handle("GET /auth/sessions", a.Handlers.ListSessions)
+	mux.Handle("DELETE /auth/sessions/{id}", a.Handlers.RevokeSession)
+	mux.Handle("DELETE /auth/sessions", a.Handlers.RevokeAllSessions)
+	mux.Handle("PUT /auth/password", a.Handlers.ChangePassword)
+	mux.Handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
+	mux.Handle("GET /admin/users", a.Handlers.ListUsers)
+	mux.Handle("PATCH /admin/users/{id}/ban", a.Handlers.BanUser)
+	mux.Handle("PATCH /admin/users/{id}/unban", a.Handlers.UnbanUser)
+	mux.Handle("DELETE /admin/users/{id}", a.Handlers.DeleteUser)
+	mux.Handle("DELETE /admin/users/{id}/sessions", a.Handlers.RevokeUserSessions)
+	mux.Handle("POST /admin/invites", a.Handlers.CreateInvite)
+	mux.Handle("GET /admin/invites", a.Handlers.ListInvites)
+	mux.Handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
+	mux.Handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
 }
 
 func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {
