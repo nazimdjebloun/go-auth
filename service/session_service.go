@@ -29,7 +29,7 @@ func DefaultSessionConfig() SessionConfig {
 		CookieName:   "goauth_session",
 		Duration:     7 * 24 * time.Hour,
 		SecureCookie: true,
-		SameSite:     2,
+		SameSite:     3, // http.SameSiteStrictMode
 	}
 }
 

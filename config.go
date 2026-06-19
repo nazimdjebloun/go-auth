@@ -24,6 +24,8 @@ type Config struct {
 	TokenTTL            time.Duration
 	BcryptCost          int
 	TokenLength         int
+
+	AllowedOrigins []string // for Origin/Referer CSRF validation on cookie auth
 }
 
 type DatabaseConfig struct {
