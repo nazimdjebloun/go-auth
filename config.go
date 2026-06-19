@@ -27,6 +27,8 @@ type Config struct {
 	TokenLength             int
 
 	AllowedOrigins []string // for Origin/Referer CSRF validation on cookie auth
+
+	PasswordPolicy PasswordPolicy
 }
 
 type DatabaseConfig struct {
@@ -48,6 +50,13 @@ type SMTPConfig struct {
 	Pass string
 }
 
+type PasswordPolicy struct {
+	MinLength        int  // minimum length (default 8, max 128)
+	RequireUppercase bool // require at least one uppercase letter
+	RequireDigit     bool // require at least one digit (default true)
+	RequireSpecial   bool // require at least one special character
+}
+
 func DefaultConfig() Config {
 	return Config{
 		RequireEmailVerification: false,
@@ -57,5 +66,9 @@ func DefaultConfig() Config {
 		TokenTTL:            1 * time.Hour,
 		BcryptCost:          12,
 		TokenLength:         32,
+		PasswordPolicy: PasswordPolicy{
+			MinLength:    8,
+			RequireDigit: true,
+		},
 	}
 }
