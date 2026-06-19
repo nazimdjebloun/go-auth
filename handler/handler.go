@@ -303,15 +303,8 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	paginatedParam := r.URL.Query().Get("paginated")
-	paginated := paginatedParam != "false"
-
-	if paginated {
-		if limit <= 0 || limit > 100 {
-			limit = 20
-		}
-	} else {
-		limit = 0
+	if limit <= 0 || limit > 100 {
+		limit = 20
 	}
 
 	var email *string
@@ -351,12 +344,6 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		writeError(w, err)
-		return
-	}
-
-	// When not paginated, return users array directly (flat) for convenience
-	if !paginated {
-		writeJSON(w, http.StatusOK, result.Users)
 		return
 	}
 
