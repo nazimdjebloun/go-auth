@@ -178,7 +178,7 @@ func New(config Config) (*Auth, error) {
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
-	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, hasherImpl, serviceCfg)
+	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, hasherImpl, serviceCfg, sessSvc)
 
 	h := handler.New(handler.Services{
 		Auth:     authSvc,

@@ -11,10 +11,11 @@ import (
 )
 
 type AdminService struct {
-	users    port.UserRepository
-	sessions port.SessionRepository
-	hasher   port.Hasher
-	config   Config
+	users      port.UserRepository
+	sessions   port.SessionRepository
+	hasher     port.Hasher
+	config     Config
+	sessionSvc *SessionService
 }
 
 func NewAdminService(
@@ -22,12 +23,14 @@ func NewAdminService(
 	sessions port.SessionRepository,
 	hasher port.Hasher,
 	config Config,
+	sessionSvc *SessionService,
 ) *AdminService {
 	return &AdminService{
-		users:    users,
-		sessions: sessions,
-		hasher:   hasher,
-		config:   config,
+		users:      users,
+		sessions:   sessions,
+		hasher:     hasher,
+		config:     config,
+		sessionSvc: sessionSvc,
 	}
 }
 
@@ -78,7 +81,7 @@ func (s *AdminService) BanUser(ctx context.Context, userID string) *domain.AuthE
 		return domain.NewError("internal_error", "Failed to ban user", 500)
 	}
 
-	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
+	if err := s.sessionSvc.RevokeAll(ctx, userID); err != nil {
 		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
 	}
 
@@ -132,7 +135,7 @@ func (s *AdminService) DeleteUser(ctx context.Context, userID string) *domain.Au
 		return domain.ErrUserNotFound
 	}
 
-	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
+	if err := s.sessionSvc.RevokeAll(ctx, userID); err != nil {
 		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
 	}
 
@@ -149,7 +152,7 @@ func (s *AdminService) RevokeUserSessions(ctx context.Context, userID string) *d
 		return domain.ErrUserNotFound
 	}
 
-	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
+	if err := s.sessionSvc.RevokeAll(ctx, userID); err != nil {
 		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
 	}
 
@@ -263,7 +266,7 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID 
 		return domain.NewError("session_not_found", "Session not found for this user", 404)
 	}
 
-	if err := s.sessions.DeleteByID(ctx, sessionID); err != nil {
+	if err := s.sessionSvc.RevokeByID(ctx, sessionID); err != nil {
 		return domain.NewError("internal_error", "Failed to revoke session", 500)
 	}
 
