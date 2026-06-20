@@ -445,7 +445,7 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "User deleted successfully"})
 }
 
 func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
