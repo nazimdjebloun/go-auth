@@ -454,7 +454,59 @@ func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Sessions revoked"})
+}
+
+func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Name     string `json:"name"`
+		Role     string `json:"role"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	result, err := h.services.Admin.CreateUser(r.Context(), service.CreateUserInput{
+		Email:    body.Email,
+		Password: body.Password,
+		Name:     body.Name,
+		Role:     body.Role,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
+}
+
+func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	sessions, aerr := h.services.Admin.ListUserSessions(r.Context(), service.AdminListUserSessionsInput{
+		UserID: userID,
+		Offset: offset,
+		Limit:  limit,
+	})
+	if aerr != nil {
+		writeError(w, aerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+}
+
+func (h *Handler) AdminRevokeUserSession(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	sessionID := r.PathValue("sessionId")
+
+	if aerr := h.services.Admin.RevokeUserSession(r.Context(), userID, sessionID); aerr != nil {
+		writeError(w, aerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
 }
 
 func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {

@@ -91,3 +91,16 @@ type EmailData struct {
 	HTML    string
 	Text    string
 }
+
+type CreateUserInput struct {
+	Email    string
+	Password string
+	Name     string
+	Role     string
+}
+
+type AdminListUserSessionsInput struct {
+	UserID string
+	Offset int
+	Limit  int
+}

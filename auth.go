@@ -70,6 +70,9 @@ type HandlerGroup struct {
 	UnbanUser          http.HandlerFunc
 	DeleteUser         http.HandlerFunc
 	RevokeUserSessions http.HandlerFunc
+	AdminCreateUser    http.HandlerFunc
+	AdminListUserSessions  http.HandlerFunc
+	AdminRevokeUserSession http.HandlerFunc
 	CreateInvite       http.HandlerFunc
 	ListInvites        http.HandlerFunc
 	RevokeInvite       http.HandlerFunc
@@ -175,7 +178,7 @@ func New(config Config) (*Auth, error) {
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
-	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL)
+	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, hasherImpl, serviceCfg)
 
 	h := handler.New(handler.Services{
 		Auth:     authSvc,
@@ -232,6 +235,9 @@ func New(config Config) (*Auth, error) {
 			UnbanUser:          csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser)))).ServeHTTP,
 			DeleteUser:         csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser)))).ServeHTTP,
 			RevokeUserSessions: csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions)))).ServeHTTP,
+			AdminCreateUser:    csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser)))).ServeHTTP,
+			AdminListUserSessions:  authMW(adminMW(http.HandlerFunc(h.AdminListUserSessions))).ServeHTTP,
+			AdminRevokeUserSession: csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession)))).ServeHTTP,
 			CreateInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite)))).ServeHTTP,
 			ListInvites:        authMW(adminMW(http.HandlerFunc(h.ListInvites))).ServeHTTP,
 			RevokeInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))).ServeHTTP,
@@ -278,6 +284,9 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("PATCH /admin/users/{id}/ban", a.Handlers.BanUser)
 	mux.Handle("PATCH /admin/users/{id}/unban", a.Handlers.UnbanUser)
 	mux.Handle("DELETE /admin/users/{id}", a.Handlers.DeleteUser)
+	mux.Handle("POST /admin/users", a.Handlers.AdminCreateUser)
+	mux.Handle("GET /admin/users/{id}/sessions", a.Handlers.AdminListUserSessions)
+	mux.Handle("DELETE /admin/users/{id}/sessions/{sessionId}", a.Handlers.AdminRevokeUserSession)
 	mux.Handle("DELETE /admin/users/{id}/sessions", a.Handlers.RevokeUserSessions)
 	mux.Handle("POST /admin/invites", a.Handlers.CreateInvite)
 	mux.Handle("GET /admin/invites", a.Handlers.ListInvites)

@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -11,15 +13,21 @@ import (
 type AdminService struct {
 	users    port.UserRepository
 	sessions port.SessionRepository
+	hasher   port.Hasher
+	config   Config
 }
 
 func NewAdminService(
 	users port.UserRepository,
 	sessions port.SessionRepository,
+	hasher port.Hasher,
+	config Config,
 ) *AdminService {
 	return &AdminService{
 		users:    users,
 		sessions: sessions,
+		hasher:   hasher,
+		config:   config,
 	}
 }
 
@@ -143,6 +151,120 @@ func (s *AdminService) RevokeUserSessions(ctx context.Context, userID string) *d
 
 	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
 		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+	}
+
+	return nil
+}
+
+func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*domain.User, *domain.AuthError) {
+	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
+	if err := validateEmail(input.Email); err != nil {
+		return nil, err
+	}
+	if err := s.config.PasswordPolicy.Validate(input.Password); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		return nil, domain.NewError("name_required", "Name is required", 400)
+	}
+	input.Name = strings.TrimSpace(input.Name)
+
+	existing, _ := s.users.GetByEmail(ctx, input.Email)
+	if existing != nil {
+		return nil, domain.ErrEmailAlreadyExists
+	}
+
+	hash, err := s.hasher.Hash(input.Password)
+	if err != nil {
+		return nil, domain.NewError("internal_error", "Failed to hash password", 500)
+	}
+
+	role := domain.RoleUser
+	if input.Role == "admin" {
+		role = domain.RoleAdmin
+	}
+
+	now := time.Now().UTC()
+	user := &domain.User{
+		ID:           uuid.New().String(),
+		Email:        input.Email,
+		PasswordHash: hash,
+		Name:         input.Name,
+		Role:         role,
+		IsVerified:   true,
+		VerifiedAt:   &now,
+		IsBanned:     false,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	if err := s.users.Create(ctx, user); err != nil {
+		return nil, domain.NewError("internal_error", "Failed to create user", 500)
+	}
+
+	return user, nil
+}
+
+func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUserSessionsInput) ([]domain.Session, *domain.AuthError) {
+	user, err := s.users.GetByID(ctx, input.UserID)
+	if err != nil || user == nil {
+		return nil, domain.ErrUserNotFound
+	}
+
+	limit := input.Limit
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	sessions, err := s.sessions.ListByUserID(ctx, input.UserID)
+	if err != nil {
+		return nil, domain.NewError("internal_error", "Failed to list sessions", 500)
+	}
+
+	if sessions == nil {
+		sessions = []domain.Session{}
+	}
+
+	// Apply offset/limit
+	offset := input.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(sessions) {
+		return []domain.Session{}, nil
+	}
+	end := offset + limit
+	if end > len(sessions) {
+		end = len(sessions)
+	}
+
+	return sessions[offset:end], nil
+}
+
+func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID string) *domain.AuthError {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+
+	sessions, err := s.sessions.ListByUserID(ctx, userID)
+	if err != nil {
+		return domain.NewError("internal_error", "Failed to list sessions", 500)
+	}
+
+	found := false
+	for _, sess := range sessions {
+		if sess.ID == sessionID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return domain.NewError("session_not_found", "Session not found for this user", 404)
+	}
+
+	if err := s.sessions.DeleteByID(ctx, sessionID); err != nil {
+		return domain.NewError("internal_error", "Failed to revoke session", 500)
 	}
 
 	return nil
