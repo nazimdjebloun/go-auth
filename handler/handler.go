@@ -412,7 +412,7 @@ func (h *Handler) BanUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "User banned successfully"})
 }
 
 func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
@@ -421,7 +421,7 @@ func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "User unbanned successfully"})
 }
 
 func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {

@@ -7,7 +7,7 @@ type Session struct {
 	UserID       string    `json:"user_id"`
 	TokenHash    string    `json:"-"`
 	RefreshToken string    `json:"-"`
-	IP           string    `json:"ip,omitempty"`
+	IP           string    `json:"ip_address,omitempty"`
 	UserAgent    string    `json:"user_agent,omitempty"`
 	IsRevoked    bool      `json:"is_revoked"`
 	ExpiresAt    time.Time `json:"expires_at"`
