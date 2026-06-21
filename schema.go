@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at TIMESTAMPTZ NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    revoked_at TIMESTAMPTZ
+    revoked_at TIMESTAMPTZ,
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS verification_tokens (
@@ -84,6 +85,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     revoked_at DATETIME,
+    last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -141,7 +143,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     is_revoked INTEGER NOT NULL DEFAULT 0,
     expires_at DATETIME NOT NULL,
     created_at DATETIME NOT NULL,
-    revoked_at DATETIME
+    revoked_at DATETIME,
+    last_active_at DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS verification_tokens (

@@ -2,12 +2,10 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/mail"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -28,23 +26,13 @@ type AuthService struct {
 
 type Config struct {
 	AppName             string
-	AdminEmails         []string
 	InviteOnly          bool
 	RequireEmailVerification bool
 	InviteTTL           time.Duration
 	VerificationCodeTTL time.Duration
 	SessionTTL          time.Duration
 	TokenTTL            time.Duration
-	BcryptCost          int
-	TokenLength         int
-	PasswordPolicy      PasswordPolicy
-}
-
-type PasswordPolicy struct {
-	MinLength        int
-	RequireUppercase bool
-	RequireDigit     bool
-	RequireSpecial   bool
+	PasswordPolicy      domain.PasswordPolicy
 }
 
 func NewAuthService(
@@ -103,20 +91,13 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	}
 
 	now := time.Now().UTC()
-	role := domain.RoleUser
-	for _, adminEmail := range s.config.AdminEmails {
-		if strings.EqualFold(input.Email, adminEmail) {
-			role = domain.RoleAdmin
-			break
-		}
-	}
 
 	user := &domain.User{
 		ID:           uuid.New().String(),
 		Email:        input.Email,
 		PasswordHash: hash,
 		Name:         input.Name,
-		Role:         role,
+		Role:         domain.RoleUser,
 		IsVerified:   !s.config.RequireEmailVerification,
 		IsBanned:     false,
 		CreatedAt:    now,
@@ -155,7 +136,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		return nil, domain.ErrUserBanned
 	}
 
-	if s.config.RequireEmailVerification && !user.IsVerified && !isAdmin(user, s.config.AdminEmails) {
+	if s.config.RequireEmailVerification && !user.IsVerified && user.Role != domain.RoleAdmin {
 		return nil, domain.ErrEmailNotVerified
 	}
 
@@ -265,67 +246,6 @@ func (s *AuthService) sendVerificationEmail(ctx context.Context, user *domain.Us
 
 	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, body); err != nil {
 		return domain.NewError("email_failed", "Failed to send verification email", 500)
-	}
-
-	return nil
-}
-
-func isAdmin(user *domain.User, adminEmails []string) bool {
-	for _, e := range adminEmails {
-		if strings.EqualFold(user.Email, e) {
-			return true
-		}
-	}
-	return false
-}
-
-func (p PasswordPolicy) Validate(password string) *domain.AuthError {
-	if p.MinLength == 0 {
-		p.MinLength = 8
-	}
-	if len(password) < p.MinLength {
-		return domain.NewError("weak_password",
-			fmt.Sprintf("Password must be at least %d characters", p.MinLength),
-			http.StatusBadRequest)
-	}
-	if len(password) > 128 {
-		return domain.NewError("weak_password", "Password must be no more than 128 characters", http.StatusBadRequest)
-	}
-
-	var hasLetter, hasUpper, hasDigit, hasSpecial bool
-	for _, ch := range password {
-		switch {
-		case unicode.IsUpper(ch):
-			hasUpper = true
-			hasLetter = true
-		case unicode.IsLower(ch):
-			hasLetter = true
-		case unicode.IsLetter(ch):
-			hasLetter = true
-		case unicode.IsDigit(ch):
-			hasDigit = true
-		case unicode.IsPunct(ch) || unicode.IsSymbol(ch):
-			hasSpecial = true
-		}
-	}
-
-	var missing []string
-	if p.RequireUppercase && !hasUpper {
-		missing = append(missing, "an uppercase letter")
-	}
-	if !hasLetter {
-		missing = append(missing, "a letter")
-	}
-	if p.RequireDigit && !hasDigit {
-		missing = append(missing, "a digit")
-	}
-	if p.RequireSpecial && !hasSpecial {
-		missing = append(missing, "a special character")
-	}
-
-	if len(missing) > 0 {
-		msg := fmt.Sprintf("Password must be at least %d characters with %s", p.MinLength, strings.Join(missing, ", "))
-		return domain.NewError("weak_password", msg, http.StatusBadRequest)
 	}
 
 	return nil

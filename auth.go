@@ -100,14 +100,23 @@ func New(config Config) (*Auth, error) {
 	var sqlDB *sqlstore.DB
 	var sessRepo *sessionrepo.SessionRepository
 
+	if config.Database.Driver == "" {
+		config.Database.Driver = DriverPostgres
+	}
+	switch config.Database.Driver {
+	case DriverPostgres, DriverMySQL, DriverSQLite:
+	default:
+		return nil, fmt.Errorf("go-auth: unsupported driver %q", config.Database.Driver)
+	}
+
 	switch {
 	case config.Database.Pool != nil:
 		pool = config.Database.Pool
 		rawDB := stdlib.OpenDBFromPool(pool)
-		sqlDB = sqlstore.NewDB(rawDB, config.Database.Driver)
+		sqlDB = sqlstore.NewDB(rawDB, string(config.Database.Driver))
 		sessRepo = sessionrepo.New(pool)
 	case config.Database.DB != nil:
-		sqlDB = sqlstore.NewDB(config.Database.DB, config.Database.Driver)
+		sqlDB = sqlstore.NewDB(config.Database.DB, string(config.Database.Driver))
 		sessRepo = sessionrepo.NewFromDB(config.Database.DB)
 	case config.Database.URL != "":
 		driverName := sqlDriverName(config.Database.Driver)
@@ -115,11 +124,17 @@ func New(config Config) (*Auth, error) {
 		if err != nil {
 			return nil, fmt.Errorf("go-auth: open database: %w", err)
 		}
-		sqlDB = sqlstore.NewDB(db, config.Database.Driver)
+		if err := db.Ping(); err != nil {
+			db.Close()
+			return nil, fmt.Errorf("go-auth: ping database: %w", err)
+		}
+		config.Database.opened = true
+		sqlDB = sqlstore.NewDB(db, string(config.Database.Driver))
 		sessRepo = sessionrepo.NewFromDB(db)
-		if config.Database.Driver == "postgres" || config.Database.Driver == "pg" {
+		if config.Database.Driver == DriverPostgres {
 			pool, err = pgxpool.New(context.Background(), config.Database.URL)
 			if err != nil {
+				db.Close()
 				return nil, fmt.Errorf("go-auth: create connection pool: %w", err)
 			}
 			sessRepo = sessionrepo.New(pool)
@@ -128,11 +143,7 @@ func New(config Config) (*Auth, error) {
 		return nil, ErrNoDatabase
 	}
 
-	if config.Database.Driver == "" {
-		config.Database.Driver = "postgres"
-	}
-
-	rawSchema, err := loadSchema(config.Database.Driver)
+	rawSchema, err := loadSchema(string(config.Database.Driver))
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +156,7 @@ func New(config Config) (*Auth, error) {
 	tokenRepo := sqlstore.NewTokenRepository(sqlDB)
 	inviteRepo := sqlstore.NewInviteRepository(sqlDB)
 
-	hasherImpl := hasher.New(config.BcryptCost)
+	hasherImpl := hasher.New(bcryptCost)
 	genImpl := token.New()
 
 	var mailer port.Mailer
@@ -157,20 +168,23 @@ func New(config Config) (*Auth, error) {
 
 	serviceCfg := service.Config{
 		AppName:             config.AppName,
-		AdminEmails:         config.AdminEmails,
 		InviteOnly:          config.InviteOnly,
 		RequireEmailVerification: config.RequireEmailVerification,
 		InviteTTL:           config.InviteTTL,
 		VerificationCodeTTL: config.VerificationCodeTTL,
 		SessionTTL:          config.SessionTTL,
 		TokenTTL:            config.TokenTTL,
-		BcryptCost:          config.BcryptCost,
-		TokenLength:         config.TokenLength,
-		PasswordPolicy:      service.PasswordPolicy(config.PasswordPolicy),
+		PasswordPolicy:      config.PasswordPolicy,
 	}
 
 	sessionCfg := service.DefaultSessionConfig()
 	sessionCfg.Duration = config.SessionTTL
+	sessionCfg.IdleTTL = config.SessionIdleTTL
+	sessionCfg.CookieName = config.Cookie.Name
+	sessionCfg.Domain = config.Cookie.Domain
+	sessionCfg.Path = config.Cookie.Path
+	sessionCfg.Secure = config.Cookie.Secure
+	sessionCfg.SameSite = int(config.Cookie.SameSite)
 
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
 
@@ -254,6 +268,9 @@ func New(config Config) (*Auth, error) {
 func (a *Auth) Close() {
 	if a.Pool != nil {
 		a.Pool.Close()
+	}
+	if a.Config.Database.opened && a.DB != nil {
+		a.DB.Close()
 	}
 }
 
@@ -384,13 +401,13 @@ func min(a, b int) int {
 	return b
 }
 
-func sqlDriverName(driver string) string {
+func sqlDriverName(driver Driver) string {
 	switch driver {
-	case "postgres", "pg":
+	case DriverPostgres:
 		return "pgx"
-	case "sqlite3", "sqlite":
+	case DriverSQLite:
 		return "sqlite3"
 	default:
-		return driver
+		return string(driver)
 	}
 }

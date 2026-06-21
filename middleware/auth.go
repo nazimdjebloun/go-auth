@@ -73,6 +73,8 @@ func AuthMiddleware(sessionSvc *service.SessionService, userRepo interface {
 				return
 			}
 
+			sessionSvc.Touch(r.Context(), cookie.Value)
+
 			ctx := context.WithValue(r.Context(), ctxSession, session)
 			ctx = context.WithValue(ctx, ctxUser, user)
 			next.ServeHTTP(w, r.WithContext(ctx))

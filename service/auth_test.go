@@ -168,6 +168,15 @@ func (m *mockSessionRepo) DeleteExpired(ctx context.Context) error {
 	return nil
 }
 
+func (m *mockSessionRepo) UpdateLastActiveAt(ctx context.Context, tokenHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.sessions[tokenHash]; ok {
+		s.LastActiveAt = time.Now().UTC()
+	}
+	return nil
+}
+
 type mockTokenRepo struct {
 	mu     sync.Mutex
 	tokens map[string]*domain.VerificationToken
@@ -296,14 +305,12 @@ func (m *mockInviteRepo) Update(ctx context.Context, invite *domain.Invite) erro
 
 func defaultTestConfig() Config {
 	return Config{
-		AppName:                 "TestApp",
+		AppName:             "TestApp",
 		RequireEmailVerification: false,
-		InviteTTL:               7 * 24 * time.Hour,
-		VerificationCodeTTL:     15 * time.Minute,
-		SessionTTL:              30 * 24 * time.Hour,
-		TokenTTL:                1 * time.Hour,
-		BcryptCost:              4,
-		TokenLength:             32,
+		InviteTTL:           7 * 24 * time.Hour,
+		VerificationCodeTTL: 15 * time.Minute,
+		SessionTTL:          30 * 24 * time.Hour,
+		TokenTTL:            1 * time.Hour,
 	}
 }
 
@@ -415,7 +422,7 @@ func TestRegisterInvalidEmail(t *testing.T) {
 	}
 }
 
-func TestRegisterAdminSeed(t *testing.T) {
+func TestRegisterDefaultRole(t *testing.T) {
 	users := newMockUserRepo()
 	sessions := newMockSessionRepo()
 	tokens := newMockTokenRepo()
@@ -423,21 +430,18 @@ func TestRegisterAdminSeed(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	cfg := defaultTestConfig()
-	cfg.AdminEmails = []string{"admin@example.com"}
-
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
 
 	result, err := svc.Register(context.Background(), RegisterInput{
-		Email:    "admin@example.com",
+		Email:    "registered@example.com",
 		Password: "Passw0rd!",
-		Name:     "Admin",
+		Name:     "User",
 	})
 	if err != nil {
 		t.Fatalf("Register failed: %v", err)
 	}
-	if result.User.Role != domain.RoleAdmin {
-		t.Fatalf("Expected role admin, got %s", result.User.Role)
+	if result.User.Role != domain.RoleUser {
+		t.Fatalf("Expected role user, got %s", result.User.Role)
 	}
 }
 
@@ -831,7 +835,7 @@ func TestPasswordPolicyDefault(t *testing.T) {
 		{"empty", "", true},
 		{"above 128 chars", string(make([]byte, 129)), true},
 	}
-	p := PasswordPolicy{MinLength: 8, RequireDigit: true}
+	p := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := p.Validate(tt.password)
@@ -846,7 +850,7 @@ func TestPasswordPolicyDefault(t *testing.T) {
 }
 
 func TestPasswordPolicyMinLength(t *testing.T) {
-	p := PasswordPolicy{MinLength: 10, RequireDigit: true}
+	p := domain.PasswordPolicy{MinLength: 10, RequireDigit: true}
 
 	err := p.Validate("abc1234567")
 	if err != nil {
@@ -865,7 +869,7 @@ func TestPasswordPolicyMinLength(t *testing.T) {
 }
 
 func TestPasswordPolicyUppercase(t *testing.T) {
-	p := PasswordPolicy{MinLength: 8, RequireUppercase: true, RequireDigit: true}
+	p := domain.PasswordPolicy{MinLength: 8, RequireUppercase: true, RequireDigit: true}
 
 	err := p.Validate("password1")
 	if err == nil {
@@ -879,7 +883,7 @@ func TestPasswordPolicyUppercase(t *testing.T) {
 }
 
 func TestPasswordPolicySpecial(t *testing.T) {
-	p := PasswordPolicy{MinLength: 8, RequireSpecial: true, RequireDigit: true}
+	p := domain.PasswordPolicy{MinLength: 8, RequireSpecial: true, RequireDigit: true}
 
 	err := p.Validate("password1")
 	if err == nil {
@@ -893,7 +897,7 @@ func TestPasswordPolicySpecial(t *testing.T) {
 }
 
 func TestPasswordPolicyAllRequirements(t *testing.T) {
-	p := PasswordPolicy{
+	p := domain.PasswordPolicy{
 		MinLength:        12,
 		RequireUppercase: true,
 		RequireDigit:     true,
@@ -926,7 +930,7 @@ func TestPasswordPolicyAllRequirements(t *testing.T) {
 }
 
 func TestPasswordPolicyMaxLength(t *testing.T) {
-	p := PasswordPolicy{MinLength: 8, RequireDigit: true}
+	p := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
 	// 129 chars — fails regardless of content
 	long := make([]byte, 129)
 	for i := range long {
@@ -951,7 +955,7 @@ func TestPasswordPolicyMaxLength(t *testing.T) {
 }
 
 func TestPasswordPolicyUnicode(t *testing.T) {
-	p := PasswordPolicy{MinLength: 4, RequireDigit: true}
+	p := domain.PasswordPolicy{MinLength: 4, RequireDigit: true}
 	// Unicode letters count as letters
 	err := p.Validate("日本語1")
 	if err != nil {
@@ -965,7 +969,7 @@ func TestPasswordPolicyUnicode(t *testing.T) {
 }
 
 func TestPasswordPolicyErrorMessages(t *testing.T) {
-	p := PasswordPolicy{MinLength: 8, RequireDigit: true}
+	p := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
 
 	err := p.Validate("short")
 	if err == nil {
@@ -994,7 +998,7 @@ func TestPasswordPolicyErrorMessages(t *testing.T) {
 		t.Fatalf("unexpected message: %s", err.Message)
 	}
 
-	p2 := PasswordPolicy{MinLength: 10, RequireUppercase: true, RequireSpecial: true, RequireDigit: true}
+	p2 := domain.PasswordPolicy{MinLength: 10, RequireUppercase: true, RequireSpecial: true, RequireDigit: true}
 	err = p2.Validate("abcdefghij1")
 	if err == nil {
 		t.Fatal("expected error")

@@ -17,11 +17,8 @@ func postgresConfig(dsn string, mailer goauth.Mailer) goauth.Config {
 		AppName: "TestAppPG",
 		Database: goauth.DatabaseConfig{
 			DB:     nil, // set below after open
-			Driver: "postgres",
+			Driver: goauth.DriverPostgres,
 		},
-		AdminEmails:        []string{"admin@pg.test"},
-		BcryptCost:         4,
-		TokenLength:        32,
 		SessionTTL:         1 * time.Hour,
 		TokenTTL:           1 * time.Hour,
 		InviteTTL:          1 * time.Hour,
