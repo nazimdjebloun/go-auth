@@ -20,12 +20,10 @@
 //	        },
 //	        func(c *goauth.Config) {
 //	            c.Email = &goauth.EmailConfig{
-//	                SMTP: goauth.SMTPConfig{
-//	                    Host: os.Getenv("SMTP_HOST"),
-//	                    Port: 587,
-//	                    User: os.Getenv("SMTP_USER"),
-//	                    Pass: os.Getenv("SMTP_PASS"),
-//	                },
+//	                Host: os.Getenv("SMTP_HOST"),
+//	                Port: 587,
+//	                User: os.Getenv("SMTP_USER"),
+//	                Pass: os.Getenv("SMTP_PASS"),
 //	                From: os.Getenv("EMAIL_FROM"),
 //	            }
 //	        },
@@ -90,12 +88,7 @@ type DatabaseConfig struct {
 
 // EmailConfig configures SMTP email delivery.
 type EmailConfig struct {
-	SMTP SMTPConfig
 	From string
-}
-
-// SMTPConfig holds SMTP server credentials.
-type SMTPConfig struct {
 	Host string
 	Port int
 	User string
@@ -175,6 +168,10 @@ func (c Config) validate() error {
 		errs = append(errs, errors.New("cookie name cannot be empty"))
 	}
 
+	if (c.RequireEmailVerification || c.InviteOnly) && c.Mailer == nil && c.Email == nil {
+		errs = append(errs, errors.New("email: Mailer or Email config required when RequireEmailVerification or InviteOnly is enabled"))
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -187,6 +184,7 @@ func DefaultConfig() Config {
 		SessionTTL:          30 * 24 * time.Hour,
 		SessionIdleTTL:      7 * 24 * time.Hour,
 		TokenTTL:            1 * time.Hour,
+		RateLimit: ratelimit.DefaultRateLimitConfig(),
 		PasswordPolicy: domain.PasswordPolicy{
 			MinLength:    8,
 			RequireDigit: true,

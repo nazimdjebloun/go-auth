@@ -29,10 +29,10 @@ type testMailer struct {
 	bodies []string
 }
 
-func (m *testMailer) Send(_ context.Context, _, _, body string) error {
+func (m *testMailer) Send(_ context.Context, _, _, _, text string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.bodies = append(m.bodies, body)
+	m.bodies = append(m.bodies, text)
 	return nil
 }
 
