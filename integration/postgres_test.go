@@ -8,11 +8,12 @@ import (
 	"time"
 
 	goauth "github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func postgresConfig(dsn string, mailer goauth.Mailer) goauth.Config {
+func postgresConfig(dsn string, mailer port.Mailer) goauth.Config {
 	return goauth.Config{
 		AppName: "TestAppPG",
 		Database: goauth.DatabaseConfig{
@@ -148,7 +149,6 @@ func TestPostgres_PasswordReset(t *testing.T) {
 
 	// Reset password
 	if aerr := a.Services.Password.ResetPassword(ctx, service.ResetPasswordInput{
-		Email:       "admin@pg.test",
 		Code:        resetToken,
 		NewPassword: "NewP@sswd2",
 	}); aerr != nil {

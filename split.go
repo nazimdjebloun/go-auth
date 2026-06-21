@@ -7,7 +7,7 @@ import (
 
 var ErrNoDatabase = errors.New("go-auth: no database pool or DSN provided")
 
-func splitSQL(sql string) []string {
+func SplitSQL(sql string) []string {
 	statements := strings.Split(sql, ";")
 	result := make([]string, 0, len(statements))
 	for _, stmt := range statements {

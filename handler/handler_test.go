@@ -268,7 +268,7 @@ func newTestHarness() *testHarness {
 	sessCfg.Duration = 30 * 24 * time.Hour
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
+	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil)
 	passSvc := service.NewPasswordService(users, tokens, hasher, gen, nil, sessions, cfg)
 	verifySvc := service.NewVerificationService(users, tokens, gen, nil, cfg)
 	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, nil, cfg, sessSvc)

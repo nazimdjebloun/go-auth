@@ -75,16 +75,7 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code, email strin
 	return nil
 }
 
-func (s *VerificationService) ResendVerification(ctx context.Context, userID string) *domain.AuthError {
-	user, err := s.users.GetByID(ctx, userID)
-	if err != nil || user == nil {
-		return domain.ErrUserNotFound
-	}
-
-	if user.IsVerified {
-		return domain.NewError("already_verified", "Email is already verified", 400)
-	}
-
+func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) *domain.AuthError {
 	if s.mailer == nil {
 		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
@@ -108,13 +99,26 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 		return domain.NewError("internal_error", "Failed to store token", 500)
 	}
 
-	code := raw
-	html := "<p>Your verification code is: <strong>" + code + "</strong></p>"
-	text := "Your verification code is: " + code
+	url := s.config.BaseURL + "/verify-email?token=" + raw
+	html := "<p>Click <a href=\"" + url + "\">here</a> to verify your email. Expires in 1 hour.</p>"
+	text := "Verify your email: " + url + " (expires in 1 hour)"
 
 	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, html, text); err != nil {
 		return domain.NewError("email_failed", "Failed to send verification email", 500)
 	}
 
 	return nil
+}
+
+func (s *VerificationService) ResendVerification(ctx context.Context, userID string) *domain.AuthError {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+
+	if user.IsVerified {
+		return domain.NewError("already_verified", "Email is already verified", 400)
+	}
+
+	return s.SendVerification(ctx, user)
 }

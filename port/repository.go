@@ -45,11 +45,19 @@ type TokenRepository interface {
 	DeleteExpired(ctx context.Context) error
 }
 
+type InviteFilter struct {
+	Search *string
+	Status *string
+	Offset int
+	Limit  int
+}
+
 type InviteRepository interface {
 	Create(ctx context.Context, invite *domain.Invite) error
 	GetByID(ctx context.Context, id string) (*domain.Invite, error)
 	GetByCode(ctx context.Context, code string) (*domain.Invite, error)
 	GetByEmail(ctx context.Context, email string) (*domain.Invite, error)
-	List(ctx context.Context, offset, limit int) ([]domain.Invite, int, error)
+	List(ctx context.Context, filter InviteFilter) ([]domain.Invite, int, error)
 	Update(ctx context.Context, invite *domain.Invite) error
+	Delete(ctx context.Context, id string) error
 }

@@ -72,10 +72,12 @@ type HandlerGroup struct {
 	AdminCreateUser    http.HandlerFunc
 	AdminListUserSessions  http.HandlerFunc
 	AdminRevokeUserSession http.HandlerFunc
+	GetInviteInfo      http.HandlerFunc
 	CreateInvite       http.HandlerFunc
 	ListInvites        http.HandlerFunc
 	RevokeInvite       http.HandlerFunc
 	ResendInvite       http.HandlerFunc
+	HardDeleteInvite   http.HandlerFunc
 }
 
 type MiddlewareGroup struct {
@@ -183,6 +185,7 @@ func New(config Config) (*Auth, error) {
 
 	serviceCfg := service.Config{
 		AppName:             config.AppName,
+		BaseURL:             config.BaseURL,
 		InviteOnly:          config.InviteOnly,
 		RequireEmailVerification: config.RequireEmailVerification,
 		InviteTTL:           config.InviteTTL,
@@ -203,9 +206,9 @@ func New(config Config) (*Auth, error) {
 
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
 
-	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
-	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, serviceCfg)
+	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc)
+	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, hasherImpl, serviceCfg, sessSvc)
 
@@ -254,6 +257,7 @@ func New(config Config) (*Auth, error) {
 			RevokeSession:      csrfMW(authMW(http.HandlerFunc(h.RevokeSession))).ServeHTTP,
 			RevokeAllSessions:  csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))).ServeHTTP,
 			InviteRegister:     csrfMW(http.HandlerFunc(h.InviteRegister)).ServeHTTP,
+			GetInviteInfo:      http.HandlerFunc(h.GetInviteInfo).ServeHTTP,
 			GetMe:              authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
 		CheckSession:       http.HandlerFunc(h.CheckAuth).ServeHTTP,
 			ChangeName:         csrfMW(authMW(http.HandlerFunc(h.ChangeName))).ServeHTTP,
@@ -271,6 +275,7 @@ func New(config Config) (*Auth, error) {
 			ListInvites:        authMW(adminMW(http.HandlerFunc(h.ListInvites))).ServeHTTP,
 			RevokeInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))).ServeHTTP,
 			ResendInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite)))).ServeHTTP,
+			HardDeleteInvite:   csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite)))).ServeHTTP,
 		},
 		Middleware: MiddlewareGroup{
 			Authenticate: authMW,
@@ -298,6 +303,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /auth/forgot-password", a.Handlers.ForgotPassword)
 	mux.Handle("POST /auth/reset-password", a.Handlers.ResetPassword)
 	mux.Handle("POST /auth/verify-email", a.Handlers.VerifyEmail)
+	mux.Handle("GET /auth/invite/info", a.Handlers.GetInviteInfo)
 	mux.Handle("POST /auth/invite/register", a.Handlers.InviteRegister)
 	mux.Handle("POST /auth/logout", a.Handlers.Logout)
 	mux.Handle("POST /auth/signout", a.Handlers.Logout)
@@ -324,6 +330,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("GET /admin/invites", a.Handlers.ListInvites)
 	mux.Handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
 	mux.Handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
+	mux.Handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
 }
 
 func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {
@@ -399,7 +406,7 @@ func loadSchema(driver string) (string, error) {
 }
 
 func runMigrations(db *sqlstore.DB, schemaSQL string) error {
-	statements := splitSQL(schemaSQL)
+	statements := SplitSQL(schemaSQL)
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
 			log.Printf("Migration failed: %s\nError: %v", stmt[:min(len(stmt), 100)], err)
