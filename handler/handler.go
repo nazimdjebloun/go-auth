@@ -152,12 +152,13 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "If an account exists with this email, a reset link has been sent.",
+	})
 }
 
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Email       string `json:"email"`
 		Code        string `json:"code"`
 		NewPassword string `json:"newPassword"`
 	}
@@ -166,14 +167,13 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.services.Password.ResetPassword(r.Context(), service.ResetPasswordInput{
-		Email:       body.Email,
 		Code:        body.Code,
 		NewPassword: body.NewPassword,
 	}); err != nil {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Password reset successfully"})
 }
 
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
@@ -237,7 +237,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Email verified successfully"})
 }
 
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
@@ -251,7 +251,7 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Verification email sent"})
 }
 
 // --- Session handlers ---
@@ -324,6 +324,22 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 
 // --- Invite handlers ---
 
+func (h *Handler) GetInviteInfo(w http.ResponseWriter, r *http.Request) {
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		writeError(w, domain.NewError("missing_token", "Token is required", 400))
+		return
+	}
+
+	invite, err := h.services.Invite.GetInviteByToken(r.Context(), token)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"email": invite.Email})
+}
+
 func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Code            string `json:"code"`
@@ -356,7 +372,7 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 || limit > 100 {
+	if limit <= 0 {
 		limit = 20
 	}
 
@@ -530,16 +546,30 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListInvites(w http.ResponseWriter, r *http.Request) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit == 0 || limit > 100 {
+	if limit <= 0 {
 		limit = 20
 	}
 
-	invites, total, err := h.services.Invite.ListInvites(r.Context(), offset, limit)
+	invites, total, err := h.services.Invite.ListInvites(r.Context(), service.ListInvitesInput{
+		Offset: offset,
+		Limit:  limit,
+		Search: r.URL.Query().Get("search"),
+		Status: r.URL.Query().Get("status"),
+	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"invites": invites, "total": total})
+}
+
+func (h *Handler) HardDeleteInvite(w http.ResponseWriter, r *http.Request) {
+	inviteID := r.PathValue("id")
+	if err := h.services.Invite.HardDeleteInvite(r.Context(), inviteID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Invite deleted"})
 }
 
 func (h *Handler) RevokeInvite(w http.ResponseWriter, r *http.Request) {
@@ -548,7 +578,7 @@ func (h *Handler) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Invite revoked"})
 }
 
 func (h *Handler) ResendInvite(w http.ResponseWriter, r *http.Request) {
@@ -557,7 +587,7 @@ func (h *Handler) ResendInvite(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Invite resent"})
 }
 
 // --- Helpers ---

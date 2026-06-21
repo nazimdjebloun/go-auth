@@ -13,6 +13,7 @@ import (
 
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 	_ "modernc.org/sqlite"
 )
@@ -69,7 +70,7 @@ func newSQLiteDB(t *testing.T) (*sql.DB, func()) {
 	return db, cleanup
 }
 
-func testConfig(db *sql.DB, mailer goauth.Mailer) goauth.Config {
+func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 	return goauth.Config{
 		AppName: "TestApp",
 		Database: goauth.DatabaseConfig{
@@ -84,7 +85,7 @@ func testConfig(db *sql.DB, mailer goauth.Mailer) goauth.Config {
 	}
 }
 
-func openAuth(t *testing.T, db *sql.DB, mailer goauth.Mailer) *goauth.Auth {
+func openAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 	t.Helper()
 	a, err := goauth.New(testConfig(db, mailer))
 	if err != nil {
@@ -279,7 +280,6 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 
 	// Reset password
 	if aerr := a.Services.Password.ResetPassword(ctx, service.ResetPasswordInput{
-		Email:       "admin@test.com",
 		Code:        resetToken,
 		NewPassword: "NewP@sswd2",
 	}); aerr != nil {

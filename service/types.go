@@ -47,7 +47,6 @@ type ForgotPasswordInput struct {
 }
 
 type ResetPasswordInput struct {
-	Email      string
 	Code       string
 	NewPassword string
 }
@@ -78,6 +77,13 @@ type AdminListUsersResult struct {
 	Total  int           `json:"total"`
 	Limit  int           `json:"limit,omitempty"`
 	Offset int           `json:"offset,omitempty"`
+}
+
+type ListInvitesInput struct {
+	Offset int
+	Limit  int
+	Search string
+	Status string
 }
 
 type CreateInviteInput struct {

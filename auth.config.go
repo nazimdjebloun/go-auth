@@ -60,6 +60,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
@@ -109,6 +110,7 @@ type CookieConfig struct {
 type Config struct {
 	// ─── Application ───────────────────────────────────────────────
 	AppName string // displayed in email subjects (default "App")
+	BaseURL string // frontend base URL for email links (e.g. "http://localhost:3000")
 
 	// ─── Database ──────────────────────────────────────────────────
 	Database DatabaseConfig
@@ -125,7 +127,7 @@ type Config struct {
 	// ─── Email & Verification ──────────────────────────────────────
 	RequireEmailVerification bool          // require email verification on signup (default false)
 	VerificationCodeTTL      time.Duration // how long verification codes live (default 15m)
-	Mailer                   Mailer        // custom mailer implementation (optional)
+	Mailer                   port.Mailer   // custom mailer implementation (optional)
 	Email                    *EmailConfig  // SMTP mailer config (used if Mailer is nil)
 
 	// ─── Invites ───────────────────────────────────────────────────
@@ -170,6 +172,10 @@ func (c Config) validate() error {
 
 	if (c.RequireEmailVerification || c.InviteOnly) && c.Mailer == nil && c.Email == nil {
 		errs = append(errs, errors.New("email: Mailer or Email config required when RequireEmailVerification or InviteOnly is enabled"))
+	}
+
+	if (c.Mailer != nil || c.Email != nil) && c.BaseURL == "" {
+		errs = append(errs, errors.New("base_url is required when email is configured"))
 	}
 
 	return errors.Join(errs...)

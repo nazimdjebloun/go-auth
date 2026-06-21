@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -282,12 +283,22 @@ func (m *mockInviteRepo) GetByEmail(ctx context.Context, email string) (*domain.
 	return inv, nil
 }
 
-func (m *mockInviteRepo) List(ctx context.Context, offset, limit int) ([]domain.Invite, int, error) {
+func (m *mockInviteRepo) List(ctx context.Context, filter port.InviteFilter) ([]domain.Invite, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []domain.Invite
 	for _, inv := range m.invites {
 		if inv.ID != "" && inv.Code != "" {
+			if filter.Search != nil && *filter.Search != "" {
+				if !strings.Contains(inv.Email, *filter.Search) {
+					continue
+				}
+			}
+			if filter.Status != nil && *filter.Status != "" {
+				if string(inv.Status) != *filter.Status {
+					continue
+				}
+			}
 			result = append(result, *inv)
 		}
 	}
@@ -300,6 +311,17 @@ func (m *mockInviteRepo) Update(ctx context.Context, invite *domain.Invite) erro
 	m.invites[invite.ID] = invite
 	m.invites[invite.Code] = invite
 	m.invites["email:"+invite.Email] = invite
+	return nil
+}
+
+func (m *mockInviteRepo) Delete(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if inv, ok := m.invites[id]; ok {
+		delete(m.invites, id)
+		delete(m.invites, inv.Code)
+		delete(m.invites, "email:"+inv.Email)
+	}
 	return nil
 }
 
@@ -326,7 +348,7 @@ func TestRegister(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	result, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
@@ -361,7 +383,7 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
@@ -390,7 +412,7 @@ func TestRegisterWeakPassword(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	_, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
@@ -410,7 +432,7 @@ func TestRegisterInvalidEmail(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	_, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "not-an-email",
@@ -430,7 +452,7 @@ func TestRegisterDefaultRole(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	result, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "registered@example.com",
@@ -456,7 +478,7 @@ func TestRegisterInviteOnly(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.InviteOnly = true
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil)
 
 	_, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
@@ -476,7 +498,7 @@ func TestLogin(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	regResult, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
@@ -512,7 +534,7 @@ func TestLoginWrongPassword(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	regResult, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
@@ -541,7 +563,7 @@ func TestLoginNonexistentUser(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	_, err := svc.Login(context.Background(), LoginInput{
 		Email:    "nobody@example.com",
@@ -563,7 +585,7 @@ func TestLoginUnverifiedUser_WithVerificationDisabled(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.RequireEmailVerification = false
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil)
 
 	regResult, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "unverified@example.com",
@@ -600,7 +622,7 @@ func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.RequireEmailVerification = true
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil)
 
 	regResult, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "unverified@example.com",
@@ -631,7 +653,7 @@ func TestValidateSession(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	registerResult, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
@@ -662,7 +684,7 @@ func TestValidateSessionInvalidToken(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	_, _, err := svc.ValidateSession(context.Background(), "invalid-token")
 	if err == nil {
@@ -678,7 +700,7 @@ func TestLogout(t *testing.T) {
 	gen := &mockTokenGen{length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	result, _ := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",

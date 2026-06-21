@@ -42,6 +42,29 @@ func NewInviteService(
 	}
 }
 
+func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (*domain.Invite, *domain.AuthError) {
+	invite, err := s.invites.GetByCode(ctx, hashToken(rawToken))
+	if err != nil || invite == nil {
+		return nil, domain.ErrInviteNotFound
+	}
+
+	if invite.Status != domain.InvitePending {
+		if invite.Status == domain.InviteAccepted {
+			return nil, domain.ErrInviteAlreadyUsed
+		}
+		if invite.Status == domain.InviteRevoked {
+			return nil, domain.ErrInviteRevoked
+		}
+		return nil, domain.ErrInviteNotFound
+	}
+
+	if time.Now().UTC().After(invite.ExpiresAt) {
+		return nil, domain.ErrInviteExpired
+	}
+
+	return invite, nil
+}
+
 func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInput) (*domain.Invite, *domain.AuthError) {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 
@@ -84,8 +107,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	}
 
 	if s.mailer != nil {
-		code := raw
-		url := "https://example.com/invite?code=" + code
+		url := s.config.BaseURL + "/invite-register?token=" + raw
 		html := "<p>You have been invited. Click <a href=\"" + url + "\">here</a> to accept.</p>"
 		text := "You have been invited. Accept here: " + url
 		if err := s.mailer.Send(ctx, input.Email, "You're invited to "+s.config.AppName, html, text); err != nil {
@@ -188,12 +210,32 @@ func (s *InviteService) RevokeInvite(ctx context.Context, inviteID string) *doma
 	return nil
 }
 
-func (s *InviteService) ListInvites(ctx context.Context, offset, limit int) ([]domain.Invite, int, *domain.AuthError) {
-	invites, total, err := s.invites.List(ctx, offset, limit)
+func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput) ([]domain.Invite, int, *domain.AuthError) {
+	var search, status *string
+	if input.Search != "" {
+		search = &input.Search
+	}
+	if input.Status != "" {
+		status = &input.Status
+	}
+
+	invites, total, err := s.invites.List(ctx, port.InviteFilter{
+		Search: search,
+		Status: status,
+		Offset: input.Offset,
+		Limit:  input.Limit,
+	})
 	if err != nil {
 		return nil, 0, domain.NewError("internal_error", "Failed to list invites", 500)
 	}
 	return invites, total, nil
+}
+
+func (s *InviteService) HardDeleteInvite(ctx context.Context, id string) *domain.AuthError {
+	if err := s.invites.Delete(ctx, id); err != nil {
+		return domain.NewError("internal_error", "Failed to delete invite", 500)
+	}
+	return nil
 }
 
 func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) *domain.AuthError {
@@ -225,8 +267,7 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 		return domain.NewError("internal_error", "Failed to update invite", 500)
 	}
 
-	code := raw
-	url := "https://example.com/invite?code=" + code
+	url := s.config.BaseURL + "/invite-register?token=" + raw
 	html := "<p>You have been invited. Click <a href=\"" + url + "\">here</a> to accept.</p>"
 	text := "You have been invited. Accept here: " + url
 	if err := s.mailer.Send(ctx, invite.Email, "You're invited to "+s.config.AppName, html, text); err != nil {

@@ -21,11 +21,13 @@ type AuthService struct {
 	mailer   port.Mailer
 	config   Config
 
-	sessionSvc *SessionService
+	sessionSvc  *SessionService
+	verifySvc   *VerificationService
 }
 
 type Config struct {
 	AppName             string
+	BaseURL             string
 	InviteOnly          bool
 	RequireEmailVerification bool
 	InviteTTL           time.Duration
@@ -44,6 +46,7 @@ func NewAuthService(
 	mailer port.Mailer,
 	config Config,
 	sessionSvc *SessionService,
+	verifySvc *VerificationService,
 ) *AuthService {
 	if config.PasswordPolicy.MinLength == 0 {
 		config.PasswordPolicy.MinLength = 8
@@ -60,6 +63,7 @@ func NewAuthService(
 		mailer:     mailer,
 		config:     config,
 		sessionSvc: sessionSvc,
+		verifySvc:  verifySvc,
 	}
 }
 
@@ -105,6 +109,12 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 
 	if err := s.users.Create(ctx, user); err != nil {
 		return nil, domain.NewError("internal_error", "Failed to create user", 500)
+	}
+
+	if s.config.RequireEmailVerification {
+		if err := s.verifySvc.SendVerification(ctx, user); err != nil {
+			return nil, err
+		}
 	}
 
 	session, rawToken, err := s.sessionSvc.Create(ctx, user.ID, "", "")
@@ -207,42 +217,6 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 
 	if err := s.users.Delete(ctx, userID); err != nil {
 		return domain.NewError("internal_error", "Failed to delete account", 500)
-	}
-
-	return nil
-}
-
-func (s *AuthService) sendVerificationEmail(ctx context.Context, user *domain.User) *domain.AuthError {
-	raw, err := s.gen.Generate()
-	if err != nil {
-		return domain.NewError("internal_error", "Failed to generate token", 500)
-	}
-
-	// For verification tokens we store the token directly (stateless verification uses code)
-	now := time.Now().UTC()
-	token := &domain.VerificationToken{
-		ID:        uuid.New().String(),
-		UserID:    &user.ID,
-		Email:     user.Email,
-		TokenHash: hashToken(raw),
-		Type:      domain.TokenVerifyEmail,
-		ExpiresAt: now.Add(s.config.TokenTTL),
-	}
-
-	if err := s.tokens.Create(ctx, token); err != nil {
-		return domain.NewError("internal_error", "Failed to store token", 500)
-	}
-
-	if s.mailer == nil {
-		return nil
-	}
-
-	code := raw
-	html := "<p>Your verification code is: <strong>" + code + "</strong></p>"
-	text := "Your verification code is: " + code
-
-	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, html, text); err != nil {
-		return domain.NewError("email_failed", "Failed to send verification email", 500)
 	}
 
 	return nil

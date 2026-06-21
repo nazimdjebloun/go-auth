@@ -71,8 +71,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 		return nil
 	}
 
-	code := raw
-	url := "https://example.com/reset?code=" + code
+	url := s.config.BaseURL + "/reset-password?token=" + raw
 	html := "<p>Click <a href=\"" + url + "\">here</a> to reset your password. Expires in 1 hour.</p>"
 	text := "Reset your password: " + url + " (expires in 1 hour)"
 
@@ -84,8 +83,6 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 }
 
 func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPasswordInput) *domain.AuthError {
-	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
-
 	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
 		return err
 	}
@@ -96,10 +93,6 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 	}
 
 	if token.Type != domain.TokenResetPass {
-		return domain.ErrTokenInvalid
-	}
-
-	if !strings.EqualFold(token.Email, input.Email) {
 		return domain.ErrTokenInvalid
 	}
 
