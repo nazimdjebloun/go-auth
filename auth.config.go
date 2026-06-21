@@ -38,7 +38,6 @@
 //	        log.Fatalf("goauth config invalid: %v", err)
 //	    }
 //
-//	    var err error
 //	    Auth, err = goauth.New(cfg)
 //	    if err != nil {
 //	        log.Fatalf("goauth init failed: %v", err)
@@ -166,6 +165,15 @@ func (c Config) validate() error {
 	if c.SessionTTL <= 0 {
 		errs = append(errs, errors.New("session_ttl must be positive"))
 	}
+	if c.SessionIdleTTL <= 0 {
+		errs = append(errs, errors.New("session_idle_ttl must be positive"))
+	}
+	if c.SessionIdleTTL > c.SessionTTL {
+		errs = append(errs, errors.New("session_idle_ttl must not exceed session_ttl"))
+	}
+	if len(c.AllowedOrigins) == 0 {
+		errs = append(errs, errors.New("allowed_origins must include at least one origin"))
+	}
 	if c.TokenTTL <= 0 {
 		errs = append(errs, errors.New("token_ttl must be positive"))
 	}
@@ -174,17 +182,6 @@ func (c Config) validate() error {
 	}
 
 	return errors.Join(errs...)
-}
-
-func WithAppName(name string) func(*Config) {
-	return func(c *Config) { c.AppName = name }
-}
-
-func WithDSN(driver Driver, url string) func(*Config) {
-	return func(c *Config) {
-		c.Database.Driver = driver
-		c.Database.URL = url
-	}
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -203,7 +200,7 @@ func DefaultConfig() Config {
 		Cookie: CookieConfig{
 			Name:     "goauth_session",
 			Path:     "/",
-			Secure:   true,
+			Secure:   false,
 			SameSite: http.SameSiteLaxMode,
 		},
 	}
@@ -211,12 +208,6 @@ func DefaultConfig() Config {
 
 // NewConfig applies the given option functions to DefaultConfig and validates.
 // If validation fails, the returned error includes all invalid fields.
-// Usage:
-//
-//	cfg, err := goauth.NewConfig(
-//	    goauth.WithAppName("myapp"),
-//	    goauth.WithDSN(goauth.DriverPostgres, "postgres://..."),
-//	)
 func NewConfig(opts ...func(*Config)) (Config, error) {
 	cfg := DefaultConfig()
 	for _, opt := range opts {
