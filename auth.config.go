@@ -1,7 +1,64 @@
+// Recommended consumer usage:
+//
+//	package main
+//
+//	import (
+//	    "log"
+//	    "net/http"
+//	    "os"
+//
+//	    "github.com/nazimdjebloun/go-auth"
+//	)
+//
+//	var Auth *goauth.Auth
+//
+//	func initAuth() {
+//	    cfg, err := goauth.NewConfig(
+//	        func(c *goauth.Config) {
+//	            c.AppName      = os.Getenv("APP_NAME")
+//	            c.Database.URL = os.Getenv("DATABASE_URL")
+//	        },
+//	        func(c *goauth.Config) {
+//	            c.Email = &goauth.EmailConfig{
+//	                SMTP: goauth.SMTPConfig{
+//	                    Host: os.Getenv("SMTP_HOST"),
+//	                    Port: 587,
+//	                    User: os.Getenv("SMTP_USER"),
+//	                    Pass: os.Getenv("SMTP_PASS"),
+//	                },
+//	                From: os.Getenv("EMAIL_FROM"),
+//	            }
+//	        },
+//	        func(c *goauth.Config) {
+//	            c.Cookie.Domain = os.Getenv("COOKIE_DOMAIN")
+//	            c.Cookie.Secure = os.Getenv("ENV") == "production"
+//	        },
+//	    )
+//	    if err != nil {
+//	        log.Fatalf("goauth config invalid: %v", err)
+//	    }
+//
+//	    var err error
+//	    Auth, err = goauth.New(cfg)
+//	    if err != nil {
+//	        log.Fatalf("goauth init failed: %v", err)
+//	    }
+//	}
+//
+// Then in main.go:
+//
+//	func main() {
+//	    initAuth()
+//	    mux := http.NewServeMux()
+//	    Auth.Mount(mux)
+//	    log.Fatal(http.ListenAndServe(":8080", mux))
+//	}
 package goauth
 
 import (
 	"database/sql"
+	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -89,6 +146,47 @@ type Config struct {
 	RateLimit      *ratelimit.Config  // rate limiting config (optional)
 }
 
+func (c Config) validate() error {
+	var errs []error
+
+	if c.Database.Driver == "" {
+		errs = append(errs, errors.New("database: driver cannot be empty"))
+	}
+	switch c.Database.Driver {
+	case DriverPostgres, DriverSQLite, DriverMySQL:
+	default:
+		errs = append(errs, fmt.Errorf("database: unsupported driver %q", c.Database.Driver))
+	}
+	if c.Database.URL == "" && c.Database.DB == nil && c.Database.Pool == nil {
+		errs = append(errs, errors.New("database: one of URL, DB, or Pool is required"))
+	}
+	if c.AppName == "" {
+		errs = append(errs, errors.New("app_name cannot be empty"))
+	}
+	if c.SessionTTL <= 0 {
+		errs = append(errs, errors.New("session_ttl must be positive"))
+	}
+	if c.TokenTTL <= 0 {
+		errs = append(errs, errors.New("token_ttl must be positive"))
+	}
+	if c.Cookie.Name == "" {
+		errs = append(errs, errors.New("cookie name cannot be empty"))
+	}
+
+	return errors.Join(errs...)
+}
+
+func WithAppName(name string) func(*Config) {
+	return func(c *Config) { c.AppName = name }
+}
+
+func WithDSN(driver Driver, url string) func(*Config) {
+	return func(c *Config) {
+		c.Database.Driver = driver
+		c.Database.URL = url
+	}
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
@@ -109,4 +207,23 @@ func DefaultConfig() Config {
 			SameSite: http.SameSiteLaxMode,
 		},
 	}
+}
+
+// NewConfig applies the given option functions to DefaultConfig and validates.
+// If validation fails, the returned error includes all invalid fields.
+// Usage:
+//
+//	cfg, err := goauth.NewConfig(
+//	    goauth.WithAppName("myapp"),
+//	    goauth.WithDSN(goauth.DriverPostgres, "postgres://..."),
+//	)
+func NewConfig(opts ...func(*Config)) (Config, error) {
+	cfg := DefaultConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if err := cfg.validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }

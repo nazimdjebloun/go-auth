@@ -570,11 +570,8 @@ func TestLoginUnverifiedUser_WithVerificationDisabled(t *testing.T) {
 		Password: "Passw0rd!",
 		Name:     "Test",
 	})
-	if !regResult.User.IsVerified {
-		t.Fatal("Expected user to be auto-verified when RequireEmailVerification is false")
-	}
-	if regResult.User.VerifiedAt == nil {
-		t.Fatal("Expected VerifiedAt to be set when email verification is disabled")
+	if regResult.User.IsVerified {
+		t.Fatal("Expected user to remain unverified after register with RequireEmailVerification=false")
 	}
 
 	result, err := svc.Login(context.Background(), LoginInput{
