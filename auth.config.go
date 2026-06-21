@@ -57,7 +57,6 @@ package goauth
 import (
 	"database/sql"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -150,11 +149,6 @@ func (c Config) validate() error {
 
 	if c.Database.Driver == "" {
 		errs = append(errs, errors.New("database: driver cannot be empty"))
-	}
-	switch c.Database.Driver {
-	case DriverPostgres, DriverSQLite, DriverMySQL:
-	default:
-		errs = append(errs, fmt.Errorf("database: unsupported driver %q", c.Database.Driver))
 	}
 	if c.Database.URL == "" && c.Database.DB == nil && c.Database.Pool == nil {
 		errs = append(errs, errors.New("database: one of URL, DB, or Pool is required"))

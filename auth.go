@@ -17,7 +17,6 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
-	"github.com/nazimdjebloun/go-auth/sessionrepo"
 	"github.com/nazimdjebloun/go-auth/sqlstore"
 	"github.com/nazimdjebloun/go-auth/token"
 )
@@ -98,13 +97,26 @@ func New(config Config) (*Auth, error) {
 
 	var pool *pgxpool.Pool
 	var sqlDB *sqlstore.DB
-	var sessRepo *sessionrepo.SessionRepository
+	var sessRepo *sqlstore.SessionRepository
 
 	if config.Database.Driver == "" {
 		config.Database.Driver = DriverPostgres
 	}
 	switch config.Database.Driver {
-	case DriverPostgres, DriverMySQL, DriverSQLite:
+	case DriverPostgres:
+		// supported natively
+	case DriverSQLite:
+		if !isDriverRegistered("sqlite") && !isDriverRegistered("sqlite3") {
+			return nil, fmt.Errorf(
+				"goauth: sqlite driver not registered — add the following import to your main package:\n\n\t_ \"modernc.org/sqlite\"",
+			)
+		}
+	case DriverMySQL:
+		if !isDriverRegistered("mysql") {
+			return nil, fmt.Errorf(
+				"goauth: mysql driver not registered — add the following import to your main package:\n\n\t_ \"github.com/go-sql-driver/mysql\"",
+			)
+		}
 	default:
 		return nil, fmt.Errorf("go-auth: unsupported driver %q", config.Database.Driver)
 	}
@@ -113,11 +125,11 @@ func New(config Config) (*Auth, error) {
 	case config.Database.Pool != nil:
 		pool = config.Database.Pool
 		rawDB := stdlib.OpenDBFromPool(pool)
-		sqlDB = sqlstore.NewDB(rawDB, string(config.Database.Driver))
-		sessRepo = sessionrepo.New(pool)
+		sqlDB = sqlstore.NewDB(rawDB, string(DriverPostgres))
+		sessRepo = sqlstore.NewSessionRepository(sqlDB)
 	case config.Database.DB != nil:
 		sqlDB = sqlstore.NewDB(config.Database.DB, string(config.Database.Driver))
-		sessRepo = sessionrepo.NewFromDB(config.Database.DB)
+		sessRepo = sqlstore.NewSessionRepository(sqlDB)
 	case config.Database.URL != "":
 		driverName := sqlDriverName(config.Database.Driver)
 		db, err := sql.Open(driverName, config.Database.URL)
@@ -130,14 +142,13 @@ func New(config Config) (*Auth, error) {
 		}
 		config.Database.opened = true
 		sqlDB = sqlstore.NewDB(db, string(config.Database.Driver))
-		sessRepo = sessionrepo.NewFromDB(db)
+		sessRepo = sqlstore.NewSessionRepository(sqlDB)
 		if config.Database.Driver == DriverPostgres {
 			pool, err = pgxpool.New(context.Background(), config.Database.URL)
 			if err != nil {
 				db.Close()
 				return nil, fmt.Errorf("go-auth: create connection pool: %w", err)
 			}
-			sessRepo = sessionrepo.New(pool)
 		}
 	default:
 		return nil, ErrNoDatabase
@@ -401,12 +412,21 @@ func min(a, b int) int {
 	return b
 }
 
+func isDriverRegistered(name string) bool {
+	for _, d := range sql.Drivers() {
+		if d == name {
+			return true
+		}
+	}
+	return false
+}
+
 func sqlDriverName(driver Driver) string {
 	switch driver {
 	case DriverPostgres:
 		return "pgx"
 	case DriverSQLite:
-		return "sqlite3"
+		return "sqlite"
 	default:
 		return string(driver)
 	}
