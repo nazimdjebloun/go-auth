@@ -98,14 +98,9 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		PasswordHash: hash,
 		Name:         input.Name,
 		Role:         domain.RoleUser,
-		IsVerified:   !s.config.RequireEmailVerification,
 		IsBanned:     false,
 		CreatedAt:    now,
 		UpdatedAt:    now,
-	}
-
-	if !s.config.RequireEmailVerification {
-		user.VerifiedAt = &now
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
