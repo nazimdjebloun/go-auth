@@ -133,13 +133,6 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}
 
 	now := time.Now().UTC()
-	role := domain.RoleUser
-	for _, adminEmail := range s.config.AdminEmails {
-		if strings.EqualFold(invite.Email, adminEmail) {
-			role = domain.RoleAdmin
-			break
-		}
-	}
 
 	name := input.Name
 	if strings.TrimSpace(name) == "" {
@@ -152,7 +145,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 		Email:        invite.Email,
 		PasswordHash: hash,
 		Name:         name,
-		Role:         role,
+		Role:         domain.RoleUser,
 		IsVerified:   true,
 		VerifiedAt:   &now,
 		IsBanned:     false,

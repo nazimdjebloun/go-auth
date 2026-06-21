@@ -35,6 +35,7 @@ type SessionRepository interface {
 	DeleteAllForUser(ctx context.Context, userID string) error
 	DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error
 	DeleteExpired(ctx context.Context) error
+	UpdateLastActiveAt(ctx context.Context, tokenHash string) error
 }
 
 type TokenRepository interface {

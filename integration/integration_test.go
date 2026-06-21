@@ -74,11 +74,8 @@ func testConfig(db *sql.DB, mailer goauth.Mailer) goauth.Config {
 		AppName: "TestApp",
 		Database: goauth.DatabaseConfig{
 			DB:     db,
-			Driver: "sqlite3",
+			Driver: goauth.DriverSQLite,
 		},
-		AdminEmails:        []string{"admin@test.com"},
-		BcryptCost:         4,
-		TokenLength:        32,
 		SessionTTL:         1 * time.Hour,
 		TokenTTL:           1 * time.Hour,
 		InviteTTL:          1 * time.Hour,

@@ -30,23 +30,23 @@ var _ port.SessionRepository = (*SessionRepository)(nil)
 
 func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error {
 	query := `
-		INSERT INTO sessions (id, user_id, token_hash, refresh_token, ip_address, user_agent, is_revoked, expires_at, created_at, revoked_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+		INSERT INTO sessions (id, user_id, token_hash, refresh_token, ip_address, user_agent, is_revoked, expires_at, created_at, revoked_at, last_active_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 	if r.pool != nil {
-		_, err := r.pool.Exec(ctx, query, s.ID, s.UserID, s.TokenHash, s.RefreshToken, s.IP, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.CreatedAt, s.RevokedAt)
+		_, err := r.pool.Exec(ctx, query, s.ID, s.UserID, s.TokenHash, s.RefreshToken, s.IP, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.CreatedAt, s.RevokedAt, s.LastActiveAt)
 		if err != nil {
 			return fmt.Errorf("session create: %w", err)
 		}
 		return nil
 	}
-	_, err := r.db.ExecContext(ctx, query, s.ID, s.UserID, s.TokenHash, s.RefreshToken, s.IP, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.CreatedAt, s.RevokedAt)
+	_, err := r.db.ExecContext(ctx, query, s.ID, s.UserID, s.TokenHash, s.RefreshToken, s.IP, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.CreatedAt, s.RevokedAt, s.LastActiveAt)
 	if err != nil {
 		return fmt.Errorf("session create: %w", err)
 	}
 	return nil
 }
 
-func scanSession(id, userID, tokenHash, refreshToken, ip, userAgent string, isRevoked bool, expiresAt, createdAt time.Time, revokedAt *time.Time) *domain.Session {
+func scanSession(id, userID, tokenHash, refreshToken, ip, userAgent string, isRevoked bool, expiresAt, createdAt time.Time, revokedAt *time.Time, lastActiveAt time.Time) *domain.Session {
 	return &domain.Session{
 		ID:           id,
 		UserID:       userID,
@@ -58,10 +58,11 @@ func scanSession(id, userID, tokenHash, refreshToken, ip, userAgent string, isRe
 		ExpiresAt:    expiresAt,
 		CreatedAt:    createdAt,
 		RevokedAt:    revokedAt,
+		LastActiveAt: lastActiveAt,
 	}
 }
 
-const sessionColumns = "id, user_id, token_hash, refresh_token, ip_address, user_agent, is_revoked, expires_at, created_at, revoked_at"
+const sessionColumns = "id, user_id, token_hash, refresh_token, ip_address, user_agent, is_revoked, expires_at, created_at, revoked_at, last_active_at"
 const sessionSelect = "SELECT " + sessionColumns + " FROM sessions"
 
 func (r *SessionRepository) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Session, error) {
@@ -115,6 +116,10 @@ func (r *SessionRepository) DeleteExpired(ctx context.Context) error {
 	return r.exec(ctx, "DELETE FROM sessions WHERE expires_at < $1", time.Now().UTC())
 }
 
+func (r *SessionRepository) UpdateLastActiveAt(ctx context.Context, tokenHash string) error {
+	return r.exec(ctx, "UPDATE sessions SET last_active_at = $1 WHERE token_hash = $2", time.Now().UTC(), tokenHash)
+}
+
 func (r *SessionRepository) exec(ctx context.Context, query string, args ...any) error {
 	var err error
 	if r.pool != nil {
@@ -133,14 +138,15 @@ func (r *SessionRepository) scanRow(row pgx.Row) (*domain.Session, error) {
 	var isRevoked bool
 	var expiresAt, createdAt time.Time
 	var revokedAt *time.Time
-	err := row.Scan(&id, &userID, &tokenHash, &refreshToken, &ip, &userAgent, &isRevoked, &expiresAt, &createdAt, &revokedAt)
+	var lastActiveAt time.Time
+	err := row.Scan(&id, &userID, &tokenHash, &refreshToken, &ip, &userAgent, &isRevoked, &expiresAt, &createdAt, &revokedAt, &lastActiveAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("session scan: %w", err)
 	}
-	return scanSession(id, userID, tokenHash, refreshToken, ip, userAgent, isRevoked, expiresAt, createdAt, revokedAt), nil
+	return scanSession(id, userID, tokenHash, refreshToken, ip, userAgent, isRevoked, expiresAt, createdAt, revokedAt, lastActiveAt), nil
 }
 
 func (r *SessionRepository) scanRowDB(row *sql.Row) (*domain.Session, error) {
@@ -148,14 +154,15 @@ func (r *SessionRepository) scanRowDB(row *sql.Row) (*domain.Session, error) {
 	var isRevoked bool
 	var expiresAt, createdAt time.Time
 	var revokedAt *time.Time
-	err := row.Scan(&id, &userID, &tokenHash, &refreshToken, &ip, &userAgent, &isRevoked, &expiresAt, &createdAt, &revokedAt)
+	var lastActiveAt time.Time
+	err := row.Scan(&id, &userID, &tokenHash, &refreshToken, &ip, &userAgent, &isRevoked, &expiresAt, &createdAt, &revokedAt, &lastActiveAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("session scan: %w", err)
 	}
-	return scanSession(id, userID, tokenHash, refreshToken, ip, userAgent, isRevoked, expiresAt, createdAt, revokedAt), nil
+	return scanSession(id, userID, tokenHash, refreshToken, ip, userAgent, isRevoked, expiresAt, createdAt, revokedAt, lastActiveAt), nil
 }
 
 func (r *SessionRepository) scanRows(rows pgx.Rows) ([]domain.Session, error) {
@@ -165,10 +172,11 @@ func (r *SessionRepository) scanRows(rows pgx.Rows) ([]domain.Session, error) {
 		var isRevoked bool
 		var expiresAt, createdAt time.Time
 		var revokedAt *time.Time
-		if err := rows.Scan(&id, &userID, &tokenHash, &refreshToken, &ip, &userAgent, &isRevoked, &expiresAt, &createdAt, &revokedAt); err != nil {
+		var lastActiveAt time.Time
+		if err := rows.Scan(&id, &userID, &tokenHash, &refreshToken, &ip, &userAgent, &isRevoked, &expiresAt, &createdAt, &revokedAt, &lastActiveAt); err != nil {
 			return nil, fmt.Errorf("session scan: %w", err)
 		}
-		sessions = append(sessions, *scanSession(id, userID, tokenHash, refreshToken, ip, userAgent, isRevoked, expiresAt, createdAt, revokedAt))
+		sessions = append(sessions, *scanSession(id, userID, tokenHash, refreshToken, ip, userAgent, isRevoked, expiresAt, createdAt, revokedAt, lastActiveAt))
 	}
 	if sessions == nil {
 		sessions = []domain.Session{}
@@ -183,10 +191,11 @@ func (r *SessionRepository) scanRowsDB(rows *sql.Rows) ([]domain.Session, error)
 		var isRevoked bool
 		var expiresAt, createdAt time.Time
 		var revokedAt *time.Time
-		if err := rows.Scan(&id, &userID, &tokenHash, &refreshToken, &ip, &userAgent, &isRevoked, &expiresAt, &createdAt, &revokedAt); err != nil {
+		var lastActiveAt time.Time
+		if err := rows.Scan(&id, &userID, &tokenHash, &refreshToken, &ip, &userAgent, &isRevoked, &expiresAt, &createdAt, &revokedAt, &lastActiveAt); err != nil {
 			return nil, fmt.Errorf("session scan: %w", err)
 		}
-		sessions = append(sessions, *scanSession(id, userID, tokenHash, refreshToken, ip, userAgent, isRevoked, expiresAt, createdAt, revokedAt))
+		sessions = append(sessions, *scanSession(id, userID, tokenHash, refreshToken, ip, userAgent, isRevoked, expiresAt, createdAt, revokedAt, lastActiveAt))
 	}
 	if sessions == nil {
 		sessions = []domain.Session{}

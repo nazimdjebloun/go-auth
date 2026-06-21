@@ -82,18 +82,14 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("goauth_session")
+	cfg := h.services.Session.Config()
+	cookie, err := r.Cookie(cfg.CookieName)
 	if err == nil && cookie.Value != "" {
 		if err := h.services.Session.Revoke(r.Context(), cookie.Value); err != nil {
 			log.Printf("logout revoke error: %v", err)
 		}
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:   "goauth_session",
-		Value:  "",
-		Path:   "/",
-		MaxAge: -1,
-	})
+	clearSessionCookie(w, h.services.Session)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 }
 
@@ -107,7 +103,8 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) CheckAuth(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie("goauth_session")
+	cfg := h.services.Session.Config()
+	cookie, err := r.Cookie(cfg.CookieName)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"user": nil})
 		return
@@ -572,9 +569,10 @@ func setSessionCookie(w http.ResponseWriter, svc *service.SessionService, token 
 	http.SetCookie(w, &http.Cookie{
 		Name:     cfg.CookieName,
 		Value:    token,
-		Path:     "/",
+		Domain:   cfg.Domain,
+		Path:     cfg.Path,
 		HttpOnly: true,
-		Secure:   cfg.SecureCookie,
+		Secure:   cfg.Secure,
 		SameSite: http.SameSite(cfg.SameSite),
 		MaxAge:   int(cfg.Duration.Seconds()),
 	})
@@ -585,9 +583,10 @@ func clearSessionCookie(w http.ResponseWriter, svc *service.SessionService) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     cfg.CookieName,
 		Value:    "",
-		Path:     "/",
+		Domain:   cfg.Domain,
+		Path:     cfg.Path,
 		HttpOnly: true,
-		Secure:   cfg.SecureCookie,
+		Secure:   cfg.Secure,
 		SameSite: http.SameSite(cfg.SameSite),
 		MaxAge:   -1,
 	})

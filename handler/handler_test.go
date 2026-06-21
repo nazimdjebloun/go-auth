@@ -171,6 +171,15 @@ func (m *mockSessionRepo) DeleteExpired(_ context.Context) error {
 	return nil
 }
 
+func (m *mockSessionRepo) UpdateLastActiveAt(_ context.Context, tokenHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s, ok := m.sessions[tokenHash]; ok {
+		s.LastActiveAt = time.Now().UTC()
+	}
+	return nil
+}
+
 type mockTokenRepo struct {
 	mu     sync.Mutex
 	tokens map[string]*domain.VerificationToken
@@ -249,12 +258,10 @@ func newTestHarness() *testHarness {
 	gen := &mockTokenGen{}
 
 	cfg := service.Config{
-		AppName:     "TestApp",
-		InviteTTL:   7 * 24 * time.Hour,
-		SessionTTL:  30 * 24 * time.Hour,
-		TokenTTL:    1 * time.Hour,
-		BcryptCost:  4,
-		TokenLength: 32,
+		AppName:    "TestApp",
+		InviteTTL:  7 * 24 * time.Hour,
+		SessionTTL: 30 * 24 * time.Hour,
+		TokenTTL:   1 * time.Hour,
 	}
 
 	sessCfg := service.DefaultSessionConfig()

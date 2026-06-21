@@ -19,17 +19,22 @@ type SessionService struct {
 
 type SessionConfig struct {
 	CookieName   string
-	Duration     time.Duration
-	SecureCookie bool
+	Domain       string
+	Path         string
+	Secure       bool
 	SameSite     int
+	Duration     time.Duration
+	IdleTTL      time.Duration
 }
 
 func DefaultSessionConfig() SessionConfig {
 	return SessionConfig{
-		CookieName:   "goauth_session",
-		Duration:     7 * 24 * time.Hour,
-		SecureCookie: true,
-		SameSite:     3, // http.SameSiteStrictMode
+		CookieName: "goauth_session",
+		Path:       "/",
+		Secure:     true,
+		SameSite:   2, // http.SameSiteLaxMode
+		Duration:   7 * 24 * time.Hour,
+		IdleTTL:    7 * 24 * time.Hour,
 	}
 }
 
@@ -45,13 +50,14 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 
 	now := time.Now().UTC()
 	session := &domain.Session{
-		ID:        uuid.New().String(),
-		UserID:    userID,
-		TokenHash: hashToken(token),
-		IP:        ip,
-		UserAgent: userAgent,
-		ExpiresAt: now.Add(s.config.Duration),
-		CreatedAt: now,
+		ID:           uuid.New().String(),
+		UserID:       userID,
+		TokenHash:    hashToken(token),
+		IP:           ip,
+		UserAgent:    userAgent,
+		ExpiresAt:    now.Add(s.config.Duration),
+		CreatedAt:    now,
+		LastActiveAt: now,
 	}
 
 	if err := s.repo.Create(ctx, session); err != nil {
@@ -75,7 +81,14 @@ func (s *SessionService) Validate(ctx context.Context, token string) (*domain.Se
 	if time.Now().UTC().After(session.ExpiresAt) {
 		return nil, domain.ErrSessionExpired
 	}
+	if s.config.IdleTTL > 0 && time.Now().UTC().After(session.LastActiveAt.Add(s.config.IdleTTL)) {
+		return nil, domain.ErrSessionExpired
+	}
 	return session, nil
+}
+
+func (s *SessionService) Touch(ctx context.Context, token string) error {
+	return s.repo.UpdateLastActiveAt(ctx, hashToken(token))
 }
 
 func (s *SessionService) Revoke(ctx context.Context, token string) error {
