@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"math/big"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -75,15 +77,23 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code, email strin
 	return nil
 }
 
+var codeChars = []byte("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+
+func generateCode() string {
+	b := make([]byte, 6)
+	for i := range b {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(codeChars))))
+		b[i] = codeChars[n.Int64()]
+	}
+	return string(b)
+}
+
 func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) *domain.AuthError {
 	if s.mailer == nil {
 		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
 
-	raw, err := s.gen.Generate()
-	if err != nil {
-		return domain.NewError("internal_error", "Failed to generate token", 500)
-	}
+	raw := generateCode()
 
 	now := time.Now().UTC()
 	token := &domain.VerificationToken{
@@ -99,9 +109,8 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		return domain.NewError("internal_error", "Failed to store token", 500)
 	}
 
-	url := s.config.BaseURL + "/verify-email?token=" + raw
-	html := "<p>Click <a href=\"" + url + "\">here</a> to verify your email. Expires in 1 hour.</p>"
-	text := "Verify your email: " + url + " (expires in 1 hour)"
+	html := "<p>Your verification code: <strong>" + raw + "</strong></p><p>Expires in 1 hour.</p>"
+	text := "Your verification code: " + raw + " (expires in 1 hour)"
 
 	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, html, text); err != nil {
 		return domain.NewError("email_failed", "Failed to send verification email", 500)
