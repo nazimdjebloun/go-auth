@@ -71,9 +71,12 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 		return nil
 	}
 
-	body := "Your password reset code: " + raw + "\n\nExpires in: " + s.config.TokenTTL.String()
+	code := raw
+	url := "https://example.com/reset?code=" + code
+	html := "<p>Click <a href=\"" + url + "\">here</a> to reset your password. Expires in 1 hour.</p>"
+	text := "Reset your password: " + url + " (expires in 1 hour)"
 
-	if err := s.mailer.Send(ctx, user.Email, "Reset your password - "+s.config.AppName, body); err != nil {
+	if err := s.mailer.Send(ctx, user.Email, "Reset your password - "+s.config.AppName, html, text); err != nil {
 		return domain.NewError("email_failed", "Failed to send reset email", 500)
 	}
 

@@ -1,63 +1,55 @@
 package middleware
 
 import (
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
-type rateEntry struct {
-	count   int
-	resetAt time.Time
-}
-
-type memoryStore struct {
-	mu    sync.Mutex
-	store map[string]*rateEntry
-}
-
-func (s *memoryStore) Increment(key string, window time.Duration) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	entry, ok := s.store[key]
-	if !ok || time.Now().After(entry.resetAt) {
-		entry = &rateEntry{count: 0, resetAt: time.Now().Add(window)}
-		s.store[key] = entry
+func extractIP(r *http.Request, cfg *ratelimit.Config) string {
+	ip := ""
+	if cfg.IPAddressHeader != "" {
+		ip = r.Header.Get(cfg.IPAddressHeader)
+	}
+	if ip == "" {
+		ip = r.Header.Get("X-Forwarded-For")
+	}
+	if ip == "" {
+		ip = r.Header.Get("X-Real-IP")
+	}
+	if ip == "" {
+		ip = r.RemoteAddr
 	}
 
-	entry.count++
-	return entry.count, nil
-}
-
-func (s *memoryStore) Reset(key string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.store, key)
-	return nil
-}
-
-func realIP(r *http.Request, trustedProxies map[string]bool) string {
-	directIP, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		directIP = r.RemoteAddr
+	if idx := strings.Index(ip, ","); idx != -1 {
+		ip = strings.TrimSpace(ip[:idx])
 	}
 
-	if trustedProxies[directIP] || trustedProxies["*"] {
-		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			parts := strings.Split(xff, ",")
-			return strings.TrimSpace(parts[0])
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+
+	parsed := net.ParseIP(ip)
+	if parsed != nil && parsed.To4() == nil {
+		subnet := cfg.IPv6Subnet
+		if subnet <= 0 {
+			subnet = 64
 		}
-		if xri := r.Header.Get("X-Real-IP"); xri != "" {
-			return strings.TrimSpace(xri)
-		}
+		mask := net.CIDRMask(subnet, 128)
+		ip = parsed.Mask(mask).String()
 	}
-	return directIP
+
+	return ip
+}
+
+func rateLimitKey(r *http.Request, ip string) string {
+	return fmt.Sprintf("%s %s:%s", r.Method, r.URL.Path, ip)
 }
 
 func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
@@ -69,7 +61,7 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 	if cfg.Store != nil {
 		store = cfg.Store
 	} else {
-		store = &memoryStore{store: make(map[string]*rateEntry)}
+		store = ratelimit.NewMemoryStore()
 	}
 
 	trusted := make(map[string]bool)
@@ -84,7 +76,7 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			clientIP := realIP(r, trusted)
+			clientIP := extractIP(r, cfg)
 
 			if trusted[clientIP] {
 				next.ServeHTTP(w, r)
@@ -96,8 +88,8 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 				return
 			}
 
-			key := r.Method + " " + r.URL.Path
-			rate, ok := cfg.Endpoints[key]
+			routeKey := r.Method + " " + r.URL.Path
+			rate, ok := cfg.Routes[routeKey]
 			if !ok {
 				rate = cfg.Default
 			}
@@ -107,15 +99,18 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 				return
 			}
 
-			clientKey := clientIP + ":" + key
-			count, err := store.Increment(clientKey, rate.Window)
+			storeKey := rateLimitKey(r, clientIP)
+			result, err := store.Increment(storeKey, rate.Window)
 			if err != nil {
 				log.Printf("rate limit error: %v", err)
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			if count > rate.Requests {
+			if result.Count > rate.Requests {
+				w.Header().Set("X-RateLimit-Limit", strconv.Itoa(rate.Requests))
+				w.Header().Set("X-RateLimit-Remaining", "0")
+				w.Header().Set("Retry-After", strconv.Itoa(int(time.Until(result.ResetAt).Seconds())))
 				writeJSON(w, http.StatusTooManyRequests, map[string]string{
 					"error":   "rate_limit_exceeded",
 					"message": "Too many requests, please try again later",

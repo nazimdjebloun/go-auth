@@ -3,33 +3,50 @@ package goauth
 import (
 	"context"
 	"fmt"
-	"net/smtp"
+
+	"github.com/wneessen/go-mail"
 )
 
 type SMTPMailer struct {
-	host string
-	port int
-	user string
-	pass string
-	from string
+	cfg EmailConfig
 }
 
-func NewSMTPMailer(cfg SMTPConfig, from string) *SMTPMailer {
-	return &SMTPMailer{
-		host: cfg.Host,
-		port: cfg.Port,
-		user: cfg.User,
-		pass: cfg.Pass,
-		from: from,
+func newSMTPMailer(cfg EmailConfig) (*SMTPMailer, error) {
+	if cfg.Host == "" {
+		return nil, fmt.Errorf("goauth: SMTP host is required")
 	}
+	if cfg.From == "" {
+		return nil, fmt.Errorf("goauth: email From address is required")
+	}
+	return &SMTPMailer{cfg: cfg}, nil
 }
 
-func (m *SMTPMailer) Send(ctx context.Context, to, subject, body string) error {
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=\"UTF-8\"\r\n\r\n%s",
-		m.from, to, subject, body)
+func (m *SMTPMailer) Send(ctx context.Context, to, subject, html, text string) error {
+	msg := mail.NewMsg()
+	if err := msg.From(m.cfg.From); err != nil {
+		return fmt.Errorf("goauth: invalid From address: %w", err)
+	}
+	if err := msg.To(to); err != nil {
+		return fmt.Errorf("goauth: invalid To address: %w", err)
+	}
+	msg.Subject(subject)
+	msg.SetBodyString(mail.TypeTextHTML, html)
+	msg.AddAlternativeString(mail.TypeTextPlain, text)
 
-	auth := smtp.PlainAuth("", m.user, m.pass, m.host)
-	addr := fmt.Sprintf("%s:%d", m.host, m.port)
+	client, err := mail.NewClient(
+		m.cfg.Host,
+		mail.WithPort(m.cfg.Port),
+		mail.WithUsername(m.cfg.User),
+		mail.WithPassword(m.cfg.Pass),
+		mail.WithTLSPolicy(mail.TLSOpportunistic),
+		mail.WithSMTPAuth(mail.SMTPAuthPlain),
+	)
+	if err != nil {
+		return fmt.Errorf("goauth: failed to create SMTP client: %w", err)
+	}
 
-	return smtp.SendMail(addr, auth, m.from, []string{to}, []byte(msg))
+	if err := client.DialAndSendWithContext(ctx, msg); err != nil {
+		return fmt.Errorf("goauth: failed to send email: %w", err)
+	}
+	return nil
 }

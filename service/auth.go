@@ -237,9 +237,11 @@ func (s *AuthService) sendVerificationEmail(ctx context.Context, user *domain.Us
 		return nil
 	}
 
-	body := "Your verification code: " + raw + "\n\nExpires in: " + s.config.TokenTTL.String()
+	code := raw
+	html := "<p>Your verification code is: <strong>" + code + "</strong></p>"
+	text := "Your verification code is: " + code
 
-	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, body); err != nil {
+	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, html, text); err != nil {
 		return domain.NewError("email_failed", "Failed to send verification email", 500)
 	}
 

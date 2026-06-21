@@ -174,7 +174,11 @@ func New(config Config) (*Auth, error) {
 	if config.Mailer != nil {
 		mailer = config.Mailer
 	} else if config.Email != nil {
-		mailer = NewSMTPMailer(config.Email.SMTP, config.Email.From)
+		m, err := newSMTPMailer(*config.Email)
+		if err != nil {
+			return nil, err
+		}
+		mailer = m
 	}
 
 	serviceCfg := service.Config{

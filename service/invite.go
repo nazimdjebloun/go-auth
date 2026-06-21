@@ -84,8 +84,11 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	}
 
 	if s.mailer != nil {
-		body := "You're invited to " + s.config.AppName + "!\n\nUse this code to register: " + raw + "\n\nExpires in: " + s.config.InviteTTL.String()
-		if err := s.mailer.Send(ctx, input.Email, "You're invited to "+s.config.AppName, body); err != nil {
+		code := raw
+		url := "https://example.com/invite?code=" + code
+		html := "<p>You have been invited. Click <a href=\"" + url + "\">here</a> to accept.</p>"
+		text := "You have been invited. Accept here: " + url
+		if err := s.mailer.Send(ctx, input.Email, "You're invited to "+s.config.AppName, html, text); err != nil {
 			return nil, domain.NewError("email_failed", "Failed to send invite email", 500)
 		}
 	}
@@ -222,8 +225,11 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 		return domain.NewError("internal_error", "Failed to update invite", 500)
 	}
 
-	body := "You're invited to " + s.config.AppName + "!\n\nUse this code to register: " + raw + "\n\nExpires in: " + s.config.InviteTTL.String()
-	if err := s.mailer.Send(ctx, invite.Email, "You're invited to "+s.config.AppName, body); err != nil {
+	code := raw
+	url := "https://example.com/invite?code=" + code
+	html := "<p>You have been invited. Click <a href=\"" + url + "\">here</a> to accept.</p>"
+	text := "You have been invited. Accept here: " + url
+	if err := s.mailer.Send(ctx, invite.Email, "You're invited to "+s.config.AppName, html, text); err != nil {
 		return domain.NewError("email_failed", "Failed to send invite email", 500)
 	}
 
