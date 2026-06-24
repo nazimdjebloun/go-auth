@@ -138,6 +138,14 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return "", false, domain.NewError("invalid_state", "Invalid or expired OAuth state", 400)
 	}
 
+	if stateToken.UsedAt != nil {
+		return "", false, domain.NewError("state_used", "OAuth state token already used", 400)
+	}
+
+	if time.Now().UTC().After(stateToken.ExpiresAt) {
+		return "", false, domain.NewError("state_expired", "OAuth state token has expired", 400)
+	}
+
 	// Mark state as used immediately — one-time use
 	if markErr := s.tokenRepo.MarkUsed(ctx, stateToken.ID); markErr != nil {
 		return "", false, domain.NewError("internal_error", "Failed to consume state token", 500)

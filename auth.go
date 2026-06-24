@@ -271,7 +271,7 @@ func New(config Config) (*Auth, error) {
 	authMW := middleware.AuthMiddleware(sessSvc, userRepo)
 	adminMW := middleware.RequireRole(domain.RoleAdmin)
 	rateLimitMW := middleware.RateLimit(config.RateLimit)
-	csrfMW := middleware.OriginCheck(config.AllowedOrigins)
+	csrfMW := middleware.OriginCheck(config.AllowedOrigins, config.AllowMissingCSRFHeaders)
 
 	return &Auth{
 		Config:          config,

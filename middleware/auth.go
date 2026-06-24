@@ -31,7 +31,7 @@ func AuthMiddleware(sessionSvc *service.SessionService, userRepo interface {
 }) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cookie, err := r.Cookie("goauth_session")
+			cookie, err := r.Cookie(sessionSvc.Config().CookieName)
 			if err != nil {
 				writeJSON(w, http.StatusUnauthorized, map[string]string{
 					"error":   "unauthorized",

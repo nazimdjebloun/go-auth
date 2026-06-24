@@ -136,8 +136,9 @@ type Config struct {
 	InviteTTL  time.Duration // how long invites last (default 7d)
 
 	// ─── Security ──────────────────────────────────────────────────
-	AllowedOrigins []string           // allowed origins for CSRF Origin/Referer check
-	RateLimit      *ratelimit.Config  // rate limiting config (optional)
+	AllowedOrigins          []string          // allowed origins for CSRF Origin/Referer check
+	AllowMissingCSRFHeaders bool              // allow requests without Origin/Referer headers (default false)
+	RateLimit               *ratelimit.Config // rate limiting config (optional)
 
 	// ─── OAuth / Providers ─────────────────────────────────────────
 	Providers map[string]ProviderConfig
@@ -213,7 +214,8 @@ func DefaultConfig() Config {
 		SessionTTL:          30 * 24 * time.Hour,
 		SessionIdleTTL:      7 * 24 * time.Hour,
 		TokenTTL:            1 * time.Hour,
-		RateLimit: ratelimit.DefaultRateLimitConfig(),
+		RateLimit:               ratelimit.DefaultRateLimitConfig(),
+		AllowMissingCSRFHeaders: false,
 		PasswordPolicy: domain.PasswordPolicy{
 			MinLength:    8,
 			RequireDigit: true,

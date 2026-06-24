@@ -10,8 +10,9 @@ import (
 // state-changing requests (POST, PUT, PATCH, DELETE) to defend against CSRF.
 // When allowedOrigins contains "*" the check is skipped.
 // When allowedOrigins is empty, same-origin requests (Origin matching r.Host)
-// are still permitted — you can configure AllowedOrigins for stricter control.
-func OriginCheck(allowedOrigins []string) func(http.Handler) http.Handler {
+// are still permitted.
+// If allowMissing is false, requests without Origin and Referer are rejected.
+func OriginCheck(allowedOrigins []string, allowMissing bool) func(http.Handler) http.Handler {
 	allowAll := false
 	origins := make(map[string]bool)
 	for _, o := range allowedOrigins {
@@ -43,9 +44,13 @@ func OriginCheck(allowedOrigins []string) func(http.Handler) http.Handler {
 			origin := r.Header.Get("Origin")
 			referer := r.Header.Get("Referer")
 
-			// No Origin/Referer — treat as same-origin (e.g. direct API call, curl).
+			// No Origin/Referer
 			if origin == "" && referer == "" {
-				next.ServeHTTP(w, r)
+				if allowMissing {
+					next.ServeHTTP(w, r)
+					return
+				}
+				http.Error(w, "Forbidden - CSRF headers missing", http.StatusForbidden)
 				return
 			}
 

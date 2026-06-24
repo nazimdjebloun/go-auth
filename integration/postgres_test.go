@@ -40,6 +40,8 @@ func TestPostgres_RegisterAndValidateSession(t *testing.T) {
 	}
 	defer db.Close()
 
+	cleanupPostgres(t, db)
+
 	mailer := &testMailer{}
 	cfg := postgresConfig(dsn, mailer)
 	cfg.Database.DB = db
@@ -113,6 +115,8 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	}
 	defer db.Close()
 
+	cleanupPostgres(t, db)
+
 	mailer := &testMailer{}
 	cfg := postgresConfig(dsn, mailer)
 	cfg.Database.DB = db
@@ -142,7 +146,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	}
 
 	body := mailer.lastBody()
-	resetToken := extractCodeAfter(body, "Your password reset code: ")
+	resetToken := extractTokenFromEmail(body)
 	if resetToken == "" {
 		t.Fatal("could not extract reset token from email")
 	}
@@ -161,5 +165,19 @@ func TestPostgres_PasswordReset(t *testing.T) {
 		Password: "NewP@sswd2",
 	}); aerr != nil {
 		t.Fatal("login with new password failed:", aerr)
+	}
+}
+
+func cleanupPostgres(t *testing.T, db *sql.DB) {
+	t.Helper()
+	_, err := db.Exec("TRUNCATE TABLE users, sessions, verification_tokens, provider_accounts, invites CASCADE")
+	if err != nil {
+		t.Logf("TRUNCATE failed, attempting DELETE fallback: %v", err)
+		tables := []string{"invites", "provider_accounts", "verification_tokens", "sessions", "users"}
+		for _, table := range tables {
+			if _, err := db.Exec("DELETE FROM " + table); err != nil {
+				t.Fatalf("failed to delete from %s: %v", table, err)
+			}
+		}
 	}
 }
