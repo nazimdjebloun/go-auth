@@ -24,6 +24,7 @@ type UserRepository interface {
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, filter UserFilter) ([]domain.User, int, error)
+	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, tokenID string) error
 }
 
 type SessionRepository interface {
@@ -43,6 +44,7 @@ type TokenRepository interface {
 	GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error)
 	MarkUsed(ctx context.Context, id string) error
 	DeleteExpired(ctx context.Context) error
+	DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error
 }
 
 type InviteFilter struct {
@@ -60,4 +62,11 @@ type InviteRepository interface {
 	List(ctx context.Context, filter InviteFilter) ([]domain.Invite, int, error)
 	Update(ctx context.Context, invite *domain.Invite) error
 	Delete(ctx context.Context, id string) error
+}
+
+type ProviderAccountRepository interface {
+	Create(ctx context.Context, pa *domain.ProviderAccount) error
+	GetByProvider(ctx context.Context, provider, providerUserID string) (*domain.ProviderAccount, error)
+	ListByUserID(ctx context.Context, userID string) ([]domain.ProviderAccount, error)
+	Delete(ctx context.Context, userID, provider string) error
 }

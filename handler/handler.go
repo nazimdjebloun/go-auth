@@ -19,6 +19,7 @@ type Services struct {
 	Verify   *service.VerificationService
 	Invite   *service.InviteService
 	Admin    *service.AdminService
+	OAuth    *service.OAuthService
 }
 
 type Handler struct {
@@ -206,6 +207,46 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
+}
+
+func (h *Handler) SetPasswordRequest(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+
+	if err := h.services.Password.RequestSetPassword(r.Context(), user.ID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "If the email exists, a set password link has been sent."})
+}
+
+func (h *Handler) SetPasswordConfirm(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+
+	var body struct {
+		Code        string `json:"code"`
+		NewPassword string `json:"newPassword"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	if err := h.services.Password.ConfirmSetPassword(r.Context(), service.ConfirmSetPasswordInput{
+		UserID:      user.ID,
+		Code:        body.Code,
+		NewPassword: body.NewPassword,
+	}); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Password set successfully"})
 }
 
 func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {

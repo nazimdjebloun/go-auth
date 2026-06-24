@@ -55,6 +55,7 @@ package goauth
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -137,6 +138,16 @@ type Config struct {
 	// ─── Security ──────────────────────────────────────────────────
 	AllowedOrigins []string           // allowed origins for CSRF Origin/Referer check
 	RateLimit      *ratelimit.Config  // rate limiting config (optional)
+
+	// ─── OAuth / Providers ─────────────────────────────────────────
+	Providers map[string]ProviderConfig
+}
+
+type ProviderConfig struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	Scopes       []string // optional custom scopes; defaults defined per provider
 }
 
 func (c Config) validate() error {
@@ -176,6 +187,18 @@ func (c Config) validate() error {
 
 	if (c.Mailer != nil || c.Email != nil) && c.BaseURL == "" {
 		errs = append(errs, errors.New("base_url is required when email is configured"))
+	}
+
+	for name, p := range c.Providers {
+		if p.ClientID == "" {
+			errs = append(errs, fmt.Errorf("provider %q: ClientID is required", name))
+		}
+		if p.ClientSecret == "" {
+			errs = append(errs, fmt.Errorf("provider %q: ClientSecret is required", name))
+		}
+		if p.RedirectURL == "" {
+			errs = append(errs, fmt.Errorf("provider %q: RedirectURL is required", name))
+		}
 	}
 
 	return errors.Join(errs...)

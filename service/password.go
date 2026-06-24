@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -89,23 +92,23 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 
 	token, err := s.tokens.GetByHash(ctx, hashToken(input.Code))
 	if err != nil || token == nil {
-		return domain.ErrTokenInvalid
+		return domain.ErrResetTokenInvalid
 	}
 
 	if token.Type != domain.TokenResetPass {
-		return domain.ErrTokenInvalid
+		return domain.ErrResetTokenInvalid
 	}
 
 	if token.UsedAt != nil {
-		return domain.ErrTokenAlreadyUsed
+		return domain.ErrResetTokenAlreadyUsed
 	}
 
 	if time.Now().UTC().After(token.ExpiresAt) {
-		return domain.ErrTokenExpired
+		return domain.ErrResetTokenExpired
 	}
 
 	if token.UserID == nil {
-		return domain.ErrTokenInvalid
+		return domain.ErrResetTokenInvalid
 	}
 
 	user, err := s.users.GetByID(ctx, *token.UserID)
@@ -127,6 +130,106 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 
 	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
 		return domain.NewError("internal_error", "Failed to mark token used", 500)
+	}
+
+	return nil
+}
+
+func (s *PasswordService) generateOTP() (string, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(100000000))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%08d", n.Int64()), nil
+}
+
+func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string) *domain.AuthError {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+
+	if user.HasPassword() {
+		return domain.NewError("already_set", "User already has a password", 400)
+	}
+
+	raw, err := s.generateOTP()
+	if err != nil {
+		return domain.NewError("internal_error", "Failed to generate OTP", 500)
+	}
+
+	now := time.Now().UTC()
+
+	if err := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenSetPass); err != nil {
+		return domain.NewError("internal_error", "Failed to invalidate previous tokens", 500)
+	}
+
+	token := &domain.VerificationToken{
+		ID:        generateID(),
+		UserID:    &user.ID,
+		Email:     user.Email,
+		TokenHash: hashToken(raw),
+		Type:      domain.TokenSetPass,
+		ExpiresAt: now.Add(10 * time.Minute),
+	}
+
+	if err := s.tokens.Create(ctx, token); err != nil {
+		return domain.NewError("internal_error", "Failed to store token", 500)
+	}
+
+	if s.mailer != nil {
+		html := "<p>Your set password code: <strong>" + raw + "</strong></p><p>Expires in 10 minutes.</p>"
+		text := "Your set password code: " + raw + " (expires in 10 minutes)"
+		if err := s.mailer.Send(ctx, user.Email, "Set your password - "+s.config.AppName, html, text); err != nil {
+			return domain.NewError("email_failed", "Failed to send email", 500)
+		}
+	}
+
+	return nil
+}
+
+func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmSetPasswordInput) *domain.AuthError {
+	user, err := s.users.GetByID(ctx, input.UserID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+
+	if user.HasPassword() {
+		return domain.NewError("already_set", "User already has a password", 400)
+	}
+
+	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
+		return err
+	}
+
+	token, err := s.tokens.GetByHash(ctx, hashToken(input.Code))
+	if err != nil || token == nil {
+		return domain.NewError("invalid_code", "Invalid set password code", 400)
+	}
+
+	if token.Type != domain.TokenSetPass {
+		return domain.NewError("invalid_code", "Invalid set password code", 400)
+	}
+
+	if token.UsedAt != nil {
+		return domain.NewError("code_used", "Set password code has already been used", 400)
+	}
+
+	if time.Now().UTC().After(token.ExpiresAt) {
+		return domain.ErrResetTokenExpired
+	}
+
+	if token.UserID == nil || *token.UserID != input.UserID {
+		return domain.NewError("invalid_code", "Invalid set password code", 400)
+	}
+
+	hash, err := s.hasher.Hash(input.NewPassword)
+	if err != nil {
+		return domain.NewError("internal_error", "Failed to hash password", 500)
+	}
+
+	if err := s.users.SetPasswordAndVerify(ctx, input.UserID, hash, token.ID); err != nil {
+		return domain.NewError("internal_error", "Failed to set password", 500)
 	}
 
 	return nil

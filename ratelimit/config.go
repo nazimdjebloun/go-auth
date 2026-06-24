@@ -39,8 +39,10 @@ func DefaultRateLimitConfig() *Config {
 			"POST /auth/register":        {Requests: 3, Window: time.Minute},
 			"POST /auth/forgot-password": {Requests: 3, Window: time.Hour},
 			"POST /auth/verify-email":    {Requests: 10, Window: time.Minute},
-			"POST /auth/reset-password":  {Requests: 5, Window: time.Minute},
-			"POST /auth/invite":          {Requests: 10, Window: time.Minute},
+			"POST /auth/reset-password":          {Requests: 5, Window: time.Minute},
+			"POST /auth/set-password/request":    {Requests: 3, Window: 15 * time.Minute},
+			"POST /auth/set-password/confirm":    {Requests: 5, Window: 10 * time.Minute},
+			"POST /auth/invite":                  {Requests: 10, Window: time.Minute},
 		},
 	}
 }
