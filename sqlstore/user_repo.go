@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -83,6 +84,31 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 		user.Email, user.PasswordHash, user.Name, user.Role,
 		user.IsVerified, user.VerifiedAt, user.IsBanned, user.BannedAt, user.UpdatedAt, user.ID)
 	return err
+}
+
+func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, tokenID string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UTC()
+
+	_, err = tx.ExecContext(ctx, r.db.Rebind(`
+		UPDATE users SET password_hash=$1, is_verified=true, verified_at=$2, updated_at=$2
+		WHERE id=$3`), passwordHash, now, userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.ExecContext(ctx, r.db.Rebind(`
+		UPDATE verification_tokens SET used_at=$1 WHERE id=$2 AND used_at IS NULL`), now, tokenID)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {

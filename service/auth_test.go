@@ -2,350 +2,19 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
-	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
 
-type mockUserRepo struct {
-	mu    sync.Mutex
-	users map[string]*domain.User
-}
-
-func newMockUserRepo() *mockUserRepo {
-	return &mockUserRepo{users: make(map[string]*domain.User)}
-}
-
-func (m *mockUserRepo) Create(ctx context.Context, user *domain.User) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.users[user.ID] = user
-	m.users[user.Email] = user
-	return nil
-}
-
-func (m *mockUserRepo) GetByID(ctx context.Context, id string) (*domain.User, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	u, ok := m.users[id]
-	if !ok {
-		return nil, nil
-	}
-	return u, nil
-}
-
-func (m *mockUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	u, ok := m.users[email]
-	if !ok {
-		return nil, nil
-	}
-	return u, nil
-}
-
-func (m *mockUserRepo) Update(ctx context.Context, user *domain.User) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.users[user.ID] = user
-	m.users[user.Email] = user
-	return nil
-}
-
-func (m *mockUserRepo) Delete(ctx context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	u := m.users[id]
-	if u != nil {
-		delete(m.users, u.Email)
-	}
-	delete(m.users, id)
-	return nil
-}
-
-func (m *mockUserRepo) List(ctx context.Context, filter port.UserFilter) ([]domain.User, int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return nil, 0, nil
-}
-
-type mockTokenGen struct {
-	length int
-}
-
-func (m *mockTokenGen) Generate() (string, error) {
-	b := make([]byte, m.length)
-	rand.Read(b)
-	return hex.EncodeToString(b), nil
-}
-
-type mockSessionRepo struct {
-	mu       sync.Mutex
-	sessions map[string]*domain.Session
-}
-
-func newMockSessionRepo() *mockSessionRepo {
-	return &mockSessionRepo{sessions: make(map[string]*domain.Session)}
-}
-
-func (m *mockSessionRepo) Create(ctx context.Context, s *domain.Session) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.sessions[s.ID] = s
-	m.sessions[s.TokenHash] = s
-	return nil
-}
-
-func (m *mockSessionRepo) GetByTokenHash(ctx context.Context, hash string) (*domain.Session, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s, ok := m.sessions[hash]
-	if !ok {
-		return nil, nil
-	}
-	return s, nil
-}
-
-func (m *mockSessionRepo) ListByUserID(ctx context.Context, userID string) ([]domain.Session, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var result []domain.Session
-	for _, s := range m.sessions {
-		if s.UserID == userID && !s.IsRevoked {
-			result = append(result, *s)
-		}
-	}
-	return result, nil
-}
-
-func (m *mockSessionRepo) Delete(ctx context.Context, tokenHash string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.sessions, tokenHash)
-	return nil
-}
-
-func (m *mockSessionRepo) DeleteByID(ctx context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s, ok := m.sessions[id]
-	if ok {
-		delete(m.sessions, s.TokenHash)
-		delete(m.sessions, id)
-	}
-	return nil
-}
-
-func (m *mockSessionRepo) DeleteAllForUser(ctx context.Context, userID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for k, s := range m.sessions {
-		if s.UserID == userID {
-			delete(m.sessions, k)
-		}
-	}
-	return nil
-}
-
-func (m *mockSessionRepo) DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for k, s := range m.sessions {
-		if s.UserID == userID && s.ID != exceptSessionID {
-			delete(m.sessions, k)
-		}
-	}
-	return nil
-}
-
-func (m *mockSessionRepo) DeleteExpired(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockSessionRepo) UpdateLastActiveAt(ctx context.Context, tokenHash string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if s, ok := m.sessions[tokenHash]; ok {
-		s.LastActiveAt = time.Now().UTC()
-	}
-	return nil
-}
-
-type mockTokenRepo struct {
-	mu     sync.Mutex
-	tokens map[string]*domain.VerificationToken
-}
-
-func newMockTokenRepo() *mockTokenRepo {
-	return &mockTokenRepo{tokens: make(map[string]*domain.VerificationToken)}
-}
-
-func (m *mockTokenRepo) Create(ctx context.Context, t *domain.VerificationToken) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.tokens[t.ID] = t
-	m.tokens[t.TokenHash] = t
-	return nil
-}
-
-func (m *mockTokenRepo) GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	t, ok := m.tokens[hash]
-	if !ok {
-		return nil, nil
-	}
-	return t, nil
-}
-
-func (m *mockTokenRepo) MarkUsed(ctx context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	t, ok := m.tokens[id]
-	if ok {
-		now := time.Now().UTC()
-		t.UsedAt = &now
-	}
-	return nil
-}
-
-func (m *mockTokenRepo) DeleteExpired(ctx context.Context) error {
-	return nil
-}
-
-type mockHasher struct{}
-
-func (m *mockHasher) Hash(password string) (string, error) {
-	sum := sha256.Sum256([]byte(password))
-	return hex.EncodeToString(sum[:]), nil
-}
-
-func (m *mockHasher) Compare(password, hash string) error {
-	sum := sha256.Sum256([]byte(password))
-	if hex.EncodeToString(sum[:]) != hash {
-		return domain.ErrInvalidCredentials
-	}
-	return nil
-}
-
-type mockInviteRepo struct {
-	mu      sync.Mutex
-	invites map[string]*domain.Invite
-}
-
-func newMockInviteRepo() *mockInviteRepo {
-	return &mockInviteRepo{invites: make(map[string]*domain.Invite)}
-}
-
-func (m *mockInviteRepo) Create(ctx context.Context, invite *domain.Invite) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.invites[invite.ID] = invite
-	m.invites[invite.Code] = invite
-	m.invites["email:"+invite.Email] = invite
-	return nil
-}
-
-func (m *mockInviteRepo) GetByID(ctx context.Context, id string) (*domain.Invite, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	inv, ok := m.invites[id]
-	if !ok {
-		return nil, nil
-	}
-	return inv, nil
-}
-
-func (m *mockInviteRepo) GetByCode(ctx context.Context, code string) (*domain.Invite, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	inv, ok := m.invites[code]
-	if !ok {
-		return nil, nil
-	}
-	return inv, nil
-}
-
-func (m *mockInviteRepo) GetByEmail(ctx context.Context, email string) (*domain.Invite, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	inv, ok := m.invites["email:"+email]
-	if !ok {
-		return nil, nil
-	}
-	return inv, nil
-}
-
-func (m *mockInviteRepo) List(ctx context.Context, filter port.InviteFilter) ([]domain.Invite, int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var result []domain.Invite
-	for _, inv := range m.invites {
-		if inv.ID != "" && inv.Code != "" {
-			if filter.Search != nil && *filter.Search != "" {
-				if !strings.Contains(inv.Email, *filter.Search) {
-					continue
-				}
-			}
-			if filter.Status != nil && *filter.Status != "" {
-				if string(inv.Status) != *filter.Status {
-					continue
-				}
-			}
-			result = append(result, *inv)
-		}
-	}
-	return result, len(result), nil
-}
-
-func (m *mockInviteRepo) Update(ctx context.Context, invite *domain.Invite) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.invites[invite.ID] = invite
-	m.invites[invite.Code] = invite
-	m.invites["email:"+invite.Email] = invite
-	return nil
-}
-
-func (m *mockInviteRepo) Delete(ctx context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if inv, ok := m.invites[id]; ok {
-		delete(m.invites, id)
-		delete(m.invites, inv.Code)
-		delete(m.invites, "email:"+inv.Email)
-	}
-	return nil
-}
-
-func defaultTestConfig() Config {
-	return Config{
-		AppName:             "TestApp",
-		RequireEmailVerification: false,
-		InviteTTL:           7 * 24 * time.Hour,
-		VerificationCodeTTL: 15 * time.Minute,
-		SessionTTL:          30 * 24 * time.Hour,
-		TokenTTL:            1 * time.Hour,
-	}
-}
-
-func newTestSessionService(repo port.SessionRepository, gen port.TokenGenerator) *SessionService {
-	return NewSessionService(repo, gen, DefaultSessionConfig())
-}
-
 func TestRegister(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
@@ -376,11 +45,11 @@ func TestRegister(t *testing.T) {
 }
 
 func TestRegisterDuplicateEmail(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
@@ -405,11 +74,11 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 }
 
 func TestRegisterWeakPassword(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
@@ -425,11 +94,11 @@ func TestRegisterWeakPassword(t *testing.T) {
 }
 
 func TestRegisterInvalidEmail(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
@@ -445,11 +114,11 @@ func TestRegisterInvalidEmail(t *testing.T) {
 }
 
 func TestRegisterDefaultRole(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
@@ -468,11 +137,11 @@ func TestRegisterDefaultRole(t *testing.T) {
 }
 
 func TestRegisterInviteOnly(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	cfg := defaultTestConfig()
@@ -491,11 +160,11 @@ func TestRegisterInviteOnly(t *testing.T) {
 }
 
 func TestLogin(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
@@ -506,7 +175,6 @@ func TestLogin(t *testing.T) {
 		Name:     "Test",
 	})
 
-	// manually verify the user for login test
 	regResult.User.IsVerified = true
 	users.Update(context.Background(), regResult.User)
 
@@ -527,11 +195,11 @@ func TestLogin(t *testing.T) {
 }
 
 func TestLoginWrongPassword(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
@@ -542,7 +210,6 @@ func TestLoginWrongPassword(t *testing.T) {
 		Name:     "Test",
 	})
 
-	// manually verify so we reach the password check
 	regResult.User.IsVerified = true
 	users.Update(context.Background(), regResult.User)
 
@@ -556,11 +223,11 @@ func TestLoginWrongPassword(t *testing.T) {
 }
 
 func TestLoginNonexistentUser(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
@@ -575,11 +242,11 @@ func TestLoginNonexistentUser(t *testing.T) {
 }
 
 func TestLoginUnverifiedUser_WithVerificationDisabled(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	cfg := defaultTestConfig()
@@ -612,11 +279,11 @@ func TestLoginUnverifiedUser_WithVerificationDisabled(t *testing.T) {
 }
 
 func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	cfg := defaultTestConfig()
@@ -624,14 +291,18 @@ func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil)
 
-	regResult, _ := svc.Register(context.Background(), RegisterInput{
-		Email:    "unverified@example.com",
-		Password: "Passw0rd!",
-		Name:     "Test",
+	// Directly create an unverified user (Register would call SendVerification and fail with nil mailer)
+	hash, _ := hasher.Hash("Passw0rd!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "unverified-user-id",
+		Email:        "unverified@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		Role:         domain.RoleUser,
+		IsVerified:   false,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
 	})
-	if regResult.User.IsVerified {
-		t.Fatal("Expected user to be unverified after register with RequireEmailVerification=true")
-	}
 
 	_, err := svc.Login(context.Background(), LoginInput{
 		Email:    "unverified@example.com",
@@ -645,59 +316,12 @@ func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
 	}
 }
 
-func TestValidateSession(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
-	sessSvc := newTestSessionService(sessions, gen)
-
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
-
-	registerResult, _ := svc.Register(context.Background(), RegisterInput{
-		Email:    "test@example.com",
-		Password: "Passw0rd!",
-		Name:     "Test",
-	})
-
-	user, session, err := svc.ValidateSession(context.Background(), registerResult.SessionToken)
-	if err != nil {
-		t.Fatalf("ValidateSession failed: %v", err)
-	}
-	if user == nil {
-		t.Fatal("Expected user, got nil")
-	}
-	if session == nil {
-		t.Fatal("Expected session, got nil")
-	}
-	if user.ID != registerResult.User.ID {
-		t.Fatalf("Expected user ID %s, got %s", registerResult.User.ID, user.ID)
-	}
-}
-
-func TestValidateSessionInvalidToken(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
-	sessSvc := newTestSessionService(sessions, gen)
-
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
-
-	_, _, err := svc.ValidateSession(context.Background(), "invalid-token")
-	if err == nil {
-		t.Fatal("Expected error for invalid token, got nil")
-	}
-}
-
 func TestLogout(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	tokens := newMockTokenRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
@@ -716,313 +340,5 @@ func TestLogout(t *testing.T) {
 	_, _, err = svc.ValidateSession(context.Background(), result.SessionToken)
 	if err == nil {
 		t.Fatal("Expected session to be invalid after logout")
-	}
-}
-
-func TestInviteRegister(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	invites := newMockInviteRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
-	sessSvc := newTestSessionService(sessions, gen)
-
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc)
-
-	raw, _ := gen.Generate()
-	now := time.Now().UTC()
-	invite := &domain.Invite{
-		ID:        raw,
-		Email:     "invited@example.com",
-		Code:      hashToken(raw),
-		CreatedBy: "admin-id",
-		Status:    domain.InvitePending,
-		ExpiresAt: now.Add(defaultTestConfig().InviteTTL),
-		CreatedAt: now,
-	}
-	invites.Create(context.Background(), invite)
-
-	result, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
-		Code:            raw,
-		Name:            "Invited User",
-		Password:        "Passw0rd!",
-		ConfirmPassword: "Passw0rd!",
-	})
-	if err != nil {
-		t.Fatalf("CompleteInviteRegistration failed: %v", err)
-	}
-	if result.User == nil {
-		t.Fatal("Expected user, got nil")
-	}
-	if result.User.Email != "invited@example.com" {
-		t.Fatalf("Expected email invited@example.com, got %s", result.User.Email)
-	}
-	if !result.User.IsVerified {
-		t.Fatal("Expected user to be auto-verified")
-	}
-	if result.SessionToken == "" {
-		t.Fatal("Expected session token, got empty")
-	}
-}
-
-func TestInviteRegisterExpired(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	invites := newMockInviteRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
-	sessSvc := newTestSessionService(sessions, gen)
-
-	cfg := defaultTestConfig()
-	cfg.InviteTTL = -1 * time.Hour
-
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, cfg, sessSvc)
-
-	raw, _ := gen.Generate()
-	now := time.Now().UTC()
-	invite := &domain.Invite{
-		ID:        raw,
-		Email:     "invited@example.com",
-		Code:      hashToken(raw),
-		CreatedBy: "admin-id",
-		Status:    domain.InvitePending,
-		ExpiresAt: now.Add(cfg.InviteTTL),
-		CreatedAt: now,
-	}
-	invites.Create(context.Background(), invite)
-
-	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
-		Code:            raw,
-		Name:            "Invited User",
-		Password:        "Passw0rd!",
-		ConfirmPassword: "Passw0rd!",
-	})
-	if err == nil {
-		t.Fatal("Expected error for expired invite, got nil")
-	}
-	if err.Code != "invite_expired" {
-		t.Fatalf("Expected invite_expired, got %s", err.Code)
-	}
-}
-
-func TestInviteRegisterPasswordMismatch(t *testing.T) {
-	users := newMockUserRepo()
-	sessions := newMockSessionRepo()
-	invites := newMockInviteRepo()
-	hasher := &mockHasher{}
-	gen := &mockTokenGen{length: 32}
-	sessSvc := newTestSessionService(sessions, gen)
-
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc)
-
-	raw, _ := gen.Generate()
-	invite := &domain.Invite{
-		ID:        raw,
-		Email:     "invited@example.com",
-		Code:      hashToken(raw),		CreatedBy: "admin-id",
-		Status:    domain.InvitePending,
-		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
-		CreatedAt: time.Now().UTC(),
-	}
-	invites.Create(context.Background(), invite)
-
-	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
-		Code:            raw,
-		Name:            "Invited User",
-		Password:        "Passw0rd!",
-		ConfirmPassword: "different",
-	})
-	if err == nil {
-		t.Fatal("Expected error for password mismatch, got nil")
-	}
-	if err.Code != "passwords_dont_match" {
-		t.Fatalf("Expected passwords_dont_match, got %s", err.Code)
-	}
-}
-
-func TestPasswordPolicyDefault(t *testing.T) {
-	tests := []struct {
-		name     string
-		password string
-		wantErr  bool
-	}{
-		{"too short", "ab1", true},
-		{"exactly 8 with letter+digit", "pass1234", false},
-		{"8 chars no digit", "password", true},
-		{"8 chars no letter", "12345678", true},
-		{"valid mixed", "abc12345", false},
-		{"empty", "", true},
-		{"above 128 chars", string(make([]byte, 129)), true},
-	}
-	p := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := p.Validate(tt.password)
-			if tt.wantErr && err == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
-func TestPasswordPolicyMinLength(t *testing.T) {
-	p := domain.PasswordPolicy{MinLength: 10, RequireDigit: true}
-
-	err := p.Validate("abc1234567")
-	if err != nil {
-		t.Fatalf("10-char password with digit should be valid: %v", err)
-	}
-
-	err = p.Validate("abc123456")
-	if err == nil {
-		t.Fatal("9-char password should be too short")
-	}
-
-	err = p.Validate("abc1234567") // no uppercase, no special — still fine
-	if err != nil {
-		t.Fatalf("10-char password with letter+digit should be valid: %v", err)
-	}
-}
-
-func TestPasswordPolicyUppercase(t *testing.T) {
-	p := domain.PasswordPolicy{MinLength: 8, RequireUppercase: true, RequireDigit: true}
-
-	err := p.Validate("password1")
-	if err == nil {
-		t.Fatal("expected error for missing uppercase")
-	}
-
-	err = p.Validate("Password1")
-	if err != nil {
-		t.Fatalf("password with uppercase should be valid: %v", err)
-	}
-}
-
-func TestPasswordPolicySpecial(t *testing.T) {
-	p := domain.PasswordPolicy{MinLength: 8, RequireSpecial: true, RequireDigit: true}
-
-	err := p.Validate("password1")
-	if err == nil {
-		t.Fatal("expected error for missing special char")
-	}
-
-	err = p.Validate("passw0rd!")
-	if err != nil {
-		t.Fatalf("password with special char should be valid: %v", err)
-	}
-}
-
-func TestPasswordPolicyAllRequirements(t *testing.T) {
-	p := domain.PasswordPolicy{
-		MinLength:        12,
-		RequireUppercase: true,
-		RequireDigit:     true,
-		RequireSpecial:   true,
-	}
-
-	tests := []struct {
-		name     string
-		password string
-		wantErr  bool
-	}{
-		{"missing uppercase and special", "abcdefgh1234", true},
-		{"missing digit and special", "ABCDefghijkl", true},
-		{"missing only uppercase", "abcdefg!2345", true},
-		{"missing only special", "Abcdefgh1234", true},
-		{"too short", "Abc1!x", true},
-		{"valid", "Abcdefgh!234", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := p.Validate(tt.password)
-			if tt.wantErr && err == nil {
-				t.Fatal("expected error, got nil")
-			}
-			if !tt.wantErr && err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-		})
-	}
-}
-
-func TestPasswordPolicyMaxLength(t *testing.T) {
-	p := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
-	// 129 chars — fails regardless of content
-	long := make([]byte, 129)
-	for i := range long {
-		long[i] = 'a'
-	}
-	long[0] = '1' // add digit
-	err := p.Validate(string(long))
-	if err == nil {
-		t.Fatal("expected error for >128 char password")
-	}
-
-	// exactly 128 with letter+digit should pass
-	short := make([]byte, 128)
-	for i := range short {
-		short[i] = 'a'
-	}
-	short[0] = '1'
-	err = p.Validate(string(short))
-	if err != nil {
-		t.Fatalf("128-char password with digit should be valid: %v", err)
-	}
-}
-
-func TestPasswordPolicyUnicode(t *testing.T) {
-	p := domain.PasswordPolicy{MinLength: 4, RequireDigit: true}
-	// Unicode letters count as letters
-	err := p.Validate("日本語1")
-	if err != nil {
-		t.Fatalf("unicode letters with digit should be valid: %v", err)
-	}
-	// Only unicode, no digit
-	err = p.Validate("日本語a")
-	if err == nil {
-		t.Fatal("expected error for missing digit")
-	}
-}
-
-func TestPasswordPolicyErrorMessages(t *testing.T) {
-	p := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
-
-	err := p.Validate("short")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if err.Code != "weak_password" {
-		t.Fatalf("expected weak_password code, got %s", err.Code)
-	}
-	if err.Message != "Password must be at least 8 characters" {
-		t.Fatalf("unexpected message: %s", err.Message)
-	}
-
-	err = p.Validate("12345678")
-	if err == nil {
-		t.Fatal("expected error for no letter")
-	}
-	if err.Message != "Password must be at least 8 characters with a letter" {
-		t.Fatalf("unexpected message: %s", err.Message)
-	}
-
-	err = p.Validate("abcdefgh")
-	if err == nil {
-		t.Fatal("expected error for no digit")
-	}
-	if err.Message != "Password must be at least 8 characters with a digit" {
-		t.Fatalf("unexpected message: %s", err.Message)
-	}
-
-	p2 := domain.PasswordPolicy{MinLength: 10, RequireUppercase: true, RequireSpecial: true, RequireDigit: true}
-	err = p2.Validate("abcdefghij1")
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if err.Message != "Password must be at least 10 characters with an uppercase letter, a special character" {
-		t.Fatalf("unexpected message: %s", err.Message)
 	}
 }

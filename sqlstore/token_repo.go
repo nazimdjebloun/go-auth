@@ -56,3 +56,10 @@ func (r *TokenRepository) DeleteExpired(ctx context.Context) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM verification_tokens WHERE expires_at < $1`, time.Now().UTC())
 	return err
 }
+
+func (r *TokenRepository) DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error {
+	_, err := r.db.ExecContext(ctx, `
+		DELETE FROM verification_tokens WHERE user_id=$1 AND type=$2 AND used_at IS NULL`,
+		userID, tokenType)
+	return err
+}

@@ -58,6 +58,12 @@ type ChangePasswordInput struct {
 	ExceptSessionID string
 }
 
+type ConfirmSetPasswordInput struct {
+	UserID      string
+	Code        string
+	NewPassword string
+}
+
 type ListSessionsResult struct {
 	Sessions []domain.Session
 }

@@ -16,6 +16,8 @@ import (
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/nazimdjebloun/go-auth/provider/github"
+	"github.com/nazimdjebloun/go-auth/provider/google"
 	"github.com/nazimdjebloun/go-auth/service"
 	"github.com/nazimdjebloun/go-auth/sqlstore"
 	"github.com/nazimdjebloun/go-auth/token"
@@ -35,6 +37,7 @@ type Auth struct {
 	verifyService   *service.VerificationService
 	inviteService   *service.InviteService
 	adminService    *service.AdminService
+	oAuthService    *service.OAuthService
 }
 
 type Services struct {
@@ -44,6 +47,7 @@ type Services struct {
 	Verify   *service.VerificationService
 	Invite   *service.InviteService
 	Admin    *service.AdminService
+	OAuth    *service.OAuthService
 }
 
 type HandlerGroup struct {
@@ -52,8 +56,10 @@ type HandlerGroup struct {
 	Logout             http.HandlerFunc
 	ForgotPassword     http.HandlerFunc
 	ResetPassword      http.HandlerFunc
-	ChangePassword     http.HandlerFunc
-	VerifyEmail        http.HandlerFunc
+	ChangePassword      http.HandlerFunc
+	SetPasswordRequest  http.HandlerFunc
+	SetPasswordConfirm  http.HandlerFunc
+	VerifyEmail         http.HandlerFunc
 	ResendVerification http.HandlerFunc
 	ListSessions       http.HandlerFunc
 	RevokeSession      http.HandlerFunc
@@ -78,6 +84,11 @@ type HandlerGroup struct {
 	RevokeInvite       http.HandlerFunc
 	ResendInvite       http.HandlerFunc
 	HardDeleteInvite   http.HandlerFunc
+	OAuthInitiate      http.HandlerFunc
+	OAuthCallback      http.HandlerFunc
+	OAuthLink          http.HandlerFunc
+	OAuthUnlink        http.HandlerFunc
+	OAuthProviders     http.HandlerFunc
 }
 
 type MiddlewareGroup struct {
@@ -168,6 +179,7 @@ func New(config Config) (*Auth, error) {
 	sessionRepoSQL := sqlstore.NewSessionRepository(sqlDB)
 	tokenRepo := sqlstore.NewTokenRepository(sqlDB)
 	inviteRepo := sqlstore.NewInviteRepository(sqlDB)
+	providerAccountRepo := sqlstore.NewProviderAccountRepository(sqlDB)
 
 	hasherImpl := hasher.New(bcryptCost)
 	genImpl := token.New()
@@ -212,6 +224,37 @@ func New(config Config) (*Auth, error) {
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, hasherImpl, serviceCfg, sessSvc)
 
+	// Build OAuth providers from config
+	oauthProviders := make(map[string]port.Provider)
+	for name, pCfg := range config.Providers {
+		var p port.Provider
+		switch name {
+		case "github":
+			p = github.NewGitHub(pCfg.ClientID, pCfg.ClientSecret, pCfg.RedirectURL)
+		case "google":
+			p = google.NewGoogle(pCfg.ClientID, pCfg.ClientSecret, pCfg.RedirectURL)
+		default:
+			return nil, fmt.Errorf("unsupported provider %q — supported: github, google", name)
+		}
+		oauthProviders[name] = p
+	}
+
+	var oauthSvc *service.OAuthService
+	if len(oauthProviders) > 0 {
+		oauthCfg := service.OAuthServiceConfig{
+			AppName:        config.AppName,
+			BaseURL:        config.BaseURL,
+			SessionTTL:     config.SessionTTL,
+			TokenTTL:       config.TokenTTL,
+			CookieName:     config.Cookie.Name,
+			CookieDomain:   config.Cookie.Domain,
+			CookiePath:     config.Cookie.Path,
+			CookieSecure:   config.Cookie.Secure,
+			CookieSameSite: config.Cookie.SameSite,
+		}
+		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, oauthCfg)
+	}
+
 	h := handler.New(handler.Services{
 		Auth:     authSvc,
 		Password: passSvc,
@@ -219,7 +262,11 @@ func New(config Config) (*Auth, error) {
 		Verify:   verifySvc,
 		Invite:   inviteSvc,
 		Admin:    adminSvc,
+		OAuth:    oauthSvc,
 	})
+
+	// OAuth handlers (separate because they need baseURL and session service for cookies)
+	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.BaseURL)
 
 	authMW := middleware.AuthMiddleware(sessSvc, userRepo)
 	adminMW := middleware.RequireRole(domain.RoleAdmin)
@@ -236,6 +283,7 @@ func New(config Config) (*Auth, error) {
 		verifyService:   verifySvc,
 		inviteService:   inviteSvc,
 		adminService:    adminSvc,
+		oAuthService:    oauthSvc,
 		Services: Services{
 			Auth:     authSvc,
 			Password: passSvc,
@@ -243,6 +291,7 @@ func New(config Config) (*Auth, error) {
 			Verify:   verifySvc,
 			Invite:   inviteSvc,
 			Admin:    adminSvc,
+			OAuth:    oauthSvc,
 		},
 		Handlers: HandlerGroup{
 			Register:           csrfMW(http.HandlerFunc(h.Register)).ServeHTTP,
@@ -251,6 +300,8 @@ func New(config Config) (*Auth, error) {
 			ForgotPassword:     csrfMW(http.HandlerFunc(h.ForgotPassword)).ServeHTTP,
 			ResetPassword:      csrfMW(http.HandlerFunc(h.ResetPassword)).ServeHTTP,
 			ChangePassword:     csrfMW(authMW(http.HandlerFunc(h.ChangePassword))).ServeHTTP,
+			SetPasswordRequest:  csrfMW(authMW(http.HandlerFunc(h.SetPasswordRequest))).ServeHTTP,
+			SetPasswordConfirm:  csrfMW(authMW(http.HandlerFunc(h.SetPasswordConfirm))).ServeHTTP,
 			VerifyEmail:        csrfMW(http.HandlerFunc(h.VerifyEmail)).ServeHTTP,
 			ResendVerification: csrfMW(authMW(http.HandlerFunc(h.ResendVerification))).ServeHTTP,
 			ListSessions:       authMW(http.HandlerFunc(h.ListSessions)).ServeHTTP,
@@ -276,6 +327,11 @@ func New(config Config) (*Auth, error) {
 			RevokeInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))).ServeHTTP,
 			ResendInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite)))).ServeHTTP,
 			HardDeleteInvite:   csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite)))).ServeHTTP,
+			OAuthInitiate:  http.HandlerFunc(oauthHandlers.Initiate).ServeHTTP,
+			OAuthCallback:  http.HandlerFunc(oauthHandlers.Callback).ServeHTTP,
+			OAuthLink:      csrfMW(authMW(http.HandlerFunc(oauthHandlers.InitiateLink))).ServeHTTP,
+			OAuthUnlink:    csrfMW(authMW(http.HandlerFunc(oauthHandlers.Unlink))).ServeHTTP,
+			OAuthProviders: authMW(http.HandlerFunc(oauthHandlers.ListConnected)).ServeHTTP,
 		},
 		Middleware: MiddlewareGroup{
 			Authenticate: authMW,
@@ -315,6 +371,8 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("DELETE /auth/sessions", a.Handlers.RevokeAllSessions)
 	mux.Handle("PUT /auth/password", a.Handlers.ChangePassword)
 	mux.Handle("POST /auth/change-password", a.Handlers.ChangePassword)
+	mux.Handle("POST /auth/set-password/request", a.Handlers.SetPasswordRequest)
+	mux.Handle("POST /auth/set-password/confirm", a.Handlers.SetPasswordConfirm)
 	mux.Handle("DELETE /auth/account", a.Handlers.DeleteAccount)
 	mux.Handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
 	mux.Handle("GET /admin/users", a.Handlers.ListUsers)
@@ -331,6 +389,11 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
 	mux.Handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
 	mux.Handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
+	mux.Handle("GET /auth/{provider}", a.Handlers.OAuthInitiate)
+	mux.Handle("GET /auth/{provider}/callback", a.Handlers.OAuthCallback)
+	mux.Handle("POST /auth/link/{provider}", a.Handlers.OAuthLink)
+	mux.Handle("POST /auth/unlink/{provider}", a.Handlers.OAuthUnlink)
+	mux.Handle("GET /auth/providers", a.Handlers.OAuthProviders)
 }
 
 func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {
