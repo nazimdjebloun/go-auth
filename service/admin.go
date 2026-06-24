@@ -191,7 +191,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	user := &domain.User{
 		ID:           uuid.New().String(),
 		Email:        input.Email,
-		PasswordHash: hash,
+		PasswordHash: &hash,
 		Name:         input.Name,
 		Role:         role,
 		IsVerified:   true,

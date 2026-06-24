@@ -7,7 +7,7 @@ const EmbeddedPostgresSchema = `CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT,
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     is_verified BOOLEAN NOT NULL DEFAULT false,
@@ -37,9 +37,25 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
     token_hash TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'invite_verify')),
+    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'invite_verify', 'oauth_state')),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    provider_email TEXT NOT NULL DEFAULT '',
+    provider_name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(provider, provider_user_id)
 );
 
 CREATE TABLE IF NOT EXISTS invites (
@@ -58,12 +74,14 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
 CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
 `
 
 const EmbeddedMySQLSchema = `CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT,
     name TEXT NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'user',
     is_verified BOOLEAN NOT NULL DEFAULT false,
@@ -100,6 +118,23 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    provider VARCHAR(50) NOT NULL,
+    provider_user_id VARCHAR(255) NOT NULL,
+    provider_email TEXT NOT NULL,
+    provider_name TEXT NOT NULL,
+    avatar_url TEXT NOT NULL,
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, provider_user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS invites (
     id VARCHAR(36) PRIMARY KEY,
     email TEXT NOT NULL,
@@ -117,12 +152,14 @@ CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX idx_verification_tokens_token_hash ON verification_tokens(token_hash);
 CREATE INDEX idx_invites_email ON invites(email(255));
 CREATE INDEX idx_invites_code ON invites(code(255));
+CREATE INDEX idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
 `
 
 const EmbeddedSQLiteSchema = `CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
+    password_hash TEXT,
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user',
     is_verified INTEGER NOT NULL DEFAULT 0,
@@ -157,6 +194,22 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     used_at DATETIME
 );
 
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    provider_email TEXT NOT NULL DEFAULT '',
+    provider_name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at DATETIME,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE(provider, provider_user_id)
+);
+
 CREATE TABLE IF NOT EXISTS invites (
     id TEXT PRIMARY KEY,
     email TEXT NOT NULL,
@@ -173,6 +226,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
 CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
 CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
 `
 
 var driverSchemas = map[string]string{

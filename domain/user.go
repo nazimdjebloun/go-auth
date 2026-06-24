@@ -12,7 +12,7 @@ const (
 type User struct {
 	ID           string     `json:"id"`
 	Email        string     `json:"email"`
-	PasswordHash string     `json:"-"`
+	PasswordHash *string    `json:"-"`
 	Name         string     `json:"name"`
 	Role         Role       `json:"role"`
 	IsVerified   bool       `json:"isVerified"`
@@ -23,12 +23,18 @@ type User struct {
 	UpdatedAt    time.Time  `json:"updatedAt"`
 }
 
+func (u *User) HasPassword() bool {
+	return u.PasswordHash != nil
+}
+
 type TokenType string
 
 const (
-	TokenVerifyEmail TokenType = "verify_email"
-	TokenResetPass   TokenType = "reset_password"
+	TokenVerifyEmail  TokenType = "verify_email"
+	TokenResetPass    TokenType = "reset_password"
+	TokenSetPass      TokenType = "set_password"
 	TokenInviteVerify TokenType = "invite_verify"
+	TokenOAuthState   TokenType = "oauth_state"
 )
 
 type VerificationToken struct {
