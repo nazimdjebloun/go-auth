@@ -109,6 +109,25 @@ func extractCodeAfter(body, prefix string) string {
 	return strings.TrimSpace(rest[:nl])
 }
 
+// extractTokenFromEmail parses the token query parameter from a URL in the email body.
+func extractTokenFromEmail(body string) string {
+	prefix := "token="
+	i := strings.Index(body, prefix)
+	if i < 0 {
+		return ""
+	}
+	rest := body[i+len(prefix):]
+	var sb strings.Builder
+	for _, r := range rest {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			sb.WriteRune(r)
+		} else {
+			break
+		}
+	}
+	return sb.String()
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -261,7 +280,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 	}
 
 	body := mailer.lastBody()
-	resetToken := extractCodeAfter(body, "Your password reset code: ")
+	resetToken := extractTokenFromEmail(body)
 	if resetToken == "" {
 		t.Fatal("could not extract reset token from email body")
 	}
