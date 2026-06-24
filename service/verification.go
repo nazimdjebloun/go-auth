@@ -37,23 +37,23 @@ func NewVerificationService(
 func (s *VerificationService) VerifyEmail(ctx context.Context, code, email string) *domain.AuthError {
 	token, err := s.tokens.GetByHash(ctx, hashToken(code))
 	if err != nil || token == nil {
-		return domain.ErrTokenInvalid
+		return domain.NewError("code_invalid", "Invalid verification code", 400)
 	}
 
 	if token.Type != domain.TokenVerifyEmail {
-		return domain.ErrTokenInvalid
+		return domain.NewError("code_invalid", "Invalid verification code", 400)
 	}
 
 	if token.UsedAt != nil {
-		return domain.ErrTokenAlreadyUsed
+		return domain.NewError("code_already_used", "This code has already been used", 410)
 	}
 
 	if time.Now().UTC().After(token.ExpiresAt) {
-		return domain.ErrTokenExpired
+		return domain.NewError("code_expired", "Verification code has expired", 410)
 	}
 
 	if token.UserID == nil {
-		return domain.ErrTokenInvalid
+		return domain.NewError("code_invalid", "Invalid verification code", 400)
 	}
 
 	user, err := s.users.GetByID(ctx, *token.UserID)

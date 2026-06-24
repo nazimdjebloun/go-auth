@@ -99,7 +99,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	user := &domain.User{
 		ID:           uuid.New().String(),
 		Email:        input.Email,
-		PasswordHash: hash,
+		PasswordHash: &hash,
 		Name:         input.Name,
 		Role:         domain.RoleUser,
 		IsBanned:     false,
@@ -145,7 +145,10 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		return nil, domain.ErrEmailNotVerified
 	}
 
-	if err := s.hasher.Compare(input.Password, user.PasswordHash); err != nil {
+	if !user.HasPassword() {
+		return nil, domain.NewError("no_password", "No password set for this account. Use OAuth to sign in.", 400)
+	}
+	if err := s.hasher.Compare(input.Password, *user.PasswordHash); err != nil {
 		return nil, domain.ErrInvalidCredentials
 	}
 
@@ -207,7 +210,10 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 		return domain.ErrUserNotFound
 	}
 
-	if err := s.hasher.Compare(password, user.PasswordHash); err != nil {
+	if !user.HasPassword() {
+		return domain.NewError("password_required", "Password is required to delete account", http.StatusBadRequest)
+	}
+	if err := s.hasher.Compare(password, *user.PasswordHash); err != nil {
 		return domain.NewError("wrong_password", "Password is incorrect", http.StatusBadRequest)
 	}
 

@@ -118,7 +118,7 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 		return domain.NewError("internal_error", "Failed to hash password", 500)
 	}
 
-	user.PasswordHash = hash
+	user.PasswordHash = &hash
 	user.UpdatedAt = time.Now().UTC()
 
 	if err := s.users.Update(ctx, user); err != nil {
@@ -138,7 +138,10 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 		return domain.ErrUserNotFound
 	}
 
-	if err := s.hasher.Compare(input.OldPassword, user.PasswordHash); err != nil {
+	if !user.HasPassword() {
+		return domain.NewError("no_password", "No password set. Use set-password instead.", 400)
+	}
+	if err := s.hasher.Compare(input.OldPassword, *user.PasswordHash); err != nil {
 		return domain.NewError("wrong_password", "Current password is incorrect", 400)
 	}
 
@@ -151,7 +154,7 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 		return domain.NewError("internal_error", "Failed to hash password", 500)
 	}
 
-	user.PasswordHash = hash
+	user.PasswordHash = &hash
 	user.UpdatedAt = time.Now().UTC()
 
 	if err := s.users.Update(ctx, user); err != nil {

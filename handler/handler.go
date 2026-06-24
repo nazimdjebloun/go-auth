@@ -99,7 +99,11 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
-	writeJSON(w, http.StatusOK, user)
+	resp := struct {
+		*domain.User
+		HasPassword bool `json:"hasPassword"`
+	}{user, user.HasPassword()}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) CheckAuth(w http.ResponseWriter, r *http.Request) {

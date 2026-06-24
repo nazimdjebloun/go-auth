@@ -168,7 +168,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	user := &domain.User{
 		ID:           generateID(),
 		Email:        invite.Email,
-		PasswordHash: hash,
+		PasswordHash: &hash,
 		Name:         name,
 		Role:         domain.RoleUser,
 		IsVerified:   true,
