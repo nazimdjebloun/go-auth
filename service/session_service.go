@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,23 +19,27 @@ type SessionService struct {
 }
 
 type SessionConfig struct {
-	CookieName   string
-	Domain       string
-	Path         string
-	Secure       bool
-	SameSite     int
-	Duration     time.Duration
-	IdleTTL      time.Duration
+	CookieName        string
+	RefreshCookieName string
+	Domain            string
+	Path              string
+	Secure            bool
+	SameSite          int
+	Duration          time.Duration
+	IdleTTL           time.Duration
+	RefreshTTL        time.Duration
 }
 
 func DefaultSessionConfig() SessionConfig {
 	return SessionConfig{
-		CookieName: "goauth_session",
-		Path:       "/",
-		Secure:     true,
-		SameSite:   2, // http.SameSiteLaxMode
-		Duration:   7 * 24 * time.Hour,
-		IdleTTL:    7 * 24 * time.Hour,
+		CookieName:        "goauth_session",
+		RefreshCookieName: "goauth_refresh",
+		Path:              "/",
+		Secure:            true,
+		SameSite:          2,
+		Duration:          7 * 24 * time.Hour,
+		IdleTTL:           7 * 24 * time.Hour,
+		RefreshTTL:        30 * 24 * time.Hour,
 	}
 }
 
@@ -42,29 +47,105 @@ func NewSessionService(repo port.SessionRepository, tokenGen port.TokenGenerator
 	return &SessionService{repo: repo, tokenGen: tokenGen, config: config}
 }
 
-func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*domain.Session, string, error) {
-	token, err := s.tokenGen.Generate()
+func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*domain.Session, string, string, error) {
+	sessionToken, err := s.tokenGen.Generate()
 	if err != nil {
-		return nil, "", fmt.Errorf("session create token: %w", err)
+		return nil, "", "", fmt.Errorf("session create token: %w", err)
+	}
+
+	refreshToken, err := s.tokenGen.Generate()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("session create refresh: %w", err)
 	}
 
 	now := time.Now().UTC()
 	session := &domain.Session{
-		ID:           uuid.New().String(),
-		UserID:       userID,
-		TokenHash:    hashToken(token),
-		IP:           ip,
-		UserAgent:    userAgent,
-		ExpiresAt:    now.Add(s.config.Duration),
-		CreatedAt:    now,
-		LastActiveAt: now,
+		ID:                  uuid.New().String(),
+		UserID:              userID,
+		TokenHash:           hashToken(sessionToken),
+		RefreshTokenHash:    hashToken(refreshToken),
+		PreviousRefreshHash: "",
+		IP:                  ip,
+		UserAgent:           userAgent,
+		ExpiresAt:           now.Add(s.config.Duration),
+		RefreshExpiresAt:    now.Add(s.config.RefreshTTL),
+		CreatedAt:           now,
+		LastActiveAt:        now,
 	}
 
 	if err := s.repo.Create(ctx, session); err != nil {
-		return nil, "", fmt.Errorf("session create: %w", err)
+		return nil, "", "", fmt.Errorf("session create: %w", err)
 	}
 
-	return session, token, nil
+	log.Printf("session created: user_id=%s session_id=%s", userID, session.ID)
+	return session, sessionToken, refreshToken, nil
+}
+
+func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken string) (*domain.Session, string, string, error) {
+	hash := hashToken(rawRefreshToken)
+
+	session, err := s.repo.LockAndGetByRefreshHash(ctx, hash)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("refresh lookup: %w", err)
+	}
+	if session == nil {
+		if reused, reuseErr := s.repo.GetByPreviousRefreshHash(ctx, hash); reuseErr == nil && reused != nil {
+			s.handleReuseDetection(ctx, reused)
+			return nil, "", "", domain.ErrSessionRevoked
+		}
+		return nil, "", "", domain.ErrInvalidRefreshToken
+	}
+
+	now := time.Now().UTC()
+
+	if session.IsRevoked || now.After(session.ExpiresAt) {
+		return nil, "", "", domain.ErrSessionExpired
+	}
+
+	if now.After(session.RefreshExpiresAt) {
+		return nil, "", "", domain.ErrRefreshExpired
+	}
+
+	newSessionToken, err := s.tokenGen.Generate()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("refresh gen session: %w", err)
+	}
+
+	newRefreshToken, err := s.tokenGen.Generate()
+	if err != nil {
+		return nil, "", "", fmt.Errorf("refresh gen refresh: %w", err)
+	}
+
+	rows, err := s.repo.UpdateRefreshToken(ctx, port.UpdateRefreshInput{
+		SessionID:        session.ID,
+		OldRefreshHash:   hash,
+		NewTokenHash:     hashToken(newSessionToken),
+		NewRefreshHash:   hashToken(newRefreshToken),
+		PreviousHash:     session.RefreshTokenHash,
+		NewExpiresAt:     now.Add(s.config.Duration),
+		NewRefreshExpiry: now.Add(s.config.RefreshTTL),
+		RotatedAt:        now,
+	})
+	if err != nil {
+		return nil, "", "", fmt.Errorf("refresh update: %w", err)
+	}
+	if rows == 0 {
+		return nil, "", "", domain.ErrInvalidRefreshToken
+	}
+
+	log.Printf("refresh token rotated: user_id=%s session_id=%s", session.UserID, session.ID)
+	session.TokenHash = hashToken(newSessionToken)
+	session.RefreshTokenHash = hashToken(newRefreshToken)
+	session.PreviousRefreshHash = hash
+	session.RefreshRotatedAt = &now
+	return session, newSessionToken, newRefreshToken, nil
+}
+
+func (s *SessionService) handleReuseDetection(ctx context.Context, session *domain.Session) {
+	log.Printf("WARN: refresh token reuse detected — possible token theft: user_id=%s session_id=%s", session.UserID, session.ID)
+	if err := s.repo.Revoke(ctx, session.ID); err != nil {
+		log.Printf("ERROR: failed to revoke session on reuse detection: %v", err)
+	}
 }
 
 func (s *SessionService) Validate(ctx context.Context, token string) (*domain.Session, error) {

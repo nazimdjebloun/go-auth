@@ -126,91 +126,84 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 // If the state token has a UserID, it's a link flow (no session created).
 // If no UserID, it's a login flow (user may be created or logged in).
 // Returns (sessionToken, isNewUser, authErr). sessionToken is empty for link flow.
-func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState string) (string, bool, *domain.AuthError) {
+func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState string) (string, string, bool, *domain.AuthError) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 
 	stateHash := hashToken(rawState)
 	stateToken, repoErr := s.tokenRepo.GetByHash(ctx, stateHash)
 	if repoErr != nil || stateToken == nil || stateToken.Type != domain.TokenOAuthState {
-		return "", false, domain.NewError("invalid_state", "Invalid or expired OAuth state", 400)
+		return "", "", false, domain.NewError("invalid_state", "Invalid or expired OAuth state", 400)
 	}
 
 	if stateToken.UsedAt != nil {
-		return "", false, domain.NewError("state_used", "OAuth state token already used", 400)
+		return "", "", false, domain.NewError("state_used", "OAuth state token already used", 400)
 	}
 
 	if time.Now().UTC().After(stateToken.ExpiresAt) {
-		return "", false, domain.NewError("state_expired", "OAuth state token has expired", 400)
+		return "", "", false, domain.NewError("state_expired", "OAuth state token has expired", 400)
 	}
 
-	// Mark state as used immediately — one-time use
 	if markErr := s.tokenRepo.MarkUsed(ctx, stateToken.ID); markErr != nil {
-		return "", false, domain.NewError("internal_error", "Failed to consume state token", 500)
+		return "", "", false, domain.NewError("internal_error", "Failed to consume state token", 500)
 	}
 
 	info, exchangeErr := p.ExchangeCode(ctx, code)
 	if exchangeErr != nil {
-		return "", false, domain.NewError("provider_error", "Failed to authenticate with provider", 502)
+		return "", "", false, domain.NewError("provider_error", "Failed to authenticate with provider", 502)
 	}
 
 	if !info.EmailVerified {
-		return "", false, domain.ErrProviderEmailUnverified
+		return "", "", false, domain.ErrProviderEmailUnverified
 	}
 
-	// Check if this provider account already exists
 	existing, lookupErr := s.providerRepo.GetByProvider(ctx, providerName, info.ProviderID)
 	if lookupErr != nil {
-		return "", false, domain.NewError("internal_error", "Failed to look up provider account", 500)
+		return "", "", false, domain.NewError("internal_error", "Failed to look up provider account", 500)
 	}
 
-	// Determine if this is a link or login flow
 	userID := stateToken.UserID
 
 	if userID != nil {
-		// ─── Link flow: connect provider to existing user ───
 		if existing != nil {
 			if existing.UserID == *userID {
-				return "", false, domain.NewError("already_linked", "This provider is already linked to your account", 409)
+				return "", "", false, domain.NewError("already_linked", "This provider is already linked to your account", 409)
 			}
-			return "", false, domain.ErrProviderAccountExists
+			return "", "", false, domain.ErrProviderAccountExists
 		}
 
 		_, linkErr := s.createProviderAccount(ctx, *userID, info)
 		if linkErr != nil {
-			return "", false, linkErr
+			return "", "", false, linkErr
 		}
-		return "", false, nil
+		return "", "", false, nil
 	}
 
-	// ─── Login flow: find or create user ───
 	if existing != nil {
-		// Provider already linked — log in as that user
 		user, userErr := s.userRepo.GetByID(ctx, existing.UserID)
 		if userErr != nil || user == nil {
-			return "", false, domain.NewError("internal_error", "Failed to find linked user", 500)
+			return "", "", false, domain.NewError("internal_error", "Failed to find linked user", 500)
 		}
 		if user.IsBanned {
-			return "", false, domain.ErrUserBanned
+			return "", "", false, domain.ErrUserBanned
 		}
 
-		session, rawToken, sessionErr := s.sessionSvc.Create(ctx, user.ID, "", "")
+		session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, user.ID, "", "")
 		if sessionErr != nil {
-			return "", false, domain.NewError("internal_error", "Failed to create session", 500)
+			return "", "", false, domain.NewError("internal_error", "Failed to create session", 500)
 		}
 		_ = session
-		return rawToken, false, nil
+		_ = refreshToken
+		return rawToken, refreshToken, false, nil
 	}
 
-	// No existing provider account — check if email is taken
 	existingUser, userErr := s.userRepo.GetByEmail(ctx, info.Email)
 	if userErr != nil || existingUser != nil {
-		return "", false, domain.ErrEmailAlreadyExists
+		return "", "", false, domain.ErrEmailAlreadyExists
 	}
 
-	// Create new user + provider account
 	now := time.Now().UTC()
 	newUser := &domain.User{
 		ID:        uuid.New().String(),
@@ -223,27 +216,26 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	}
 
 	if err := s.userRepo.Create(ctx, newUser); err != nil {
-		return "", false, domain.NewError("internal_error", "Failed to create user", 500)
+		return "", "", false, domain.NewError("internal_error", "Failed to create user", 500)
 	}
 
 	if _, linkErr := s.createProviderAccount(ctx, newUser.ID, info); linkErr != nil {
-		return "", false, linkErr
+		return "", "", false, linkErr
 	}
 
-	session, rawToken, sessionErr := s.sessionSvc.Create(ctx, newUser.ID, "", "")
+	session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, newUser.ID, "", "")
 	if sessionErr != nil {
-		return "", false, domain.NewError("internal_error", "Failed to create session", 500)
+		return "", "", false, domain.NewError("internal_error", "Failed to create session", 500)
 	}
 	_ = session
 
-	return rawToken, true, nil
+	return rawToken, refreshToken, true, nil
 }
 
 // Link connects a provider to an existing user.
 // Used when the callback returns link flow (userID from state token).
 func (s *OAuthService) Link(ctx context.Context, userID, providerName, code, rawState string) *domain.AuthError {
-	_, _, err := s.Callback(ctx, providerName, code, rawState)
-	// In link flow, Callback returns (empty, false, err)
+	_, _, _, err := s.Callback(ctx, providerName, code, rawState)
 	return err
 }
 
