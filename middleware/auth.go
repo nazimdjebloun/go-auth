@@ -26,6 +26,10 @@ func GetUserFromContext(ctx context.Context) *domain.User {
 	return v
 }
 
+func ContextWithUser(ctx context.Context, user *domain.User) context.Context {
+	return context.WithValue(ctx, ctxUser, user)
+}
+
 func AuthMiddleware(sessionSvc *service.SessionService, userRepo interface {
 	GetByID(ctx context.Context, id string) (*domain.User, error)
 }) func(http.Handler) http.Handler {

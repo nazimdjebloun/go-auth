@@ -21,6 +21,10 @@ var mysqlDrivers = map[string]bool{
 	"sqlite":  true,
 }
 
+func (d *DB) Driver() string {
+	return d.driver
+}
+
 func (d *DB) Rebind(query string) string {
 	if mysqlDrivers[d.driver] {
 		return rebindQuery(query)

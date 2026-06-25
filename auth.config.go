@@ -122,6 +122,7 @@ type Config struct {
 	// ─── Sessions & Tokens ─────────────────────────────────────────
 	SessionTTL      time.Duration // absolute hard expiry (default 30d)
 	SessionIdleTTL  time.Duration // idle timeout after last activity (default 7d)
+	RefreshTokenTTL time.Duration // refresh token absolute expiry (default 30d)
 	Cookie          CookieConfig
 	TokenTTL        time.Duration // how long verification/reset tokens live (default 1h)
 
@@ -172,6 +173,12 @@ func (c Config) validate() error {
 	if c.SessionIdleTTL > c.SessionTTL {
 		errs = append(errs, errors.New("session_idle_ttl must not exceed session_ttl"))
 	}
+	if c.RefreshTokenTTL <= 0 {
+		errs = append(errs, errors.New("refresh_token_ttl must be positive"))
+	}
+	if c.RefreshTokenTTL > c.SessionTTL {
+		errs = append(errs, errors.New("refresh_token_ttl must not exceed session_ttl"))
+	}
 	if len(c.AllowedOrigins) == 0 {
 		errs = append(errs, errors.New("allowed_origins must include at least one origin"))
 	}
@@ -209,13 +216,14 @@ func (c Config) validate() error {
 func DefaultConfig() Config {
 	return Config{
 		RequireEmailVerification: false,
-		InviteTTL:           7 * 24 * time.Hour,
-		VerificationCodeTTL: 15 * time.Minute,
-		SessionTTL:          30 * 24 * time.Hour,
-		SessionIdleTTL:      7 * 24 * time.Hour,
-		TokenTTL:            1 * time.Hour,
-		RateLimit:               ratelimit.DefaultRateLimitConfig(),
-		AllowMissingCSRFHeaders: false,
+		InviteTTL:                7 * 24 * time.Hour,
+		VerificationCodeTTL:      15 * time.Minute,
+		SessionTTL:               30 * 24 * time.Hour,
+		SessionIdleTTL:           7 * 24 * time.Hour,
+		RefreshTokenTTL:          30 * 24 * time.Hour,
+		TokenTTL:                 1 * time.Hour,
+		RateLimit:                ratelimit.DefaultRateLimitConfig(),
+		AllowMissingCSRFHeaders:  false,
 		PasswordPolicy: domain.PasswordPolicy{
 			MinLength:    8,
 			RequireDigit: true,

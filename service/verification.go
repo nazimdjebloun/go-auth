@@ -3,12 +3,31 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"math/big"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
+
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h := int(d.Hours())
+
+	if h > 0 && d%time.Hour == 0 {
+		if h == 1 {
+			return "1 hour"
+		}
+		return fmt.Sprintf("%d hours", h)
+	}
+
+	m := int(d.Minutes())
+	if m == 1 {
+		return "1 minute"
+	}
+	return fmt.Sprintf("%d minutes", m)
+}
 
 type VerificationService struct {
 	users  port.UserRepository
@@ -34,7 +53,7 @@ func NewVerificationService(
 	}
 }
 
-func (s *VerificationService) VerifyEmail(ctx context.Context, code, email string) *domain.AuthError {
+func (s *VerificationService) VerifyEmail(ctx context.Context, code string) *domain.AuthError {
 	token, err := s.tokens.GetByHash(ctx, hashToken(code))
 	if err != nil || token == nil {
 		return domain.NewError("code_invalid", "Invalid verification code", 400)
@@ -102,15 +121,16 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		Email:     user.Email,
 		TokenHash: hashToken(raw),
 		Type:      domain.TokenVerifyEmail,
-		ExpiresAt: now.Add(s.config.TokenTTL),
+		ExpiresAt: now.Add(s.config.VerificationCodeTTL),
 	}
 
 	if err := s.tokens.Create(ctx, token); err != nil {
 		return domain.NewError("internal_error", "Failed to store token", 500)
 	}
 
-	html := "<p>Your verification code: <strong>" + raw + "</strong></p><p>Expires in 1 hour.</p>"
-	text := "Your verification code: " + raw + " (expires in 1 hour)"
+	ttl := formatDuration(s.config.VerificationCodeTTL)
+	html := "<p>Your verification code: <strong>" + raw + "</strong></p><p>Expires in " + ttl + ".</p>"
+	text := "Your verification code: " + raw + " (expires in " + ttl + ")"
 
 	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, html, text); err != nil {
 		return domain.NewError("email_failed", "Failed to send verification email", 500)

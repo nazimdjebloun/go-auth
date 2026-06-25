@@ -100,15 +100,17 @@ func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 }
 
 type mockSessionRepo struct {
-	mu       sync.Mutex
-	sessions map[string]*domain.Session
-	byID     map[string]*domain.Session
+	mu            sync.Mutex
+	sessions      map[string]*domain.Session
+	byID          map[string]*domain.Session
+	byRefreshHash map[string]*domain.Session
 }
 
 func newMockSessionRepo() *mockSessionRepo {
 	return &mockSessionRepo{
-		sessions: make(map[string]*domain.Session),
-		byID:     make(map[string]*domain.Session),
+		sessions:      make(map[string]*domain.Session),
+		byID:          make(map[string]*domain.Session),
+		byRefreshHash: make(map[string]*domain.Session),
 	}
 }
 
@@ -117,6 +119,9 @@ func (m *mockSessionRepo) Create(_ context.Context, s *domain.Session) error {
 	defer m.mu.Unlock()
 	m.sessions[s.TokenHash] = s
 	m.byID[s.ID] = s
+	if s.RefreshTokenHash != "" {
+		m.byRefreshHash[s.RefreshTokenHash] = s
+	}
 	return nil
 }
 
@@ -128,6 +133,31 @@ func (m *mockSessionRepo) GetByTokenHash(_ context.Context, hash string) (*domai
 		return nil, nil
 	}
 	return s, nil
+}
+
+func (m *mockSessionRepo) GetByRefreshHash(_ context.Context, hash string) (*domain.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.byRefreshHash[hash]
+	if !ok {
+		return nil, nil
+	}
+	return s, nil
+}
+
+func (m *mockSessionRepo) GetByPreviousRefreshHash(_ context.Context, hash string) (*domain.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.byID {
+		if s.PreviousRefreshHash == hash {
+			return s, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *mockSessionRepo) LockAndGetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error) {
+	return m.GetByRefreshHash(ctx, hash)
 }
 
 func (m *mockSessionRepo) ListByUserID(_ context.Context, userID string) ([]domain.Session, error) {
@@ -149,6 +179,9 @@ func (m *mockSessionRepo) Delete(_ context.Context, tokenHash string) error {
 	if ok {
 		delete(m.sessions, tokenHash)
 		delete(m.byID, s.ID)
+		if s.RefreshTokenHash != "" {
+			delete(m.byRefreshHash, s.RefreshTokenHash)
+		}
 	}
 	return nil
 }
@@ -160,6 +193,9 @@ func (m *mockSessionRepo) DeleteByID(_ context.Context, id string) error {
 	if ok {
 		delete(m.byID, id)
 		delete(m.sessions, s.TokenHash)
+		if s.RefreshTokenHash != "" {
+			delete(m.byRefreshHash, s.RefreshTokenHash)
+		}
 	}
 	return nil
 }
@@ -171,6 +207,9 @@ func (m *mockSessionRepo) DeleteAllForUser(_ context.Context, userID string) err
 		if s.UserID == userID {
 			delete(m.byID, k)
 			delete(m.sessions, s.TokenHash)
+			if s.RefreshTokenHash != "" {
+				delete(m.byRefreshHash, s.RefreshTokenHash)
+			}
 		}
 	}
 	return nil
@@ -183,6 +222,9 @@ func (m *mockSessionRepo) DeleteAllForUserExcept(_ context.Context, userID strin
 		if s.UserID == userID && s.ID != exceptSessionID {
 			delete(m.byID, k)
 			delete(m.sessions, s.TokenHash)
+			if s.RefreshTokenHash != "" {
+				delete(m.byRefreshHash, s.RefreshTokenHash)
+			}
 		}
 	}
 	return nil
@@ -197,6 +239,48 @@ func (m *mockSessionRepo) UpdateLastActiveAt(_ context.Context, tokenHash string
 	defer m.mu.Unlock()
 	if s, ok := m.sessions[tokenHash]; ok {
 		s.LastActiveAt = time.Now().UTC()
+	}
+	return nil
+}
+
+func (m *mockSessionRepo) UpdateRefreshToken(_ context.Context, input port.UpdateRefreshInput) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.byID[input.SessionID]
+	if !ok {
+		return 0, nil
+	}
+	if input.OldRefreshHash != "" && s.RefreshTokenHash != input.OldRefreshHash {
+		return 0, nil
+	}
+	if s.RefreshTokenHash != "" {
+		delete(m.byRefreshHash, s.RefreshTokenHash)
+	}
+	delete(m.sessions, s.TokenHash)
+	s.TokenHash = input.NewTokenHash
+	s.RefreshTokenHash = input.NewRefreshHash
+	s.PreviousRefreshHash = input.PreviousHash
+	s.ExpiresAt = input.NewExpiresAt
+	s.RefreshExpiresAt = input.NewRefreshExpiry
+	s.RefreshRotatedAt = &input.RotatedAt
+	s.LastActiveAt = input.RotatedAt
+	m.sessions[input.NewTokenHash] = s
+	if input.NewRefreshHash != "" {
+		m.byRefreshHash[input.NewRefreshHash] = s
+	}
+	return 1, nil
+}
+
+func (m *mockSessionRepo) Revoke(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.byID[id]
+	if ok {
+		delete(m.byID, id)
+		delete(m.sessions, s.TokenHash)
+		if s.RefreshTokenHash != "" {
+			delete(m.byRefreshHash, s.RefreshTokenHash)
+		}
 	}
 	return nil
 }
@@ -269,10 +353,25 @@ func (m *mockHasher) Compare(password, hash string) error {
 	return nil
 }
 
+type mockMailer struct {
+	SendFn func(ctx context.Context, to, subject, html, text string) error
+	Calls  []struct{ To, Subject, HTML, Text string }
+}
+
+func (m *mockMailer) Send(ctx context.Context, to, subject, html, text string) error {
+	m.Calls = append(m.Calls, struct{ To, Subject, HTML, Text string }{to, subject, html, text})
+	if m.SendFn != nil {
+		return m.SendFn(ctx, to, subject, html, text)
+	}
+	return nil
+}
+
 type testHarness struct {
 	handler  *Handler
 	users    *mockUserRepo
 	sessions *mockSessionRepo
+	tokens   *mockTokenRepo
+	mailer   *mockMailer
 }
 
 func newTestHarness() *testHarness {
@@ -281,6 +380,7 @@ func newTestHarness() *testHarness {
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{}
+	mailer := &mockMailer{}
 
 	cfg := service.Config{
 		AppName:    "TestApp",
@@ -293,10 +393,10 @@ func newTestHarness() *testHarness {
 	sessCfg.Duration = 30 * 24 * time.Hour
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil)
-	passSvc := service.NewPasswordService(users, tokens, hasher, gen, nil, sessions, cfg)
-	verifySvc := service.NewVerificationService(users, tokens, gen, nil, cfg)
-	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, nil, cfg, sessSvc)
+	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil)
+	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, cfg, sessSvc)
 	adminSvc := service.NewAdminService(users, sessions, hasher, cfg, sessSvc)
 
 	h := New(Services{
@@ -307,6 +407,5 @@ func newTestHarness() *testHarness {
 		Invite:   inviteSvc,
 		Admin:    adminSvc,
 	})
-	return &testHarness{handler: h, users: users, sessions: sessions}
+	return &testHarness{handler: h, users: users, sessions: sessions, tokens: tokens, mailer: mailer}
 }
-

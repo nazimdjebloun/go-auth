@@ -12,6 +12,7 @@ type RegisterResult struct {
 	User         *domain.User
 	Session      *domain.Session
 	SessionToken string
+	RefreshToken string
 }
 
 type LoginInput struct {
@@ -25,6 +26,7 @@ type LoginResult struct {
 	User         *domain.User
 	Session      *domain.Session
 	SessionToken string
+	RefreshToken string
 }
 
 type CompleteInviteInput struct {
@@ -38,4 +40,5 @@ type CompleteInviteResult struct {
 	User         *domain.User
 	Session      *domain.Session
 	SessionToken string
+	RefreshToken string
 }
