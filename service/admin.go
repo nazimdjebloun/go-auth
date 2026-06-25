@@ -73,11 +73,7 @@ func (s *AdminService) BanUser(ctx context.Context, userID string) *domain.AuthE
 	}
 
 	now := time.Now().UTC()
-	user.IsBanned = true
-	user.BannedAt = &now
-	user.UpdatedAt = now
-
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := s.users.SetBanStatus(ctx, userID, true, &now, now); err != nil {
 		return domain.NewError("internal_error", "Failed to ban user", 500)
 	}
 
@@ -98,11 +94,8 @@ func (s *AdminService) UnbanUser(ctx context.Context, userID string) *domain.Aut
 		return domain.NewError("not_banned", "User is not banned", 400)
 	}
 
-	user.IsBanned = false
-	user.BannedAt = nil
-	user.UpdatedAt = time.Now().UTC()
-
-	if err := s.users.Update(ctx, user); err != nil {
+	now := time.Now().UTC()
+	if err := s.users.SetBanStatus(ctx, userID, false, nil, now); err != nil {
 		return domain.NewError("internal_error", "Failed to unban user", 500)
 	}
 

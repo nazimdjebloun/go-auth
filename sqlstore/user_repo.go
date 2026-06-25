@@ -19,6 +19,34 @@ func NewUserRepository(db *DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
+var orderByWhitelist = map[string]string{
+	"created_at": "created_at",
+	"updated_at": "updated_at",
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanRow(s scanner) (*domain.User, error) {
+	u := &domain.User{}
+	var bannedAt sql.NullTime
+	var verifiedAt sql.NullTime
+	if err := s.Scan(
+		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
+		&u.IsVerified, &verifiedAt, &u.IsBanned, &bannedAt, &u.CreatedAt, &u.UpdatedAt,
+	); err != nil {
+		return nil, err
+	}
+	if verifiedAt.Valid {
+		u.VerifiedAt = &verifiedAt.Time
+	}
+	if bannedAt.Valid {
+		u.BannedAt = &bannedAt.Time
+	}
+	return u, nil
+}
+
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO users (id, email, password_hash, name, role, is_verified, verified_at, is_banned, created_at, updated_at)
@@ -29,49 +57,27 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
-	user := &domain.User{}
-	var bannedAt sql.NullTime
-	var verifiedAt sql.NullTime
-	err := r.db.QueryRowContext(ctx, `
+	user, err := scanRow(r.db.QueryRowContext(ctx, `
 		SELECT id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at
-		FROM users WHERE id = $1`, id).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.Name, &user.Role,
-		&user.IsVerified, &verifiedAt, &user.IsBanned, &bannedAt, &user.CreatedAt, &user.UpdatedAt)
+		FROM users WHERE id = $1`, id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-	if verifiedAt.Valid {
-		user.VerifiedAt = &verifiedAt.Time
-	}
-	if bannedAt.Valid {
-		user.BannedAt = &bannedAt.Time
 	}
 	return user, nil
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	user := &domain.User{}
-	var bannedAt sql.NullTime
-	var verifiedAt sql.NullTime
-	err := r.db.QueryRowContext(ctx, `
+	user, err := scanRow(r.db.QueryRowContext(ctx, `
 		SELECT id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at
-		FROM users WHERE email = $1`, email).Scan(
-		&user.ID, &user.Email, &user.PasswordHash, &user.Name, &user.Role,
-		&user.IsVerified, &verifiedAt, &user.IsBanned, &bannedAt, &user.CreatedAt, &user.UpdatedAt)
+		FROM users WHERE email = $1`, email))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
-	}
-	if verifiedAt.Valid {
-		user.VerifiedAt = &verifiedAt.Time
-	}
-	if bannedAt.Valid {
-		user.BannedAt = &bannedAt.Time
 	}
 	return user, nil
 }
@@ -79,10 +85,17 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE users SET email=$1, password_hash=$2, name=$3, role=$4,
-			is_verified=$5, verified_at=$6, is_banned=$7, banned_at=$8, updated_at=$9
-		WHERE id=$10`,
+			is_verified=$5, verified_at=$6, is_banned=$7, updated_at=$8
+		WHERE id=$9`,
 		user.Email, user.PasswordHash, user.Name, user.Role,
-		user.IsVerified, user.VerifiedAt, user.IsBanned, user.BannedAt, user.UpdatedAt, user.ID)
+		user.IsVerified, user.VerifiedAt, user.IsBanned, user.UpdatedAt, user.ID)
+	return err
+}
+
+func (r *UserRepository) SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE users SET is_banned=$1, banned_at=$2, updated_at=$3 WHERE id=$4`,
+		isBanned, bannedAt, updatedAt, userID)
 	return err
 }
 
@@ -156,19 +169,17 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 		return nil, 0, err
 	}
 
-	// Build ORDER BY
-	orderCol := "created_at"
-	if filter.OrderBy == "updated_at" {
-		orderCol = "updated_at"
+	orderCol := orderByWhitelist[filter.OrderBy]
+	if orderCol == "" {
+		orderCol = "created_at"
 	}
 	orderDir := "DESC"
-	if filter.OrderDirection == "asc" {
+	if strings.EqualFold(filter.OrderDirection, "asc") {
 		orderDir = "ASC"
 	}
 
 	colList := "id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at"
 
-	// When Limit is 0, return all matching users (no pagination)
 	if filter.Limit <= 0 {
 		query := fmt.Sprintf(`
 			SELECT %s FROM users WHERE %s ORDER BY %s %s`, colList, whereClause, orderCol, orderDir)
@@ -181,20 +192,11 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 
 		var users []domain.User
 		for rows.Next() {
-			var u domain.User
-			var bannedAt sql.NullTime
-			var verifiedAt sql.NullTime
-			if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
-				&u.IsVerified, &verifiedAt, &u.IsBanned, &bannedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			u, err := scanRow(rows)
+			if err != nil {
 				return nil, 0, err
 			}
-			if verifiedAt.Valid {
-				u.VerifiedAt = &verifiedAt.Time
-			}
-			if bannedAt.Valid {
-				u.BannedAt = &bannedAt.Time
-			}
-			users = append(users, u)
+			users = append(users, *u)
 		}
 		if users == nil {
 			users = []domain.User{}
@@ -218,20 +220,11 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 
 	var users []domain.User
 	for rows.Next() {
-		var u domain.User
-		var bannedAt sql.NullTime
-		var verifiedAt sql.NullTime
-		if err := rows.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
-			&u.IsVerified, &verifiedAt, &u.IsBanned, &bannedAt, &u.CreatedAt, &u.UpdatedAt); err != nil {
+		u, err := scanRow(rows)
+		if err != nil {
 			return nil, 0, err
 		}
-		if verifiedAt.Valid {
-			u.VerifiedAt = &verifiedAt.Time
-		}
-		if bannedAt.Valid {
-			u.BannedAt = &bannedAt.Time
-		}
-		users = append(users, u)
+		users = append(users, *u)
 	}
 	if users == nil {
 		users = []domain.User{}
