@@ -21,20 +21,20 @@ type AuthService struct {
 	mailer   port.Mailer
 	config   Config
 
-	sessionSvc  *SessionService
-	verifySvc   *VerificationService
+	sessionSvc *SessionService
+	verifySvc  *VerificationService
 }
 
 type Config struct {
-	AppName             string
-	BaseURL             string
-	InviteOnly          bool
+	AppName                  string
+	BaseURL                  string
+	InviteOnly               bool
 	RequireEmailVerification bool
-	InviteTTL           time.Duration
-	VerificationCodeTTL time.Duration
-	SessionTTL          time.Duration
-	TokenTTL            time.Duration
-	PasswordPolicy      domain.PasswordPolicy
+	InviteTTL                time.Duration
+	VerificationCodeTTL      time.Duration
+	SessionTTL               time.Duration
+	TokenTTL                 time.Duration
+	PasswordPolicy           domain.PasswordPolicy
 }
 
 func NewAuthService(
@@ -117,7 +117,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		}
 	}
 
-	session, rawToken, err := s.sessionSvc.Create(ctx, user.ID, "", "")
+	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, "", "")
 	if err != nil {
 		return nil, domain.NewError("internal_error", "Failed to create session", 500)
 	}
@@ -126,6 +126,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		User:         user,
 		Session:      session,
 		SessionToken: rawToken,
+		RefreshToken: refreshToken,
 	}, nil
 }
 
@@ -152,7 +153,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	session, rawToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		return nil, domain.NewError("internal_error", "Failed to create session", 500)
 	}
@@ -161,6 +162,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		User:         user,
 		Session:      session,
 		SessionToken: rawToken,
+		RefreshToken: refreshToken,
 	}, nil
 }
 
