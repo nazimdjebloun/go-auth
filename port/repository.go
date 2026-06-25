@@ -2,6 +2,8 @@ package port
 
 import (
 	"context"
+	"time"
+
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
@@ -25,6 +27,7 @@ type UserRepository interface {
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, filter UserFilter) ([]domain.User, int, error)
 	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, tokenID string) error
+	SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error
 }
 
 type SessionRepository interface {

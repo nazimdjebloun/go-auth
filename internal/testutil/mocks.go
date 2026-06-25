@@ -75,6 +75,18 @@ func (m *MockUserRepo) List(_ context.Context, _ port.UserFilter) ([]domain.User
 	return nil, 0, nil
 }
 
+func (m *MockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned bool, bannedAt *time.Time, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return nil
+	}
+	u.IsBanned = isBanned
+	u.BannedAt = bannedAt
+	return nil
+}
+
 func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, tokenID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
