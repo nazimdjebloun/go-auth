@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"time"
 
-
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -51,44 +50,45 @@ type Services struct {
 }
 
 type HandlerGroup struct {
-	Register           http.HandlerFunc
-	Login              http.HandlerFunc
-	Logout             http.HandlerFunc
-	ForgotPassword     http.HandlerFunc
-	ResetPassword      http.HandlerFunc
-	ChangePassword      http.HandlerFunc
-	SetPasswordRequest  http.HandlerFunc
-	SetPasswordConfirm  http.HandlerFunc
-	VerifyEmail         http.HandlerFunc
-	ResendVerification http.HandlerFunc
-	ListSessions       http.HandlerFunc
-	RevokeSession      http.HandlerFunc
-	RevokeAllSessions  http.HandlerFunc
-	InviteRegister     http.HandlerFunc
-	CheckSession   http.HandlerFunc
-	GetMe              http.HandlerFunc
-	ChangeName         http.HandlerFunc
-	DeleteAccount      http.HandlerFunc
-	ListUsers          http.HandlerFunc
-	UpdateUserRole     http.HandlerFunc
-	BanUser            http.HandlerFunc
-	UnbanUser          http.HandlerFunc
-	DeleteUser         http.HandlerFunc
-	RevokeUserSessions http.HandlerFunc
-	AdminCreateUser    http.HandlerFunc
+	Register               http.HandlerFunc
+	Login                  http.HandlerFunc
+	Logout                 http.HandlerFunc
+	ForgotPassword         http.HandlerFunc
+	ResetPassword          http.HandlerFunc
+	ChangePassword         http.HandlerFunc
+	SetPasswordRequest     http.HandlerFunc
+	SetPasswordConfirm     http.HandlerFunc
+	VerifyEmail            http.HandlerFunc
+	ResendVerification     http.HandlerFunc
+	ListSessions           http.HandlerFunc
+	RevokeSession          http.HandlerFunc
+	RevokeAllSessions      http.HandlerFunc
+	InviteRegister         http.HandlerFunc
+	CheckSession           http.HandlerFunc
+	RefreshToken           http.HandlerFunc
+	GetMe                  http.HandlerFunc
+	ChangeName             http.HandlerFunc
+	DeleteAccount          http.HandlerFunc
+	ListUsers              http.HandlerFunc
+	UpdateUserRole         http.HandlerFunc
+	BanUser                http.HandlerFunc
+	UnbanUser              http.HandlerFunc
+	DeleteUser             http.HandlerFunc
+	RevokeUserSessions     http.HandlerFunc
+	AdminCreateUser        http.HandlerFunc
 	AdminListUserSessions  http.HandlerFunc
 	AdminRevokeUserSession http.HandlerFunc
-	GetInviteInfo      http.HandlerFunc
-	CreateInvite       http.HandlerFunc
-	ListInvites        http.HandlerFunc
-	RevokeInvite       http.HandlerFunc
-	ResendInvite       http.HandlerFunc
-	HardDeleteInvite   http.HandlerFunc
-	OAuthInitiate      http.HandlerFunc
-	OAuthCallback      http.HandlerFunc
-	OAuthLink          http.HandlerFunc
-	OAuthUnlink        http.HandlerFunc
-	OAuthProviders     http.HandlerFunc
+	GetInviteInfo          http.HandlerFunc
+	CreateInvite           http.HandlerFunc
+	ListInvites            http.HandlerFunc
+	RevokeInvite           http.HandlerFunc
+	ResendInvite           http.HandlerFunc
+	HardDeleteInvite       http.HandlerFunc
+	OAuthInitiate          http.HandlerFunc
+	OAuthCallback          http.HandlerFunc
+	OAuthLink              http.HandlerFunc
+	OAuthUnlink            http.HandlerFunc
+	OAuthProviders         http.HandlerFunc
 }
 
 type MiddlewareGroup struct {
@@ -106,6 +106,12 @@ func New(config Config) (*Auth, error) {
 	}
 	if config.TokenTTL == 0 {
 		config.TokenTTL = 1 * time.Hour
+	}
+	if config.RefreshTokenTTL == 0 {
+		config.RefreshTokenTTL = 30 * 24 * time.Hour
+	}
+	if config.SessionIdleTTL == 0 {
+		config.SessionIdleTTL = 7 * 24 * time.Hour
 	}
 
 	var pool *pgxpool.Pool
@@ -196,20 +202,21 @@ func New(config Config) (*Auth, error) {
 	}
 
 	serviceCfg := service.Config{
-		AppName:             config.AppName,
-		BaseURL:             config.BaseURL,
-		InviteOnly:          config.InviteOnly,
+		AppName:                  config.AppName,
+		BaseURL:                  config.BaseURL,
+		InviteOnly:               config.InviteOnly,
 		RequireEmailVerification: config.RequireEmailVerification,
-		InviteTTL:           config.InviteTTL,
-		VerificationCodeTTL: config.VerificationCodeTTL,
-		SessionTTL:          config.SessionTTL,
-		TokenTTL:            config.TokenTTL,
-		PasswordPolicy:      config.PasswordPolicy,
+		InviteTTL:                config.InviteTTL,
+		VerificationCodeTTL:      config.VerificationCodeTTL,
+		SessionTTL:               config.SessionTTL,
+		TokenTTL:                 config.TokenTTL,
+		PasswordPolicy:           config.PasswordPolicy,
 	}
 
 	sessionCfg := service.DefaultSessionConfig()
 	sessionCfg.Duration = config.SessionTTL
 	sessionCfg.IdleTTL = config.SessionIdleTTL
+	sessionCfg.RefreshTTL = config.RefreshTokenTTL
 	sessionCfg.CookieName = config.Cookie.Name
 	sessionCfg.Domain = config.Cookie.Domain
 	sessionCfg.Path = config.Cookie.Path
@@ -294,44 +301,45 @@ func New(config Config) (*Auth, error) {
 			OAuth:    oauthSvc,
 		},
 		Handlers: HandlerGroup{
-			Register:           csrfMW(http.HandlerFunc(h.Register)).ServeHTTP,
-			Login:              csrfMW(http.HandlerFunc(h.Login)).ServeHTTP,
-			Logout:             csrfMW(authMW(http.HandlerFunc(h.Logout))).ServeHTTP,
-			ForgotPassword:     csrfMW(http.HandlerFunc(h.ForgotPassword)).ServeHTTP,
-			ResetPassword:      csrfMW(http.HandlerFunc(h.ResetPassword)).ServeHTTP,
-			ChangePassword:     csrfMW(authMW(http.HandlerFunc(h.ChangePassword))).ServeHTTP,
-			SetPasswordRequest:  csrfMW(authMW(http.HandlerFunc(h.SetPasswordRequest))).ServeHTTP,
-			SetPasswordConfirm:  csrfMW(authMW(http.HandlerFunc(h.SetPasswordConfirm))).ServeHTTP,
-			VerifyEmail:        csrfMW(http.HandlerFunc(h.VerifyEmail)).ServeHTTP,
-			ResendVerification: csrfMW(authMW(http.HandlerFunc(h.ResendVerification))).ServeHTTP,
-			ListSessions:       authMW(http.HandlerFunc(h.ListSessions)).ServeHTTP,
-			RevokeSession:      csrfMW(authMW(http.HandlerFunc(h.RevokeSession))).ServeHTTP,
-			RevokeAllSessions:  csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))).ServeHTTP,
-			InviteRegister:     csrfMW(http.HandlerFunc(h.InviteRegister)).ServeHTTP,
-			GetInviteInfo:      http.HandlerFunc(h.GetInviteInfo).ServeHTTP,
-			GetMe:              authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
-		CheckSession:       http.HandlerFunc(h.CheckAuth).ServeHTTP,
-			ChangeName:         csrfMW(authMW(http.HandlerFunc(h.ChangeName))).ServeHTTP,
-			DeleteAccount:      csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))).ServeHTTP,
-			ListUsers:          authMW(adminMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
-			UpdateUserRole:     csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole)))).ServeHTTP,
-			BanUser:            csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser)))).ServeHTTP,
-			UnbanUser:          csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser)))).ServeHTTP,
-			DeleteUser:         csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser)))).ServeHTTP,
-			RevokeUserSessions: csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions)))).ServeHTTP,
-			AdminCreateUser:    csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser)))).ServeHTTP,
+			Register:               csrfMW(http.HandlerFunc(h.Register)).ServeHTTP,
+			Login:                  csrfMW(http.HandlerFunc(h.Login)).ServeHTTP,
+			Logout:                 csrfMW(authMW(http.HandlerFunc(h.Logout))).ServeHTTP,
+			ForgotPassword:         csrfMW(http.HandlerFunc(h.ForgotPassword)).ServeHTTP,
+			ResetPassword:          csrfMW(http.HandlerFunc(h.ResetPassword)).ServeHTTP,
+			ChangePassword:         csrfMW(authMW(http.HandlerFunc(h.ChangePassword))).ServeHTTP,
+			SetPasswordRequest:     csrfMW(authMW(http.HandlerFunc(h.SetPasswordRequest))).ServeHTTP,
+			SetPasswordConfirm:     csrfMW(authMW(http.HandlerFunc(h.SetPasswordConfirm))).ServeHTTP,
+			VerifyEmail:            csrfMW(http.HandlerFunc(h.VerifyEmail)).ServeHTTP,
+			ResendVerification:     csrfMW(authMW(http.HandlerFunc(h.ResendVerification))).ServeHTTP,
+			ListSessions:           authMW(http.HandlerFunc(h.ListSessions)).ServeHTTP,
+			RevokeSession:          csrfMW(authMW(http.HandlerFunc(h.RevokeSession))).ServeHTTP,
+			RevokeAllSessions:      csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))).ServeHTTP,
+			InviteRegister:         csrfMW(http.HandlerFunc(h.InviteRegister)).ServeHTTP,
+			GetInviteInfo:          http.HandlerFunc(h.GetInviteInfo).ServeHTTP,
+			GetMe:                  authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
+			CheckSession:           http.HandlerFunc(h.CheckAuth).ServeHTTP,
+			RefreshToken:           csrfMW(http.HandlerFunc(h.RefreshToken)).ServeHTTP,
+			ChangeName:             csrfMW(authMW(http.HandlerFunc(h.ChangeName))).ServeHTTP,
+			DeleteAccount:          csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))).ServeHTTP,
+			ListUsers:              authMW(adminMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
+			UpdateUserRole:         csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole)))).ServeHTTP,
+			BanUser:                csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser)))).ServeHTTP,
+			UnbanUser:              csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser)))).ServeHTTP,
+			DeleteUser:             csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser)))).ServeHTTP,
+			RevokeUserSessions:     csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions)))).ServeHTTP,
+			AdminCreateUser:        csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser)))).ServeHTTP,
 			AdminListUserSessions:  authMW(adminMW(http.HandlerFunc(h.AdminListUserSessions))).ServeHTTP,
 			AdminRevokeUserSession: csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession)))).ServeHTTP,
-			CreateInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite)))).ServeHTTP,
-			ListInvites:        authMW(adminMW(http.HandlerFunc(h.ListInvites))).ServeHTTP,
-			RevokeInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))).ServeHTTP,
-			ResendInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite)))).ServeHTTP,
-			HardDeleteInvite:   csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite)))).ServeHTTP,
-			OAuthInitiate:  http.HandlerFunc(oauthHandlers.Initiate).ServeHTTP,
-			OAuthCallback:  http.HandlerFunc(oauthHandlers.Callback).ServeHTTP,
-			OAuthLink:      csrfMW(authMW(http.HandlerFunc(oauthHandlers.InitiateLink))).ServeHTTP,
-			OAuthUnlink:    csrfMW(authMW(http.HandlerFunc(oauthHandlers.Unlink))).ServeHTTP,
-			OAuthProviders: authMW(http.HandlerFunc(oauthHandlers.ListConnected)).ServeHTTP,
+			CreateInvite:           csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite)))).ServeHTTP,
+			ListInvites:            authMW(adminMW(http.HandlerFunc(h.ListInvites))).ServeHTTP,
+			RevokeInvite:           csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))).ServeHTTP,
+			ResendInvite:           csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite)))).ServeHTTP,
+			HardDeleteInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite)))).ServeHTTP,
+			OAuthInitiate:          http.HandlerFunc(oauthHandlers.Initiate).ServeHTTP,
+			OAuthCallback:          http.HandlerFunc(oauthHandlers.Callback).ServeHTTP,
+			OAuthLink:              csrfMW(authMW(http.HandlerFunc(oauthHandlers.InitiateLink))).ServeHTTP,
+			OAuthUnlink:            csrfMW(authMW(http.HandlerFunc(oauthHandlers.Unlink))).ServeHTTP,
+			OAuthProviders:         authMW(http.HandlerFunc(oauthHandlers.ListConnected)).ServeHTTP,
 		},
 		Middleware: MiddlewareGroup{
 			Authenticate: authMW,
@@ -375,6 +383,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /auth/set-password/confirm", a.Handlers.SetPasswordConfirm)
 	mux.Handle("DELETE /auth/account", a.Handlers.DeleteAccount)
 	mux.Handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
+	mux.Handle("POST /auth/refresh", a.Handlers.RefreshToken)
 	mux.Handle("GET /admin/users", a.Handlers.ListUsers)
 	mux.Handle("PATCH /admin/users/{id}/role", a.Handlers.UpdateUserRole)
 	mux.Handle("PATCH /admin/users/{id}/ban", a.Handlers.BanUser)
@@ -409,6 +418,7 @@ func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResu
 		User:         result.User,
 		Session:      result.Session,
 		SessionToken: result.SessionToken,
+		RefreshToken: result.RefreshToken,
 	}, nil
 }
 
@@ -426,6 +436,7 @@ func (a *Auth) Login(ctx context.Context, input LoginInput) (*LoginResult, *doma
 		User:         result.User,
 		Session:      result.Session,
 		SessionToken: result.SessionToken,
+		RefreshToken: result.RefreshToken,
 	}, nil
 }
 
@@ -443,6 +454,7 @@ func (a *Auth) CompleteInviteRegistration(ctx context.Context, input CompleteInv
 		User:         result.User,
 		Session:      result.Session,
 		SessionToken: result.SessionToken,
+		RefreshToken: result.RefreshToken,
 	}, nil
 }
 

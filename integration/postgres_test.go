@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 func postgresConfig(dsn string, mailer port.Mailer) goauth.Config {
@@ -20,11 +20,11 @@ func postgresConfig(dsn string, mailer port.Mailer) goauth.Config {
 			DB:     nil, // set below after open
 			Driver: goauth.DriverPostgres,
 		},
-		SessionTTL:         1 * time.Hour,
-		TokenTTL:           1 * time.Hour,
-		InviteTTL:          1 * time.Hour,
+		SessionTTL:          1 * time.Hour,
+		TokenTTL:            1 * time.Hour,
+		InviteTTL:           1 * time.Hour,
 		VerificationCodeTTL: 1 * time.Hour,
-		Mailer:             mailer,
+		Mailer:              mailer,
 	}
 }
 
@@ -170,14 +170,14 @@ func TestPostgres_PasswordReset(t *testing.T) {
 
 func cleanupPostgres(t *testing.T, db *sql.DB) {
 	t.Helper()
-	_, err := db.Exec("TRUNCATE TABLE users, sessions, verification_tokens, provider_accounts, invites CASCADE")
-	if err != nil {
-		t.Logf("TRUNCATE failed, attempting DELETE fallback: %v", err)
-		tables := []string{"invites", "provider_accounts", "verification_tokens", "sessions", "users"}
-		for _, table := range tables {
-			if _, err := db.Exec("DELETE FROM " + table); err != nil {
-				t.Fatalf("failed to delete from %s: %v", table, err)
-			}
+	// Drop sessions table so CREATE TABLE IF NOT EXISTS picks up new columns
+	if _, err := db.Exec("DROP TABLE IF EXISTS sessions CASCADE"); err != nil {
+		t.Fatalf("failed to drop sessions: %v", err)
+	}
+	tables := []string{"invites", "provider_accounts", "verification_tokens", "users"}
+	for _, table := range tables {
+		if _, err := db.Exec("DELETE FROM " + table); err != nil {
+			t.Fatalf("failed to delete from %s: %v", table, err)
 		}
 	}
 }

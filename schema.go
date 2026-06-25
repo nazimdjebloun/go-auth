@@ -22,11 +22,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT UNIQUE NOT NULL,
-    refresh_token TEXT NOT NULL DEFAULT '',
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at TIMESTAMPTZ NOT NULL,
+    refresh_expires_at TIMESTAMPTZ,
+    refresh_rotated_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     revoked_at TIMESTAMPTZ,
     last_active_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -76,6 +79,8 @@ CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
 CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
 `
 
 const EmbeddedMySQLSchema = `CREATE TABLE IF NOT EXISTS users (
@@ -96,11 +101,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL,
     token_hash VARCHAR(255) UNIQUE NOT NULL,
-    refresh_token TEXT NOT NULL DEFAULT '',
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL,
     user_agent TEXT NOT NULL,
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at DATETIME NOT NULL,
+    refresh_expires_at DATETIME,
+    refresh_rotated_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     revoked_at DATETIME,
     last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -154,6 +162,8 @@ CREATE INDEX idx_invites_email ON invites(email(255));
 CREATE INDEX idx_invites_code ON invites(code(255));
 CREATE INDEX idx_provider_accounts_user_id ON provider_accounts(user_id);
 CREATE INDEX idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+CREATE INDEX idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
 `
 
 const EmbeddedSQLiteSchema = `CREATE TABLE IF NOT EXISTS users (
@@ -174,11 +184,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash TEXT UNIQUE NOT NULL,
-    refresh_token TEXT NOT NULL DEFAULT '',
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
     is_revoked INTEGER NOT NULL DEFAULT 0,
     expires_at DATETIME NOT NULL,
+    refresh_expires_at DATETIME,
+    refresh_rotated_at DATETIME,
     created_at DATETIME NOT NULL,
     revoked_at DATETIME,
     last_active_at DATETIME NOT NULL
@@ -228,6 +241,8 @@ CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
 CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
 `
 
 var driverSchemas = map[string]string{

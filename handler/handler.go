@@ -53,7 +53,9 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
+	setRefreshCookie(w, h.services.Session, result.RefreshToken)
 	result.SessionToken = ""
+	result.RefreshToken = ""
 	writeJSON(w, http.StatusCreated, result)
 }
 
@@ -78,7 +80,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
+	setRefreshCookie(w, h.services.Session, result.RefreshToken)
 	result.SessionToken = ""
+	result.RefreshToken = ""
 	writeJSON(w, http.StatusOK, result)
 }
 
@@ -91,6 +95,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	clearSessionCookie(w, h.services.Session)
+	clearRefreshCookie(w, h.services.Session)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 }
 
@@ -264,6 +269,7 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	clearSessionCookie(w, h.services.Session)
+	clearRefreshCookie(w, h.services.Session)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }
 
@@ -278,7 +284,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Verify.VerifyEmail(r.Context(), body.Code, body.Email); err != nil {
+	if err := h.services.Verify.VerifyEmail(r.Context(), body.Code); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -300,6 +306,39 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- Session handlers ---
+
+// POST /auth/refresh
+func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	cfg := h.services.Session.Config()
+	cookie, err := r.Cookie(cfg.RefreshCookieName)
+	if err != nil || cookie.Value == "" {
+		writeError(w, domain.NewError("invalid_refresh", "No refresh token provided", 401))
+		return
+	}
+
+	session, rawToken, refreshToken, err := h.services.Session.RefreshSession(r.Context(), cookie.Value)
+	if err != nil {
+		clearSessionCookie(w, h.services.Session)
+		clearRefreshCookie(w, h.services.Session)
+		if authErr, ok := err.(*domain.AuthError); ok {
+			writeError(w, authErr)
+		} else {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		}
+		return
+	}
+
+	setSessionCookie(w, h.services.Session, rawToken)
+	setRefreshCookie(w, h.services.Session, refreshToken)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"session": map[string]any{
+			"id":          session.ID,
+			"user_id":     session.UserID,
+			"expires_at":  session.ExpiresAt,
+			"last_active": session.LastActiveAt,
+		},
+	})
+}
 
 func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
@@ -408,7 +447,9 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
+	setRefreshCookie(w, h.services.Session, result.RefreshToken)
 	result.SessionToken = ""
+	result.RefreshToken = ""
 	writeJSON(w, http.StatusCreated, result)
 }
 
@@ -660,6 +701,37 @@ func clearSessionCookie(w http.ResponseWriter, svc *service.SessionService) {
 		Value:    "",
 		Domain:   cfg.Domain,
 		Path:     cfg.Path,
+		HttpOnly: true,
+		Secure:   cfg.Secure,
+		SameSite: http.SameSite(cfg.SameSite),
+		MaxAge:   -1,
+	})
+}
+
+func setRefreshCookie(w http.ResponseWriter, svc *service.SessionService, token string) {
+	if token == "" {
+		return
+	}
+	cfg := svc.Config()
+	http.SetCookie(w, &http.Cookie{
+		Name:     cfg.RefreshCookieName,
+		Value:    token,
+		Domain:   cfg.Domain,
+		Path:     "/auth/refresh",
+		HttpOnly: true,
+		Secure:   cfg.Secure,
+		SameSite: http.SameSite(cfg.SameSite),
+		MaxAge:   int(cfg.RefreshTTL.Seconds()),
+	})
+}
+
+func clearRefreshCookie(w http.ResponseWriter, svc *service.SessionService) {
+	cfg := svc.Config()
+	http.SetCookie(w, &http.Cookie{
+		Name:     cfg.RefreshCookieName,
+		Value:    "",
+		Domain:   cfg.Domain,
+		Path:     "/auth/refresh",
 		HttpOnly: true,
 		Secure:   cfg.Secure,
 		SameSite: http.SameSite(cfg.SameSite),

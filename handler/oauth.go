@@ -9,9 +9,9 @@ import (
 )
 
 type OAuthHandlers struct {
-	oauth       *service.OAuthService
-	session     *service.SessionService
-	baseURL     string
+	oauth   *service.OAuthService
+	session *service.SessionService
+	baseURL string
 }
 
 func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionService, baseURL string) *OAuthHandlers {
@@ -61,13 +61,14 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionToken, _, err := h.oauth.Callback(r.Context(), provider, code, state)
+	sessionToken, refreshToken, _, err := h.oauth.Callback(r.Context(), provider, code, state)
 	if err != nil {
 		http.Redirect(w, r, h.baseURL+"/auth/callback?error="+err.Code+"&provider="+provider, http.StatusFound)
 		return
 	}
 
 	setSessionCookie(w, h.session, sessionToken)
+	setRefreshCookie(w, h.session, refreshToken)
 	http.Redirect(w, r, h.baseURL+"/auth/callback", http.StatusFound)
 }
 

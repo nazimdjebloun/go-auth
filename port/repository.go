@@ -30,9 +30,23 @@ type UserRepository interface {
 	SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error
 }
 
+type UpdateRefreshInput struct {
+	SessionID        string
+	OldRefreshHash   string
+	NewTokenHash     string
+	NewRefreshHash   string
+	PreviousHash     string
+	NewExpiresAt     time.Time
+	NewRefreshExpiry time.Time
+	RotatedAt        time.Time
+}
+
 type SessionRepository interface {
 	Create(ctx context.Context, s *domain.Session) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Session, error)
+	GetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
+	GetByPreviousRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
+	LockAndGetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
 	ListByUserID(ctx context.Context, userID string) ([]domain.Session, error)
 	Delete(ctx context.Context, tokenHash string) error
 	DeleteByID(ctx context.Context, id string) error
@@ -40,6 +54,8 @@ type SessionRepository interface {
 	DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error
 	DeleteExpired(ctx context.Context) error
 	UpdateLastActiveAt(ctx context.Context, tokenHash string) error
+	UpdateRefreshToken(ctx context.Context, input UpdateRefreshInput) (int64, error)
+	Revoke(ctx context.Context, id string) error
 }
 
 type TokenRepository interface {
