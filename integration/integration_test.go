@@ -77,11 +77,13 @@ func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 			DB:     db,
 			Driver: goauth.DriverSQLite,
 		},
-		SessionTTL:         1 * time.Hour,
-		TokenTTL:           1 * time.Hour,
-		InviteTTL:          1 * time.Hour,
+		SessionTTL:          1 * time.Hour,
+		SessionIdleTTL:      1 * time.Hour,
+		RefreshTokenTTL:     1 * time.Hour,
+		TokenTTL:            1 * time.Hour,
+		InviteTTL:           1 * time.Hour,
 		VerificationCodeTTL: 1 * time.Hour,
-		Mailer:             mailer,
+		Mailer:              mailer,
 	}
 }
 
@@ -735,5 +737,97 @@ func TestGetSession_AfterLogoutReturnsError(t *testing.T) {
 	}
 	if session != nil {
 		t.Error("expected nil session for revoked session, got non-nil")
+	}
+}
+
+func TestRefreshToken_E2E(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	mailer := &testMailer{}
+	a := openAuth(t, db, mailer)
+	defer a.Close()
+
+	ctx := context.Background()
+
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "grace@example.com",
+		Password: "V@lidPswd1",
+		Name:     "Grace",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+	if res.RefreshToken == "" {
+		t.Fatal("expected refresh token after register")
+	}
+
+	// First refresh: should succeed and return new tokens
+	session2, rawToken2, refresh2, err := a.Services.Session.RefreshSession(ctx, res.RefreshToken)
+	if err != nil {
+		t.Fatalf("first refresh failed: %v", err)
+	}
+	if session2 == nil {
+		t.Fatal("expected session after refresh")
+	}
+	if rawToken2 == "" {
+		t.Fatal("expected new session token after refresh")
+	}
+	if refresh2 == "" {
+		t.Fatal("expected new refresh token after refresh")
+	}
+	if refresh2 == res.RefreshToken {
+		t.Error("refresh token should be rotated")
+	}
+	if rawToken2 == res.SessionToken {
+		t.Error("session token should be rotated")
+	}
+
+	// New session token should validate BEFORE reuse test (which revokes the session)
+	user, session, aerr := a.Services.Auth.ValidateSession(ctx, rawToken2)
+	if aerr != nil {
+		t.Fatalf("new session token should validate: %v", aerr)
+	}
+	if user == nil || user.ID != session2.UserID {
+		t.Error("ValidateSession returned wrong user")
+	}
+	if session == nil || session.ID != session2.ID {
+		t.Error("ValidateSession returned wrong session")
+	}
+
+	// Refresh token hash should be SHA256 of raw refresh token (not stored in plaintext)
+	var storedHash string
+	if err := db.QueryRow("SELECT refresh_token_hash FROM sessions WHERE id = ?", session2.ID).Scan(&storedHash); err != nil {
+		t.Fatal(err)
+	}
+	if storedHash == refresh2 {
+		t.Error("raw refresh token stored in database")
+	}
+	if storedHash != sha256Hex(refresh2) {
+		t.Error("refresh_token_hash does not match SHA256(raw refresh token)")
+	}
+
+	// Old refresh token should be dead (reuse detection)
+	_, _, _, err = a.Services.Session.RefreshSession(ctx, res.RefreshToken)
+	if err == nil {
+		t.Fatal("expected error when reusing old refresh token")
+	}
+	ae, ok := err.(*domain.AuthError)
+	if !ok {
+		t.Fatalf("expected *domain.AuthError, got %T", err)
+	}
+	if ae.Code != domain.ErrSessionRevoked.Code {
+		t.Errorf("expected ErrSessionRevoked, got %v", ae.Code)
+	}
+
+	// After reuse detection, the session should be revoked
+	_, _, aerr = a.Services.Auth.ValidateSession(ctx, rawToken2)
+	if aerr == nil {
+		t.Fatal("expected session to be revoked after reuse detection")
+	}
+
+	// New refresh token (refresh2) should also be dead (session revoked)
+	_, _, _, err = a.Services.Session.RefreshSession(ctx, refresh2)
+	if err == nil {
+		t.Fatal("expected error when using new refresh token after session revocation")
 	}
 }
