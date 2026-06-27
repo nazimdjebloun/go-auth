@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
     token_hash TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'invite_verify', 'oauth_state')),
+    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state')),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ
 );
