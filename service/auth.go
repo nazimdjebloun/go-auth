@@ -117,7 +117,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		}
 	}
 
-	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, "", "")
+	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		return nil, domain.NewError("internal_error", "Failed to create session", 500)
 	}
