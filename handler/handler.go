@@ -43,9 +43,11 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.services.Auth.Register(r.Context(), service.RegisterInput{
-		Email:    body.Email,
-		Password: body.Password,
-		Name:     body.Name,
+		Email:     body.Email,
+		Password:  body.Password,
+		Name:      body.Name,
+		IP:        r.RemoteAddr,
+		UserAgent: r.UserAgent(),
 	})
 	if err != nil {
 		writeError(w, err)
@@ -440,6 +442,8 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 		Name:            body.Name,
 		Password:        body.Password,
 		ConfirmPassword: body.ConfirmPassword,
+		IP:              r.RemoteAddr,
+		UserAgent:       r.UserAgent(),
 	})
 	if err != nil {
 		writeError(w, err)

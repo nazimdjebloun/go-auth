@@ -186,7 +186,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	invite.AcceptedAt = &now
 	s.invites.Update(ctx, invite)
 
-	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, "", "")
+	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		return nil, domain.NewError("internal_error", "Failed to create session", 500)
 	}

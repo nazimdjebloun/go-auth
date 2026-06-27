@@ -61,7 +61,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionToken, refreshToken, _, err := h.oauth.Callback(r.Context(), provider, code, state)
+	sessionToken, refreshToken, _, err := h.oauth.Callback(r.Context(), provider, code, state, r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		http.Redirect(w, r, h.baseURL+"/auth/callback?error="+err.Code+"&provider="+provider, http.StatusFound)
 		return

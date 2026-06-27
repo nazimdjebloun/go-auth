@@ -5,9 +5,11 @@ import (
 )
 
 type RegisterInput struct {
-	Email    string
-	Password string
-	Name     string
+	Email     string
+	Password  string
+	Name      string
+	IP        string
+	UserAgent string
 }
 
 type RegisterResult struct {
@@ -36,6 +38,8 @@ type CompleteInviteInput struct {
 	Name            string
 	Password        string
 	ConfirmPassword string
+	IP              string
+	UserAgent       string
 }
 
 type CompleteInviteResult struct {

@@ -126,7 +126,7 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 // If the state token has a UserID, it's a link flow (no session created).
 // If no UserID, it's a login flow (user may be created or logged in).
 // Returns (sessionToken, isNewUser, authErr). sessionToken is empty for link flow.
-func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState string) (string, string, bool, *domain.AuthError) {
+func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, ip, userAgent string) (string, string, bool, *domain.AuthError) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
 		return "", "", false, err
@@ -190,7 +190,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 			return "", "", false, domain.ErrUserBanned
 		}
 
-		session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, user.ID, "", "")
+		session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
 		if sessionErr != nil {
 			return "", "", false, domain.NewError("internal_error", "Failed to create session", 500)
 		}
@@ -223,7 +223,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return "", "", false, linkErr
 	}
 
-	session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, newUser.ID, "", "")
+	session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, newUser.ID, ip, userAgent)
 	if sessionErr != nil {
 		return "", "", false, domain.NewError("internal_error", "Failed to create session", 500)
 	}
@@ -235,7 +235,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 // Link connects a provider to an existing user.
 // Used when the callback returns link flow (userID from state token).
 func (s *OAuthService) Link(ctx context.Context, userID, providerName, code, rawState string) *domain.AuthError {
-	_, _, _, err := s.Callback(ctx, providerName, code, rawState)
+	_, _, _, err := s.Callback(ctx, providerName, code, rawState, "", "")
 	return err
 }
 
