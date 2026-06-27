@@ -170,11 +170,13 @@ func TestPostgres_PasswordReset(t *testing.T) {
 
 func cleanupPostgres(t *testing.T, db *sql.DB) {
 	t.Helper()
-	// Drop sessions table so CREATE TABLE IF NOT EXISTS picks up new columns
-	if _, err := db.Exec("DROP TABLE IF EXISTS sessions CASCADE"); err != nil {
-		t.Fatalf("failed to drop sessions: %v", err)
+	// Drop tables so CREATE TABLE IF NOT EXISTS picks up new columns/constraints
+	for _, table := range []string{"verification_tokens", "sessions"} {
+		if _, err := db.Exec("DROP TABLE IF EXISTS " + table + " CASCADE"); err != nil {
+			t.Fatalf("failed to drop %s: %v", table, err)
+		}
 	}
-	tables := []string{"invites", "provider_accounts", "verification_tokens", "users"}
+	tables := []string{"invites", "provider_accounts", "users"}
 	for _, table := range tables {
 		if _, err := db.Exec("DELETE FROM " + table); err != nil {
 			t.Fatalf("failed to delete from %s: %v", table, err)
