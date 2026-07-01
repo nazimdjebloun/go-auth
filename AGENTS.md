@@ -14,16 +14,16 @@ go test -run TestName ./service
 go vet ./... && go build ./... && go test ./...  # preferred full check order
 
 # CLI is a separate module
-cd cmd/go-auth && go build .    # build CLI binary
-cd cmd/go-auth && go vet .      # vet CLI
+cd cmd\goauth && go build .    # build CLI binary
+cd cmd\goauth && go vet .      # vet CLI
 ```
 
 ## Architecture
 
-- `auth.go` — `New(Config)` creates the `Auth` struct, opens DB, runs migrations, wires all services, handlers, and middleware
+- `auth.go` — `New(Config)` creates the `Auth` struct, opens DB, wires all services, handlers, and middleware
 - `auth.config.go` — `Config`, `DefaultConfig()`, `NewConfig(opts...)`, `validate()`. Use `NewConfig` for validation; direct `Config{}` skips it
-- `schema.go` — embedded SQL schemas for postgres, mysql, sqlite. Get via `GetSchema(driver)`, which also powers `cmd/go-auth`
-- `split.go` — `SplitSQL(sql)` splits semicolon-delimited SQL, used internally by `runMigrations` and by the CLI
+- `schema.go` — embedded SQL schemas for postgres, mysql, sqlite. Get via `GetSchema(driver)`, powers the CLI
+- `split.go` — `SplitSQL(sql)` splits semicolon-delimited SQL, used by the CLI `migrate` command
 - `email.go` — unexported `SMTPMailer` implementing `port.Mailer` via `go-mail` with `TLSOpportunistic`
 - `port/` — interfaces: `Mailer`, `Hasher`, `TokenGenerator`, `UserRepository`, `SessionRepository`, `TokenRepository`, `InviteRepository`
 - `service/` — business logic: `AuthService`, `SessionService`, `PasswordService`, `VerificationService`, `InviteService`, `AdminService`. All accept `port.*` interfaces.
@@ -35,7 +35,7 @@ cd cmd/go-auth && go vet .      # vet CLI
 
 ## Key conventions
 
-- **Consumer-owned drivers**: only `pgx/v5` is in the library's `go.mod`. SQLite/MySQL consumers add `_ "modernc.org/sqlite"` or `_ "github.com/go-sql-driver/mysql"` in their own `main` package. `New()` validates driver registration at runtime with actionable error messages. Exception: the CLI (`cmd/go-auth/`) is a separate module that owns all three drivers.
+- **Consumer-owned drivers**: only `pgx/v5` is in the library's `go.mod`. SQLite/MySQL consumers add `_ "modernc.org/sqlite"` or `_ "github.com/go-sql-driver/mysql"` in their own `main` package. `New()` validates driver registration at runtime with actionable error messages. Exception: the CLI (`cmd/goauth/`) is a separate module that owns all three drivers.
 - **Rate limiting disabled by default**: set `RateLimit.Enabled = true` in production. Default has route-specific limits (login: 5/min, register: 3/min, etc.).
 - **Postgres pool**: `Auth.Pool` (`*pgxpool.Pool`) is exported for consumer access. Only created when `DriverPostgres` and `URL` is used.
 - **Session idle TTL**: `SessionIdleTTL` (default 7d) enforced via `SessionService.Touch()` which updates `last_active_at`.
@@ -69,15 +69,16 @@ cd cmd/go-auth && go vet .      # vet CLI
 | `ratelimit/` | rate limit config, in-memory store |
 | `hasher/` | bcrypt password hashing |
 | `token/` | crypto/rand token generation |
-| `cmd/go-auth/` | CLI binary (separate module) for running migrations |
+| `cmd/goauth/` | CLI binary (separate module) for schema generation and migration |
 
 ## CLI module
 
-`cmd/go-auth/` is a **separate Go module** (`go.mod` lives there) so it can own all three driver imports without polluting the library. Supports postgres, mysql, and sqlite3. Build with `cd cmd/go-auth && go build .`.
+`cmd/goauth/` is a **separate Go module** (`go.mod` lives there) so it can own all three driver imports without polluting the library. Supports postgres, mysql, and sqlite. Build with `cd cmd\goauth && go build .`.
 
 ```sh
 # Examples
-go-auth --cmd init-schema --driver sqlite3
-go-auth --cmd migrate --driver postgres --dsn "postgres://..."
-AUTH_DSN="mysql://..." go-auth --cmd migrate --driver mysql
+goauth generate --driver postgres
+goauth generate --driver sqlite --out ./schemas/auth.sql
+goauth migrate --driver postgres --dsn "postgres://..."
+AUTH_DSN="mysql://..." goauth migrate --driver mysql --dsn "$AUTH_DSN"
 ```
