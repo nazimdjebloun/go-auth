@@ -22,8 +22,8 @@ const (
 		UPDATE users SET is_banned=$1, banned_at=$2, updated_at=$3 WHERE id=$4`
 
 	userSetPasswordQuery = `
-		UPDATE users SET password_hash=$1, is_verified=true, verified_at=$2, updated_at=$2
-		WHERE id=$3`
+		UPDATE users SET password_hash=$1, is_verified=true, verified_at=$2, updated_at=$3
+		WHERE id=$4`
 
 	userDeleteQuery = `DELETE FROM users WHERE id = $1`
 
