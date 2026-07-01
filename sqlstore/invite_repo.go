@@ -18,9 +18,7 @@ func NewInviteRepository(db *DB) *InviteRepository {
 }
 
 func (r *InviteRepository) Create(ctx context.Context, invite *domain.Invite) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO invites (id, email, code, created_by, status, expires_at, accepted_at, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+	_, err := r.db.ExecContext(ctx, inviteCreateQuery,
 		invite.ID, invite.Email, invite.Code, invite.CreatedBy, invite.Status,
 		invite.ExpiresAt, invite.AcceptedAt, invite.CreatedAt)
 	return err
@@ -29,9 +27,7 @@ func (r *InviteRepository) Create(ctx context.Context, invite *domain.Invite) er
 func (r *InviteRepository) GetByID(ctx context.Context, id string) (*domain.Invite, error) {
 	invite := &domain.Invite{}
 	var acceptedAt sql.NullTime
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, email, code, created_by, status, expires_at, accepted_at, created_at
-		FROM invites WHERE id = $1`, id).Scan(
+	err := r.db.QueryRowContext(ctx, inviteByIDQuery, id).Scan(
 		&invite.ID, &invite.Email, &invite.Code, &invite.CreatedBy, &invite.Status,
 		&invite.ExpiresAt, &acceptedAt, &invite.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -49,9 +45,7 @@ func (r *InviteRepository) GetByID(ctx context.Context, id string) (*domain.Invi
 func (r *InviteRepository) GetByCode(ctx context.Context, code string) (*domain.Invite, error) {
 	invite := &domain.Invite{}
 	var acceptedAt sql.NullTime
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, email, code, created_by, status, expires_at, accepted_at, created_at
-		FROM invites WHERE code = $1`, code).Scan(
+	err := r.db.QueryRowContext(ctx, inviteByCodeQuery, code).Scan(
 		&invite.ID, &invite.Email, &invite.Code, &invite.CreatedBy, &invite.Status,
 		&invite.ExpiresAt, &acceptedAt, &invite.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -69,9 +63,7 @@ func (r *InviteRepository) GetByCode(ctx context.Context, code string) (*domain.
 func (r *InviteRepository) GetByEmail(ctx context.Context, email string) (*domain.Invite, error) {
 	invite := &domain.Invite{}
 	var acceptedAt sql.NullTime
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, email, code, created_by, status, expires_at, accepted_at, created_at
-		FROM invites WHERE email = $1 ORDER BY created_at DESC LIMIT 1`, email).Scan(
+	err := r.db.QueryRowContext(ctx, inviteByEmailQuery, email).Scan(
 		&invite.ID, &invite.Email, &invite.Code, &invite.CreatedBy, &invite.Status,
 		&invite.ExpiresAt, &acceptedAt, &invite.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -118,7 +110,7 @@ func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) (
 	argN++
 	args = append(args, filter.Offset)
 
-	query := fmt.Sprintf(`SELECT id, email, code, created_by, status, expires_at, accepted_at, created_at
+	query := fmt.Sprintf(`SELECT `+inviteSelectColumns+`
 		FROM invites%s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, where, argN-1, argN)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -147,16 +139,13 @@ func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) (
 }
 
 func (r *InviteRepository) Update(ctx context.Context, invite *domain.Invite) error {
-	_, err := r.db.ExecContext(ctx, `
-		UPDATE invites SET email=$1, code=$2, created_by=$3, status=$4,
-			expires_at=$5, accepted_at=$6
-		WHERE id=$7`,
+	_, err := r.db.ExecContext(ctx, inviteUpdateQuery,
 		invite.Email, invite.Code, invite.CreatedBy, invite.Status,
 		invite.ExpiresAt, invite.AcceptedAt, invite.ID)
 	return err
 }
 
 func (r *InviteRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM invites WHERE id = $1`, id)
+	_, err := r.db.ExecContext(ctx, inviteDeleteQuery, id)
 	return err
 }
