@@ -17,9 +17,7 @@ func NewTokenRepository(db *DB) *TokenRepository {
 }
 
 func (r *TokenRepository) Create(ctx context.Context, t *domain.VerificationToken) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at, used_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+	_, err := r.db.ExecContext(ctx, tokenCreateQuery,
 		t.ID, t.UserID, t.Email, t.TokenHash, t.Type, t.ExpiresAt, t.UsedAt)
 	return err
 }
@@ -28,9 +26,7 @@ func (r *TokenRepository) GetByHash(ctx context.Context, hash string) (*domain.V
 	t := &domain.VerificationToken{}
 	var userID sql.NullString
 	var usedAt sql.NullTime
-	err := r.db.QueryRowContext(ctx, `
-		SELECT id, user_id, email, token_hash, type, expires_at, used_at
-		FROM verification_tokens WHERE token_hash = $1`, hash).Scan(
+	err := r.db.QueryRowContext(ctx, tokenByHashQuery, hash).Scan(
 		&t.ID, &userID, &t.Email, &t.TokenHash, &t.Type, &t.ExpiresAt, &usedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -48,18 +44,16 @@ func (r *TokenRepository) GetByHash(ctx context.Context, hash string) (*domain.V
 }
 
 func (r *TokenRepository) MarkUsed(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE verification_tokens SET used_at = $1 WHERE id = $2 AND used_at IS NULL`, time.Now().UTC(), id)
+	_, err := r.db.ExecContext(ctx, tokenMarkUsedQuery, time.Now().UTC(), id)
 	return err
 }
 
 func (r *TokenRepository) DeleteExpired(ctx context.Context) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM verification_tokens WHERE expires_at < $1`, time.Now().UTC())
+	_, err := r.db.ExecContext(ctx, tokenDeleteExpiredQuery, time.Now().UTC())
 	return err
 }
 
 func (r *TokenRepository) DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error {
-	_, err := r.db.ExecContext(ctx, `
-		DELETE FROM verification_tokens WHERE user_id=$1 AND type=$2 AND used_at IS NULL`,
-		userID, tokenType)
+	_, err := r.db.ExecContext(ctx, tokenDeleteUnusedByUserAndTypeQuery, userID, tokenType)
 	return err
 }
