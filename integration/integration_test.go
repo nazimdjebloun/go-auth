@@ -18,6 +18,19 @@ import (
 	_ "modernc.org/sqlite"
 )
 
+func migrateDB(t *testing.T, db *sql.DB, driver string) {
+	t.Helper()
+	schema, err := goauth.GetSchema(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range goauth.SplitSQL(schema) {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("migration failed: %v\nStatement: %s", err, stmt)
+		}
+	}
+}
+
 func sha256Hex(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
@@ -89,6 +102,7 @@ func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 
 func openAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 	t.Helper()
+	migrateDB(t, db, "sqlite")
 	a, err := goauth.New(testConfig(db, mailer))
 	if err != nil {
 		t.Fatal(err)
@@ -137,8 +151,7 @@ func extractTokenFromEmail(body string) string {
 func TestMigrations_CreateTables(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
-	a := openAuth(t, db, nil)
-	a.Close()
+	migrateDB(t, db, "sqlite")
 
 	for _, name := range []string{"users", "sessions", "verification_tokens", "invites"} {
 		var n int
@@ -465,6 +478,7 @@ func TestCheckSession_EmptyToken(t *testing.T) {
 func TestCheckSession_ExpiredSession(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
+	migrateDB(t, db, "sqlite")
 	cfg := testConfig(db, &testMailer{})
 	cfg.SessionTTL = 1 * time.Millisecond // expire immediately
 	a, err := goauth.New(cfg)
@@ -604,6 +618,7 @@ func TestGetSession_InvalidToken(t *testing.T) {
 func TestGetSession_ExpiredToken(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
+	migrateDB(t, db, "sqlite")
 	cfg := testConfig(db, &testMailer{})
 	cfg.SessionTTL = 1 * time.Millisecond
 	a, err := goauth.New(cfg)
