@@ -12,35 +12,46 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+type Config struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	Scopes       []string
+}
+
 type Google struct {
 	cfg *oauth2.Config
 }
 
-func NewGoogle(clientID, clientSecret, redirectURL string) *Google {
+func New(cfg Config) *Google {
+	scopes := cfg.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{
+			"https://www.googleapis.com/auth/userinfo.email",
+			"https://www.googleapis.com/auth/userinfo.profile",
+		}
+	}
 	return &Google{
 		cfg: &oauth2.Config{
-			ClientID:     clientID,
-			ClientSecret: clientSecret,
-			RedirectURL:  redirectURL,
-			Scopes: []string{
-				"https://www.googleapis.com/auth/userinfo.email",
-				"https://www.googleapis.com/auth/userinfo.profile",
-			},
-			Endpoint: google.Endpoint,
+			ClientID:     cfg.ClientID,
+			ClientSecret: cfg.ClientSecret,
+			RedirectURL:  cfg.RedirectURL,
+			Scopes:       scopes,
+			Endpoint:     google.Endpoint,
 		},
 	}
 }
 
 func (g *Google) Name() string { return "google" }
 
-func (g *Google) GetAuthorizeURL(state string) string {
+func (g *Google) AuthURL(state string) string {
 	return g.cfg.AuthCodeURL(state,
 		oauth2.AccessTypeOnline,
 		oauth2.SetAuthURLParam("prompt", "select_account"),
 	)
 }
 
-func (g *Google) ExchangeCode(ctx context.Context, code string) (*port.ProviderUserInfo, error) {
+func (g *Google) Exchange(ctx context.Context, code string) (*port.OAuthProfile, error) {
 	token, err := g.cfg.Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("google: code exchange failed: %w", err)
@@ -70,9 +81,9 @@ func (g *Google) ExchangeCode(ctx context.Context, code string) (*port.ProviderU
 		expiresAt = &t
 	}
 
-	return &port.ProviderUserInfo{
+	return &port.OAuthProfile{
 		Provider:       "google",
-		ProviderID:     user.ID,
+		ProviderUserID: user.ID,
 		Email:          user.Email,
 		EmailVerified:  user.VerifiedEmail,
 		Name:           user.Name,

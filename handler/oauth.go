@@ -22,8 +22,16 @@ func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionServi
 	}
 }
 
+func (h *OAuthHandlers) disabled() bool {
+	return h.oauth == nil
+}
+
 // GET /auth/{provider}
 func (h *OAuthHandlers) Initiate(w http.ResponseWriter, r *http.Request) {
+	if h.disabled() {
+		writeError(w, domain.ErrProviderNotFound)
+		return
+	}
 	provider := r.PathValue("provider")
 	url, err := h.oauth.Initiate(r.Context(), provider)
 	if err != nil {
@@ -35,6 +43,10 @@ func (h *OAuthHandlers) Initiate(w http.ResponseWriter, r *http.Request) {
 
 // POST /auth/link/{provider} — requires auth
 func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
+	if h.disabled() {
+		writeError(w, domain.ErrProviderNotFound)
+		return
+	}
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
 		writeError(w, domain.NewError("unauthorized", "Authentication required", 401))
@@ -52,6 +64,10 @@ func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
 
 // GET /auth/{provider}/callback
 func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
+	if h.disabled() {
+		writeError(w, domain.ErrProviderNotFound)
+		return
+	}
 	provider := r.PathValue("provider")
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
@@ -74,6 +90,10 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 
 // POST /auth/unlink/{provider} — requires auth
 func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
+	if h.disabled() {
+		writeError(w, domain.ErrProviderNotFound)
+		return
+	}
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
 		writeError(w, domain.NewError("unauthorized", "Authentication required", 401))
@@ -90,6 +110,10 @@ func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 
 // GET /auth/providers — requires auth
 func (h *OAuthHandlers) ListConnected(w http.ResponseWriter, r *http.Request) {
+	if h.disabled() {
+		writeError(w, domain.ErrProviderNotFound)
+		return
+	}
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
 		writeError(w, domain.NewError("unauthorized", "Authentication required", 401))

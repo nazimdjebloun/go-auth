@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-type ProviderUserInfo struct {
+type OAuthProfile struct {
 	Provider       string
-	ProviderID     string
+	ProviderUserID string
 	Email          string
 	EmailVerified  bool
 	Name           string
@@ -15,10 +15,11 @@ type ProviderUserInfo struct {
 	AccessToken    string
 	RefreshToken   string
 	TokenExpiresAt *time.Time
+	Raw            map[string]any
 }
 
-type Provider interface {
+type OAuthProvider interface {
 	Name() string
-	GetAuthorizeURL(state string) string
-	ExchangeCode(ctx context.Context, code string) (*ProviderUserInfo, error)
+	AuthURL(state string) string
+	Exchange(ctx context.Context, code string) (*OAuthProfile, error)
 }
