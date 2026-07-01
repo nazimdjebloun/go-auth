@@ -147,7 +147,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 	}
 
 	if !user.HasPassword() {
-		return nil, domain.NewError("no_password", "No password set for this account. Use OAuth to sign in.", 400)
+		return nil, domain.ErrInvalidCredentials
 	}
 	if err := s.hasher.Compare(input.Password, *user.PasswordHash); err != nil {
 		return nil, domain.ErrInvalidCredentials
