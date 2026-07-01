@@ -17,17 +17,28 @@ var githubEndpoint = oauth2.Endpoint{
 	TokenURL: "https://github.com/login/oauth/access_token",
 }
 
+type Config struct {
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
+	Scopes       []string
+}
+
 type GitHub struct {
 	cfg *oauth2.Config
 }
 
-func NewGitHub(clientID, clientSecret, redirectURL string) *GitHub {
+func New(cfg Config) *GitHub {
+	scopes := cfg.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{"user:email"}
+	}
 	return &GitHub{
 		cfg: &oauth2.Config{
-			ClientID:     clientID,
-			ClientSecret: clientSecret,
-			RedirectURL:  redirectURL,
-			Scopes:       []string{"user:email"},
+			ClientID:     cfg.ClientID,
+			ClientSecret: cfg.ClientSecret,
+			RedirectURL:  cfg.RedirectURL,
+			Scopes:       scopes,
 			Endpoint:     githubEndpoint,
 		},
 	}
@@ -35,11 +46,11 @@ func NewGitHub(clientID, clientSecret, redirectURL string) *GitHub {
 
 func (g *GitHub) Name() string { return "github" }
 
-func (g *GitHub) GetAuthorizeURL(state string) string {
+func (g *GitHub) AuthURL(state string) string {
 	return g.cfg.AuthCodeURL(state, oauth2.AccessTypeOnline)
 }
 
-func (g *GitHub) ExchangeCode(ctx context.Context, code string) (*port.ProviderUserInfo, error) {
+func (g *GitHub) Exchange(ctx context.Context, code string) (*port.OAuthProfile, error) {
 	token, err := g.cfg.Exchange(ctx, code)
 	if err != nil {
 		return nil, fmt.Errorf("github: code exchange failed: %w", err)
@@ -87,9 +98,9 @@ func (g *GitHub) ExchangeCode(ctx context.Context, code string) (*port.ProviderU
 		name = user.Login
 	}
 
-	return &port.ProviderUserInfo{
+	return &port.OAuthProfile{
 		Provider:       "github",
-		ProviderID:     fmt.Sprintf("%d", user.ID),
+		ProviderUserID: fmt.Sprintf("%d", user.ID),
 		Email:          email,
 		EmailVerified:  emailVerified,
 		Name:           name,

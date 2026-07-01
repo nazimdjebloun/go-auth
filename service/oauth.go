@@ -13,7 +13,7 @@ import (
 )
 
 type OAuthService struct {
-	providers    map[string]port.Provider
+	providers    map[string]port.OAuthProvider
 	providerRepo port.ProviderAccountRepository
 	userRepo     port.UserRepository
 	tokenRepo    port.TokenRepository
@@ -36,7 +36,7 @@ type OAuthServiceConfig struct {
 }
 
 func NewOAuthService(
-	providers map[string]port.Provider,
+	providers map[string]port.OAuthProvider,
 	providerRepo port.ProviderAccountRepository,
 	userRepo port.UserRepository,
 	tokenRepo port.TokenRepository,
@@ -63,7 +63,7 @@ func generateStateToken() string {
 	return hex.EncodeToString(b)
 }
 
-func (s *OAuthService) getProvider(name string) (port.Provider, *domain.AuthError) {
+func (s *OAuthService) getProvider(name string) (port.OAuthProvider, *domain.AuthError) {
 	p, ok := s.providers[name]
 	if !ok {
 		return nil, domain.ErrProviderNotFound
@@ -93,7 +93,7 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (strin
 		return "", domain.NewError("internal_error", "Failed to store state token", 500)
 	}
 
-	return p.GetAuthorizeURL(stateRaw), nil
+	return p.AuthURL(stateRaw), nil
 }
 
 // InitiateLink starts an OAuth link flow for an authenticated user.
@@ -119,7 +119,7 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 		return "", domain.NewError("internal_error", "Failed to store state token", 500)
 	}
 
-	return p.GetAuthorizeURL(stateRaw), nil
+	return p.AuthURL(stateRaw), nil
 }
 
 // Callback handles the OAuth callback for both login and link flows.
@@ -150,7 +150,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return "", "", false, domain.NewError("internal_error", "Failed to consume state token", 500)
 	}
 
-	info, exchangeErr := p.ExchangeCode(ctx, code)
+	info, exchangeErr := p.Exchange(ctx, code)
 	if exchangeErr != nil {
 		return "", "", false, domain.NewError("provider_error", "Failed to authenticate with provider", 502)
 	}
@@ -159,7 +159,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return "", "", false, domain.ErrProviderEmailUnverified
 	}
 
-	existing, lookupErr := s.providerRepo.GetByProvider(ctx, providerName, info.ProviderID)
+	existing, lookupErr := s.providerRepo.GetByProvider(ctx, providerName, info.ProviderUserID)
 	if lookupErr != nil {
 		return "", "", false, domain.NewError("internal_error", "Failed to look up provider account", 500)
 	}
@@ -270,13 +270,13 @@ func (s *OAuthService) ListConnected(ctx context.Context, userID string) ([]doma
 	return accounts, nil
 }
 
-func (s *OAuthService) createProviderAccount(ctx context.Context, userID string, info *port.ProviderUserInfo) (*domain.ProviderAccount, *domain.AuthError) {
+func (s *OAuthService) createProviderAccount(ctx context.Context, userID string, info *port.OAuthProfile) (*domain.ProviderAccount, *domain.AuthError) {
 	now := time.Now().UTC()
 	pa := &domain.ProviderAccount{
 		ID:             uuid.New().String(),
 		UserID:         userID,
 		Provider:       info.Provider,
-		ProviderUserID: info.ProviderID,
+		ProviderUserID: info.ProviderUserID,
 		ProviderEmail:  info.Email,
 		ProviderName:   info.Name,
 		AvatarURL:      info.AvatarURL,

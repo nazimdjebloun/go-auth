@@ -8,6 +8,8 @@
 //	    "os"
 //
 //	    "github.com/nazimdjebloun/go-auth"
+//	    "github.com/nazimdjebloun/go-auth/provider/google"
+//	    "github.com/nazimdjebloun/go-auth/provider/github"
 //	)
 //
 //	var Auth *goauth.Auth
@@ -31,6 +33,16 @@
 //	            c.Cookie.Domain = os.Getenv("COOKIE_DOMAIN")
 //	            c.Cookie.Secure = os.Getenv("ENV") == "production"
 //	        },
+//	        goauth.WithProvider(google.New(google.Config{
+//	            ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+//	            ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+//	            RedirectURL:  os.Getenv("GOOGLE_REDIRECT_URL"),
+//	        })),
+//	        goauth.WithProvider(github.New(github.Config{
+//	            ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
+//	            ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
+//	            RedirectURL:  os.Getenv("GITHUB_REDIRECT_URL"),
+//	        })),
 //	    )
 //	    if err != nil {
 //	        log.Fatalf("goauth config invalid: %v", err)
@@ -142,14 +154,7 @@ type Config struct {
 	RateLimit               *ratelimit.Config // rate limiting config (optional)
 
 	// ─── OAuth / Providers ─────────────────────────────────────────
-	Providers map[string]ProviderConfig
-}
-
-type ProviderConfig struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURL  string
-	Scopes       []string // optional custom scopes; defaults defined per provider
+	providers []port.OAuthProvider
 }
 
 func (c Config) validate() error {
@@ -197,16 +202,21 @@ func (c Config) validate() error {
 		errs = append(errs, errors.New("base_url is required when email is configured"))
 	}
 
-	for name, p := range c.Providers {
-		if p.ClientID == "" {
-			errs = append(errs, fmt.Errorf("provider %q: ClientID is required", name))
+	seen := map[string]bool{}
+	for _, p := range c.providers {
+		if p == nil {
+			errs = append(errs, errors.New("provider: nil provider registered via WithProvider"))
+			continue
 		}
-		if p.ClientSecret == "" {
-			errs = append(errs, fmt.Errorf("provider %q: ClientSecret is required", name))
+		name := p.Name()
+		if name == "" {
+			errs = append(errs, errors.New("provider: provider with empty name"))
+			continue
 		}
-		if p.RedirectURL == "" {
-			errs = append(errs, fmt.Errorf("provider %q: RedirectURL is required", name))
+		if seen[name] {
+			errs = append(errs, fmt.Errorf("provider: duplicate provider %q", name))
 		}
+		seen[name] = true
 	}
 
 	return errors.Join(errs...)
@@ -248,4 +258,13 @@ func NewConfig(opts ...func(*Config)) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// WithProvider registers an OAuth provider.
+// The provider's Name() must be non-empty and unique across all registered providers.
+// Nil providers are rejected.
+func WithProvider(p port.OAuthProvider) func(*Config) {
+	return func(c *Config) {
+		c.providers = append(c.providers, p)
+	}
 }

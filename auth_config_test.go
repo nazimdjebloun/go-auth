@@ -181,19 +181,6 @@ func TestNewConfig_OverridesDefault(t *testing.T) {
 	}
 }
 
-func TestNewConfig_ProviderValidation(t *testing.T) {
-	opts := validConfigOpts()
-	opts = append(opts, func(c *Config) {
-		c.Providers = map[string]ProviderConfig{
-			"google": {ClientID: "id"},
-		}
-	})
-	_, err := NewConfig(opts...)
-	if err == nil {
-		t.Fatal("expected error for provider without ClientSecret and RedirectURL")
-	}
-}
-
 func TestNewConfig_SameSiteDefault(t *testing.T) {
 	cfg, err := NewConfig(validConfigOpts()...)
 	if err != nil {
