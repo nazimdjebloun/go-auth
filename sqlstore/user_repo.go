@@ -48,18 +48,14 @@ func scanRow(s scanner) (*domain.User, error) {
 }
 
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO users (id, email, password_hash, name, role, is_verified, verified_at, is_banned, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+	_, err := r.db.ExecContext(ctx, userCreateQuery,
 		user.ID, user.Email, user.PasswordHash, user.Name, user.Role,
 		user.IsVerified, user.VerifiedAt, user.IsBanned, user.CreatedAt, user.UpdatedAt)
 	return err
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
-	user, err := scanRow(r.db.QueryRowContext(ctx, `
-		SELECT id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at
-		FROM users WHERE id = $1`, id))
+	user, err := scanRow(r.db.QueryRowContext(ctx, userByIDQuery, id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -70,9 +66,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, 
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	user, err := scanRow(r.db.QueryRowContext(ctx, `
-		SELECT id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at
-		FROM users WHERE email = $1`, email))
+	user, err := scanRow(r.db.QueryRowContext(ctx, userByEmailQuery, email))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -83,18 +77,14 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 }
 
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
-	_, err := r.db.ExecContext(ctx, `
-		UPDATE users SET email=$1, password_hash=$2, name=$3, role=$4,
-			is_verified=$5, verified_at=$6, is_banned=$7, updated_at=$8
-		WHERE id=$9`,
+	_, err := r.db.ExecContext(ctx, userUpdateQuery,
 		user.Email, user.PasswordHash, user.Name, user.Role,
 		user.IsVerified, user.VerifiedAt, user.IsBanned, user.UpdatedAt, user.ID)
 	return err
 }
 
 func (r *UserRepository) SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error {
-	_, err := r.db.ExecContext(ctx, `
-		UPDATE users SET is_banned=$1, banned_at=$2, updated_at=$3 WHERE id=$4`,
+	_, err := r.db.ExecContext(ctx, userBanQuery,
 		isBanned, bannedAt, updatedAt, userID)
 	return err
 }
@@ -108,9 +98,7 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string
 
 	now := time.Now().UTC()
 
-	_, err = tx.ExecContext(ctx, r.db.Rebind(`
-		UPDATE users SET password_hash=$1, is_verified=true, verified_at=$2, updated_at=$2
-		WHERE id=$3`), passwordHash, now, userID)
+	_, err = tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, now, userID)
 	if err != nil {
 		return err
 	}
@@ -125,7 +113,7 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE id = $1`, id)
+	_, err := r.db.ExecContext(ctx, userDeleteQuery, id)
 	return err
 }
 
@@ -178,11 +166,9 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 		orderDir = "ASC"
 	}
 
-	colList := "id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at"
-
 	if filter.Limit <= 0 {
 		query := fmt.Sprintf(`
-			SELECT %s FROM users WHERE %s ORDER BY %s %s`, colList, whereClause, orderCol, orderDir)
+			SELECT %s FROM users WHERE %s ORDER BY %s %s`, userSelectColumns, whereClause, orderCol, orderDir)
 
 		rows, err := r.db.QueryContext(ctx, query, args...)
 		if err != nil {
@@ -209,7 +195,7 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 
 	query := fmt.Sprintf(`
 		SELECT %s FROM users WHERE %s ORDER BY %s %s LIMIT $%d OFFSET $%d`,
-		colList, whereClause, orderCol, orderDir, argIdx, argIdx+1)
+		userSelectColumns, whereClause, orderCol, orderDir, argIdx, argIdx+1)
 	args = append(args, limit, offset)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
