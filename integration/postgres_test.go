@@ -43,6 +43,7 @@ func TestPostgres_RegisterAndValidateSession(t *testing.T) {
 	cleanupPostgres(t, db)
 
 	mailer := &testMailer{}
+	migrateDB(t, db, "postgres")
 	cfg := postgresConfig(dsn, mailer)
 	cfg.Database.DB = db
 
@@ -118,6 +119,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	cleanupPostgres(t, db)
 
 	mailer := &testMailer{}
+	migrateDB(t, db, "postgres")
 	cfg := postgresConfig(dsn, mailer)
 	cfg.Database.DB = db
 

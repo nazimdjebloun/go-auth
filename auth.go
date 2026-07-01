@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -15,8 +14,6 @@ import (
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
-	"github.com/nazimdjebloun/go-auth/provider/github"
-	"github.com/nazimdjebloun/go-auth/provider/google"
 	"github.com/nazimdjebloun/go-auth/service"
 	"github.com/nazimdjebloun/go-auth/sqlstore"
 	"github.com/nazimdjebloun/go-auth/token"
@@ -173,14 +170,6 @@ func New(config Config) (*Auth, error) {
 		return nil, ErrNoDatabase
 	}
 
-	rawSchema, err := loadSchema(string(config.Database.Driver))
-	if err != nil {
-		return nil, err
-	}
-	if err := runMigrations(sqlDB, rawSchema); err != nil {
-		return nil, err
-	}
-
 	userRepo := sqlstore.NewUserRepository(sqlDB)
 	sessionRepoSQL := sqlstore.NewSessionRepository(sqlDB)
 	tokenRepo := sqlstore.NewTokenRepository(sqlDB)
@@ -231,17 +220,18 @@ func New(config Config) (*Auth, error) {
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, hasherImpl, serviceCfg, sessSvc)
 
-	// Build OAuth providers from config
-	oauthProviders := make(map[string]port.Provider)
-	for name, pCfg := range config.Providers {
-		var p port.Provider
-		switch name {
-		case "github":
-			p = github.NewGitHub(pCfg.ClientID, pCfg.ClientSecret, pCfg.RedirectURL)
-		case "google":
-			p = google.NewGoogle(pCfg.ClientID, pCfg.ClientSecret, pCfg.RedirectURL)
-		default:
-			return nil, fmt.Errorf("unsupported provider %q — supported: github, google", name)
+	// Build OAuth providers from registered WithProvider calls
+	oauthProviders := make(map[string]port.OAuthProvider)
+	for _, p := range config.providers {
+		if p == nil {
+			return nil, fmt.Errorf("go-auth: nil provider registered via WithProvider")
+		}
+		name := p.Name()
+		if name == "" {
+			return nil, fmt.Errorf("go-auth: provider with empty name registered via WithProvider")
+		}
+		if _, exists := oauthProviders[name]; exists {
+			return nil, fmt.Errorf("go-auth: duplicate provider %q", name)
 		}
 		oauthProviders[name] = p
 	}
@@ -398,11 +388,13 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
 	mux.Handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
 	mux.Handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
-	mux.Handle("GET /auth/{provider}", a.Handlers.OAuthInitiate)
-	mux.Handle("GET /auth/{provider}/callback", a.Handlers.OAuthCallback)
-	mux.Handle("POST /auth/link/{provider}", a.Handlers.OAuthLink)
-	mux.Handle("POST /auth/unlink/{provider}", a.Handlers.OAuthUnlink)
-	mux.Handle("GET /auth/providers", a.Handlers.OAuthProviders)
+	if a.oAuthService != nil {
+		mux.Handle("GET /auth/{provider}", a.Handlers.OAuthInitiate)
+		mux.Handle("GET /auth/{provider}/callback", a.Handlers.OAuthCallback)
+		mux.Handle("POST /auth/link/{provider}", a.Handlers.OAuthLink)
+		mux.Handle("POST /auth/unlink/{provider}", a.Handlers.OAuthUnlink)
+		mux.Handle("GET /auth/providers", a.Handlers.OAuthProviders)
+	}
 }
 
 func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {
@@ -474,28 +466,6 @@ func (a *Auth) GetSession(ctx context.Context, tokenRaw string) (*domain.User, *
 		return nil, nil, err
 	}
 	return user, session, nil
-}
-
-func loadSchema(driver string) (string, error) {
-	return GetSchema(driver)
-}
-
-func runMigrations(db *sqlstore.DB, schemaSQL string) error {
-	statements := SplitSQL(schemaSQL)
-	for _, stmt := range statements {
-		if _, err := db.ExecContext(context.Background(), stmt); err != nil {
-			log.Printf("Migration failed: %s\nError: %v", stmt[:min(len(stmt), 100)], err)
-			return err
-		}
-	}
-	return nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func isDriverRegistered(name string) bool {
