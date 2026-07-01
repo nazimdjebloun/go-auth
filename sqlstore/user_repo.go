@@ -98,7 +98,7 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string
 
 	now := time.Now().UTC()
 
-	_, err = tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, now, userID)
+	_, err = tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, now, now, userID)
 	if err != nil {
 		return err
 	}
