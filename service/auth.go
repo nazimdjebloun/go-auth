@@ -115,6 +115,10 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		if err := s.verifySvc.SendVerification(ctx, user); err != nil {
 			return nil, err
 		}
+		return &RegisterResult{
+			User:                 user,
+			RequiresVerification: true,
+		}, nil
 	}
 
 	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
@@ -143,7 +147,10 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 	}
 
 	if s.config.RequireEmailVerification && !user.IsVerified && user.Role != domain.RoleAdmin {
-		return nil, domain.ErrEmailNotVerified
+		return &LoginResult{
+			User:                 user,
+			RequiresVerification: true,
+		}, nil
 	}
 
 	if !user.HasPassword() {
@@ -213,7 +220,7 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 	}
 
 	if !user.HasPassword() {
-		return domain.NewError("password_required", "Password is required to delete account", http.StatusBadRequest)
+		return domain.ErrPasswordRequired
 	}
 	if err := s.hasher.Compare(password, *user.PasswordHash); err != nil {
 		return domain.NewError("wrong_password", "Password is incorrect", http.StatusBadRequest)
@@ -225,6 +232,93 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 
 	if err := s.users.Delete(ctx, userID); err != nil {
 		return domain.NewError("internal_error", "Failed to delete account", 500)
+	}
+
+	return nil
+}
+
+func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) *domain.AuthError {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+
+	if user.HasPassword() {
+		return domain.NewError("password_account", "Use DELETE /auth/account with password to delete your account", http.StatusBadRequest)
+	}
+
+	if s.mailer == nil {
+		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+	}
+
+	hasValid, err := s.tokens.HasValidByUserAndType(ctx, userID, domain.TokenDeleteAccount)
+	if err == nil && hasValid {
+		return nil
+	}
+
+	raw := generateCode()
+
+	now := time.Now().UTC()
+	token := &domain.VerificationToken{
+		ID:        generateID(),
+		UserID:    &user.ID,
+		Email:     user.Email,
+		TokenHash: hashToken(raw),
+		Type:      domain.TokenDeleteAccount,
+		ExpiresAt: now.Add(10 * time.Minute),
+	}
+
+	if err := s.tokens.Create(ctx, token); err != nil {
+		return domain.NewError("internal_error", "Failed to store token", 500)
+	}
+
+	html := "<p>Your account deletion code: <strong>" + raw + "</strong></p><p>Expires in 10 minutes.</p>"
+	text := "Your account deletion code: " + raw + " (expires in 10 minutes)"
+
+	if err := s.mailer.Send(ctx, user.Email, "Delete your account - "+s.config.AppName, html, text); err != nil {
+		return domain.NewError("email_failed", "Failed to send deletion email", 500)
+	}
+
+	return nil
+}
+
+func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDeleteAccountInput) *domain.AuthError {
+	user, err := s.users.GetByID(ctx, input.UserID)
+	if err != nil || user == nil {
+		return domain.ErrUserNotFound
+	}
+
+	token, err := s.tokens.GetByHash(ctx, hashToken(input.Code))
+	if err != nil || token == nil {
+		return domain.ErrDeleteCodeInvalid
+	}
+
+	if token.Type != domain.TokenDeleteAccount {
+		return domain.ErrDeleteCodeInvalid
+	}
+
+	if token.UsedAt != nil {
+		return domain.ErrDeleteCodeAlreadyUsed
+	}
+
+	if time.Now().UTC().After(token.ExpiresAt) {
+		return domain.ErrDeleteCodeExpired
+	}
+
+	if token.UserID == nil || *token.UserID != input.UserID {
+		return domain.ErrDeleteCodeInvalid
+	}
+
+	if err := s.sessions.DeleteAllForUser(ctx, input.UserID); err != nil {
+		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+	}
+
+	if err := s.users.Delete(ctx, input.UserID); err != nil {
+		return domain.NewError("internal_error", "Failed to delete account", 500)
+	}
+
+	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
+		return domain.NewError("internal_error", "Failed to mark token used", 500)
 	}
 
 	return nil

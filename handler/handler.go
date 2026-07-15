@@ -54,6 +54,15 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if result.RequiresVerification {
+		writeJSON(w, http.StatusCreated, map[string]interface{}{
+			"user":                 result.User,
+			"requiresVerification": true,
+			"message":              "Verification email sent. Please verify your email to continue.",
+		})
+		return
+	}
+
 	setSessionCookie(w, h.services.Session, result.SessionToken)
 	setRefreshCookie(w, h.services.Session, result.RefreshToken)
 	result.SessionToken = ""
@@ -78,6 +87,15 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+
+	if result.RequiresVerification {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"user":                 result.User,
+			"requiresVerification": true,
+			"message":              "Please verify your email to continue.",
+		})
 		return
 	}
 
@@ -275,6 +293,40 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }
 
+func (h *Handler) RequestDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r.Context())
+
+	if err := h.services.Auth.RequestDeleteAccount(r.Context(), user.ID); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Deletion code sent to your email"})
+}
+
+func (h *Handler) ConfirmDeleteAccount(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r.Context())
+
+	var body struct {
+		Code string `json:"code"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	if err := h.services.Auth.ConfirmDeleteAccount(r.Context(), service.ConfirmDeleteAccountInput{
+		UserID: user.ID,
+		Code:   body.Code,
+	}); err != nil {
+		writeError(w, err)
+		return
+	}
+
+	clearSessionCookie(w, h.services.Session)
+	clearRefreshCookie(w, h.services.Session)
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
+}
+
 // --- Verification handlers ---
 
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
@@ -286,11 +338,25 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Verify.VerifyEmail(r.Context(), body.Code); err != nil {
+	user, err := h.services.Verify.VerifyEmail(r.Context(), body.Code)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Email verified successfully"})
+
+	session, rawToken, refreshToken, sessionErr := h.services.Session.Create(r.Context(), user.ID, r.RemoteAddr, r.UserAgent())
+	if sessionErr != nil {
+		writeError(w, domain.NewError("internal_error", "Failed to create session", 500))
+		return
+	}
+
+	setSessionCookie(w, h.services.Session, rawToken)
+	setRefreshCookie(w, h.services.Session, refreshToken)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"user":    user,
+		"session": session,
+	})
 }
 
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
@@ -305,6 +371,19 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Verification email sent"})
+}
+
+func (h *Handler) ResendVerificationPublic(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email string `json:"email"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	h.services.Verify.SendVerificationByEmail(r.Context(), body.Email)
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "If an account exists, a verification email has been sent"})
 }
 
 // --- Session handlers ---
