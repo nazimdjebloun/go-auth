@@ -31,14 +31,13 @@ type UserRepository interface {
 }
 
 type UpdateRefreshInput struct {
-	SessionID        string
-	OldRefreshHash   string
-	NewTokenHash     string
-	NewRefreshHash   string
-	PreviousHash     string
-	NewExpiresAt     time.Time
-	NewRefreshExpiry time.Time
-	RotatedAt        time.Time
+	OldRefreshHash string
+	NewTokenHash   string
+	NewRefreshHash string
+	NewExpiresAt   time.Time
+	RotatedAt      time.Time
+	MaxLifetime    time.Duration // 0 = disabled
+	GraceWindow    time.Duration
 }
 
 type SessionRepository interface {
@@ -54,13 +53,14 @@ type SessionRepository interface {
 	DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error
 	DeleteExpired(ctx context.Context) error
 	UpdateLastActiveAt(ctx context.Context, tokenHash string) error
-	UpdateRefreshToken(ctx context.Context, input UpdateRefreshInput) (int64, error)
+	UpdateRefreshToken(ctx context.Context, input UpdateRefreshInput) (*domain.Session, error)
 	Revoke(ctx context.Context, id string) error
 }
 
 type TokenRepository interface {
 	Create(ctx context.Context, t *domain.VerificationToken) error
 	GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error)
+	HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error)
 	MarkUsed(ctx context.Context, id string) error
 	DeleteExpired(ctx context.Context) error
 	DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error

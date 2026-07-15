@@ -21,9 +21,19 @@ const (
 
 	sessionDeleteByUserExceptQuery = `DELETE FROM sessions WHERE user_id = $1 AND id != $2`
 
-	sessionDeleteExpiredQuery = `DELETE FROM sessions WHERE expires_at < $1`
+	sessionDeleteExpiredQuery = `DELETE FROM sessions WHERE refresh_expires_at < $1`
 
 	sessionUpdateLastActiveQuery = `UPDATE sessions SET last_active_at = $1 WHERE token_hash = $2`
 
-	sessionUpdateRefreshQuery = `UPDATE sessions SET token_hash = $1, refresh_token_hash = $2, prev_refresh_token_hash = $3, expires_at = $4, refresh_expires_at = $5, refresh_rotated_at = $6, last_active_at = $7 WHERE id = $8 AND refresh_token_hash = $9`
+	sessionRotateRefreshQuery = `UPDATE sessions
+		SET token_hash              = $1,
+		    refresh_token_hash      = $2,
+		    prev_refresh_token_hash = refresh_token_hash,
+		    refresh_rotated_at      = $3,
+		    expires_at              = $4
+		WHERE refresh_token_hash = $5
+		  AND is_revoked = false
+		  AND refresh_expires_at > $6
+		  AND created_at > $7
+		RETURNING ` + sessionCols
 )
