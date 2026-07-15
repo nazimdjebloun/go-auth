@@ -3,6 +3,8 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"log"
+	"net/http"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -125,15 +127,141 @@ func (r *SessionRepository) UpdateLastActiveAt(ctx context.Context, tokenHash st
 	return err
 }
 
-func (r *SessionRepository) UpdateRefreshToken(ctx context.Context, input port.UpdateRefreshInput) (int64, error) {
-	res, err := r.db.ExecContext(ctx, sessionUpdateRefreshQuery,
-		input.NewTokenHash, input.NewRefreshHash, input.PreviousHash,
-		input.NewExpiresAt, input.NewRefreshExpiry, input.RotatedAt, input.RotatedAt,
-		input.SessionID, input.OldRefreshHash)
-	if err != nil {
-		return 0, err
+// ---------------------------------------------------------------------------
+// Refresh token rotation
+// ---------------------------------------------------------------------------
+
+func (r *SessionRepository) UpdateRefreshToken(ctx context.Context, input port.UpdateRefreshInput) (*domain.Session, error) {
+	now := input.RotatedAt
+
+	// Collision guard: reject degenerate inputs that would cause silent
+	// no-ops (NewRefreshHash == OldRefreshHash makes UPDATE match on
+	// the new hash, so rotation writes the same hash back) or token-type
+	// confusion (NewRefreshHash == NewTokenHash).
+	if input.NewRefreshHash == input.OldRefreshHash {
+		return nil, domain.NewError("internal_error",
+			"Refresh token collision: new hash equals old hash", http.StatusInternalServerError)
 	}
-	return res.RowsAffected()
+	if input.NewRefreshHash == input.NewTokenHash {
+		return nil, domain.NewError("internal_error",
+			"Token hash collision: refresh hash equals access token hash", http.StatusInternalServerError)
+	}
+
+	var maxLifetimeCut time.Time
+	if input.MaxLifetime > 0 {
+		maxLifetimeCut = now.Add(-input.MaxLifetime)
+	} else {
+		maxLifetimeCut = time.Unix(0, 0)
+	}
+
+	if r.db.Driver() == "mysql" {
+		return r.updateRefreshTokenNoReturning(ctx, input, now, maxLifetimeCut)
+	}
+
+	return r.updateRefreshTokenReturning(ctx, input, now, maxLifetimeCut)
+}
+
+// updateRefreshTokenReturning uses a single atomic UPDATE...RETURNING
+// (PostgreSQL, SQLite).
+func (r *SessionRepository) updateRefreshTokenReturning(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut time.Time) (*domain.Session, error) {
+	// CRITICAL SQLite note: modernc.org/sqlite omits rows from
+	// UPDATE...RETURNING when SET values equal existing values (even if
+	// WHERE matched). This is safe here because we always set
+	// refresh_token_hash to a freshly generated value (never the same
+	// as the current one, enforced by the collision guard above).
+	session := &domain.Session{}
+	err := scanSession(session, r.db.QueryRowContext(ctx, sessionRotateRefreshQuery,
+		input.NewTokenHash, input.NewRefreshHash, now, input.NewExpiresAt,
+		input.OldRefreshHash, now, maxLifetimeCut))
+	if err == nil {
+		return session, nil
+	}
+	if err != sql.ErrNoRows {
+		return nil, err
+	}
+	return r.classifyRefreshFailure(ctx, input, now, maxLifetimeCut)
+}
+
+// updateRefreshTokenNoReturning uses ExecContext + RowsAffected (MySQL).
+func (r *SessionRepository) updateRefreshTokenNoReturning(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut time.Time) (*domain.Session, error) {
+	query := r.db.Rebind(`UPDATE sessions
+		SET token_hash = ?, refresh_token_hash = ?,
+		    prev_refresh_token_hash = refresh_token_hash,
+		    refresh_rotated_at = ?, expires_at = ?
+		WHERE refresh_token_hash = ? AND is_revoked = false
+		  AND refresh_expires_at > ? AND created_at > ?`)
+
+	result, err := r.db.ExecContext(ctx, query,
+		input.NewTokenHash, input.NewRefreshHash, now, input.NewExpiresAt,
+		input.OldRefreshHash, now, maxLifetimeCut)
+	if err != nil {
+		return nil, err
+	}
+	rows, _ := result.RowsAffected()
+	if rows == 1 {
+		// Non-atomic read-back, but safe: NewRefreshHash is freshly
+		// generated and unguessable, so no concurrent request can be
+		// operating on it. Unlike Postgres/SQLite's single-statement
+		// RETURNING, this is a separate SELECT after the UPDATE. If
+		// the read fails, the rotation succeeded in the DB but the
+		// caller receives an error — the token is still valid and
+		// the caller should retry.
+		return r.GetByRefreshHash(ctx, input.NewRefreshHash)
+	}
+	return r.classifyRefreshFailure(ctx, input, now, maxLifetimeCut)
+}
+
+func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input port.UpdateRefreshInput, now time.Time, maxLifetimeCut time.Time) (*domain.Session, error) {
+	session, err := r.GetByRefreshHash(ctx, input.OldRefreshHash)
+	if err != nil {
+		return nil, err
+	}
+
+	if session != nil {
+		if session.IsRevoked {
+			return nil, domain.ErrSessionRevoked
+		}
+		if now.After(session.RefreshExpiresAt) {
+			return nil, domain.ErrRefreshExpired
+		}
+		if input.MaxLifetime > 0 && now.After(session.CreatedAt.Add(input.MaxLifetime)) {
+			return nil, domain.ErrMaxLifetimeExceeded
+		}
+
+		// INVARIANT VIOLATION: old hash is still current, no WHERE
+		// guard rejects it, yet UPDATE...RETURNING returned 0 rows.
+		// Under correct transaction isolation this is unreachable.
+		// Likely causes: broken isolation, clock skew, or a bypassed
+		// write path. Log at ERROR, return 500 — NOT a routine 409.
+		log.Printf("ERROR: refresh rotation invariant violation — UPDATE returned 0 rows but all WHERE guards pass: session_id=%s user_id=%s token_hash=%s refresh_token_hash=%s is_revoked=%v refresh_expires_at=%v created_at=%v now=%v max_lifetime_cut=%v",
+			session.ID, session.UserID, session.TokenHash, session.RefreshTokenHash,
+			session.IsRevoked, session.RefreshExpiresAt, session.CreatedAt, now, maxLifetimeCut)
+		return nil, domain.NewError("internal_error",
+			"Session rotation failed due to internal state conflict", http.StatusInternalServerError)
+	}
+
+	// Old hash not current — check previous hash
+	prev, err := r.GetByPreviousRefreshHash(ctx, input.OldRefreshHash)
+	if err != nil {
+		return nil, err
+	}
+
+	if prev != nil {
+		if prev.RefreshRotatedAt != nil && now.Sub(*prev.RefreshRotatedAt) < input.GraceWindow {
+			log.Printf("WARN: refresh_token_reuse_in_grace_window user_id=%s session_id=%s",
+				prev.UserID, prev.ID)
+			return nil, domain.ErrTokenAlreadyRotated
+		}
+
+		log.Printf("WARN: refresh_token_reuse_theft_suspected user_id=%s session_id=%s",
+			prev.UserID, prev.ID)
+		if revokeErr := r.Revoke(ctx, prev.ID); revokeErr != nil {
+			log.Printf("ERROR: failed to revoke session on reuse detection: %v", revokeErr)
+		}
+		return nil, domain.ErrSessionRevoked
+	}
+
+	return nil, domain.ErrInvalidRefreshToken
 }
 
 func (r *SessionRepository) Revoke(ctx context.Context, id string) error {

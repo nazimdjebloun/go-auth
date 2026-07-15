@@ -73,7 +73,7 @@ func TestRefreshSession_ExpiredSession(t *testing.T) {
 		RefreshCookieName: "goauth_refresh",
 		Duration:          -1 * time.Hour,
 		IdleTTL:           7 * 24 * time.Hour,
-		RefreshTTL:        30 * 24 * time.Hour,
+		RefreshTTL:        -1 * time.Hour,
 		Path:              "/",
 		Secure:            false,
 		SameSite:          2,
@@ -85,8 +85,8 @@ func TestRefreshSession_ExpiredSession(t *testing.T) {
 	}
 
 	_, _, _, err = svc.RefreshSession(context.Background(), refreshToken)
-	if err != domain.ErrSessionExpired {
-		t.Fatalf("expected ErrSessionExpired, got %v", err)
+	if err != domain.ErrRefreshExpired {
+		t.Fatalf("expected ErrRefreshExpired, got %v", err)
 	}
 }
 
