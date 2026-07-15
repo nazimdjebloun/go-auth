@@ -4,16 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/stdlib"
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 )
 
-func postgresConfig(dsn string, mailer port.Mailer) goauth.Config {
+const testDBName = "goauth_test"
+
+func postgresConfig(mailer port.Mailer) goauth.Config {
 	return goauth.Config{
 		AppName: "TestAppPG",
 		Database: goauth.DatabaseConfig{
@@ -28,23 +32,58 @@ func postgresConfig(dsn string, mailer port.Mailer) goauth.Config {
 	}
 }
 
+// postgresTestDB creates a dedicated goauth_test_db database (isolated from the
+// user's database), applies the schema, and returns a connection to it.
+// The returned cleanup function drops the test database entirely.
+func postgresTestDB(t *testing.T, dsn string) (*sql.DB, func()) {
+	t.Helper()
+
+	connConfig, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("pgx.ParseConfig: %v", err)
+	}
+
+	origDB := connConfig.Config.Database
+
+	// Connect to the user's database to create the test database.
+	connConfig.Config.Database = origDB
+	adminDB := stdlib.OpenDB(*connConfig)
+
+	_, err = adminDB.Exec("CREATE DATABASE " + testDBName)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		adminDB.Close()
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	adminDB.Close()
+
+	// Connect to the test database.
+	connConfig.Config.Database = testDBName
+	testDB := stdlib.OpenDB(*connConfig)
+
+	cleanup := func() {
+		testDB.Close()
+		// Connect back to the user's database to drop the test database.
+		connConfig.Config.Database = origDB
+		cleanupDB := stdlib.OpenDB(*connConfig)
+		cleanupDB.Exec("DROP DATABASE IF EXISTS " + testDBName + " WITH (FORCE)")
+		cleanupDB.Close()
+	}
+
+	return testDB, cleanup
+}
+
 func TestPostgres_RegisterAndValidateSession(t *testing.T) {
 	dsn := os.Getenv("GOAUTH_POSTGRES_DSN")
 	if dsn == "" {
 		t.Skip("GOAUTH_POSTGRES_DSN not set")
 	}
 
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	cleanupPostgres(t, db)
+	db, cleanup := postgresTestDB(t, dsn)
+	defer cleanup()
 
 	mailer := &testMailer{}
 	migrateDB(t, db, "postgres")
-	cfg := postgresConfig(dsn, mailer)
+	cfg := postgresConfig(mailer)
 	cfg.Database.DB = db
 
 	a, err := goauth.New(cfg)
@@ -110,17 +149,12 @@ func TestPostgres_PasswordReset(t *testing.T) {
 		t.Skip("GOAUTH_POSTGRES_DSN not set")
 	}
 
-	db, err := sql.Open("pgx", dsn)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-
-	cleanupPostgres(t, db)
+	db, cleanup := postgresTestDB(t, dsn)
+	defer cleanup()
 
 	mailer := &testMailer{}
 	migrateDB(t, db, "postgres")
-	cfg := postgresConfig(dsn, mailer)
+	cfg := postgresConfig(mailer)
 	cfg.Database.DB = db
 
 	a, err := goauth.New(cfg)
@@ -167,21 +201,5 @@ func TestPostgres_PasswordReset(t *testing.T) {
 		Password: "NewP@sswd2",
 	}); aerr != nil {
 		t.Fatal("login with new password failed:", aerr)
-	}
-}
-
-func cleanupPostgres(t *testing.T, db *sql.DB) {
-	t.Helper()
-	// Drop tables so CREATE TABLE IF NOT EXISTS picks up new columns/constraints
-	for _, table := range []string{"verification_tokens", "sessions"} {
-		if _, err := db.Exec("DROP TABLE IF EXISTS " + table + " CASCADE"); err != nil {
-			t.Fatalf("failed to drop %s: %v", table, err)
-		}
-	}
-	tables := []string{"invites", "provider_accounts", "users"}
-	for _, table := range tables {
-		if _, err := db.Exec("DELETE FROM " + table); err != nil {
-			t.Fatalf("failed to delete from %s: %v", table, err)
-		}
 	}
 }
