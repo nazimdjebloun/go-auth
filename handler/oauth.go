@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -77,15 +78,41 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionToken, refreshToken, _, err := h.oauth.Callback(r.Context(), provider, code, state, r.RemoteAddr, r.UserAgent())
+	sessionToken, refreshToken, _, requiresVerification, email, err := h.oauth.Callback(r.Context(), provider, code, state, r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		http.Redirect(w, r, h.baseURL+"/auth/callback?error="+err.Code+"&provider="+provider, http.StatusFound)
 		return
 	}
 
+	if requiresVerification {
+		redirectURL := h.baseURL + "/auth/callback?requiresVerification=true&provider=" + provider
+		if email != "" {
+			redirectURL += "&email=" + email
+		}
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+
+	redirectURL := h.baseURL + "/auth/callback"
+	h.writeCookieRedirect(w, sessionToken, refreshToken, redirectURL)
+}
+
+// writeCookieRedirect returns a small HTML page that sets cookies via Set-Cookie headers
+// then redirects via JS. This is needed because Set-Cookie headers on cross-origin
+// 302 redirects are unreliable in some browsers.
+func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, sessionToken, refreshToken, redirectURL string) {
 	setSessionCookie(w, h.session, sessionToken)
 	setRefreshCookie(w, h.session, refreshToken)
-	http.Redirect(w, r, h.baseURL+"/auth/callback", http.StatusFound)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, `<!DOCTYPE html><html><head><title>Redirecting...</title></head><body>
+<script>window.location.replace(%q);</script>
+<noscript>JavaScript required. <a href=%q>Click here</a>.</noscript>
+</body></html>`,
+		redirectURL,
+		redirectURL,
+	)
 }
 
 // POST /auth/unlink/{provider} — requires auth
