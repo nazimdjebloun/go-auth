@@ -146,16 +146,18 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 	}
 	tokens.Create(context.Background(), token)
 
-	err := svc.VerifyEmail(context.Background(), code)
+	verifiedUser, err := svc.VerifyEmail(context.Background(), code)
 	if err != nil {
 		t.Fatalf("VerifyEmail failed: %v", err)
 	}
 
-	updated, _ := users.GetByID(context.Background(), user.ID)
-	if !updated.IsVerified {
+	if verifiedUser == nil {
+		t.Fatal("expected verified user to be returned")
+	}
+	if !verifiedUser.IsVerified {
 		t.Fatal("expected user to be verified")
 	}
-	if updated.VerifiedAt == nil {
+	if verifiedUser.VerifiedAt == nil {
 		t.Fatal("expected VerifiedAt to be set")
 	}
 
@@ -173,7 +175,7 @@ func TestVerifyEmail_InvalidCode(t *testing.T) {
 	cfg := newVerificationConfig()
 	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
 
-	err := svc.VerifyEmail(context.Background(), "NONEXISTENT")
+	_, err := svc.VerifyEmail(context.Background(), "NONEXISTENT")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -206,7 +208,7 @@ func TestVerifyEmail_AlreadyUsed(t *testing.T) {
 	}
 	tokens.Create(context.Background(), token)
 
-	err := svc.VerifyEmail(context.Background(), code)
+	_, err := svc.VerifyEmail(context.Background(), code)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -237,7 +239,7 @@ func TestVerifyEmail_Expired(t *testing.T) {
 	}
 	tokens.Create(context.Background(), token)
 
-	err := svc.VerifyEmail(context.Background(), code)
+	_, err := svc.VerifyEmail(context.Background(), code)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

@@ -48,6 +48,15 @@ func (r *TokenRepository) MarkUsed(ctx context.Context, id string) error {
 	return err
 }
 
+func (r *TokenRepository) HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx, tokenHasValidByUserAndTypeQuery, userID, tokenType, time.Now().UTC()).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
 func (r *TokenRepository) DeleteExpired(ctx context.Context) error {
 	_, err := r.db.ExecContext(ctx, tokenDeleteExpiredQuery, time.Now().UTC())
 	return err
