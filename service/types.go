@@ -13,10 +13,11 @@ type RegisterInput struct {
 }
 
 type RegisterResult struct {
-	User         *domain.User
-	Session      *domain.Session
-	SessionToken string
-	RefreshToken string
+	User                 *domain.User
+	Session              *domain.Session
+	SessionToken         string
+	RefreshToken         string
+	RequiresVerification bool
 }
 
 type LoginInput struct {
@@ -27,10 +28,11 @@ type LoginInput struct {
 }
 
 type LoginResult struct {
-	User         *domain.User
-	Session      *domain.Session
-	SessionToken string
-	RefreshToken string
+	User                 *domain.User
+	Session              *domain.Session
+	SessionToken         string
+	RefreshToken         string
+	RequiresVerification bool
 }
 
 type CompleteInviteInput struct {
@@ -122,4 +124,9 @@ type AdminListUserSessionsInput struct {
 	UserID string
 	Offset int
 	Limit  int
+}
+
+type ConfirmDeleteAccountInput struct {
+	UserID string
+	Code   string
 }

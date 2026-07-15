@@ -304,15 +304,21 @@ func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
 		UpdatedAt:    time.Now().UTC(),
 	})
 
-	_, err := svc.Login(context.Background(), LoginInput{
+	result, err := svc.Login(context.Background(), LoginInput{
 		Email:    "unverified@example.com",
 		Password: "Passw0rd!",
 	})
-	if err == nil {
-		t.Fatal("Expected email_not_verified error, got nil")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
 	}
-	if err.Code != "email_not_verified" {
-		t.Fatalf("Expected email_not_verified, got %s", err.Code)
+	if !result.RequiresVerification {
+		t.Fatal("Expected RequiresVerification to be true")
+	}
+	if result.Session != nil {
+		t.Fatal("Expected no session for unverified user")
+	}
+	if result.User == nil {
+		t.Fatal("Expected user to be returned")
 	}
 }
 
@@ -340,5 +346,302 @@ func TestLogout(t *testing.T) {
 	_, _, err = svc.ValidateSession(context.Background(), result.SessionToken)
 	if err == nil {
 		t.Fatal("Expected session to be invalid after logout")
+	}
+}
+
+func TestDeleteAccount_PasswordRequired(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
+
+	oauthUser := &domain.User{
+		ID:        "oauth-user-id",
+		Email:     "oauth@example.com",
+		Name:      "OAuth User",
+		Role:      domain.RoleUser,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	users.Create(context.Background(), oauthUser)
+
+	err := svc.DeleteAccount(context.Background(), oauthUser.ID, "")
+	if err == nil {
+		t.Fatal("Expected error for OAuth-only user, got nil")
+	}
+	if err.Code != "password_required" {
+		t.Fatalf("Expected password_required, got %s", err.Code)
+	}
+}
+
+func TestRequestDeleteAccount_Success(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	mailer := &testutil.MockMailer{}
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil)
+
+	oauthUser := &domain.User{
+		ID:        "oauth-user-id",
+		Email:     "oauth@example.com",
+		Name:      "OAuth User",
+		Role:      domain.RoleUser,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	users.Create(context.Background(), oauthUser)
+
+	err := svc.RequestDeleteAccount(context.Background(), oauthUser.ID)
+	if err != nil {
+		t.Fatalf("RequestDeleteAccount failed: %v", err)
+	}
+
+	if len(mailer.Calls) != 1 {
+		t.Fatalf("Expected 1 email call, got %d", len(mailer.Calls))
+	}
+	if mailer.Calls[0].To != "oauth@example.com" {
+		t.Fatalf("Expected email to oauth@example.com, got %s", mailer.Calls[0].To)
+	}
+}
+
+func TestRequestDeleteAccount_PasswordUser(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	mailer := &testutil.MockMailer{}
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil)
+
+	hash, _ := hasher.Hash("Passw0rd!")
+	passwordUser := &domain.User{
+		ID:           "password-user-id",
+		Email:        "password@example.com",
+		PasswordHash: &hash,
+		Name:         "Password User",
+		Role:         domain.RoleUser,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	users.Create(context.Background(), passwordUser)
+
+	err := svc.RequestDeleteAccount(context.Background(), passwordUser.ID)
+	if err == nil {
+		t.Fatal("Expected error for password user, got nil")
+	}
+	if err.Code != "password_account" {
+		t.Fatalf("Expected password_account, got %s", err.Code)
+	}
+}
+
+func TestRequestDeleteAccount_NonexistentUser(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	mailer := &testutil.MockMailer{}
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil)
+
+	err := svc.RequestDeleteAccount(context.Background(), "nonexistent-id")
+	if err == nil {
+		t.Fatal("Expected error for nonexistent user, got nil")
+	}
+	if err.Code != "user_not_found" {
+		t.Fatalf("Expected user_not_found, got %s", err.Code)
+	}
+}
+
+func TestConfirmDeleteAccount_Success(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	mailer := &testutil.MockMailer{}
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil)
+
+	oauthUser := &domain.User{
+		ID:        "oauth-user-id",
+		Email:     "oauth@example.com",
+		Name:      "OAuth User",
+		Role:      domain.RoleUser,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	users.Create(context.Background(), oauthUser)
+
+	reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID)
+	if reqErr != nil {
+		t.Fatalf("RequestDeleteAccount failed: %v", reqErr)
+	}
+
+	code := testutil.GetLastVerificationCode(mailer)
+
+	confirmErr := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+		UserID: oauthUser.ID,
+		Code:   code,
+	})
+	if confirmErr != nil {
+		t.Fatalf("ConfirmDeleteAccount failed: %v", confirmErr)
+	}
+
+	deleted, _ := users.GetByID(context.Background(), oauthUser.ID)
+	if deleted != nil {
+		t.Fatal("Expected user to be deleted")
+	}
+}
+
+func TestConfirmDeleteAccount_InvalidCode(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	mailer := &testutil.MockMailer{}
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil)
+
+	oauthUser := &domain.User{
+		ID:        "oauth-user-id",
+		Email:     "oauth@example.com",
+		Name:      "OAuth User",
+		Role:      domain.RoleUser,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	users.Create(context.Background(), oauthUser)
+
+	err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+		UserID: oauthUser.ID,
+		Code:   "INVALID",
+	})
+	if err == nil {
+		t.Fatal("Expected error for invalid code, got nil")
+	}
+	if err.Code != "delete_code_invalid" {
+		t.Fatalf("Expected delete_code_invalid, got %s", err.Code)
+	}
+}
+
+func TestConfirmDeleteAccount_ExpiredCode(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	mailer := &testutil.MockMailer{}
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil)
+
+	oauthUser := &domain.User{
+		ID:        "oauth-user-id",
+		Email:     "oauth@example.com",
+		Name:      "OAuth User",
+		Role:      domain.RoleUser,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	users.Create(context.Background(), oauthUser)
+
+	reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID)
+	if reqErr != nil {
+		t.Fatalf("RequestDeleteAccount failed: %v", reqErr)
+	}
+
+	code := testutil.GetLastVerificationCode(mailer)
+
+	for _, tok := range tokens.List() {
+		tok.ExpiresAt = time.Now().UTC().Add(-1 * time.Hour)
+	}
+
+	err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+		UserID: oauthUser.ID,
+		Code:   code,
+	})
+	if err == nil {
+		t.Fatal("Expected error for expired code, got nil")
+	}
+	if err.Code != "delete_code_expired" {
+		t.Fatalf("Expected delete_code_expired, got %s", err.Code)
+	}
+}
+
+func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	mailer := &testutil.MockMailer{}
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil)
+
+	oauthUser := &domain.User{
+		ID:        "oauth-user-id",
+		Email:     "oauth@example.com",
+		Name:      "OAuth User",
+		Role:      domain.RoleUser,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	users.Create(context.Background(), oauthUser)
+
+	reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID)
+	if reqErr != nil {
+		t.Fatalf("RequestDeleteAccount failed: %v", reqErr)
+	}
+
+	code := testutil.GetLastVerificationCode(mailer)
+
+	err1 := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+		UserID: oauthUser.ID,
+		Code:   code,
+	})
+	if err1 != nil {
+		t.Fatalf("First ConfirmDeleteAccount failed: %v", err1)
+	}
+
+	newUser := &domain.User{
+		ID:        "new-oauth-user-id",
+		Email:     "new-oauth@example.com",
+		Name:      "New OAuth User",
+		Role:      domain.RoleUser,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	users.Create(context.Background(), newUser)
+
+	reqErr2 := svc.RequestDeleteAccount(context.Background(), newUser.ID)
+	if reqErr2 != nil {
+		t.Fatalf("RequestDeleteAccount for new user failed: %v", reqErr2)
+	}
+
+	err2 := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+		UserID: newUser.ID,
+		Code:   code,
+	})
+	if err2 == nil {
+		t.Fatal("Expected error for reused code, got nil")
+	}
+	if err2.Code != "delete_code_already_used" {
+		t.Fatalf("Expected delete_code_already_used, got %s", err2.Code)
 	}
 }

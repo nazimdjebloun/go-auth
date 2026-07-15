@@ -57,6 +57,7 @@ type HandlerGroup struct {
 	SetPasswordConfirm     http.HandlerFunc
 	VerifyEmail            http.HandlerFunc
 	ResendVerification     http.HandlerFunc
+	ResendVerificationPublic http.HandlerFunc
 	ListSessions           http.HandlerFunc
 	RevokeSession          http.HandlerFunc
 	RevokeAllSessions      http.HandlerFunc
@@ -66,6 +67,8 @@ type HandlerGroup struct {
 	GetMe                  http.HandlerFunc
 	ChangeName             http.HandlerFunc
 	DeleteAccount          http.HandlerFunc
+	RequestDeleteAccount   http.HandlerFunc
+	ConfirmDeleteAccount   http.HandlerFunc
 	ListUsers              http.HandlerFunc
 	UpdateUserRole         http.HandlerFunc
 	BanUser                http.HandlerFunc
@@ -206,6 +209,8 @@ func New(config Config) (*Auth, error) {
 	sessionCfg.Duration = config.SessionTTL
 	sessionCfg.IdleTTL = config.SessionIdleTTL
 	sessionCfg.RefreshTTL = config.RefreshTokenTTL
+	sessionCfg.MaxLifetime = config.MaxLifetime
+	sessionCfg.GraceWindow = config.GraceWindow
 	sessionCfg.CookieName = config.Cookie.Name
 	sessionCfg.Domain = config.Cookie.Domain
 	sessionCfg.Path = config.Cookie.Path
@@ -239,17 +244,18 @@ func New(config Config) (*Auth, error) {
 	var oauthSvc *service.OAuthService
 	if len(oauthProviders) > 0 {
 		oauthCfg := service.OAuthServiceConfig{
-			AppName:        config.AppName,
-			BaseURL:        config.BaseURL,
-			SessionTTL:     config.SessionTTL,
-			TokenTTL:       config.TokenTTL,
-			CookieName:     config.Cookie.Name,
-			CookieDomain:   config.Cookie.Domain,
-			CookiePath:     config.Cookie.Path,
-			CookieSecure:   config.Cookie.Secure,
-			CookieSameSite: config.Cookie.SameSite,
+			AppName:                  config.AppName,
+			BaseURL:                  config.BaseURL,
+			SessionTTL:               config.SessionTTL,
+			TokenTTL:                 config.TokenTTL,
+			CookieName:               config.Cookie.Name,
+			CookieDomain:             config.Cookie.Domain,
+			CookiePath:               config.Cookie.Path,
+			CookieSecure:             config.Cookie.Secure,
+			CookieSameSite:           config.Cookie.SameSite,
+			RequireEmailVerification: config.RequireEmailVerification,
 		}
-		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, oauthCfg)
+		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, oauthCfg)
 	}
 
 	h := handler.New(handler.Services{
@@ -299,18 +305,21 @@ func New(config Config) (*Auth, error) {
 			ChangePassword:         csrfMW(authMW(http.HandlerFunc(h.ChangePassword))).ServeHTTP,
 			SetPasswordRequest:     csrfMW(authMW(http.HandlerFunc(h.SetPasswordRequest))).ServeHTTP,
 			SetPasswordConfirm:     csrfMW(authMW(http.HandlerFunc(h.SetPasswordConfirm))).ServeHTTP,
-			VerifyEmail:            csrfMW(http.HandlerFunc(h.VerifyEmail)).ServeHTTP,
-			ResendVerification:     csrfMW(authMW(http.HandlerFunc(h.ResendVerification))).ServeHTTP,
-			ListSessions:           authMW(http.HandlerFunc(h.ListSessions)).ServeHTTP,
+		VerifyEmail:            csrfMW(http.HandlerFunc(h.VerifyEmail)).ServeHTTP,
+		ResendVerification:     csrfMW(authMW(http.HandlerFunc(h.ResendVerification))).ServeHTTP,
+		ResendVerificationPublic: csrfMW(rateLimitMW(http.HandlerFunc(h.ResendVerificationPublic))).ServeHTTP,
+		ListSessions:           authMW(http.HandlerFunc(h.ListSessions)).ServeHTTP,
 			RevokeSession:          csrfMW(authMW(http.HandlerFunc(h.RevokeSession))).ServeHTTP,
 			RevokeAllSessions:      csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))).ServeHTTP,
 			InviteRegister:         csrfMW(http.HandlerFunc(h.InviteRegister)).ServeHTTP,
 			GetInviteInfo:          http.HandlerFunc(h.GetInviteInfo).ServeHTTP,
 			GetMe:                  authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
 			CheckSession:           http.HandlerFunc(h.CheckAuth).ServeHTTP,
-			RefreshToken:           csrfMW(http.HandlerFunc(h.RefreshToken)).ServeHTTP,
+			RefreshToken:           rateLimitMW(csrfMW(http.HandlerFunc(h.RefreshToken))).ServeHTTP,
 			ChangeName:             csrfMW(authMW(http.HandlerFunc(h.ChangeName))).ServeHTTP,
 			DeleteAccount:          csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))).ServeHTTP,
+			RequestDeleteAccount:   csrfMW(authMW(http.HandlerFunc(h.RequestDeleteAccount))).ServeHTTP,
+			ConfirmDeleteAccount:   csrfMW(rateLimitMW(http.HandlerFunc(h.ConfirmDeleteAccount))).ServeHTTP,
 			ListUsers:              authMW(adminMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
 			UpdateUserRole:         csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole)))).ServeHTTP,
 			BanUser:                csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser)))).ServeHTTP,
@@ -372,7 +381,10 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /auth/set-password/request", a.Handlers.SetPasswordRequest)
 	mux.Handle("POST /auth/set-password/confirm", a.Handlers.SetPasswordConfirm)
 	mux.Handle("DELETE /auth/account", a.Handlers.DeleteAccount)
+	mux.Handle("POST /auth/account/delete/request", a.Handlers.RequestDeleteAccount)
+	mux.Handle("POST /auth/account/delete/confirm", a.Handlers.ConfirmDeleteAccount)
 	mux.Handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
+	mux.Handle("POST /auth/verify-email/resend", a.Handlers.ResendVerificationPublic)
 	mux.Handle("POST /auth/refresh", a.Handlers.RefreshToken)
 	mux.Handle("GET /admin/users", a.Handlers.ListUsers)
 	mux.Handle("PATCH /admin/users/{id}/role", a.Handlers.UpdateUserRole)
@@ -407,10 +419,11 @@ func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResu
 		return nil, err
 	}
 	return &RegisterResult{
-		User:         result.User,
-		Session:      result.Session,
-		SessionToken: result.SessionToken,
-		RefreshToken: result.RefreshToken,
+		User:                 result.User,
+		Session:              result.Session,
+		SessionToken:         result.SessionToken,
+		RefreshToken:         result.RefreshToken,
+		RequiresVerification: result.RequiresVerification,
 	}, nil
 }
 
@@ -425,10 +438,11 @@ func (a *Auth) Login(ctx context.Context, input LoginInput) (*LoginResult, *doma
 		return nil, err
 	}
 	return &LoginResult{
-		User:         result.User,
-		Session:      result.Session,
-		SessionToken: result.SessionToken,
-		RefreshToken: result.RefreshToken,
+		User:                 result.User,
+		Session:              result.Session,
+		SessionToken:         result.SessionToken,
+		RefreshToken:         result.RefreshToken,
+		RequiresVerification: result.RequiresVerification,
 	}, nil
 }
 
