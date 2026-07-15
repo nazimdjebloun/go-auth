@@ -78,11 +78,11 @@ func TestValidate_IdleTTLExceedsSessionTTL(t *testing.T) {
 	}
 }
 
-func TestValidate_RefreshTTLExceedsSessionTTL(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: 30 * time.Minute, SessionIdleTTL: 30 * time.Minute, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+func TestValidate_RefreshTTLLessThanSessionTTL(t *testing.T) {
+	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: 30 * time.Minute, RefreshTokenTTL: 30 * time.Minute, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err == nil {
-		t.Fatal("expected error when RefreshTTL > SessionTTL")
+		t.Fatal("expected error when RefreshTTL < SessionTTL")
 	}
 }
 

@@ -35,6 +35,7 @@ const (
 	TokenSetPass      TokenType = "set_password"
 	TokenInviteVerify TokenType = "invite_verify"
 	TokenOAuthState   TokenType = "oauth_state"
+	TokenDeleteAccount TokenType = "delete_account"
 )
 
 type VerificationToken struct {
