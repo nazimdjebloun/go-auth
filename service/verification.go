@@ -53,31 +53,31 @@ func NewVerificationService(
 	}
 }
 
-func (s *VerificationService) VerifyEmail(ctx context.Context, code string) *domain.AuthError {
+func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*domain.User, *domain.AuthError) {
 	token, err := s.tokens.GetByHash(ctx, hashToken(code))
 	if err != nil || token == nil {
-		return domain.NewError("code_invalid", "Invalid verification code", 400)
+		return nil, domain.NewError("code_invalid", "Invalid verification code", 400)
 	}
 
 	if token.Type != domain.TokenVerifyEmail {
-		return domain.NewError("code_invalid", "Invalid verification code", 400)
+		return nil, domain.NewError("code_invalid", "Invalid verification code", 400)
 	}
 
 	if token.UsedAt != nil {
-		return domain.NewError("code_already_used", "This code has already been used", 410)
+		return nil, domain.NewError("code_already_used", "This code has already been used", 410)
 	}
 
 	if time.Now().UTC().After(token.ExpiresAt) {
-		return domain.NewError("code_expired", "Verification code has expired", 410)
+		return nil, domain.NewError("code_expired", "Verification code has expired", 410)
 	}
 
 	if token.UserID == nil {
-		return domain.NewError("code_invalid", "Invalid verification code", 400)
+		return nil, domain.NewError("code_invalid", "Invalid verification code", 400)
 	}
 
 	user, err := s.users.GetByID(ctx, *token.UserID)
 	if err != nil || user == nil {
-		return domain.ErrUserNotFound
+		return nil, domain.ErrUserNotFound
 	}
 
 	user.IsVerified = true
@@ -86,14 +86,14 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) *dom
 	user.UpdatedAt = now
 
 	if err := s.users.Update(ctx, user); err != nil {
-		return domain.NewError("internal_error", "Failed to update user", 500)
+		return nil, domain.NewError("internal_error", "Failed to update user", 500)
 	}
 
 	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
-		return domain.NewError("internal_error", "Failed to mark token used", 500)
+		return nil, domain.NewError("internal_error", "Failed to mark token used", 500)
 	}
 
-	return nil
+	return user, nil
 }
 
 var codeChars = []byte("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
@@ -110,6 +110,13 @@ func generateCode() string {
 func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) *domain.AuthError {
 	if s.mailer == nil {
 		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+	}
+
+	if user.ID != "" {
+		hasValid, err := s.tokens.HasValidByUserAndType(ctx, user.ID, domain.TokenVerifyEmail)
+		if err == nil && hasValid {
+			return nil
+		}
 	}
 
 	raw := generateCode()
@@ -147,6 +154,19 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 
 	if user.IsVerified {
 		return domain.NewError("already_verified", "Email is already verified", 400)
+	}
+
+	return s.SendVerification(ctx, user)
+}
+
+func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) *domain.AuthError {
+	user, err := s.users.GetByEmail(ctx, email)
+	if err != nil || user == nil {
+		return domain.NewError("email_not_found", "If an account exists, a verification email has been sent", 200)
+	}
+
+	if user.IsVerified {
+		return domain.NewError("email_not_found", "If an account exists, a verification email has been sent", 200)
 	}
 
 	return s.SendVerification(ctx, user)
