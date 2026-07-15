@@ -248,32 +248,61 @@ func (m *MockSessionRepo) UpdateLastActiveAt(_ context.Context, tokenHash string
 	return nil
 }
 
-func (m *MockSessionRepo) UpdateRefreshToken(_ context.Context, input port.UpdateRefreshInput) (int64, error) {
+func (m *MockSessionRepo) UpdateRefreshToken(_ context.Context, input port.UpdateRefreshInput) (*domain.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s, ok := m.byID[input.SessionID]
-	if !ok {
-		return 0, nil
+
+	// Collision guard
+	if input.NewRefreshHash == input.OldRefreshHash {
+		return nil, domain.NewError("internal_error",
+			"Refresh token collision: new hash equals old hash", 500)
 	}
-	if input.OldRefreshHash != "" && s.RefreshTokenHash != input.OldRefreshHash {
-		return 0, nil
+	if input.NewRefreshHash == input.NewTokenHash {
+		return nil, domain.NewError("internal_error",
+			"Token hash collision: refresh hash equals access token hash", 500)
 	}
-	if s.RefreshTokenHash != "" {
+
+	now := input.RotatedAt
+	s, ok := m.byRefreshHash[input.OldRefreshHash]
+	if ok {
+		if s.IsRevoked {
+			return nil, domain.ErrSessionRevoked
+		}
+		if now.After(s.RefreshExpiresAt) {
+			return nil, domain.ErrRefreshExpired
+		}
+		if input.MaxLifetime > 0 && now.After(s.CreatedAt.Add(input.MaxLifetime)) {
+			return nil, domain.ErrMaxLifetimeExceeded
+		}
+
+		// Rotate
 		delete(m.byRefreshHash, s.RefreshTokenHash)
-	}
-	delete(m.sessions, s.TokenHash)
-	s.TokenHash = input.NewTokenHash
-	s.RefreshTokenHash = input.NewRefreshHash
-	s.PreviousRefreshHash = input.PreviousHash
-	s.ExpiresAt = input.NewExpiresAt
-	s.RefreshExpiresAt = input.NewRefreshExpiry
-	s.RefreshRotatedAt = &input.RotatedAt
-	s.LastActiveAt = input.RotatedAt
-	m.sessions[input.NewTokenHash] = s
-	if input.NewRefreshHash != "" {
+		delete(m.sessions, s.TokenHash)
+		s.TokenHash = input.NewTokenHash
+		s.RefreshTokenHash = input.NewRefreshHash
+		s.PreviousRefreshHash = input.OldRefreshHash
+		s.ExpiresAt = input.NewExpiresAt
+		s.RefreshRotatedAt = &now
+		s.LastActiveAt = now
+		m.sessions[input.NewTokenHash] = s
 		m.byRefreshHash[input.NewRefreshHash] = s
+		return s, nil
 	}
-	return 1, nil
+
+	// Check previous hash
+	for _, prev := range m.byID {
+		if prev.PreviousRefreshHash == input.OldRefreshHash {
+			if prev.RefreshRotatedAt != nil && now.Sub(*prev.RefreshRotatedAt) < input.GraceWindow {
+				return nil, domain.ErrTokenAlreadyRotated
+			}
+			delete(m.byID, prev.ID)
+			delete(m.sessions, prev.TokenHash)
+			delete(m.byRefreshHash, prev.RefreshTokenHash)
+			return nil, domain.ErrSessionRevoked
+		}
+	}
+
+	return nil, domain.ErrInvalidRefreshToken
 }
 
 func (m *MockSessionRepo) Revoke(_ context.Context, id string) error {
@@ -336,6 +365,64 @@ func (m *MockTokenRepo) DeleteExpired(_ context.Context) error {
 
 func (m *MockTokenRepo) DeleteUnusedByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) error {
 	return nil
+}
+
+func (m *MockTokenRepo) HasValidByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now().UTC()
+	for _, t := range m.tokens {
+		if t.UserID != nil && *t.UserID == userID && t.Type == tokenType && t.UsedAt == nil && now.Before(t.ExpiresAt) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *MockTokenRepo) List() []*domain.VerificationToken {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []*domain.VerificationToken
+	seen := make(map[string]bool)
+	for _, t := range m.tokens {
+		if t.ID != "" && !seen[t.ID] {
+			result = append(result, t)
+			seen[t.ID] = true
+		}
+	}
+	return result
+}
+
+func GetLastVerificationCode(mailer *MockMailer) string {
+	if len(mailer.Calls) == 0 {
+		return ""
+	}
+	call := mailer.Calls[len(mailer.Calls)-1]
+	text := call.Text
+
+	codeStart := -1
+	for i, c := range text {
+		if c == ':' && i+2 < len(text) && text[i+1] == ' ' {
+			codeStart = i + 2
+			break
+		}
+	}
+	if codeStart == -1 {
+		return ""
+	}
+
+	codeEnd := -1
+	for i := codeStart; i < len(text); i++ {
+		if text[i] == ' ' || text[i] == '(' {
+			codeEnd = i
+			break
+		}
+	}
+	if codeEnd == -1 {
+		codeEnd = len(text)
+	}
+
+	return text[codeStart:codeEnd]
 }
 
 // ─── mockHasher ─────────────────────────────────────────────────────

@@ -135,6 +135,9 @@ type Config struct {
 	SessionTTL      time.Duration // absolute hard expiry (default 30d)
 	SessionIdleTTL  time.Duration // idle timeout after last activity (default 7d)
 	RefreshTokenTTL time.Duration // refresh token absolute expiry (default 30d)
+	MaxLifetime     time.Duration // max session lifetime from created_at (0 = no limit)
+	GraceWindow     time.Duration // grace period for reusing old refresh token (default 10s)
+	TouchDebounce   time.Duration // minimum interval between last_active_at updates (default 5m)
 	Cookie          CookieConfig
 	TokenTTL        time.Duration // how long verification/reset tokens live (default 1h)
 
@@ -181,8 +184,8 @@ func (c Config) validate() error {
 	if c.RefreshTokenTTL <= 0 {
 		errs = append(errs, errors.New("refresh_token_ttl must be positive"))
 	}
-	if c.RefreshTokenTTL > c.SessionTTL {
-		errs = append(errs, errors.New("refresh_token_ttl must not exceed session_ttl"))
+	if c.RefreshTokenTTL < c.SessionTTL {
+		errs = append(errs, errors.New("refresh_token_ttl must not be less than session_ttl"))
 	}
 	if len(c.AllowedOrigins) == 0 {
 		errs = append(errs, errors.New("allowed_origins must include at least one origin"))
@@ -231,6 +234,9 @@ func DefaultConfig() Config {
 		SessionTTL:               30 * 24 * time.Hour,
 		SessionIdleTTL:           7 * 24 * time.Hour,
 		RefreshTokenTTL:          30 * 24 * time.Hour,
+		MaxLifetime:              0,
+		GraceWindow:              10 * time.Second,
+		TouchDebounce:            5 * time.Minute,
 		TokenTTL:                 1 * time.Hour,
 		RateLimit:                ratelimit.DefaultRateLimitConfig(),
 		AllowMissingCSRFHeaders:  false,

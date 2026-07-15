@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"sync"
 	"time"
 
@@ -243,32 +244,58 @@ func (m *mockSessionRepo) UpdateLastActiveAt(_ context.Context, tokenHash string
 	return nil
 }
 
-func (m *mockSessionRepo) UpdateRefreshToken(_ context.Context, input port.UpdateRefreshInput) (int64, error) {
+func (m *mockSessionRepo) UpdateRefreshToken(_ context.Context, input port.UpdateRefreshInput) (*domain.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	s, ok := m.byID[input.SessionID]
-	if !ok {
-		return 0, nil
+
+	if input.NewRefreshHash == input.OldRefreshHash {
+		return nil, domain.NewError("internal_error",
+			"Refresh token collision: new hash equals old hash", 500)
 	}
-	if input.OldRefreshHash != "" && s.RefreshTokenHash != input.OldRefreshHash {
-		return 0, nil
+	if input.NewRefreshHash == input.NewTokenHash {
+		return nil, domain.NewError("internal_error",
+			"Token hash collision: refresh hash equals access token hash", 500)
 	}
-	if s.RefreshTokenHash != "" {
+
+	now := input.RotatedAt
+	s, ok := m.byRefreshHash[input.OldRefreshHash]
+	if ok {
+		if s.IsRevoked {
+			return nil, domain.ErrSessionRevoked
+		}
+		if now.After(s.RefreshExpiresAt) {
+			return nil, domain.ErrRefreshExpired
+		}
+		if input.MaxLifetime > 0 && now.After(s.CreatedAt.Add(input.MaxLifetime)) {
+			return nil, domain.ErrMaxLifetimeExceeded
+		}
+
 		delete(m.byRefreshHash, s.RefreshTokenHash)
-	}
-	delete(m.sessions, s.TokenHash)
-	s.TokenHash = input.NewTokenHash
-	s.RefreshTokenHash = input.NewRefreshHash
-	s.PreviousRefreshHash = input.PreviousHash
-	s.ExpiresAt = input.NewExpiresAt
-	s.RefreshExpiresAt = input.NewRefreshExpiry
-	s.RefreshRotatedAt = &input.RotatedAt
-	s.LastActiveAt = input.RotatedAt
-	m.sessions[input.NewTokenHash] = s
-	if input.NewRefreshHash != "" {
+		delete(m.sessions, s.TokenHash)
+		s.TokenHash = input.NewTokenHash
+		s.RefreshTokenHash = input.NewRefreshHash
+		s.PreviousRefreshHash = input.OldRefreshHash
+		s.ExpiresAt = input.NewExpiresAt
+		s.RefreshRotatedAt = &now
+		s.LastActiveAt = now
+		m.sessions[input.NewTokenHash] = s
 		m.byRefreshHash[input.NewRefreshHash] = s
+		return s, nil
 	}
-	return 1, nil
+
+	for _, prev := range m.byID {
+		if prev.PreviousRefreshHash == input.OldRefreshHash {
+			if prev.RefreshRotatedAt != nil && now.Sub(*prev.RefreshRotatedAt) < input.GraceWindow {
+				return nil, domain.ErrTokenAlreadyRotated
+			}
+			delete(m.byID, prev.ID)
+			delete(m.sessions, prev.TokenHash)
+			delete(m.byRefreshHash, prev.RefreshTokenHash)
+			return nil, domain.ErrSessionRevoked
+		}
+	}
+
+	return nil, domain.ErrInvalidRefreshToken
 }
 
 func (m *mockSessionRepo) Revoke(_ context.Context, id string) error {
@@ -331,10 +358,25 @@ func (m *mockTokenRepo) DeleteUnusedByUserAndType(_ context.Context, userID stri
 	return nil
 }
 
-type mockTokenGen struct{}
+func (m *mockTokenRepo) HasValidByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now().UTC()
+	for _, t := range m.tokens {
+		if t.UserID != nil && *t.UserID == userID && t.Type == tokenType && t.UsedAt == nil && now.Before(t.ExpiresAt) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+type mockTokenGen struct {
+	counter int64
+}
 
 func (m *mockTokenGen) Generate() (string, error) {
-	b := sha256.Sum256([]byte(time.Now().String()))
+	m.counter++
+	b := sha256.Sum256([]byte(fmt.Sprintf("%s-%d", time.Now().String(), m.counter)))
 	return hex.EncodeToString(b[:16]), nil
 }
 
