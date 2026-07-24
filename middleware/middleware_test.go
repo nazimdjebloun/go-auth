@@ -386,7 +386,7 @@ func TestRequireRole_WrongRole(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_TransparentRefresh(t *testing.T) {
+func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
@@ -397,12 +397,10 @@ func TestAuthMiddleware_TransparentRefresh(t *testing.T) {
 	sessCfg.IdleTTL = 15 * time.Minute
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	// Create user
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	users.Create(t.Context(), user)
 
-	// Create session via service
-	session, rawToken, rawRefreshToken, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
+	_, rawToken, rawRefreshToken, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -415,7 +413,7 @@ func TestAuthMiddleware_TransparentRefresh(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
-	t.Run("sets fresh cookies when refresh token present", func(t *testing.T) {
+	t.Run("does not rotate token on valid session", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
 		req.AddCookie(&http.Cookie{Name: sessCfg.RefreshCookieName, Value: rawRefreshToken})
@@ -428,60 +426,14 @@ func TestAuthMiddleware_TransparentRefresh(t *testing.T) {
 		}
 
 		cookies := rec.Result().Cookies()
-		var hasNewSession, hasNewRefresh bool
 		for _, c := range cookies {
-			if c.Name == sessCfg.CookieName && c.Value != "" && c.Value != rawToken {
-				hasNewSession = true
+			if c.Name == sessCfg.CookieName || c.Name == sessCfg.RefreshCookieName {
+				t.Errorf("should not set new cookies on valid session, got %s", c.Name)
 			}
-			if c.Name == sessCfg.RefreshCookieName && c.Value != "" && c.Value != rawRefreshToken {
-				hasNewRefresh = true
-			}
-		}
-		if !hasNewSession {
-			t.Error("expected new session cookie to be set")
-		}
-		if !hasNewRefresh {
-			t.Error("expected new refresh cookie to be set")
-		}
-
-		// Verify the old refresh token is no longer valid (it was rotated)
-		_, _, _, err := sessSvc.RefreshSession(t.Context(), rawRefreshToken)
-		if err == nil {
-			t.Error("expected old refresh token to be invalidated after rotation")
 		}
 	})
 
-	t.Run("proceeds without refresh when no refresh cookie", func(t *testing.T) {
-		// Get a valid token from the session we just rotated
-		validSession, err := sessions.GetByTokenHash(t.Context(), session.TokenHash)
-		if err != nil || validSession == nil {
-			// Session token was rotated, need to look it up differently.
-			// For this sub-test, create a fresh session.
-			session2, rawToken2, _, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
-			if err != nil {
-				t.Fatal(err)
-			}
-			_ = session2
-
-			req := httptest.NewRequest("GET", "/", nil)
-			req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken2})
-			rec := httptest.NewRecorder()
-
-			handler.ServeHTTP(rec, req)
-
-			if rec.Code != http.StatusOK {
-				t.Fatalf("expected 200, got %d", rec.Code)
-			}
-
-			cookies := rec.Result().Cookies()
-			for _, c := range cookies {
-				if c.Name == sessCfg.RefreshCookieName {
-					t.Error("expected no refresh cookie when none was provided")
-				}
-			}
-			return
-		}
-
+	t.Run("proceeds without refresh cookie", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
 		req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
 		rec := httptest.NewRecorder()
@@ -491,31 +443,71 @@ func TestAuthMiddleware_TransparentRefresh(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("expected 200, got %d", rec.Code)
 		}
-
-		cookies := rec.Result().Cookies()
-		for _, c := range cookies {
-			if c.Name == sessCfg.RefreshCookieName {
-				t.Error("expected no refresh cookie when none was provided")
-			}
-		}
 	})
 
-	t.Run("proceeds normally when refresh rotation fails", func(t *testing.T) {
-		// Create a fresh session
-		_, rawToken3, _, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
+	t.Run("concurrent requests with same token both succeed", func(t *testing.T) {
+		_, rawToken2, rawRefresh2, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
 		if err != nil {
 			t.Fatal(err)
 		}
 
+		const concurrency = 10
+		results := make(chan int, concurrency)
+		for range concurrency {
+			go func() {
+				req := httptest.NewRequest("GET", "/", nil)
+				req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken2})
+				req.AddCookie(&http.Cookie{Name: sessCfg.RefreshCookieName, Value: rawRefresh2})
+				rec := httptest.NewRecorder()
+				handler.ServeHTTP(rec, req)
+				results <- rec.Code
+			}()
+		}
+		for range concurrency {
+			code := <-results
+			if code != http.StatusOK {
+				t.Errorf("expected 200, got %d", code)
+			}
+		}
+	})
+
+	t.Run("expired session transparently refreshes via resolveSession", func(t *testing.T) {
+		shortCfg := service.DefaultSessionConfig()
+		shortCfg.Duration = 1 * time.Nanosecond
+		shortCfg.RefreshTTL = 60 * time.Minute
+		shortCfg.IdleTTL = 0
+		shortSessSvc := service.NewSessionService(sessions, gen, shortCfg)
+		shortHandler := AuthMiddleware(shortSessSvc, users)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		_, rawToken3, rawRefresh3, err := shortSessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		time.Sleep(2 * time.Millisecond)
+
 		req := httptest.NewRequest("GET", "/", nil)
-		req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken3})
-		req.AddCookie(&http.Cookie{Name: sessCfg.RefreshCookieName, Value: "invalid-refresh-token"})
+		req.AddCookie(&http.Cookie{Name: shortCfg.CookieName, Value: rawToken3})
+		req.AddCookie(&http.Cookie{Name: shortCfg.RefreshCookieName, Value: rawRefresh3})
 		rec := httptest.NewRecorder()
 
-		handler.ServeHTTP(rec, req)
+		shortHandler.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200 even with bad refresh token, got %d", rec.Code)
+			t.Fatalf("expected 200, got %d", rec.Code)
+		}
+
+		cookies := rec.Result().Cookies()
+		var hasNewSession bool
+		for _, c := range cookies {
+			if c.Name == shortCfg.CookieName && c.Value != rawToken3 {
+				hasNewSession = true
+			}
+		}
+		if !hasNewSession {
+			t.Error("expected new session cookie after transparent refresh")
 		}
 	})
 }
