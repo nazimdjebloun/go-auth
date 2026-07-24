@@ -249,13 +249,8 @@ func (h *Handler) SetPasswordRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) SetPasswordConfirm(w http.ResponseWriter, r *http.Request) {
-	user := middleware.GetUserFromContext(r.Context())
-	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
-		return
-	}
-
 	var body struct {
+		UserID      string `json:"userId"`
 		Code        string `json:"code"`
 		NewPassword string `json:"newPassword"`
 	}
@@ -264,7 +259,7 @@ func (h *Handler) SetPasswordConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.services.Password.ConfirmSetPassword(r.Context(), service.ConfirmSetPasswordInput{
-		UserID:      user.ID,
+		UserID:      body.UserID,
 		Code:        body.Code,
 		NewPassword: body.NewPassword,
 	}); err != nil {
@@ -800,7 +795,7 @@ func setRefreshCookie(w http.ResponseWriter, svc *service.SessionService, token 
 		Name:     cfg.RefreshCookieName,
 		Value:    token,
 		Domain:   cfg.Domain,
-		Path:     "/auth/refresh",
+		Path:     cfg.Path,
 		HttpOnly: true,
 		Secure:   cfg.Secure,
 		SameSite: http.SameSite(cfg.SameSite),
@@ -814,7 +809,7 @@ func clearRefreshCookie(w http.ResponseWriter, svc *service.SessionService) {
 		Name:     cfg.RefreshCookieName,
 		Value:    "",
 		Domain:   cfg.Domain,
-		Path:     "/auth/refresh",
+		Path:     cfg.Path,
 		HttpOnly: true,
 		Secure:   cfg.Secure,
 		SameSite: http.SameSite(cfg.SameSite),

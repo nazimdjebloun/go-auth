@@ -35,55 +35,126 @@ func AuthMiddleware(sessionSvc *service.SessionService, userRepo interface {
 }) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cookie, err := r.Cookie(sessionSvc.Config().CookieName)
-			if err != nil {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{
-					"error":   "unauthorized",
-					"message": "Missing session cookie",
-				})
+			session, user, rawToken := resolveSession(w, r, sessionSvc, userRepo)
+			if session == nil || user == nil {
 				return
 			}
 
-			session, err := sessionSvc.Validate(r.Context(), cookie.Value)
-			if err != nil {
-				if errors.Is(err, domain.ErrSessionExpired) {
-					writeJSON(w, http.StatusUnauthorized, map[string]string{
-						"error":   "session_expired",
-						"message": "Session has expired",
-					})
-					return
+			sessionSvc.Touch(r.Context(), rawToken, session.LastActiveAt)
+
+			// Transparent refresh: rotate refresh token and set fresh cookies.
+			// This keeps the session alive without requiring the frontend to
+			// call /auth/refresh. Errors are non-fatal — the request proceeds
+			// with the existing valid session.
+			if refreshCookie, rcErr := r.Cookie(sessionSvc.Config().RefreshCookieName); rcErr == nil && refreshCookie.Value != "" {
+				if _, newRawToken, newRefreshToken, err := sessionSvc.RefreshSession(r.Context(), refreshCookie.Value); err == nil {
+					setSessionCookie(w, sessionSvc, newRawToken)
+					setRefreshCookie(w, sessionSvc, newRefreshToken)
 				}
-				writeJSON(w, http.StatusUnauthorized, map[string]string{
-					"error":   "unauthorized",
-					"message": "Invalid session",
-				})
-				return
 			}
-
-			user, err := userRepo.GetByID(r.Context(), session.UserID)
-			if err != nil || user == nil {
-				writeJSON(w, http.StatusUnauthorized, map[string]string{
-					"error":   "unauthorized",
-					"message": "User not found",
-				})
-				return
-			}
-
-			if user.IsBanned {
-				writeJSON(w, http.StatusForbidden, map[string]string{
-					"error":   "user_banned",
-					"message": "This account has been banned",
-				})
-				return
-			}
-
-			sessionSvc.Touch(r.Context(), cookie.Value)
 
 			ctx := context.WithValue(r.Context(), ctxSession, session)
 			ctx = context.WithValue(ctx, ctxUser, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// resolveSession attempts to validate the session cookie. If the session is
+// expired, it transparently refreshes using the refresh cookie before giving up.
+func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.SessionService, userRepo interface {
+	GetByID(ctx context.Context, id string) (*domain.User, error)
+}) (*domain.Session, *domain.User, string) {
+	cookie, err := r.Cookie(sessionSvc.Config().CookieName)
+	if err != nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error":   "session_expired",
+			"message": "Missing session cookie",
+		})
+		return nil, nil, ""
+	}
+
+	session, err := sessionSvc.Validate(r.Context(), cookie.Value)
+	if err != nil {
+		if !errors.Is(err, domain.ErrSessionExpired) {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{
+				"error":   "unauthorized",
+				"message": "Invalid session",
+			})
+			return nil, nil, ""
+		}
+
+		// Session expired — try transparent refresh before giving up.
+		refreshCookie, rcErr := r.Cookie(sessionSvc.Config().RefreshCookieName)
+		if rcErr != nil || refreshCookie.Value == "" {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{
+				"error":   "session_expired",
+				"message": "Session has expired",
+			})
+			return nil, nil, ""
+		}
+
+		_, newRawToken, newRefreshToken, refreshErr := sessionSvc.RefreshSession(r.Context(), refreshCookie.Value)
+		if refreshErr != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{
+				"error":   "session_expired",
+				"message": "Session has expired",
+			})
+			return nil, nil, ""
+		}
+
+		setSessionCookie(w, sessionSvc, newRawToken)
+		setRefreshCookie(w, sessionSvc, newRefreshToken)
+
+		// Validate refreshed session — should always succeed but be defensive.
+		validated, vErr := sessionSvc.Validate(r.Context(), newRawToken)
+		if vErr != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{
+				"error":   "session_expired",
+				"message": "Session has expired",
+			})
+			return nil, nil, ""
+		}
+		session = validated
+
+		user, err := userRepo.GetByID(r.Context(), session.UserID)
+		if err != nil || user == nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{
+				"error":   "unauthorized",
+				"message": "User not found",
+			})
+			return nil, nil, ""
+		}
+
+		if user.IsBanned {
+			writeJSON(w, http.StatusForbidden, map[string]string{
+				"error":   "user_banned",
+				"message": "This account has been banned",
+			})
+			return nil, nil, ""
+		}
+
+		return session, user, newRawToken
+	}
+
+	user, err := userRepo.GetByID(r.Context(), session.UserID)
+	if err != nil || user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error":   "unauthorized",
+			"message": "User not found",
+		})
+		return nil, nil, ""
+	}
+
+	if user.IsBanned {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error":   "user_banned",
+			"message": "This account has been banned",
+		})
+		return nil, nil, ""
+	}
+
+	return session, user, cookie.Value
 }
 
 func RequireRole(role domain.Role) func(http.Handler) http.Handler {
