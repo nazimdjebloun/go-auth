@@ -196,8 +196,8 @@ func TestRefresh_SetsNewCookies(t *testing.T) {
 	if newRefreshCookie == nil || newRefreshCookie.Value == "" {
 		t.Fatal("expected new refresh cookie")
 	}
-	if newRefreshCookie.Path != "/auth/refresh" {
-		t.Errorf("expected refresh cookie path /auth/refresh, got %q", newRefreshCookie.Path)
+	if newRefreshCookie.Path != "/" {
+		t.Errorf("expected refresh cookie path /, got %q", newRefreshCookie.Path)
 	}
 	if !newRefreshCookie.HttpOnly {
 		t.Error("expected refresh cookie to be HttpOnly")
@@ -306,5 +306,137 @@ func TestRefresh_ClearsCookiesOnError(t *testing.T) {
 	}
 	if !clearedRefresh {
 		t.Error("expected refresh cookie to be cleared")
+	}
+}
+
+func TestCheckAuth_ValidSession(t *testing.T) {
+	th := newTestHarness()
+
+	body := `{"email":"alice@example.com","password":"Passw0rd!","name":"Alice"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.Register(w, req)
+
+	var token string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "goauth_session" {
+			token = c.Value
+			break
+		}
+	}
+
+	req2 := httptest.NewRequest(http.MethodGet, "/auth/check", nil)
+	req2.AddCookie(&http.Cookie{Name: "goauth_session", Value: token})
+	w2 := httptest.NewRecorder()
+	th.handler.CheckAuth(w2, req2)
+
+	res := w2.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(res.Body).Decode(&resp)
+	if resp["user"] == nil {
+		t.Fatal("expected user to be present")
+	}
+}
+
+func TestCheckAuth_InvalidSession(t *testing.T) {
+	th := newTestHarness()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/check", nil)
+	req.AddCookie(&http.Cookie{Name: "goauth_session", Value: "garbage"})
+	w := httptest.NewRecorder()
+	th.handler.CheckAuth(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(res.Body).Decode(&resp)
+	if resp["user"] != nil {
+		t.Fatal("expected user to be nil")
+	}
+}
+
+func TestCheckAuth_NoCookie(t *testing.T) {
+	th := newTestHarness()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/check", nil)
+	w := httptest.NewRecorder()
+	th.handler.CheckAuth(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+
+	var resp map[string]any
+	json.NewDecoder(res.Body).Decode(&resp)
+	if resp["user"] != nil {
+		t.Fatal("expected user to be nil")
+	}
+}
+
+func TestGetMe_NoUserInContext(t *testing.T) {
+	th := newTestHarness()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	w := httptest.NewRecorder()
+	th.handler.GetMe(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+func TestChangeName_NoUserInContext(t *testing.T) {
+	th := newTestHarness()
+
+	req := httptest.NewRequest(http.MethodPut, "/auth/name", strings.NewReader(`{"name":"New Name"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.ChangeName(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", res.StatusCode)
+	}
+}
+
+func TestRefreshToken_ExpiredRefreshCookie(t *testing.T) {
+	th := newTestHarness()
+
+	body := `{"email":"alice@example.com","password":"Passw0rd!","name":"Alice"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.Register(w, req)
+
+	if w.Result().StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", w.Result().StatusCode)
+	}
+
+	// Use a garbage refresh token to simulate expired/invalid
+	req2 := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
+	req2.AddCookie(&http.Cookie{Name: "goauth_refresh", Value: "expired-garbage"})
+	w2 := httptest.NewRecorder()
+	th.handler.RefreshToken(w2, req2)
+
+	res := w2.Result()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", res.StatusCode)
+	}
+
+	// Cookies should be cleared on error
+	for _, c := range res.Cookies() {
+		if c.MaxAge != -1 {
+			t.Errorf("expected cookie %s to be cleared, got max-age=%d", c.Name, c.MaxAge)
+		}
 	}
 }

@@ -1,10 +1,667 @@
 package service
 
 import (
+	"context"
+	"net/url"
 	"testing"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
+
+func newTestPasswordService(users *testutil.MockUserRepo, tokens *testutil.MockTokenRepo, hasher *testutil.MockHasher, mailer *testutil.MockMailer) *PasswordService {
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessions := testutil.NewMockSessionRepo()
+	cfg := defaultTestConfig()
+	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
+	return NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+}
+
+func extractResetToken(mailer *testutil.MockMailer) string {
+	if len(mailer.Calls) == 0 {
+		return ""
+	}
+	text := mailer.Calls[len(mailer.Calls)-1].Text
+	// text format: "Reset your password: http://...?token=TOKEN (expires in 1 hour)"
+	// Find the token= parameter
+	start := 0
+	for i, c := range text {
+		if c == ':' && i+2 < len(text) && text[i+1] == ' ' {
+			start = i + 2
+			break
+		}
+	}
+	if start == 0 {
+		return ""
+	}
+	end := len(text)
+	for i := start; i < len(text); i++ {
+		if text[i] == ' ' || text[i] == '(' {
+			end = i
+			break
+		}
+	}
+	rawURL := text[start:end]
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get("token")
+}
+
+func TestForgotPassword_ExistingUser(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("Passw0rd!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mailer.Calls) != 1 {
+		t.Fatalf("expected 1 email, got %d", len(mailer.Calls))
+	}
+	if mailer.Calls[0].To != "test@example.com" {
+		t.Fatalf("expected email to test@example.com, got %s", mailer.Calls[0].To)
+	}
+}
+
+func TestForgotPassword_NonexistentUser(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "nobody@example.com"})
+	if err != nil {
+		t.Fatalf("should not reveal email existence, got error: %v", err)
+	}
+	if len(mailer.Calls) != 0 {
+		t.Fatal("should not send email for nonexistent user")
+	}
+}
+
+func TestForgotPassword_NilMailer(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessions := testutil.NewMockSessionRepo()
+	cfg := defaultTestConfig()
+	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
+	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, cfg)
+
+	hash, _ := hasher.Hash("Passw0rd!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	if err != nil {
+		t.Fatalf("should succeed without mailer, got error: %v", err)
+	}
+}
+
+func TestResetPassword_HappyPath(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("OldPass1!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+
+	code := extractResetToken(mailer)
+	if code == "" {
+		t.Fatal("expected token in email")
+	}
+
+	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+		Code:        code,
+		NewPassword: "NewPass1!",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	updated, _ := users.GetByID(context.Background(), "user-1")
+	if updated == nil {
+		t.Fatal("expected user to exist")
+	}
+}
+
+func TestResetPassword_InvalidCode(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+		Code:        "INVALID",
+		NewPassword: "NewPass1!",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Code != "reset_token_invalid" {
+		t.Fatalf("expected reset_token_invalid, got %s", err.Code)
+	}
+}
+
+func TestResetPassword_ExpiredCode(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("OldPass1!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	code := extractResetToken(mailer)
+
+	// Expire the token
+	for _, tok := range tokens.List() {
+		tok.ExpiresAt = time.Now().UTC().Add(-1 * time.Hour)
+	}
+
+	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+		Code:        code,
+		NewPassword: "NewPass1!",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Code != "reset_token_expired" {
+		t.Fatalf("expected reset_token_expired, got %s", err.Code)
+	}
+}
+
+func TestResetPassword_AlreadyUsedCode(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("OldPass1!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	code := extractResetToken(mailer)
+
+	// First reset
+	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+		Code:        code,
+		NewPassword: "NewPass1!",
+	})
+	if err != nil {
+		t.Fatalf("first reset failed: %v", err)
+	}
+
+	// Second reset with same code
+	err = svc.ResetPassword(context.Background(), ResetPasswordInput{
+		Code:        code,
+		NewPassword: "NewPass2!",
+	})
+	if err == nil {
+		t.Fatal("expected error for reused code")
+	}
+	if err.Code != "reset_token_already_used" {
+		t.Fatalf("expected reset_token_already_used, got %s", err.Code)
+	}
+}
+
+func TestResetPassword_WeakPassword(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("OldPass1!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	code := extractResetToken(mailer)
+
+	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+		Code:        code,
+		NewPassword: "short",
+	})
+	if err == nil {
+		t.Fatal("expected error for weak password")
+	}
+}
+
+func TestChangePassword_HappyPath(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("OldPass1!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      "user-1",
+		OldPassword: "OldPass1!",
+		NewPassword: "NewPass1!",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestChangePassword_WrongOldPassword(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("OldPass1!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      "user-1",
+		OldPassword: "WrongPass1!",
+		NewPassword: "NewPass1!",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Code != "wrong_password" {
+		t.Fatalf("expected wrong_password, got %s", err.Code)
+	}
+}
+
+func TestChangePassword_NoPasswordSet(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	users.Create(context.Background(), &domain.User{
+		ID:        "oauth-user",
+		Email:     "oauth@example.com",
+		Name:      "OAuth",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+
+	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      "oauth-user",
+		OldPassword: "",
+		NewPassword: "NewPass1!",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Code != "no_password" {
+		t.Fatalf("expected no_password, got %s", err.Code)
+	}
+}
+
+func TestChangePassword_WeakNewPassword(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("OldPass1!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      "user-1",
+		OldPassword: "OldPass1!",
+		NewPassword: "short",
+	})
+	if err == nil {
+		t.Fatal("expected error for weak password")
+	}
+}
+
+func TestChangePassword_NonexistentUser(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      "nonexistent",
+		OldPassword: "OldPass1!",
+		NewPassword: "NewPass1!",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Code != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", err.Code)
+	}
+}
+
+func TestChangePassword_RevokesOtherSessions(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	sessions := testutil.NewMockSessionRepo()
+	gen := &testutil.MockTokenGen{Length: 32}
+	cfg := defaultTestConfig()
+	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
+	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+
+	hash, _ := hasher.Hash("OldPass1!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	sessions.Create(context.Background(), &domain.Session{ID: "sess-1", UserID: "user-1"})
+	sessions.Create(context.Background(), &domain.Session{ID: "sess-2", UserID: "user-1"})
+
+	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      "user-1",
+		OldPassword: "OldPass1!",
+		NewPassword: "NewPass1!",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sessList, _ := sessions.ListByUserID(context.Background(), "user-1")
+	if len(sessList) != 0 {
+		t.Fatalf("expected all sessions revoked, got %d", len(sessList))
+	}
+}
+
+func TestChangePassword_KeepsExceptSession(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	sessions := testutil.NewMockSessionRepo()
+	gen := &testutil.MockTokenGen{Length: 32}
+	cfg := defaultTestConfig()
+	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
+	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+
+	hash, _ := hasher.Hash("OldPass1!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	sessions.Create(context.Background(), &domain.Session{ID: "sess-keep", UserID: "user-1"})
+	sessions.Create(context.Background(), &domain.Session{ID: "sess-revoke", UserID: "user-1"})
+
+	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:          "user-1",
+		OldPassword:     "OldPass1!",
+		NewPassword:     "NewPass1!",
+		ExceptSessionID: "sess-keep",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	sessList, _ := sessions.ListByUserID(context.Background(), "user-1")
+	if len(sessList) != 1 {
+		t.Fatalf("expected 1 session kept, got %d", len(sessList))
+	}
+	if sessList[0].ID != "sess-keep" {
+		t.Fatalf("expected sess-keep to be kept, got %s", sessList[0].ID)
+	}
+}
+
+func TestRequestSetPassword_HappyPath(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	users.Create(context.Background(), &domain.User{
+		ID:        "oauth-user",
+		Email:     "oauth@example.com",
+		Name:      "OAuth",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+
+	err := svc.RequestSetPassword(context.Background(), "oauth-user")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mailer.Calls) != 1 {
+		t.Fatalf("expected 1 email, got %d", len(mailer.Calls))
+	}
+}
+
+func TestRequestSetPassword_AlreadyHasPassword(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("Passw0rd!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	err := svc.RequestSetPassword(context.Background(), "user-1")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Code != "already_set" {
+		t.Fatalf("expected already_set, got %s", err.Code)
+	}
+}
+
+func TestRequestSetPassword_UserNotFound(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	err := svc.RequestSetPassword(context.Background(), "nonexistent")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Code != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", err.Code)
+	}
+}
+
+func TestConfirmSetPassword_HappyPath(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	users.Create(context.Background(), &domain.User{
+		ID:        "oauth-user",
+		Email:     "oauth@example.com",
+		Name:      "OAuth",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+
+	svc.RequestSetPassword(context.Background(), "oauth-user")
+	code := testutil.GetLastVerificationCode(mailer)
+	if code == "" {
+		t.Fatal("expected code in email")
+	}
+
+	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+		UserID:      "oauth-user",
+		Code:        code,
+		NewPassword: "NewPass1!",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	user, _ := users.GetByID(context.Background(), "oauth-user")
+	if user == nil {
+		t.Fatal("expected user to exist")
+	}
+	if user.PasswordHash == nil {
+		t.Fatal("expected password hash to be set")
+	}
+}
+
+func TestConfirmSetPassword_InvalidCode(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	users.Create(context.Background(), &domain.User{
+		ID:        "oauth-user",
+		Email:     "oauth@example.com",
+		Name:      "OAuth",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+
+	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+		UserID:      "oauth-user",
+		Code:        "INVALID",
+		NewPassword: "NewPass1!",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Code != "invalid_code" {
+		t.Fatalf("expected invalid_code, got %s", err.Code)
+	}
+}
+
+func TestConfirmSetPassword_AlreadyHasPassword(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	hash, _ := hasher.Hash("Passw0rd!")
+	users.Create(context.Background(), &domain.User{
+		ID:           "user-1",
+		Email:        "test@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	})
+
+	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+		UserID:      "user-1",
+		Code:        "any",
+		NewPassword: "NewPass1!",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if err.Code != "already_set" {
+		t.Fatalf("expected already_set, got %s", err.Code)
+	}
+}
 
 func TestPasswordPolicyDefault(t *testing.T) {
 	tests := []struct {
