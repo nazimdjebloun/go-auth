@@ -30,6 +30,7 @@ type SessionConfig struct {
 	RefreshTTL        time.Duration
 	MaxLifetime       time.Duration // 0 = no max lifetime
 	GraceWindow       time.Duration
+	TouchDebounce     time.Duration // min interval between last_active_at updates
 }
 
 func DefaultSessionConfig() SessionConfig {
@@ -42,6 +43,7 @@ func DefaultSessionConfig() SessionConfig {
 		Duration:          7 * 24 * time.Hour,
 		IdleTTL:           7 * 24 * time.Hour,
 		RefreshTTL:        30 * 24 * time.Hour,
+		TouchDebounce:     5 * time.Minute,
 	}
 }
 
@@ -134,7 +136,10 @@ func (s *SessionService) Validate(ctx context.Context, token string) (*domain.Se
 	return session, nil
 }
 
-func (s *SessionService) Touch(ctx context.Context, token string) error {
+func (s *SessionService) Touch(ctx context.Context, token string, lastActiveAt time.Time) error {
+	if s.config.TouchDebounce > 0 && time.Since(lastActiveAt) < s.config.TouchDebounce {
+		return nil
+	}
 	return s.repo.UpdateLastActiveAt(ctx, hashToken(token))
 }
 
