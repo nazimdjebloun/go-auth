@@ -42,17 +42,6 @@ func AuthMiddleware(sessionSvc *service.SessionService, userRepo interface {
 
 			sessionSvc.Touch(r.Context(), rawToken, session.LastActiveAt)
 
-			// Transparent refresh: rotate refresh token and set fresh cookies.
-			// This keeps the session alive without requiring the frontend to
-			// call /auth/refresh. Errors are non-fatal — the request proceeds
-			// with the existing valid session.
-			if refreshCookie, rcErr := r.Cookie(sessionSvc.Config().RefreshCookieName); rcErr == nil && refreshCookie.Value != "" {
-				if _, newRawToken, newRefreshToken, err := sessionSvc.RefreshSession(r.Context(), refreshCookie.Value); err == nil {
-					setSessionCookie(w, sessionSvc, newRawToken)
-					setRefreshCookie(w, sessionSvc, newRefreshToken)
-				}
-			}
-
 			ctx := context.WithValue(r.Context(), ctxSession, session)
 			ctx = context.WithValue(ctx, ctxUser, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
