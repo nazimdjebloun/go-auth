@@ -144,7 +144,11 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 	}
 	if filter.Search != nil && *filter.Search != "" {
 		searchTerm := "%" + *filter.Search + "%"
-		where = append(where, fmt.Sprintf("(name ILIKE $%d OR email ILIKE $%d)", argIdx, argIdx))
+		op := "ILIKE"
+		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+			op = "LIKE"
+		}
+		where = append(where, fmt.Sprintf("(name %s $%d OR email %s $%d)", op, argIdx, op, argIdx))
 		args = append(args, searchTerm)
 		argIdx++
 	}
