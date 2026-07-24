@@ -95,6 +95,7 @@ type MiddlewareGroup struct {
 	Authenticate func(http.Handler) http.Handler
 	RequireAdmin func(http.Handler) http.Handler
 	RateLimit    func(http.Handler) http.Handler
+	CORS         func(http.Handler) http.Handler
 }
 
 func New(config Config) (*Auth, error) {
@@ -211,6 +212,7 @@ func New(config Config) (*Auth, error) {
 	sessionCfg.RefreshTTL = config.RefreshTokenTTL
 	sessionCfg.MaxLifetime = config.MaxLifetime
 	sessionCfg.GraceWindow = config.GraceWindow
+	sessionCfg.TouchDebounce = config.TouchDebounce
 	sessionCfg.CookieName = config.Cookie.Name
 	sessionCfg.Domain = config.Cookie.Domain
 	sessionCfg.Path = config.Cookie.Path
@@ -275,6 +277,7 @@ func New(config Config) (*Auth, error) {
 	adminMW := middleware.RequireRole(domain.RoleAdmin)
 	rateLimitMW := middleware.RateLimit(config.RateLimit)
 	csrfMW := middleware.OriginCheck(config.AllowedOrigins, config.AllowMissingCSRFHeaders)
+	corsMW := middleware.CORS(config.AllowedOrigins)
 
 	return &Auth{
 		Config:          config,
@@ -304,7 +307,7 @@ func New(config Config) (*Auth, error) {
 			ResetPassword:          csrfMW(http.HandlerFunc(h.ResetPassword)).ServeHTTP,
 			ChangePassword:         csrfMW(authMW(http.HandlerFunc(h.ChangePassword))).ServeHTTP,
 			SetPasswordRequest:     csrfMW(authMW(http.HandlerFunc(h.SetPasswordRequest))).ServeHTTP,
-			SetPasswordConfirm:     csrfMW(authMW(http.HandlerFunc(h.SetPasswordConfirm))).ServeHTTP,
+			SetPasswordConfirm:     csrfMW(http.HandlerFunc(h.SetPasswordConfirm)).ServeHTTP,
 		VerifyEmail:            csrfMW(http.HandlerFunc(h.VerifyEmail)).ServeHTTP,
 		ResendVerification:     csrfMW(authMW(http.HandlerFunc(h.ResendVerification))).ServeHTTP,
 		ResendVerificationPublic: csrfMW(rateLimitMW(http.HandlerFunc(h.ResendVerificationPublic))).ServeHTTP,
@@ -344,6 +347,7 @@ func New(config Config) (*Auth, error) {
 			Authenticate: authMW,
 			RequireAdmin: adminMW,
 			RateLimit:    rateLimitMW,
+			CORS:         corsMW,
 		},
 	}, nil
 }
