@@ -301,6 +301,10 @@ func (h *Handler) RequestDeleteAccount(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ConfirmDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 
 	var body struct {
 		Code string `json:"code"`
@@ -309,6 +313,7 @@ func (h *Handler) ConfirmDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// User ID always comes from the authenticated session — never from the body.
 	if err := h.services.Auth.ConfirmDeleteAccount(r.Context(), service.ConfirmDeleteAccountInput{
 		UserID: user.ID,
 		Code:   body.Code,
