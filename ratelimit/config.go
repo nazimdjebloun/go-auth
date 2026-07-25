@@ -35,18 +35,24 @@ func DefaultRateLimitConfig() *Config {
 		Default:    Rate{Requests: 60, Window: time.Minute},
 		Store:      NewMemoryStore(),
 		Routes: map[string]Rate{
-			"POST /auth/login":                {Requests: 5, Window: time.Minute},
-			"POST /auth/register":             {Requests: 3, Window: time.Minute},
-			"POST /auth/forgot-password":      {Requests: 3, Window: time.Hour},
-			"POST /auth/verify-email":         {Requests: 10, Window: time.Minute},
-			"POST /auth/verify-email/resend":  {Requests: 3, Window: time.Minute},
-			"POST /auth/reset-password":       {Requests: 5, Window: time.Minute},
-			"POST /auth/set-password/request": {Requests: 3, Window: 15 * time.Minute},
-			"POST /auth/set-password/confirm": {Requests: 5, Window: 10 * time.Minute},
+			// Login / register (including aliases mounted by Auth.Mount)
+			"POST /auth/login":    {Requests: 5, Window: time.Minute},
+			"POST /auth/signin":   {Requests: 5, Window: time.Minute},
+			"POST /auth/register": {Requests: 3, Window: time.Minute},
+			"POST /auth/signup":   {Requests: 3, Window: time.Minute},
+			// Password / verification
+			"POST /auth/forgot-password":        {Requests: 3, Window: time.Hour},
+			"POST /auth/reset-password":         {Requests: 5, Window: time.Minute},
+			"POST /auth/verify-email":           {Requests: 10, Window: time.Minute},
+			"POST /auth/verify-email/resend":    {Requests: 3, Window: time.Minute},
+			"POST /auth/resend-verification":    {Requests: 3, Window: time.Minute},
+			"POST /auth/set-password/request":   {Requests: 3, Window: 15 * time.Minute},
+			"POST /auth/set-password/confirm":   {Requests: 5, Window: 10 * time.Minute},
 			"POST /auth/account/delete/request": {Requests: 3, Window: time.Hour},
 			"POST /auth/account/delete/confirm": {Requests: 3, Window: time.Hour},
-			"POST /auth/invite":               {Requests: 10, Window: time.Minute},
-			"POST /auth/refresh":              {Requests: 3, Window: time.Minute},
+			// Invites / refresh
+			"POST /auth/invite/register": {Requests: 10, Window: time.Minute},
+			"POST /auth/refresh":         {Requests: 3, Window: time.Minute},
 		},
 	}
 }
