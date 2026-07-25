@@ -96,12 +96,22 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	return user, nil
 }
 
+// codeChars omits ambiguous glyphs (I/O/0/1). 8 chars from a 32-symbol
+// alphabet ≈ 40 bits of entropy — enough for short-lived emailed OTPs
+// when paired with rate limits.
 var codeChars = []byte("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
 
+const otpCodeLength = 8
+
 func generateCode() string {
-	b := make([]byte, 6)
+	b := make([]byte, otpCodeLength)
 	for i := range b {
-		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(codeChars))))
+		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(codeChars))))
+		if err != nil {
+			// crypto/rand failure is effectively unrecoverable; fall back
+			// to a full-length zeroed buffer is unsafe, so panic.
+			panic("generateCode: " + err.Error())
+		}
 		b[i] = codeChars[n.Int64()]
 	}
 	return string(b)

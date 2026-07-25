@@ -131,11 +131,17 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 		return domain.NewError("internal_error", "Failed to mark token used", 500)
 	}
 
+	// Invalidate every session after a password reset so a stolen session
+	// cookie cannot outlive credential recovery.
+	if err := s.sessions.DeleteAllForUser(ctx, user.ID); err != nil {
+		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+	}
+
 	return nil
 }
 
 func (s *PasswordService) generateOTP() (string, error) {
-	b := make([]byte, 8)
+	b := make([]byte, otpCodeLength)
 	for i := range b {
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(codeChars))))
 		if err != nil {
