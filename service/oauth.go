@@ -286,6 +286,9 @@ func (s *OAuthService) ListConnected(ctx context.Context, userID string) ([]doma
 
 func (s *OAuthService) createProviderAccount(ctx context.Context, userID string, info *port.OAuthProfile) (*domain.ProviderAccount, *domain.AuthError) {
 	now := time.Now().UTC()
+	// Intentionally do not persist provider access/refresh tokens.
+	// A DB leak would otherwise grant API access to the linked provider
+	// account. Identity linkage only needs provider + provider_user_id.
 	pa := &domain.ProviderAccount{
 		ID:             uuid.New().String(),
 		UserID:         userID,
@@ -294,9 +297,6 @@ func (s *OAuthService) createProviderAccount(ctx context.Context, userID string,
 		ProviderEmail:  info.Email,
 		ProviderName:   info.Name,
 		AvatarURL:      info.AvatarURL,
-		AccessToken:    info.AccessToken,
-		RefreshToken:   info.RefreshToken,
-		TokenExpiresAt: info.TokenExpiresAt,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
