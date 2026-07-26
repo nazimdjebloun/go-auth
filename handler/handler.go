@@ -3,7 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -24,10 +24,18 @@ type Services struct {
 
 type Handler struct {
 	services Services
+	log      *slog.Logger
 }
 
 func New(s Services) *Handler {
-	return &Handler{services: s}
+	return &Handler{services: s, log: slog.Default()}
+}
+
+func NewWithLogger(s Services, logger *slog.Logger) *Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Handler{services: s, log: logger}
 }
 
 // --- Auth handlers ---
@@ -111,7 +119,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(cfg.CookieName)
 	if err == nil && cookie.Value != "" {
 		if err := h.services.Session.Revoke(r.Context(), cookie.Value); err != nil {
-			log.Printf("logout revoke error: %v", err)
+			h.log.Warn("logout revoke error", "err", err)
 		}
 	}
 	clearSessionCookie(w, h.services.Session)
@@ -346,7 +354,8 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	session, rawToken, refreshToken, sessionErr := h.services.Session.Create(r.Context(), user.ID, r.RemoteAddr, r.UserAgent())
 	if sessionErr != nil {
-		writeError(w, domain.NewError("internal_error", "Failed to create session", 500))
+		h.log.Error("failed to create session after verification", "err", sessionErr, "user_id", user.ID)
+		writeError(w, domain.NewError("internal_error", "Internal server error", 500))
 		return
 	}
 
@@ -404,7 +413,8 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		if authErr, ok := err.(*domain.AuthError); ok {
 			writeError(w, authErr)
 		} else {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			h.log.Error("refresh token error", "err", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 		}
 		return
 	}
@@ -427,7 +437,8 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 
 	sessions, err := h.services.Session.List(r.Context(), user.ID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		h.log.Error("failed to list sessions", "err", err, "user_id", user.ID)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 		return
 	}
 	currentSessionID := ""
@@ -446,7 +457,8 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 
 	sessions, err := h.services.Session.List(r.Context(), user.ID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		h.log.Error("failed to list sessions for revoke check", "err", err, "user_id", user.ID)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 		return
 	}
 
@@ -463,7 +475,8 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.services.Session.RevokeByID(r.Context(), sessionID); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+		h.log.Error("failed to revoke session", "err", err, "user_id", user.ID, "session_id", sessionID)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
@@ -475,12 +488,14 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 
 	if currentSession != nil {
 		if err := h.services.Session.RevokeAllExcept(r.Context(), user.ID, currentSession.ID); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			h.log.Error("failed to revoke sessions", "err", err, "user_id", user.ID)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 			return
 		}
 	} else {
 		if err := h.services.Session.RevokeAll(r.Context(), user.ID); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
+			h.log.Error("failed to revoke all sessions", "err", err, "user_id", user.ID)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 			return
 		}
 	}
@@ -844,7 +859,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		log.Printf("Failed to encode JSON: %v", err)
+		slog.Error("failed to encode JSON response", "err", err, "status", status)
 	}
 }
 

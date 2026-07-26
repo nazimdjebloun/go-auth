@@ -204,6 +204,7 @@ func New(config Config) (*Auth, error) {
 		SessionTTL:               config.SessionTTL,
 		TokenTTL:                 config.TokenTTL,
 		PasswordPolicy:           config.PasswordPolicy,
+		Logger:                   config.Logger,
 	}
 
 	sessionCfg := service.DefaultSessionConfig()
@@ -218,6 +219,7 @@ func New(config Config) (*Auth, error) {
 	sessionCfg.Path = config.Cookie.Path
 	sessionCfg.Secure = config.Cookie.Secure
 	sessionCfg.SameSite = int(config.Cookie.SameSite)
+	sessionCfg.Logger = config.Logger
 
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
 
@@ -226,6 +228,11 @@ func New(config Config) (*Auth, error) {
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, hasherImpl, serviceCfg, sessSvc)
+
+	// Attach logger to session repository
+	if config.Logger != nil {
+		sessionRepoSQL.WithLogger(config.Logger)
+	}
 
 	// Build OAuth providers from registered WithProvider calls
 	oauthProviders := make(map[string]port.OAuthProvider)
@@ -256,11 +263,12 @@ func New(config Config) (*Auth, error) {
 			CookieSecure:             config.Cookie.Secure,
 			CookieSameSite:           config.Cookie.SameSite,
 			RequireEmailVerification: config.RequireEmailVerification,
+			Logger:                   config.Logger,
 		}
 		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, oauthCfg)
 	}
 
-	h := handler.New(handler.Services{
+	h := handler.NewWithLogger(handler.Services{
 		Auth:     authSvc,
 		Password: passSvc,
 		Session:  sessSvc,
@@ -268,7 +276,7 @@ func New(config Config) (*Auth, error) {
 		Invite:   inviteSvc,
 		Admin:    adminSvc,
 		OAuth:    oauthSvc,
-	})
+	}, config.Logger)
 
 	// OAuth handlers (separate because they need baseURL and session service for cookies)
 	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.BaseURL)

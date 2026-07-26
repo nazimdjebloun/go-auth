@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -25,6 +26,11 @@ func newMockUserRepo() *mockUserRepo {
 func (m *mockUserRepo) Create(_ context.Context, user *domain.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.Email == user.Email && u.ID != user.ID {
+			return domain.NewError("email_already_exists", "A user with this email already exists", http.StatusConflict)
+		}
+	}
 	m.users[user.ID] = user
 	m.users[user.Email] = user
 	return nil

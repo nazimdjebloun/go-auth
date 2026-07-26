@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -24,6 +25,7 @@ type OAuthService struct {
 	sessionSvc   *SessionService
 	verifySvc    *VerificationService
 	config       OAuthServiceConfig
+	log          *slog.Logger
 }
 
 type OAuthServiceConfig struct {
@@ -37,6 +39,7 @@ type OAuthServiceConfig struct {
 	CookieSecure             bool
 	CookieSameSite           http.SameSite
 	RequireEmailVerification bool
+	Logger                   *slog.Logger
 }
 
 func NewOAuthService(
@@ -50,6 +53,10 @@ func NewOAuthService(
 	verifySvc *VerificationService,
 	config OAuthServiceConfig,
 ) *OAuthService {
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &OAuthService{
 		providers:    providers,
 		providerRepo: providerRepo,
@@ -60,6 +67,7 @@ func NewOAuthService(
 		sessionSvc:   sessionSvc,
 		verifySvc:    verifySvc,
 		config:       config,
+		log:          logger,
 	}
 }
 
@@ -107,7 +115,8 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (strin
 
 	codeVerifier, verifierErr := generateCodeVerifier()
 	if verifierErr != nil {
-		return "", domain.NewError("internal_error", "Failed to generate PKCE verifier", 500)
+		s.log.Error("failed to generate PKCE verifier", "err", verifierErr)
+		return "", domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	stateToken := &domain.VerificationToken{
@@ -119,7 +128,8 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (strin
 	}
 
 	if err := s.tokenRepo.Create(ctx, stateToken); err != nil {
-		return "", domain.NewError("internal_error", "Failed to store state token", 500)
+		s.log.Error("failed to store state token", "err", err, "provider", providerName)
+		return "", domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	codeChallenge := codeChallengeS256(codeVerifier)
@@ -139,7 +149,8 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 
 	codeVerifier, verifierErr := generateCodeVerifier()
 	if verifierErr != nil {
-		return "", domain.NewError("internal_error", "Failed to generate PKCE verifier", 500)
+		s.log.Error("failed to generate PKCE verifier", "err", verifierErr)
+		return "", domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	stateToken := &domain.VerificationToken{
@@ -152,7 +163,8 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 	}
 
 	if err := s.tokenRepo.Create(ctx, stateToken); err != nil {
-		return "", domain.NewError("internal_error", "Failed to store state token", 500)
+		s.log.Error("failed to store state token", "err", err, "provider", providerName, "user_id", userID)
+		return "", domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	codeChallenge := codeChallengeS256(codeVerifier)
@@ -160,9 +172,6 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 }
 
 // Callback handles the OAuth callback for both login and link flows.
-// If the state token has a UserID, it's a link flow (no session created).
-// If no UserID, it's a login flow (user may be created or logged in).
-// Returns (sessionToken, isNewUser, authErr). sessionToken is empty for link flow.
 func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, ip, userAgent string) (string, string, bool, bool, string, *domain.AuthError) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
@@ -184,7 +193,8 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	}
 
 	if markErr := s.tokenRepo.MarkUsed(ctx, stateToken.ID); markErr != nil {
-		return "", "", false, false, "", domain.NewError("internal_error", "Failed to consume state token", 500)
+		s.log.Error("failed to mark state token used", "err", markErr)
+		return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	codeVerifier := ""
@@ -194,12 +204,14 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 
 	info, exchangeErr := p.Exchange(ctx, code, codeVerifier)
 	if exchangeErr != nil {
+		s.log.Error("provider exchange failed", "err", exchangeErr, "provider", providerName)
 		return "", "", false, false, "", domain.NewError("provider_error", "Failed to authenticate with provider", 502)
 	}
 
 	existing, lookupErr := s.providerRepo.GetByProvider(ctx, providerName, info.ProviderUserID)
 	if lookupErr != nil {
-		return "", "", false, false, "", domain.NewError("internal_error", "Failed to look up provider account", 500)
+		s.log.Error("failed to look up provider account", "err", lookupErr, "provider", providerName)
+		return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	userID := stateToken.UserID
@@ -216,13 +228,15 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		if linkErr != nil {
 			return "", "", false, false, "", linkErr
 		}
+		s.log.Info("provider linked", "user_id", *userID, "provider", providerName)
 		return "", "", false, false, "", nil
 	}
 
 	if existing != nil {
 		user, userErr := s.userRepo.GetByID(ctx, existing.UserID)
 		if userErr != nil || user == nil {
-			return "", "", false, false, "", domain.NewError("internal_error", "Failed to find linked user", 500)
+			s.log.Error("failed to find linked user", "err", userErr, "user_id", existing.UserID)
+			return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
 		}
 		if user.IsBanned {
 			return "", "", false, false, "", domain.ErrUserBanned
@@ -246,8 +260,10 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 
 		session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
 		if sessionErr != nil {
-			return "", "", false, false, "", domain.NewError("internal_error", "Failed to create session", 500)
+			s.log.Error("failed to create session", "err", sessionErr, "user_id", user.ID)
+			return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
 		}
+		s.log.Info("oauth login", "user_id", user.ID, "provider", providerName, "ip", ip)
 		_ = session
 		_ = refreshToken
 		return rawToken, refreshToken, false, false, "", nil
@@ -260,26 +276,29 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 
 	now := time.Now().UTC()
 	newUser := &domain.User{
-		ID:        uuid.New().String(),
-		Email:     info.Email,
-		Name:      info.Name,
-		Role:      domain.RoleUser,
+		ID:         uuid.New().String(),
+		Email:      info.Email,
+		Name:       info.Name,
+		Role:       domain.RoleUser,
 		IsVerified: info.EmailVerified,
-		IsBanned:  false,
-		CreatedAt: now,
-		UpdatedAt: now,
+		IsBanned:   false,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 	if info.EmailVerified {
 		newUser.VerifiedAt = &now
 	}
 
 	if err := s.userRepo.Create(ctx, newUser); err != nil {
-		return "", "", false, false, "", domain.NewError("internal_error", "Failed to create user", 500)
+		s.log.Error("failed to create user", "err", err, "email", info.Email)
+		return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if _, linkErr := s.createProviderAccount(ctx, newUser.ID, info); linkErr != nil {
 		return "", "", false, false, "", linkErr
 	}
+
+	s.log.Info("oauth register", "user_id", newUser.ID, "provider", providerName, "email_verified", info.EmailVerified)
 
 	// Only send verification email if the provider did NOT verify the email
 	// and email verification is required.
@@ -292,7 +311,8 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 
 	session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, newUser.ID, ip, userAgent)
 	if sessionErr != nil {
-		return "", "", false, false, "", domain.NewError("internal_error", "Failed to create session", 500)
+		s.log.Error("failed to create session", "err", sessionErr, "user_id", newUser.ID)
+		return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
 	}
 	_ = session
 
@@ -300,7 +320,6 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 }
 
 // Link connects a provider to an existing user.
-// Used when the callback returns link flow (userID from state token).
 func (s *OAuthService) Link(ctx context.Context, userID, providerName, code, rawState string) *domain.AuthError {
 	_, _, _, _, _, err := s.Callback(ctx, providerName, code, rawState, "", "")
 	return err
@@ -309,7 +328,8 @@ func (s *OAuthService) Link(ctx context.Context, userID, providerName, code, raw
 func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) *domain.AuthError {
 	accounts, err := s.providerRepo.ListByUserID(ctx, userID)
 	if err != nil {
-		return domain.NewError("internal_error", "Failed to list provider accounts", 500)
+		s.log.Error("failed to list provider accounts", "err", err, "user_id", userID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	user, userErr := s.userRepo.GetByID(ctx, userID)
@@ -323,25 +343,25 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 	}
 
 	if err := s.providerRepo.Delete(ctx, userID, providerName); err != nil {
-		return domain.NewError("internal_error", "Failed to unlink provider", 500)
+		s.log.Error("failed to unlink provider", "err", err, "user_id", userID, "provider", providerName)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
+	s.log.Info("provider unlinked", "user_id", userID, "provider", providerName)
 	return nil
 }
 
 func (s *OAuthService) ListConnected(ctx context.Context, userID string) ([]domain.ProviderAccount, *domain.AuthError) {
 	accounts, err := s.providerRepo.ListByUserID(ctx, userID)
 	if err != nil {
-		return nil, domain.NewError("internal_error", "Failed to list provider accounts", 500)
+		s.log.Error("failed to list provider accounts", "err", err, "user_id", userID)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 	return accounts, nil
 }
 
 func (s *OAuthService) createProviderAccount(ctx context.Context, userID string, info *port.OAuthProfile) (*domain.ProviderAccount, *domain.AuthError) {
 	now := time.Now().UTC()
-	// Intentionally do not persist provider access/refresh tokens.
-	// A DB leak would otherwise grant API access to the linked provider
-	// account. Identity linkage only needs provider + provider_user_id.
 	pa := &domain.ProviderAccount{
 		ID:             uuid.New().String(),
 		UserID:         userID,
@@ -354,7 +374,8 @@ func (s *OAuthService) createProviderAccount(ctx context.Context, userID string,
 		UpdatedAt:      now,
 	}
 	if err := s.providerRepo.Create(ctx, pa); err != nil {
-		return nil, domain.NewError("internal_error", "Failed to store provider account", 500)
+		s.log.Error("failed to store provider account", "err", err, "user_id", userID, "provider", info.Provider)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 	return pa, nil
 }

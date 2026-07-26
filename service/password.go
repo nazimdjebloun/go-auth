@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"log/slog"
 	"math/big"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ type PasswordService struct {
 	mailer   port.Mailer
 	sessions port.SessionRepository
 	config   Config
+	log      *slog.Logger
 }
 
 func NewPasswordService(
@@ -30,6 +32,9 @@ func NewPasswordService(
 	sessions port.SessionRepository,
 	config Config,
 ) *PasswordService {
+	if config.Logger == nil {
+		config.Logger = slog.Default()
+	}
 	return &PasswordService{
 		users:    users,
 		tokens:   tokens,
@@ -38,6 +43,7 @@ func NewPasswordService(
 		mailer:   mailer,
 		sessions: sessions,
 		config:   config,
+		log:      config.Logger,
 	}
 }
 
@@ -52,7 +58,8 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 
 	raw, err := s.gen.Generate()
 	if err != nil {
-		return domain.NewError("internal_error", "Failed to generate token", 500)
+		s.log.Error("failed to generate token", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	now := time.Now().UTC()
@@ -60,7 +67,8 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	// Invalidate any previous unused reset tokens for this user so only the
 	// most recent request is valid.
 	if err := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenResetPass); err != nil {
-		return domain.NewError("internal_error", "Failed to invalidate previous tokens", 500)
+		s.log.Error("failed to invalidate previous tokens", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	token := &domain.VerificationToken{
@@ -73,7 +81,8 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	}
 
 	if err := s.tokens.Create(ctx, token); err != nil {
-		return domain.NewError("internal_error", "Failed to store token", 500)
+		s.log.Error("failed to store reset token", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if s.mailer == nil {
@@ -85,9 +94,11 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	text := "Reset your password: " + url + " (expires in 1 hour)"
 
 	if err := s.mailer.Send(ctx, user.Email, "Reset your password - "+s.config.AppName, html, text); err != nil {
+		s.log.Error("failed to send reset email", "err", err, "user_id", user.ID)
 		return domain.NewError("email_failed", "Failed to send reset email", 500)
 	}
 
+	s.log.Info("password reset requested", "user_id", user.ID)
 	return nil
 }
 
@@ -124,26 +135,31 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 
 	hash, err := s.hasher.Hash(input.NewPassword)
 	if err != nil {
-		return domain.NewError("internal_error", "Failed to hash password", 500)
+		s.log.Error("failed to hash password", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	user.PasswordHash = &hash
 	user.UpdatedAt = time.Now().UTC()
 
 	if err := s.users.Update(ctx, user); err != nil {
-		return domain.NewError("internal_error", "Failed to update password", 500)
+		s.log.Error("failed to update password", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
-		return domain.NewError("internal_error", "Failed to mark token used", 500)
+		s.log.Error("failed to mark token used", "err", err, "token_id", token.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	// Invalidate every session after a password reset so a stolen session
 	// cookie cannot outlive credential recovery.
 	if err := s.sessions.DeleteAllForUser(ctx, user.ID); err != nil {
-		return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+		s.log.Error("failed to revoke sessions after password reset", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
+	s.log.Info("password reset completed", "user_id", user.ID)
 	return nil
 }
 
@@ -171,13 +187,15 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 
 	raw, err := s.generateOTP()
 	if err != nil {
-		return domain.NewError("internal_error", "Failed to generate OTP", 500)
+		s.log.Error("failed to generate OTP", "err", err, "user_id", userID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	now := time.Now().UTC()
 
 	if err := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenSetPass); err != nil {
-		return domain.NewError("internal_error", "Failed to invalidate previous tokens", 500)
+		s.log.Error("failed to invalidate previous tokens", "err", err, "user_id", userID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	token := &domain.VerificationToken{
@@ -190,13 +208,15 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 	}
 
 	if err := s.tokens.Create(ctx, token); err != nil {
-		return domain.NewError("internal_error", "Failed to store token", 500)
+		s.log.Error("failed to store set-password token", "err", err, "user_id", userID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if s.mailer != nil {
 		html := "<p>Your set password code: <strong>" + raw + "</strong></p><p>Expires in 10 minutes.</p>"
 		text := "Your set password code: " + raw + " (expires in 10 minutes)"
 		if err := s.mailer.Send(ctx, user.Email, "Set your password - "+s.config.AppName, html, text); err != nil {
+			s.log.Error("failed to send set-password email", "err", err, "user_id", userID)
 			return domain.NewError("email_failed", "Failed to send email", 500)
 		}
 	}
@@ -241,13 +261,16 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 
 	hash, err := s.hasher.Hash(input.NewPassword)
 	if err != nil {
-		return domain.NewError("internal_error", "Failed to hash password", 500)
+		s.log.Error("failed to hash password", "err", err, "user_id", input.UserID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if err := s.users.SetPasswordAndVerify(ctx, input.UserID, hash, token.ID); err != nil {
-		return domain.NewError("internal_error", "Failed to set password", 500)
+		s.log.Error("failed to set password", "err", err, "user_id", input.UserID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
+	s.log.Info("password set via code", "user_id", input.UserID)
 	return nil
 }
 
@@ -270,25 +293,30 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 
 	hash, err := s.hasher.Hash(input.NewPassword)
 	if err != nil {
-		return domain.NewError("internal_error", "Failed to hash password", 500)
+		s.log.Error("failed to hash password", "err", err, "user_id", input.UserID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	user.PasswordHash = &hash
 	user.UpdatedAt = time.Now().UTC()
 
 	if err := s.users.Update(ctx, user); err != nil {
-		return domain.NewError("internal_error", "Failed to update password", 500)
+		s.log.Error("failed to update password", "err", err, "user_id", input.UserID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if input.ExceptSessionID != "" {
 		if err := s.sessions.DeleteAllForUserExcept(ctx, input.UserID, input.ExceptSessionID); err != nil {
-			return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+			s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
+			return domain.NewError("internal_error", "Internal server error", 500)
 		}
 	} else {
 		if err := s.sessions.DeleteAllForUser(ctx, input.UserID); err != nil {
-			return domain.NewError("internal_error", "Failed to revoke sessions", 500)
+			s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
+			return domain.NewError("internal_error", "Internal server error", 500)
 		}
 	}
 
+	s.log.Info("password changed", "user_id", input.UserID)
 	return nil
 }
