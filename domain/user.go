@@ -39,13 +39,14 @@ const (
 )
 
 type VerificationToken struct {
-	ID        string     `json:"id"`
-	UserID    *string    `json:"userId,omitempty"` // nil for invite verify codes
-	Email     string     `json:"email"`
-	TokenHash string     `json:"-"`
-	Type      TokenType  `json:"type"`
-	ExpiresAt time.Time  `json:"expiresAt"`
-	UsedAt    *time.Time `json:"usedAt,omitempty"`
+	ID           string     `json:"id"`
+	UserID       *string    `json:"userId,omitempty"` // nil for invite verify codes
+	Email        string     `json:"email"`
+	TokenHash    string     `json:"-"`
+	Type         TokenType  `json:"type"`
+	ExpiresAt    time.Time  `json:"expiresAt"`
+	UsedAt       *time.Time `json:"usedAt,omitempty"`
+	CodeVerifier *string    `json:"-"` // PKCE code verifier for OAuth state tokens
 }
 
 type InviteStatus string

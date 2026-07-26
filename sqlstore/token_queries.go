@@ -1,9 +1,9 @@
 package sqlstore
 
 const (
-	tokenCreateQuery = `INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at, used_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	tokenCreateQuery = `INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at, used_at, code_verifier) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 
-	tokenByHashQuery = `SELECT id, user_id, email, token_hash, type, expires_at, used_at FROM verification_tokens WHERE token_hash = $1`
+	tokenByHashQuery = `SELECT id, user_id, email, token_hash, type, expires_at, used_at, code_verifier FROM verification_tokens WHERE token_hash = $1`
 
 	tokenHasValidByUserAndTypeQuery = `SELECT EXISTS(SELECT 1 FROM verification_tokens WHERE user_id=$1 AND type=$2 AND used_at IS NULL AND expires_at > $3)`
 

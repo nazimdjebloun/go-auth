@@ -44,15 +44,19 @@ func New(cfg Config) *Google {
 
 func (g *Google) Name() string { return "google" }
 
-func (g *Google) AuthURL(state string) string {
+func (g *Google) AuthURL(state string, codeChallenge string) string {
 	return g.cfg.AuthCodeURL(state,
 		oauth2.AccessTypeOnline,
 		oauth2.SetAuthURLParam("prompt", "select_account"),
+		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
 	)
 }
 
-func (g *Google) Exchange(ctx context.Context, code string) (*port.OAuthProfile, error) {
-	token, err := g.cfg.Exchange(ctx, code)
+func (g *Google) Exchange(ctx context.Context, code string, codeVerifier string) (*port.OAuthProfile, error) {
+	token, err := g.cfg.Exchange(ctx, code,
+		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("google: code exchange failed: %w", err)
 	}

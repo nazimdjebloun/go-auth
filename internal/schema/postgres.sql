@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     token_hash TEXT UNIQUE NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account')),
     expires_at TIMESTAMPTZ NOT NULL,
-    used_at TIMESTAMPTZ
+    used_at TIMESTAMPTZ,
+    code_verifier TEXT
 );
 
 CREATE TABLE IF NOT EXISTS provider_accounts (

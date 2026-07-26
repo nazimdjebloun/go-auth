@@ -18,7 +18,7 @@ func NewTokenRepository(db *DB) *TokenRepository {
 
 func (r *TokenRepository) Create(ctx context.Context, t *domain.VerificationToken) error {
 	_, err := r.db.ExecContext(ctx, tokenCreateQuery,
-		t.ID, t.UserID, t.Email, t.TokenHash, t.Type, t.ExpiresAt, t.UsedAt)
+		t.ID, t.UserID, t.Email, t.TokenHash, t.Type, t.ExpiresAt, t.UsedAt, t.CodeVerifier)
 	return err
 }
 
@@ -26,8 +26,9 @@ func (r *TokenRepository) GetByHash(ctx context.Context, hash string) (*domain.V
 	t := &domain.VerificationToken{}
 	var userID sql.NullString
 	var usedAt sql.NullTime
+	var codeVerifier sql.NullString
 	err := r.db.QueryRowContext(ctx, tokenByHashQuery, hash).Scan(
-		&t.ID, &userID, &t.Email, &t.TokenHash, &t.Type, &t.ExpiresAt, &usedAt)
+		&t.ID, &userID, &t.Email, &t.TokenHash, &t.Type, &t.ExpiresAt, &usedAt, &codeVerifier)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -39,6 +40,9 @@ func (r *TokenRepository) GetByHash(ctx context.Context, hash string) (*domain.V
 	}
 	if usedAt.Valid {
 		t.UsedAt = &usedAt.Time
+	}
+	if codeVerifier.Valid {
+		t.CodeVerifier = &codeVerifier.String
 	}
 	return t, nil
 }

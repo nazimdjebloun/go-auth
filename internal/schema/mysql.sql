@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     type VARCHAR(30) NOT NULL,
     expires_at DATETIME NOT NULL,
     used_at DATETIME,
+    code_verifier TEXT,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 

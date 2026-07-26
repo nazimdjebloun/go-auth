@@ -20,6 +20,6 @@ type OAuthProfile struct {
 
 type OAuthProvider interface {
 	Name() string
-	AuthURL(state string) string
-	Exchange(ctx context.Context, code string) (*OAuthProfile, error)
+	AuthURL(state string, codeChallenge string) string
+	Exchange(ctx context.Context, code string, codeVerifier string) (*OAuthProfile, error)
 }
