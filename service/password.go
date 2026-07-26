@@ -56,6 +56,13 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	}
 
 	now := time.Now().UTC()
+
+	// Invalidate any previous unused reset tokens for this user so only the
+	// most recent request is valid.
+	if err := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenResetPass); err != nil {
+		return domain.NewError("internal_error", "Failed to invalidate previous tokens", 500)
+	}
+
 	token := &domain.VerificationToken{
 		ID:        generateID(),
 		UserID:    &user.ID,
