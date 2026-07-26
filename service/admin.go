@@ -72,6 +72,18 @@ func (s *AdminService) BanUser(ctx context.Context, userID string) *domain.AuthE
 		return domain.NewError("already_banned", "User is already banned", 400)
 	}
 
+	// Prevent banning the last admin.
+	if user.Role == domain.RoleAdmin {
+		adminRole := domain.RoleAdmin
+		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
+		if err != nil {
+			return domain.NewError("internal_error", "Failed to check admin count", 500)
+		}
+		if total <= 1 {
+			return domain.NewError("last_admin", "Cannot ban the last admin", 400)
+		}
+	}
+
 	now := time.Now().UTC()
 	if err := s.users.SetBanStatus(ctx, userID, true, &now, now); err != nil {
 		return domain.NewError("internal_error", "Failed to ban user", 500)
@@ -112,6 +124,18 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, userID string, role s
 		return domain.ErrUserNotFound
 	}
 
+	// Prevent demoting the last admin.
+	if user.Role == domain.RoleAdmin && role == "user" {
+		adminRole := domain.RoleAdmin
+		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
+		if err != nil {
+			return domain.NewError("internal_error", "Failed to check admin count", 500)
+		}
+		if total <= 1 {
+			return domain.NewError("last_admin", "Cannot demote the last admin", 400)
+		}
+	}
+
 	user.Role = domain.Role(role)
 	user.UpdatedAt = time.Now().UTC()
 
@@ -126,6 +150,18 @@ func (s *AdminService) DeleteUser(ctx context.Context, userID string) *domain.Au
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
+	}
+
+	// Prevent deleting the last admin.
+	if user.Role == domain.RoleAdmin {
+		adminRole := domain.RoleAdmin
+		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
+		if err != nil {
+			return domain.NewError("internal_error", "Failed to check admin count", 500)
+		}
+		if total <= 1 {
+			return domain.NewError("last_admin", "Cannot delete the last admin", 400)
+		}
 	}
 
 	if err := s.sessionSvc.RevokeAll(ctx, userID); err != nil {

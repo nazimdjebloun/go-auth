@@ -233,8 +233,8 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 		// Under correct transaction isolation this is unreachable.
 		// Likely causes: broken isolation, clock skew, or a bypassed
 		// write path. Log at ERROR, return 500 — NOT a routine 409.
-		log.Printf("ERROR: refresh rotation invariant violation — UPDATE returned 0 rows but all WHERE guards pass: session_id=%s user_id=%s token_hash=%s refresh_token_hash=%s is_revoked=%v refresh_expires_at=%v created_at=%v now=%v max_lifetime_cut=%v",
-			session.ID, session.UserID, session.TokenHash, session.RefreshTokenHash,
+		log.Printf("ERROR: refresh rotation invariant violation — UPDATE returned 0 rows but all WHERE guards pass: session_id=%s user_id=%s is_revoked=%v refresh_expires_at=%v created_at=%v now=%v max_lifetime_cut=%v",
+			session.ID, session.UserID,
 			session.IsRevoked, session.RefreshExpiresAt, session.CreatedAt, now, maxLifetimeCut)
 		return nil, domain.NewError("internal_error",
 			"Session rotation failed due to internal state conflict", http.StatusInternalServerError)
