@@ -69,6 +69,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -158,9 +159,12 @@ type Config struct {
 
 	// ─── OAuth / Providers ─────────────────────────────────────────
 	providers []port.OAuthProvider
+
+	// internal — tracks whether Cookie.Secure was explicitly set by the consumer
+	cookieSecureExplicit bool
 }
 
-func (c Config) validate() error {
+func (c *Config) validate() error {
 	var errs []error
 
 	if c.Database.Driver == "" {
@@ -171,6 +175,15 @@ func (c Config) validate() error {
 	}
 	if c.AppName == "" {
 		errs = append(errs, errors.New("app_name cannot be empty"))
+	}
+
+	// Validate BaseURL and auto-derive Cookie.Secure.
+	if c.BaseURL == "" {
+		errs = append(errs, errors.New("base_url is required"))
+	} else if parsedURL, err := url.Parse(c.BaseURL); err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		errs = append(errs, errors.New("base_url must be a valid HTTP or HTTPS URL"))
+	} else if !c.cookieSecureExplicit {
+		c.Cookie.Secure = parsedURL.Scheme == "https"
 	}
 	if c.SessionTTL <= 0 {
 		errs = append(errs, errors.New("session_ttl must be positive"))
@@ -190,6 +203,11 @@ func (c Config) validate() error {
 	if len(c.AllowedOrigins) == 0 {
 		errs = append(errs, errors.New("allowed_origins must include at least one origin"))
 	}
+	for _, o := range c.AllowedOrigins {
+		if o == "*" {
+			errs = append(errs, errors.New("allowed_origins must not contain \"*\" — this disables CSRF protection; list specific origins instead"))
+		}
+	}
 	if c.TokenTTL <= 0 {
 		errs = append(errs, errors.New("token_ttl must be positive"))
 	}
@@ -199,10 +217,6 @@ func (c Config) validate() error {
 
 	if (c.RequireEmailVerification || c.InviteOnly) && c.Mailer == nil && c.Email == nil {
 		errs = append(errs, errors.New("email: Mailer or Email config required when RequireEmailVerification or InviteOnly is enabled"))
-	}
-
-	if (c.Mailer != nil || c.Email != nil) && c.BaseURL == "" {
-		errs = append(errs, errors.New("base_url is required when email is configured"))
 	}
 
 	seen := map[string]bool{}
@@ -257,10 +271,16 @@ func DefaultConfig() Config {
 // If validation fails, the returned error includes all invalid fields.
 func NewConfig(opts ...func(*Config)) (Config, error) {
 	cfg := DefaultConfig()
+	defaultSecure := cfg.Cookie.Secure
 	for _, opt := range opts {
 		opt(&cfg)
 	}
-	if err := cfg.validate(); err != nil {
+	// If Cookie.Secure differs from the default, the consumer explicitly set it.
+	// validate() will not auto-derive from BaseURL in that case.
+	if cfg.Cookie.Secure != defaultSecure {
+		cfg.cookieSecureExplicit = true
+	}
+	if err := (&cfg).validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

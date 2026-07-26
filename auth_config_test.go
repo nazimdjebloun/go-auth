@@ -31,7 +31,7 @@ func TestDefaultConfig_Valid(t *testing.T) {
 }
 
 func TestValidate_EmptyDriver(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty driver")
@@ -39,7 +39,7 @@ func TestValidate_EmptyDriver(t *testing.T) {
 }
 
 func TestValidate_NoDatabase(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}, Database: DatabaseConfig{Driver: DriverSQLite}}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for no database URL, DB, or Pool")
@@ -47,7 +47,7 @@ func TestValidate_NoDatabase(t *testing.T) {
 }
 
 func TestValidate_WithDB(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -55,7 +55,7 @@ func TestValidate_WithDB(t *testing.T) {
 }
 
 func TestValidate_EmptyAppName(t *testing.T) {
-	cfg := Config{SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty app name")
@@ -63,7 +63,7 @@ func TestValidate_EmptyAppName(t *testing.T) {
 }
 
 func TestValidate_ZeroSessionTTL(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for zero SessionTTL")
@@ -71,7 +71,7 @@ func TestValidate_ZeroSessionTTL(t *testing.T) {
 }
 
 func TestValidate_IdleTTLExceedsSessionTTL(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: 30 * time.Minute, SessionIdleTTL: time.Hour, RefreshTokenTTL: 30 * time.Minute, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: 30 * time.Minute, SessionIdleTTL: time.Hour, RefreshTokenTTL: 30 * time.Minute, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error when IdleTTL > SessionTTL")
@@ -79,7 +79,7 @@ func TestValidate_IdleTTLExceedsSessionTTL(t *testing.T) {
 }
 
 func TestValidate_RefreshTTLLessThanSessionTTL(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: 30 * time.Minute, RefreshTokenTTL: 30 * time.Minute, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: 30 * time.Minute, RefreshTokenTTL: 30 * time.Minute, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error when RefreshTTL < SessionTTL")
@@ -87,7 +87,7 @@ func TestValidate_RefreshTTLLessThanSessionTTL(t *testing.T) {
 }
 
 func TestValidate_EmptyAllowedOrigins(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty allowed origins")
@@ -95,7 +95,7 @@ func TestValidate_EmptyAllowedOrigins(t *testing.T) {
 }
 
 func TestValidate_EmptyCookieName(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, AllowedOrigins: []string{"http://localhost"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty cookie name")
@@ -103,7 +103,7 @@ func TestValidate_EmptyCookieName(t *testing.T) {
 }
 
 func TestValidate_RequiresEmailWithMailer(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, RequireEmailVerification: true, Mailer: &mockMailer{}, BaseURL: "http://localhost:3000", Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}, RequireEmailVerification: true, Mailer: &mockMailer{}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err != nil {
 		t.Fatalf("unexpected error when Mailer is set: %v", err)
@@ -111,18 +111,18 @@ func TestValidate_RequiresEmailWithMailer(t *testing.T) {
 }
 
 func TestValidate_RequiresEmailMissingMailer(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, RequireEmailVerification: true, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}, RequireEmailVerification: true, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error when RequireEmailVerification is true but Mailer and Email are nil")
 	}
 }
 
-func TestValidate_MailerRequiresBaseURL(t *testing.T) {
-	cfg := Config{AppName: "Test", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Mailer: &mockMailer{}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+func TestValidate_WildcardOrigin(t *testing.T) {
+	cfg := Config{AppName: "Test", BaseURL: "http://localhost", SessionTTL: time.Hour, SessionIdleTTL: time.Hour, RefreshTokenTTL: time.Hour, TokenTTL: time.Hour, Cookie: CookieConfig{Name: "s"}, AllowedOrigins: []string{"*"}, Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
 	if err == nil {
-		t.Fatal("expected error when Mailer is set but BaseURL is empty")
+		t.Fatal("expected error when AllowedOrigins contains *")
 	}
 }
 
@@ -130,6 +130,7 @@ func validConfigOpts() []func(*Config) {
 	return []func(*Config){
 		func(c *Config) {
 			c.AppName = "Test"
+			c.BaseURL = "http://localhost"
 			c.Database.Driver = DriverSQLite
 			c.Database.URL = "file::memory:?cache=shared"
 			c.SessionTTL = 30 * 24 * time.Hour
@@ -137,7 +138,7 @@ func validConfigOpts() []func(*Config) {
 			c.RefreshTokenTTL = 30 * 24 * time.Hour
 			c.TokenTTL = 1 * time.Hour
 			c.Cookie.Name = "goauth_session"
-			c.AllowedOrigins = []string{"*"}
+			c.AllowedOrigins = []string{"http://localhost"}
 		},
 	}
 }
@@ -163,6 +164,7 @@ func TestNewConfig_OverridesDefault(t *testing.T) {
 	cfg, err := NewConfig(
 		func(c *Config) {
 			c.AppName = "Custom"
+			c.BaseURL = "http://localhost"
 			c.Database.Driver = DriverSQLite
 			c.Database.URL = "file::memory:?cache=shared"
 			c.SessionTTL = 7 * 24 * time.Hour
@@ -170,7 +172,7 @@ func TestNewConfig_OverridesDefault(t *testing.T) {
 			c.RefreshTokenTTL = 7 * 24 * time.Hour
 			c.TokenTTL = 1 * time.Hour
 			c.Cookie.Name = "goauth_session"
-			c.AllowedOrigins = []string{"*"}
+			c.AllowedOrigins = []string{"http://localhost"}
 		},
 	)
 	if err != nil {
