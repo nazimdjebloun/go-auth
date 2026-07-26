@@ -228,6 +228,15 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 			return "", "", false, false, "", domain.ErrUserBanned
 		}
 
+		// Upgrade verification status if the provider confirms the email.
+		if info.EmailVerified && !user.IsVerified {
+			now := time.Now().UTC()
+			user.IsVerified = true
+			user.VerifiedAt = &now
+			user.UpdatedAt = now
+			s.userRepo.Update(ctx, user)
+		}
+
 		if s.config.RequireEmailVerification && !user.IsVerified {
 			if err := s.verifySvc.SendVerification(ctx, user); err != nil {
 				return "", "", false, false, "", err
@@ -255,9 +264,13 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		Email:     info.Email,
 		Name:      info.Name,
 		Role:      domain.RoleUser,
+		IsVerified: info.EmailVerified,
 		IsBanned:  false,
 		CreatedAt: now,
 		UpdatedAt: now,
+	}
+	if info.EmailVerified {
+		newUser.VerifiedAt = &now
 	}
 
 	if err := s.userRepo.Create(ctx, newUser); err != nil {
@@ -268,7 +281,9 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return "", "", false, false, "", linkErr
 	}
 
-	if s.config.RequireEmailVerification {
+	// Only send verification email if the provider did NOT verify the email
+	// and email verification is required.
+	if s.config.RequireEmailVerification && !newUser.IsVerified {
 		if err := s.verifySvc.SendVerification(ctx, newUser); err != nil {
 			return "", "", false, false, "", err
 		}
