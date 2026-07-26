@@ -78,7 +78,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionToken, refreshToken, _, requiresVerification, email, err := h.oauth.Callback(r.Context(), provider, code, state, r.RemoteAddr, r.UserAgent())
+	sessionToken, refreshToken, _, requiresVerification, _, err := h.oauth.Callback(r.Context(), provider, code, state, r.RemoteAddr, r.UserAgent())
 	if err != nil {
 		http.Redirect(w, r, h.baseURL+"/auth/callback?error="+err.Code+"&provider="+provider, http.StatusFound)
 		return
@@ -86,9 +86,6 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 
 	if requiresVerification {
 		redirectURL := h.baseURL + "/auth/callback?requiresVerification=true&provider=" + provider
-		if email != "" {
-			redirectURL += "&email=" + email
-		}
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
