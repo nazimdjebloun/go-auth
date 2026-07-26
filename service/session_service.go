@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +16,7 @@ type SessionService struct {
 	repo     port.SessionRepository
 	tokenGen port.TokenGenerator
 	config   SessionConfig
+	log      *slog.Logger
 }
 
 type SessionConfig struct {
@@ -31,6 +32,7 @@ type SessionConfig struct {
 	MaxLifetime       time.Duration // 0 = no max lifetime
 	GraceWindow       time.Duration
 	TouchDebounce     time.Duration // min interval between last_active_at updates
+	Logger            *slog.Logger
 }
 
 func DefaultSessionConfig() SessionConfig {
@@ -48,7 +50,11 @@ func DefaultSessionConfig() SessionConfig {
 }
 
 func NewSessionService(repo port.SessionRepository, tokenGen port.TokenGenerator, config SessionConfig) *SessionService {
-	return &SessionService{repo: repo, tokenGen: tokenGen, config: config}
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &SessionService{repo: repo, tokenGen: tokenGen, config: config, log: logger}
 }
 
 func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*domain.Session, string, string, error) {
@@ -81,7 +87,7 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 		return nil, "", "", fmt.Errorf("session create: %w", err)
 	}
 
-	log.Printf("session created: user_id=%s session_id=%s", userID, session.ID)
+	s.log.Info("session created", "user_id", userID, "session_id", session.ID)
 	return session, sessionToken, refreshToken, nil
 }
 
@@ -112,7 +118,7 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 		return nil, "", "", err
 	}
 
-	log.Printf("refresh token rotated: user_id=%s session_id=%s", session.UserID, session.ID)
+	s.log.Info("refresh token rotated", "user_id", session.UserID, "session_id", session.ID)
 	return session, newSessionToken, newRefreshToken, nil
 }
 

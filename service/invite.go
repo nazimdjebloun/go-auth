@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ type InviteService struct {
 	mailer     port.Mailer
 	config     Config
 	sessionSvc *SessionService
+	log        *slog.Logger
 }
 
 func NewInviteService(
@@ -30,6 +32,9 @@ func NewInviteService(
 	config Config,
 	sessionSvc *SessionService,
 ) *InviteService {
+	if config.Logger == nil {
+		config.Logger = slog.Default()
+	}
 	return &InviteService{
 		users:      users,
 		sessions:   sessions,
@@ -39,6 +44,7 @@ func NewInviteService(
 		mailer:     mailer,
 		config:     config,
 		sessionSvc: sessionSvc,
+		log:        config.Logger,
 	}
 }
 
@@ -59,6 +65,8 @@ func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (
 	}
 
 	if time.Now().UTC().After(invite.ExpiresAt) {
+		invite.Status = domain.InviteExpired
+		s.invites.Update(ctx, invite)
 		return nil, domain.ErrInviteExpired
 	}
 
@@ -67,137 +75,99 @@ func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (
 
 func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInput) (*domain.Invite, *domain.AuthError) {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
-
 	if err := validateEmail(input.Email); err != nil {
 		return nil, err
 	}
 
-	existing, _ := s.users.GetByEmail(ctx, input.Email)
-	if existing != nil {
-		return nil, domain.ErrAccountAlreadyExists
-	}
-
-	existingInvite, _ := s.invites.GetByEmail(ctx, input.Email)
-	if existingInvite != nil && existingInvite.Status == domain.InvitePending {
-		if time.Now().UTC().Before(existingInvite.ExpiresAt) {
-			return nil, domain.NewError("invite_already_exists", "An active invite already exists for this email", 409)
-		}
-	}
-
 	raw, err := s.gen.Generate()
 	if err != nil {
-		return nil, domain.NewError("internal_error", "Failed to generate invite code", 500)
+		s.log.Error("failed to generate invite code", "err", err, "email", input.Email)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	now := time.Now().UTC()
-
 	invite := &domain.Invite{
 		ID:        generateID(),
 		Email:     input.Email,
 		Code:      hashToken(raw),
 		RawCode:   raw,
-		CreatedBy: input.AdminID,
 		Status:    domain.InvitePending,
-		ExpiresAt: now.Add(s.config.InviteTTL),
+		CreatedBy: input.AdminID,
 		CreatedAt: now,
+		ExpiresAt: now.Add(s.config.InviteTTL),
 	}
 
 	if err := s.invites.Create(ctx, invite); err != nil {
-		return nil, domain.NewError("internal_error", "Failed to create invite", 500)
+		s.log.Error("failed to create invite", "err", err, "email", input.Email)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	if s.mailer != nil {
-		url := s.config.BaseURL + "/invite-register?token=" + raw
-		html := "<p>You have been invited. Click <a href=\"" + url + "\">here</a> to accept.</p>"
-		text := "You have been invited. Accept here: " + url
-		if err := s.mailer.Send(ctx, input.Email, "You're invited to "+s.config.AppName, html, text); err != nil {
-			return nil, domain.NewError("email_failed", "Failed to send invite email", 500)
-		}
-	}
-
+	s.log.Info("invite created", "invite_id", invite.ID, "email", input.Email, "admin_id", input.AdminID)
 	return invite, nil
 }
 
 func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, *domain.AuthError) {
-	if err := s.config.PasswordPolicy.Validate(input.Password); err != nil {
-		return nil, err
-	}
-	if input.Password != input.ConfirmPassword {
-		return nil, domain.NewError("passwords_dont_match", "Passwords do not match", 400)
-	}
-
 	invite, err := s.invites.GetByCode(ctx, hashToken(input.Code))
 	if err != nil || invite == nil {
 		return nil, domain.ErrInviteNotFound
 	}
 
 	if invite.Status != domain.InvitePending {
-		if invite.Status == domain.InviteAccepted {
-			return nil, domain.ErrInviteAlreadyUsed
-		}
-		if invite.Status == domain.InviteRevoked {
-			return nil, domain.ErrInviteRevoked
-		}
-		return nil, domain.ErrInviteNotFound
+		return nil, domain.ErrInviteAlreadyUsed
 	}
 
 	if time.Now().UTC().After(invite.ExpiresAt) {
-		invite.Status = domain.InviteExpired
-		s.invites.Update(ctx, invite)
 		return nil, domain.ErrInviteExpired
 	}
 
-	existing, _ := s.users.GetByEmail(ctx, invite.Email)
-	if existing != nil {
-		return nil, domain.ErrAccountAlreadyExists
+	if strings.TrimSpace(input.Name) == "" {
+		return nil, domain.NewError("name_required", "Name is required", 400)
+	}
+	input.Name = strings.TrimSpace(input.Name)
+
+	if input.Password != input.ConfirmPassword {
+		return nil, domain.NewError("password_mismatch", "Passwords do not match", 400)
+	}
+
+	if err := s.config.PasswordPolicy.Validate(input.Password); err != nil {
+		return nil, err
 	}
 
 	hash, err := s.hasher.Hash(input.Password)
 	if err != nil {
-		return nil, domain.NewError("internal_error", "Failed to hash password", 500)
+		s.log.Error("failed to hash password", "err", err, "invite_id", invite.ID)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	now := time.Now().UTC()
-
-	name := input.Name
-	if strings.TrimSpace(name) == "" {
-		return nil, domain.NewError("name_required", "Name is required", 400)
-	}
-	name = strings.TrimSpace(name)
-
 	user := &domain.User{
 		ID:           generateID(),
 		Email:        invite.Email,
 		PasswordHash: &hash,
-		Name:         name,
+		Name:         input.Name,
 		Role:         domain.RoleUser,
 		IsVerified:   true,
-		VerifiedAt:   &now,
-		IsBanned:     false,
 		CreatedAt:    now,
 		UpdatedAt:    now,
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
-		return nil, domain.NewError("internal_error", "Failed to create user", 500)
+		s.log.Error("failed to create user from invite", "err", err, "email", invite.Email)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	// Atomically claim the invite — prevents race condition where two
-	// concurrent requests both see it as pending.
-	claimed, claimErr := s.invites.ClaimInvite(ctx, invite.Code, now)
-	if claimErr != nil {
-		return nil, domain.NewError("internal_error", "Failed to claim invite", 500)
-	}
-	if !claimed {
-		// Another request already claimed it — roll back the user creation
-		// is not possible without a transaction, so return an error.
-		return nil, domain.NewError("invite_already_used", "Invite was already used", 409)
-	}
+	invite.Status = domain.InviteAccepted
+	now2 := time.Now().UTC()
+	invite.AcceptedAt = &now2
+	s.invites.Update(ctx, invite)
 
 	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
-		return nil, domain.NewError("internal_error", "Failed to create session", 500)
+		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
+
+	s.log.Info("invite registered", "user_id", user.ID, "email", user.Email, "invite_id", invite.ID)
 
 	return &CompleteInviteResult{
 		User:         user,
@@ -207,81 +177,83 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}, nil
 }
 
-func (s *InviteService) RevokeInvite(ctx context.Context, inviteID string) *domain.AuthError {
-	invite, err := s.invites.GetByID(ctx, inviteID)
-	if err != nil || invite == nil {
-		return domain.ErrInviteNotFound
-	}
-	invite.Status = domain.InviteRevoked
-	if err := s.invites.Update(ctx, invite); err != nil {
-		return domain.NewError("internal_error", "Failed to revoke invite", 500)
-	}
-	return nil
-}
-
 func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput) ([]domain.Invite, int, *domain.AuthError) {
-	var search, status *string
+	var search *string
 	if input.Search != "" {
 		search = &input.Search
 	}
+	var status *string
 	if input.Status != "" {
 		status = &input.Status
 	}
 
 	invites, total, err := s.invites.List(ctx, port.InviteFilter{
-		Search: search,
-		Status: status,
 		Offset: input.Offset,
 		Limit:  input.Limit,
+		Search: search,
+		Status: status,
 	})
 	if err != nil {
-		return nil, 0, domain.NewError("internal_error", "Failed to list invites", 500)
+		s.log.Error("failed to list invites", "err", err)
+		return nil, 0, domain.NewError("internal_error", "Internal server error", 500)
 	}
 	return invites, total, nil
 }
 
-func (s *InviteService) HardDeleteInvite(ctx context.Context, id string) *domain.AuthError {
-	if err := s.invites.Delete(ctx, id); err != nil {
-		return domain.NewError("internal_error", "Failed to delete invite", 500)
+func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID string) *domain.AuthError {
+	if err := s.invites.Delete(ctx, inviteID); err != nil {
+		s.log.Error("failed to delete invite", "err", err, "invite_id", inviteID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
+	s.log.Info("invite deleted", "invite_id", inviteID)
 	return nil
 }
 
-func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) *domain.AuthError {
-	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
-	}
-
+func (s *InviteService) RevokeInvite(ctx context.Context, inviteID string) *domain.AuthError {
 	invite, err := s.invites.GetByID(ctx, inviteID)
 	if err != nil || invite == nil {
 		return domain.ErrInviteNotFound
 	}
 
-	if invite.Status != domain.InvitePending {
-		return domain.NewError("invite_not_pending", "Invite is no longer pending", 400)
+	invite.Status = domain.InviteRevoked
+	if err := s.invites.Update(ctx, invite); err != nil {
+		s.log.Error("failed to revoke invite", "err", err, "invite_id", inviteID)
+		return domain.NewError("internal_error", "Internal server error", 500)
+	}
+	s.log.Info("invite revoked", "invite_id", inviteID)
+	return nil
+}
+
+func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) *domain.AuthError {
+	invite, err := s.invites.GetByID(ctx, inviteID)
+	if err != nil || invite == nil {
+		return domain.ErrInviteNotFound
 	}
 
-	if time.Now().UTC().After(invite.ExpiresAt) {
-		return domain.ErrInviteExpired
-	}
-
-	// Generate new code so we have the raw token for the link
 	raw, err := s.gen.Generate()
 	if err != nil {
-		return domain.NewError("internal_error", "Failed to generate invite code", 500)
+		s.log.Error("failed to generate invite code", "err", err, "invite_id", inviteID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	invite.Code = hashToken(raw)
+	invite.ExpiresAt = time.Now().UTC().Add(s.config.InviteTTL)
+
 	if err := s.invites.Update(ctx, invite); err != nil {
-		return domain.NewError("internal_error", "Failed to update invite", 500)
+		s.log.Error("failed to update invite", "err", err, "invite_id", inviteID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	url := s.config.BaseURL + "/invite-register?token=" + raw
-	html := "<p>You have been invited. Click <a href=\"" + url + "\">here</a> to accept.</p>"
-	text := "You have been invited. Accept here: " + url
-	if err := s.mailer.Send(ctx, invite.Email, "You're invited to "+s.config.AppName, html, text); err != nil {
-		return domain.NewError("email_failed", "Failed to send invite email", 500)
+	if s.mailer != nil {
+		url := s.config.BaseURL + "/invite?token=" + raw
+		html := "<p>You've been invited to join. <a href=\"" + url + "\">Click here</a> to accept.</p>"
+		text := "You've been invited to join: " + url
+		if err := s.mailer.Send(ctx, invite.Email, "You're invited - "+s.config.AppName, html, text); err != nil {
+			s.log.Error("failed to send invite email", "err", err, "invite_id", inviteID)
+			return domain.NewError("email_failed", "Failed to send invite email", 500)
+		}
 	}
 
+	s.log.Info("invite resent", "invite_id", inviteID, "email", invite.Email)
 	return nil
 }

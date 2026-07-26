@@ -126,7 +126,7 @@ func TestInviteRegisterPasswordMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for password mismatch, got nil")
 	}
-	if err.Code != "passwords_dont_match" {
-		t.Fatalf("Expected passwords_dont_match, got %s", err.Code)
+	if err.Code != "password_mismatch" {
+		t.Fatalf("Expected password_mismatch, got %s", err.Code)
 	}
 }

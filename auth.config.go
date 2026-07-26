@@ -68,6 +68,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -159,6 +160,9 @@ type Config struct {
 
 	// ─── OAuth / Providers ─────────────────────────────────────────
 	providers []port.OAuthProvider
+
+	// ─── Logging ──────────────────────────────────────────────────
+	Logger *slog.Logger // structured logger (default: slog.Default())
 
 	// internal — tracks whether Cookie.Secure was explicitly set by the consumer
 	cookieSecureExplicit bool

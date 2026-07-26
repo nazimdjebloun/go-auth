@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"time"
 
@@ -35,6 +36,7 @@ type VerificationService struct {
 	gen    port.TokenGenerator
 	mailer port.Mailer
 	config Config
+	log    *slog.Logger
 }
 
 func NewVerificationService(
@@ -44,12 +46,17 @@ func NewVerificationService(
 	mailer port.Mailer,
 	config Config,
 ) *VerificationService {
+	logger := config.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &VerificationService{
 		users:  users,
 		tokens: tokens,
 		gen:    gen,
 		mailer: mailer,
 		config: config,
+		log:    logger,
 	}
 }
 
@@ -86,13 +93,16 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	user.UpdatedAt = now
 
 	if err := s.users.Update(ctx, user); err != nil {
-		return nil, domain.NewError("internal_error", "Failed to update user", 500)
+		s.log.Error("failed to update user", "err", err, "user_id", user.ID)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
-		return nil, domain.NewError("internal_error", "Failed to mark token used", 500)
+		s.log.Error("failed to mark token used", "err", err, "token_id", token.ID)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
+	s.log.Info("email verified", "user_id", user.ID, "email", user.Email)
 	return user, nil
 }
 
@@ -108,8 +118,6 @@ func generateCode() string {
 	for i := range b {
 		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(codeChars))))
 		if err != nil {
-			// crypto/rand failure is effectively unrecoverable; fall back
-			// to a full-length zeroed buffer is unsafe, so panic.
 			panic("generateCode: " + err.Error())
 		}
 		b[i] = codeChars[n.Int64()]
@@ -142,7 +150,8 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	}
 
 	if err := s.tokens.Create(ctx, token); err != nil {
-		return domain.NewError("internal_error", "Failed to store token", 500)
+		s.log.Error("failed to store verification token", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	ttl := formatDuration(s.config.VerificationCodeTTL)
@@ -150,6 +159,7 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	text := "Your verification code: " + raw + " (expires in " + ttl + ")"
 
 	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, html, text); err != nil {
+		s.log.Error("failed to send verification email", "err", err, "user_id", user.ID)
 		return domain.NewError("email_failed", "Failed to send verification email", 500)
 	}
 
