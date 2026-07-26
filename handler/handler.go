@@ -543,6 +543,8 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
 		limit = 20
+	} else if limit > 100 {
+		limit = 100
 	}
 
 	var email *string
@@ -667,6 +669,11 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 	userID := r.PathValue("id")
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 {
+		limit = 20
+	} else if limit > 100 {
+		limit = 100
+	}
 
 	sessions, aerr := h.services.Admin.ListUserSessions(r.Context(), service.AdminListUserSessionsInput{
 		UserID: userID,
@@ -717,6 +724,8 @@ func (h *Handler) ListInvites(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
 		limit = 20
+	} else if limit > 100 {
+		limit = 100
 	}
 
 	invites, total, err := h.services.Invite.ListInvites(r.Context(), service.ListInvitesInput{

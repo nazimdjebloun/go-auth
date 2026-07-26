@@ -79,7 +79,7 @@ type ListSessionsResult struct {
 
 type AdminListUsersInput struct {
 	Offset         int
-	Limit          int // 0 = unlimited
+	Limit          int // default 20, max 100
 	Email          *string
 	Role           *domain.Role
 	Search         *string
