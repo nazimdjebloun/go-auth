@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -148,4 +149,16 @@ func (r *InviteRepository) Update(ctx context.Context, invite *domain.Invite) er
 func (r *InviteRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, inviteDeleteQuery, id)
 	return err
+}
+
+func (r *InviteRepository) ClaimInvite(ctx context.Context, code string, acceptedAt time.Time) (bool, error) {
+	result, err := r.db.ExecContext(ctx, inviteClaimQuery, acceptedAt, code)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }

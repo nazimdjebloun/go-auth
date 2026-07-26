@@ -548,6 +548,18 @@ func (m *MockInviteRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *MockInviteRepo) ClaimInvite(_ context.Context, code string, acceptedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inv, ok := m.invites[code]
+	if !ok || inv.Status != domain.InvitePending {
+		return false, nil
+	}
+	inv.Status = domain.InviteAccepted
+	inv.AcceptedAt = &acceptedAt
+	return true, nil
+}
+
 // ─── mockMailer ────────────────────────────────────────────────────
 
 type MockMailer struct {

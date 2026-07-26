@@ -182,9 +182,17 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 		return nil, domain.NewError("internal_error", "Failed to create user", 500)
 	}
 
-	invite.Status = domain.InviteAccepted
-	invite.AcceptedAt = &now
-	s.invites.Update(ctx, invite)
+	// Atomically claim the invite — prevents race condition where two
+	// concurrent requests both see it as pending.
+	claimed, claimErr := s.invites.ClaimInvite(ctx, invite.Code, now)
+	if claimErr != nil {
+		return nil, domain.NewError("internal_error", "Failed to claim invite", 500)
+	}
+	if !claimed {
+		// Another request already claimed it — roll back the user creation
+		// is not possible without a transaction, so return an error.
+		return nil, domain.NewError("invite_already_used", "Invite was already used", 409)
+	}
 
 	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
