@@ -14,4 +14,6 @@ const (
 	inviteUpdateQuery = `UPDATE invites SET email=$1, code=$2, created_by=$3, status=$4, expires_at=$5, accepted_at=$6 WHERE id=$7`
 
 	inviteDeleteQuery = `DELETE FROM invites WHERE id = $1`
+
+	inviteClaimQuery = `UPDATE invites SET status = 'accepted', accepted_at = $1 WHERE code = $2 AND status = 'pending'`
 )

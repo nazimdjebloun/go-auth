@@ -81,6 +81,9 @@ type InviteRepository interface {
 	List(ctx context.Context, filter InviteFilter) ([]domain.Invite, int, error)
 	Update(ctx context.Context, invite *domain.Invite) error
 	Delete(ctx context.Context, id string) error
+	// ClaimInvite atomically sets status to 'accepted' only if currently 'pending'.
+	// Returns true if the invite was claimed, false if already accepted/revoked/expired.
+	ClaimInvite(ctx context.Context, code string, acceptedAt time.Time) (bool, error)
 }
 
 type ProviderAccountRepository interface {
