@@ -38,7 +38,7 @@ func (m *SMTPMailer) Send(ctx context.Context, to, subject, html, text string) e
 		mail.WithPort(m.cfg.Port),
 		mail.WithUsername(m.cfg.User),
 		mail.WithPassword(m.cfg.Pass),
-		mail.WithTLSPolicy(mail.TLSOpportunistic),
+		mail.WithTLSPolicy(mail.TLSMandatory),
 		mail.WithSMTPAuth(mail.SMTPAuthPlain),
 	)
 	if err != nil {
