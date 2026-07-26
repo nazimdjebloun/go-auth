@@ -18,12 +18,6 @@ func extractIP(r *http.Request, cfg *ratelimit.Config) string {
 		ip = r.Header.Get(cfg.IPAddressHeader)
 	}
 	if ip == "" {
-		ip = r.Header.Get("X-Forwarded-For")
-	}
-	if ip == "" {
-		ip = r.Header.Get("X-Real-IP")
-	}
-	if ip == "" {
 		ip = r.RemoteAddr
 	}
 
@@ -103,7 +97,11 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 			result, err := store.Increment(storeKey, rate.Window)
 			if err != nil {
 				log.Printf("rate limit error: %v", err)
-				next.ServeHTTP(w, r)
+				w.Header().Set("Retry-After", "60")
+				writeJSON(w, http.StatusTooManyRequests, map[string]string{
+					"error":   "rate_limit_error",
+					"message": "Service temporarily unavailable",
+				})
 				return
 			}
 

@@ -25,7 +25,7 @@ func TestExtractIP_RemoteAddr(t *testing.T) {
 }
 
 func TestExtractIP_XForwardedFor(t *testing.T) {
-	cfg := &ratelimit.Config{IPv6Subnet: 64}
+	cfg := &ratelimit.Config{IPv6Subnet: 64, IPAddressHeader: "X-Forwarded-For"}
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("X-Forwarded-For", "10.0.0.1, 10.0.0.2")
 	ip := extractIP(r, cfg)
@@ -34,8 +34,19 @@ func TestExtractIP_XForwardedFor(t *testing.T) {
 	}
 }
 
-func TestExtractIP_XRealIP(t *testing.T) {
+func TestExtractIP_XForwardedFor_NotSpoofableWithoutConfig(t *testing.T) {
 	cfg := &ratelimit.Config{IPv6Subnet: 64}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("X-Forwarded-For", "10.0.0.1")
+	r.RemoteAddr = "192.0.2.1:1234"
+	ip := extractIP(r, cfg)
+	if ip != "192.0.2.1" {
+		t.Errorf("expected 192.0.2.1 (RemoteAddr), got %s", ip)
+	}
+}
+
+func TestExtractIP_XRealIP(t *testing.T) {
+	cfg := &ratelimit.Config{IPv6Subnet: 64, IPAddressHeader: "X-Real-IP"}
 	r := httptest.NewRequest("GET", "/", nil)
 	r.Header.Set("X-Real-IP", "10.0.0.5")
 	ip := extractIP(r, cfg)
