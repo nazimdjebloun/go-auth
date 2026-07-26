@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     token_hash TEXT UNIQUE NOT NULL,
     type TEXT NOT NULL,
     expires_at DATETIME NOT NULL,
-    used_at DATETIME
+    used_at DATETIME,
+    code_verifier TEXT
 );
 
 CREATE TABLE IF NOT EXISTS provider_accounts (

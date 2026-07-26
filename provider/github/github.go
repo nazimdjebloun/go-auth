@@ -46,12 +46,17 @@ func New(cfg Config) *GitHub {
 
 func (g *GitHub) Name() string { return "github" }
 
-func (g *GitHub) AuthURL(state string) string {
-	return g.cfg.AuthCodeURL(state, oauth2.AccessTypeOnline)
+func (g *GitHub) AuthURL(state string, codeChallenge string) string {
+	return g.cfg.AuthCodeURL(state, oauth2.AccessTypeOnline,
+		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+		oauth2.SetAuthURLParam("code_challenge_method", "S256"),
+	)
 }
 
-func (g *GitHub) Exchange(ctx context.Context, code string) (*port.OAuthProfile, error) {
-	token, err := g.cfg.Exchange(ctx, code)
+func (g *GitHub) Exchange(ctx context.Context, code string, codeVerifier string) (*port.OAuthProfile, error) {
+	token, err := g.cfg.Exchange(ctx, code,
+		oauth2.SetAuthURLParam("code_verifier", codeVerifier),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("github: code exchange failed: %w", err)
 	}

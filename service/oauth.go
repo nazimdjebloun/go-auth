@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 	"time"
@@ -67,6 +69,23 @@ func generateStateToken() string {
 	return hex.EncodeToString(b)
 }
 
+// generateCodeVerifier returns a cryptographically random 64-byte value
+// encoded as a base64url string (no padding) per RFC 7636 §4.1.
+func generateCodeVerifier() (string, error) {
+	b := make([]byte, 64)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// codeChallengeS256 returns the S256 code_challenge for a given verifier
+// per RFC 7636 §4.2: base64url(sha256(verifier)).
+func codeChallengeS256(verifier string) string {
+	h := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(h[:])
+}
+
 func (s *OAuthService) getProvider(name string) (port.OAuthProvider, *domain.AuthError) {
 	p, ok := s.providers[name]
 	if !ok {
@@ -86,18 +105,25 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (strin
 	stateRaw := generateStateToken()
 	now := time.Now().UTC()
 
+	codeVerifier, verifierErr := generateCodeVerifier()
+	if verifierErr != nil {
+		return "", domain.NewError("internal_error", "Failed to generate PKCE verifier", 500)
+	}
+
 	stateToken := &domain.VerificationToken{
-		ID:        uuid.New().String(),
-		TokenHash: hashToken(stateRaw),
-		Type:      domain.TokenOAuthState,
-		ExpiresAt: now.Add(10 * time.Minute),
+		ID:           uuid.New().String(),
+		TokenHash:    hashToken(stateRaw),
+		Type:         domain.TokenOAuthState,
+		ExpiresAt:    now.Add(10 * time.Minute),
+		CodeVerifier: &codeVerifier,
 	}
 
 	if err := s.tokenRepo.Create(ctx, stateToken); err != nil {
 		return "", domain.NewError("internal_error", "Failed to store state token", 500)
 	}
 
-	return p.AuthURL(stateRaw), nil
+	codeChallenge := codeChallengeS256(codeVerifier)
+	return p.AuthURL(stateRaw, codeChallenge), nil
 }
 
 // InitiateLink starts an OAuth link flow for an authenticated user.
@@ -111,19 +137,26 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 	stateRaw := generateStateToken()
 	now := time.Now().UTC()
 
+	codeVerifier, verifierErr := generateCodeVerifier()
+	if verifierErr != nil {
+		return "", domain.NewError("internal_error", "Failed to generate PKCE verifier", 500)
+	}
+
 	stateToken := &domain.VerificationToken{
-		ID:        uuid.New().String(),
-		UserID:    &userID,
-		TokenHash: hashToken(stateRaw),
-		Type:      domain.TokenOAuthState,
-		ExpiresAt: now.Add(10 * time.Minute),
+		ID:           uuid.New().String(),
+		UserID:       &userID,
+		TokenHash:    hashToken(stateRaw),
+		Type:         domain.TokenOAuthState,
+		ExpiresAt:    now.Add(10 * time.Minute),
+		CodeVerifier: &codeVerifier,
 	}
 
 	if err := s.tokenRepo.Create(ctx, stateToken); err != nil {
 		return "", domain.NewError("internal_error", "Failed to store state token", 500)
 	}
 
-	return p.AuthURL(stateRaw), nil
+	codeChallenge := codeChallengeS256(codeVerifier)
+	return p.AuthURL(stateRaw, codeChallenge), nil
 }
 
 // Callback handles the OAuth callback for both login and link flows.
@@ -154,7 +187,12 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return "", "", false, false, "", domain.NewError("internal_error", "Failed to consume state token", 500)
 	}
 
-	info, exchangeErr := p.Exchange(ctx, code)
+	codeVerifier := ""
+	if stateToken.CodeVerifier != nil {
+		codeVerifier = *stateToken.CodeVerifier
+	}
+
+	info, exchangeErr := p.Exchange(ctx, code, codeVerifier)
 	if exchangeErr != nil {
 		return "", "", false, false, "", domain.NewError("provider_error", "Failed to authenticate with provider", 502)
 	}

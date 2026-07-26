@@ -12,9 +12,9 @@ type mockProvider struct {
 	name string
 }
 
-func (m *mockProvider) Name() string                          { return m.name }
-func (m *mockProvider) AuthURL(state string) string           { return "https://auth.example.com/" + state }
-func (m *mockProvider) Exchange(_ context.Context, _ string) (*port.OAuthProfile, error) {
+func (m *mockProvider) Name() string                                                  { return m.name }
+func (m *mockProvider) AuthURL(state string, codeChallenge string) string              { return "https://auth.example.com/" + state }
+func (m *mockProvider) Exchange(_ context.Context, _ string, _ string) (*port.OAuthProfile, error) {
 	return &port.OAuthProfile{Provider: m.name, ProviderUserID: "1", Email: "test@example.com", EmailVerified: true}, nil
 }
 
