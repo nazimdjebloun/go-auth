@@ -75,6 +75,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
@@ -157,6 +158,7 @@ type Config struct {
 	AllowedOrigins          []string          // allowed origins for CSRF Origin/Referer check
 	AllowMissingCSRFHeaders bool              // allow requests without Origin/Referer headers (default false)
 	RateLimit               *ratelimit.Config // rate limiting config (optional)
+	CSRFToken               *middleware.CSRFTokenConfig  // double-submit cookie CSRF (optional, disabled by default)
 
 	// ─── OAuth / Providers ─────────────────────────────────────────
 	providers []port.OAuthProvider

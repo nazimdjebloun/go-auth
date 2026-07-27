@@ -23,19 +23,20 @@ type Services struct {
 }
 
 type Handler struct {
-	services Services
-	log      *slog.Logger
+	services       Services
+	log            *slog.Logger
+	csrfTokenCfg   *middleware.CSRFTokenConfig
 }
 
 func New(s Services) *Handler {
 	return &Handler{services: s, log: slog.Default()}
 }
 
-func NewWithLogger(s Services, logger *slog.Logger) *Handler {
+func NewWithLogger(s Services, logger *slog.Logger, csrfTokenCfg *middleware.CSRFTokenConfig) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Handler{services: s, log: logger}
+	return &Handler{services: s, log: logger, csrfTokenCfg: csrfTokenCfg}
 }
 
 // --- Auth handlers ---
@@ -73,6 +74,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
 	setRefreshCookie(w, h.services.Session, result.RefreshToken)
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
 	writeJSON(w, http.StatusCreated, result)
@@ -109,6 +111,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
 	setRefreshCookie(w, h.services.Session, result.RefreshToken)
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
 	writeJSON(w, http.StatusOK, result)
@@ -124,6 +127,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 	clearSessionCookie(w, h.services.Session)
 	clearRefreshCookie(w, h.services.Session)
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 }
 
@@ -157,6 +161,9 @@ func (h *Handler) CheckAuth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": user})
 }
 
+func (h *Handler) GetCSRFToken(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNoContent)
+}
 func (h *Handler) ChangeName(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -211,6 +218,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Password reset successfully"})
 }
 
@@ -239,6 +247,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
 }
 
@@ -274,6 +283,7 @@ func (h *Handler) SetPasswordConfirm(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Password set successfully"})
 }
 
@@ -293,6 +303,7 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	clearSessionCookie(w, h.services.Session)
 	clearRefreshCookie(w, h.services.Session)
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }
 
@@ -332,6 +343,7 @@ func (h *Handler) ConfirmDeleteAccount(w http.ResponseWriter, r *http.Request) {
 
 	clearSessionCookie(w, h.services.Session)
 	clearRefreshCookie(w, h.services.Session)
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }
 
@@ -361,6 +373,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	setSessionCookie(w, h.services.Session, rawToken)
 	setRefreshCookie(w, h.services.Session, refreshToken)
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user":    user,
@@ -546,6 +559,7 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
 	setRefreshCookie(w, h.services.Session, result.RefreshToken)
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
 	writeJSON(w, http.StatusCreated, result)

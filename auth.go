@@ -89,6 +89,7 @@ type HandlerGroup struct {
 	OAuthLink              http.HandlerFunc
 	OAuthUnlink            http.HandlerFunc
 	OAuthProviders         http.HandlerFunc
+	CSRFToken              http.HandlerFunc
 }
 
 type MiddlewareGroup struct {
@@ -113,6 +114,12 @@ func New(config Config) (*Auth, error) {
 	}
 	if config.SessionIdleTTL == 0 {
 		config.SessionIdleTTL = 7 * 24 * time.Hour
+	}
+
+	// Auto-derive CSRF token CookieSecure from session cookie Secure flag
+	// (which is itself auto-derived from BaseURL in validate()).
+	if config.CSRFToken != nil {
+		config.CSRFToken.CookieSecure = config.Cookie.Secure
 	}
 
 	var pool *pgxpool.Pool
@@ -276,15 +283,16 @@ func New(config Config) (*Auth, error) {
 		Invite:   inviteSvc,
 		Admin:    adminSvc,
 		OAuth:    oauthSvc,
-	}, config.Logger)
+	}, config.Logger, config.CSRFToken)
 
 	// OAuth handlers (separate because they need baseURL and session service for cookies)
-	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.BaseURL)
+	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.BaseURL, config.CSRFToken)
 
 	authMW := middleware.AuthMiddleware(sessSvc, userRepo)
 	adminMW := middleware.RequireRole(domain.RoleAdmin)
 	rateLimitMW := middleware.RateLimit(config.RateLimit)
 	csrfMW := middleware.OriginCheck(config.AllowedOrigins, config.AllowMissingCSRFHeaders)
+	csrfTokenMW := middleware.CSRFToken(config.CSRFToken)
 	corsMW := middleware.CORS(config.AllowedOrigins)
 
 	return &Auth{
@@ -308,50 +316,51 @@ func New(config Config) (*Auth, error) {
 			OAuth:    oauthSvc,
 		},
 		Handlers: HandlerGroup{
-			// Public auth endpoints: rate limit outer, then CSRF.
-			Register:                 rateLimitMW(csrfMW(http.HandlerFunc(h.Register))).ServeHTTP,
-			Login:                    rateLimitMW(csrfMW(http.HandlerFunc(h.Login))).ServeHTTP,
-			Logout:                   csrfMW(authMW(http.HandlerFunc(h.Logout))).ServeHTTP,
-			ForgotPassword:           rateLimitMW(csrfMW(http.HandlerFunc(h.ForgotPassword))).ServeHTTP,
-			ResetPassword:            rateLimitMW(csrfMW(http.HandlerFunc(h.ResetPassword))).ServeHTTP,
-			ChangePassword:           csrfMW(authMW(http.HandlerFunc(h.ChangePassword))).ServeHTTP,
-			SetPasswordRequest:       rateLimitMW(csrfMW(authMW(http.HandlerFunc(h.SetPasswordRequest)))).ServeHTTP,
-			SetPasswordConfirm:       rateLimitMW(csrfMW(http.HandlerFunc(h.SetPasswordConfirm))).ServeHTTP,
-			VerifyEmail:              rateLimitMW(csrfMW(http.HandlerFunc(h.VerifyEmail))).ServeHTTP,
-			ResendVerification:       rateLimitMW(csrfMW(authMW(http.HandlerFunc(h.ResendVerification)))).ServeHTTP,
-			ResendVerificationPublic: rateLimitMW(csrfMW(http.HandlerFunc(h.ResendVerificationPublic))).ServeHTTP,
+			// Public auth endpoints: rate limit outer, then CSRF token + origin check.
+			Register:                 rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Register)))).ServeHTTP,
+			Login:                    rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Login)))).ServeHTTP,
+			Logout:                   csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Logout)))).ServeHTTP,
+			ForgotPassword:           rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ForgotPassword)))).ServeHTTP,
+			ResetPassword:            rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResetPassword)))).ServeHTTP,
+			ChangePassword:           csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangePassword)))).ServeHTTP,
+			SetPasswordRequest:       rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetPasswordRequest))))).ServeHTTP,
+			SetPasswordConfirm:       rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.SetPasswordConfirm)))).ServeHTTP,
+			VerifyEmail:              rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.VerifyEmail)))).ServeHTTP,
+			ResendVerification:       rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendVerification))))).ServeHTTP,
+			ResendVerificationPublic: rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendVerificationPublic)))).ServeHTTP,
 			ListSessions:             authMW(http.HandlerFunc(h.ListSessions)).ServeHTTP,
-			RevokeSession:            csrfMW(authMW(http.HandlerFunc(h.RevokeSession))).ServeHTTP,
-			RevokeAllSessions:        csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))).ServeHTTP,
-			InviteRegister:           rateLimitMW(csrfMW(http.HandlerFunc(h.InviteRegister))).ServeHTTP,
+			RevokeSession:            csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeSession)))).ServeHTTP,
+			RevokeAllSessions:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions)))).ServeHTTP,
+			InviteRegister:           rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.InviteRegister)))).ServeHTTP,
 			GetInviteInfo:            http.HandlerFunc(h.GetInviteInfo).ServeHTTP,
 			GetMe:                    authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
 			CheckSession:             http.HandlerFunc(h.CheckAuth).ServeHTTP,
-			RefreshToken:             rateLimitMW(csrfMW(http.HandlerFunc(h.RefreshToken))).ServeHTTP,
-			ChangeName:               csrfMW(authMW(http.HandlerFunc(h.ChangeName))).ServeHTTP,
-			DeleteAccount:            csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))).ServeHTTP,
-			RequestDeleteAccount:     rateLimitMW(csrfMW(authMW(http.HandlerFunc(h.RequestDeleteAccount)))).ServeHTTP,
+			RefreshToken:             rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.RefreshToken)))).ServeHTTP,
+			ChangeName:               csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangeName)))).ServeHTTP,
+			DeleteAccount:            csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteAccount)))).ServeHTTP,
+			RequestDeleteAccount:     rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RequestDeleteAccount))))).ServeHTTP,
 			// Confirm delete requires an authenticated session (user ID from context only).
-			ConfirmDeleteAccount: rateLimitMW(csrfMW(authMW(http.HandlerFunc(h.ConfirmDeleteAccount)))).ServeHTTP,
+			ConfirmDeleteAccount: rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ConfirmDeleteAccount))))).ServeHTTP,
 			ListUsers:              authMW(adminMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
-			UpdateUserRole:         csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole)))).ServeHTTP,
-			BanUser:                csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser)))).ServeHTTP,
-			UnbanUser:              csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser)))).ServeHTTP,
-			DeleteUser:             csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser)))).ServeHTTP,
-			RevokeUserSessions:     csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions)))).ServeHTTP,
-			AdminCreateUser:        csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser)))).ServeHTTP,
+			UpdateUserRole:         csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole))))).ServeHTTP,
+			BanUser:                csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser))))).ServeHTTP,
+			UnbanUser:              csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser))))).ServeHTTP,
+			DeleteUser:             csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser))))).ServeHTTP,
+			RevokeUserSessions:     csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions))))).ServeHTTP,
+			AdminCreateUser:        csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser))))).ServeHTTP,
 			AdminListUserSessions:  authMW(adminMW(http.HandlerFunc(h.AdminListUserSessions))).ServeHTTP,
-			AdminRevokeUserSession: csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession)))).ServeHTTP,
-			CreateInvite:           csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite)))).ServeHTTP,
+			AdminRevokeUserSession: csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession))))).ServeHTTP,
+			CreateInvite:           csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite))))).ServeHTTP,
 			ListInvites:            authMW(adminMW(http.HandlerFunc(h.ListInvites))).ServeHTTP,
-			RevokeInvite:           csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))).ServeHTTP,
-			ResendInvite:           csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite)))).ServeHTTP,
-			HardDeleteInvite:       csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite)))).ServeHTTP,
+			RevokeInvite:           csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite))))).ServeHTTP,
+			ResendInvite:           csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite))))).ServeHTTP,
+			HardDeleteInvite:       csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite))))).ServeHTTP,
 			OAuthInitiate:          http.HandlerFunc(oauthHandlers.Initiate).ServeHTTP,
 			OAuthCallback:          http.HandlerFunc(oauthHandlers.Callback).ServeHTTP,
-			OAuthLink:              csrfMW(authMW(http.HandlerFunc(oauthHandlers.InitiateLink))).ServeHTTP,
-			OAuthUnlink:            csrfMW(authMW(http.HandlerFunc(oauthHandlers.Unlink))).ServeHTTP,
+			OAuthLink:              csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.InitiateLink)))).ServeHTTP,
+			OAuthUnlink:            csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.Unlink)))).ServeHTTP,
 			OAuthProviders:         authMW(http.HandlerFunc(oauthHandlers.ListConnected)).ServeHTTP,
+			CSRFToken:              csrfTokenMW(http.HandlerFunc(h.GetCSRFToken)).ServeHTTP,
 		},
 		Middleware: MiddlewareGroup{
 			Authenticate: authMW,
@@ -386,6 +395,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /auth/signout", a.Handlers.Logout)
 	mux.Handle("GET /auth/me", a.Handlers.GetMe)
 	mux.Handle("GET /auth/check", a.Handlers.CheckSession)
+	mux.Handle("GET /auth/csrf-token", a.Handlers.CSRFToken)
 	mux.Handle("PUT /auth/name", a.Handlers.ChangeName)
 	mux.Handle("GET /auth/sessions", a.Handlers.ListSessions)
 	mux.Handle("DELETE /auth/sessions/{id}", a.Handlers.RevokeSession)

@@ -83,7 +83,7 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 			return nil, nil, ""
 		}
 
-		_, newRawToken, newRefreshToken, refreshErr := sessionSvc.RefreshSession(r.Context(), refreshCookie.Value)
+		refreshedSession, newRawToken, newRefreshToken, refreshErr := sessionSvc.RefreshSession(r.Context(), refreshCookie.Value)
 		if refreshErr != nil {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{
 				"error":   "session_expired",
@@ -95,16 +95,7 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 		setSessionCookie(w, sessionSvc, newRawToken)
 		setRefreshCookie(w, sessionSvc, newRefreshToken)
 
-		// Validate refreshed session — should always succeed but be defensive.
-		validated, vErr := sessionSvc.Validate(r.Context(), newRawToken)
-		if vErr != nil {
-			writeJSON(w, http.StatusUnauthorized, map[string]string{
-				"error":   "session_expired",
-				"message": "Session has expired",
-			})
-			return nil, nil, ""
-		}
-		session = validated
+		session = refreshedSession
 
 		user, err := userRepo.GetByID(r.Context(), session.UserID)
 		if err != nil || user == nil {
