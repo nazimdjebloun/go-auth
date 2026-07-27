@@ -10,16 +10,18 @@ import (
 )
 
 type OAuthHandlers struct {
-	oauth   *service.OAuthService
-	session *service.SessionService
-	baseURL string
+	oauth         *service.OAuthService
+	session       *service.SessionService
+	baseURL       string
+	csrfTokenCfg  *middleware.CSRFTokenConfig
 }
 
-func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionService, baseURL string) *OAuthHandlers {
+func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig) *OAuthHandlers {
 	return &OAuthHandlers{
-		oauth:   oauth,
-		session: session,
-		baseURL: baseURL,
+		oauth:        oauth,
+		session:      session,
+		baseURL:      baseURL,
+		csrfTokenCfg: csrfTokenCfg,
 	}
 }
 
@@ -83,6 +85,8 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, h.baseURL+"/auth/callback?error="+err.Code+"&provider="+provider, http.StatusFound)
 		return
 	}
+
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 
 	if requiresVerification {
 		redirectURL := h.baseURL + "/auth/callback?requiresVerification=true&provider=" + provider
