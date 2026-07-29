@@ -53,6 +53,16 @@ func DefaultRateLimitConfig() *Config {
 			// Invites / refresh
 			"POST /auth/invite/register": {Requests: 10, Window: time.Minute},
 			"POST /auth/refresh":         {Requests: 3, Window: time.Minute},
+			// Organizations — prefix patterns match any orgID
+			"POST /auth/orgs":                      {Requests: 5, Window: time.Hour},
+			"POST /auth/orgs/*":                    {Requests: 30, Window: time.Minute},
+			"GET /auth/orgs/*":                     {Requests: 60, Window: time.Minute},
+			"PUT /auth/orgs/*":                     {Requests: 10, Window: time.Minute},
+			"DELETE /auth/orgs/*":                  {Requests: 5, Window: time.Minute},
+			"PATCH /auth/orgs/*":                   {Requests: 10, Window: time.Minute},
+			"POST /auth/orgs/*/invites":            {Requests: 20, Window: time.Hour},
+			"GET /auth/orgs/*/invites":             {Requests: 30, Window: time.Minute},
+			"DELETE /auth/orgs/*/invites/*":        {Requests: 10, Window: time.Minute},
 		},
 	}
 }

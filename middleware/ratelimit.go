@@ -85,6 +85,17 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 			routeKey := r.Method + " " + r.URL.Path
 			rate, ok := cfg.Routes[routeKey]
 			if !ok {
+				// Try prefix patterns (keys ending in /*)
+				prefix := r.Method + " " + r.URL.Path
+				for k, v := range cfg.Routes {
+					if strings.HasSuffix(k, "/*") && strings.HasPrefix(prefix, k[:len(k)-1]) {
+						rate = v
+						ok = true
+						break
+					}
+				}
+			}
+			if !ok {
 				rate = cfg.Default
 			}
 
