@@ -9,26 +9,47 @@ CREATE TABLE IF NOT EXISTS users (
     is_banned BOOLEAN NOT NULL DEFAULT false,
     banned_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    org_owner_count INT NOT NULL DEFAULT 0
 ) ENGINE=InnoDB;
 
-CREATE TABLE IF NOT EXISTS sessions (
+CREATE TABLE IF NOT EXISTS organizations (
     id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) NOT NULL UNIQUE,
+    created_by VARCHAR(36),
+    owner_count INT NOT NULL DEFAULT 0,
+    member_count INT NOT NULL DEFAULT 0,
+    metadata JSON NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_org_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS organization_members (
+    org_id VARCHAR(36) NOT NULL,
     user_id VARCHAR(36) NOT NULL,
-    token_hash VARCHAR(255) UNIQUE NOT NULL,
-    refresh_token_hash TEXT NOT NULL DEFAULT '',
-    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
-    ip_address TEXT NOT NULL,
-    user_agent TEXT NOT NULL,
-    is_revoked BOOLEAN NOT NULL DEFAULT false,
-    expires_at DATETIME NOT NULL,
-    refresh_expires_at DATETIME,
-    refresh_rotated_at DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    revoked_at DATETIME,
-    last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+    role VARCHAR(50) NOT NULL,
+    joined_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (org_id, user_id),
+    CONSTRAINT fk_org_mem_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_org_mem_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS organization_invites (
+    id VARCHAR(36) PRIMARY KEY,
+    org_id VARCHAR(36) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    code_hash VARCHAR(64) NOT NULL UNIQUE,
+    invited_by VARCHAR(36) NOT NULL,
+    expires_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_org_inv_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_org_inv_user FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sessions (
 
 CREATE TABLE IF NOT EXISTS verification_tokens (
     id VARCHAR(36) PRIMARY KEY,
@@ -80,3 +101,9 @@ CREATE INDEX idx_provider_accounts_user_id ON provider_accounts(user_id);
 CREATE INDEX idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
 CREATE INDEX idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
 CREATE INDEX idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
+
+CREATE INDEX idx_org_members_user ON organization_members(user_id);
+CREATE INDEX idx_org_members_org_role ON organization_members(org_id, role);
+CREATE INDEX idx_org_invites_org ON organization_invites(org_id);
+CREATE INDEX idx_org_invites_email ON organization_invites(email);
+CREATE INDEX idx_sessions_user_active_org ON sessions(user_id, active_org_id);

@@ -318,6 +318,22 @@ func (m *mockSessionRepo) Revoke(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *mockSessionRepo) UpdateActiveOrgRoleForUser(_ context.Context, userID, orgID string, newRole domain.OrgRole) error {
+	return nil
+}
+
+func (m *mockSessionRepo) ClearActiveOrgForUser(_ context.Context, userID, orgID string) error {
+	return nil
+}
+
+func (m *mockSessionRepo) ClearActiveOrgForAllMembers(_ context.Context, orgID string) error {
+	return nil
+}
+
+func (m *mockSessionRepo) SetActiveOrg(_ context.Context, sessionID, orgID string, role domain.OrgRole) error {
+	return nil
+}
+
 type mockTokenRepo struct {
 	mu     sync.Mutex
 	tokens map[string]*domain.VerificationToken
@@ -382,7 +398,7 @@ type mockTokenGen struct {
 
 func (m *mockTokenGen) Generate() (string, error) {
 	m.counter++
-	b := sha256.Sum256([]byte(fmt.Sprintf("%s-%d", time.Now().String(), m.counter)))
+	b := sha256.Sum256(fmt.Appendf(nil, "%s-%d", time.Now().String(), m.counter))
 	return hex.EncodeToString(b[:16]), nil
 }
 
@@ -414,12 +430,293 @@ func (m *mockMailer) Send(ctx context.Context, to, subject, html, text string) e
 	return nil
 }
 
+// ─── mockOrgRepo ─────────────────────────────────────────────────────
+
+type mockOrgRepo struct {
+	mu      sync.Mutex
+	orgs    map[string]*domain.Organization
+	members map[string]*domain.OrgMember
+}
+
+func newMockOrgRepo() *mockOrgRepo {
+	return &mockOrgRepo{
+		orgs:    make(map[string]*domain.Organization),
+		members: make(map[string]*domain.OrgMember),
+	}
+}
+
+func (m *mockOrgRepo) Create(_ context.Context, org *domain.Organization) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.orgs[org.ID] = org
+	m.orgs[org.Slug] = org
+	return nil
+}
+
+func (m *mockOrgRepo) GetByID(_ context.Context, id string) (*domain.Organization, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	org, ok := m.orgs[id]
+	if !ok {
+		return nil, nil
+	}
+	return org, nil
+}
+
+func (m *mockOrgRepo) GetBySlug(_ context.Context, slug string) (*domain.Organization, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	org, ok := m.orgs[slug]
+	if !ok {
+		return nil, nil
+	}
+	return org, nil
+}
+
+func (m *mockOrgRepo) Update(_ context.Context, org *domain.Organization) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.orgs, org.Slug)
+	m.orgs[org.ID] = org
+	m.orgs[org.Slug] = org
+	return nil
+}
+
+func (m *mockOrgRepo) Delete(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if org, ok := m.orgs[id]; ok {
+		delete(m.orgs, org.Slug)
+	}
+	delete(m.orgs, id)
+	return nil
+}
+
+func (m *mockOrgRepo) AddMember(_ context.Context, member *domain.OrgMember) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := member.OrgID + ":" + member.UserID
+	m.members[key] = member
+	return nil
+}
+
+func (m *mockOrgRepo) RemoveMember(_ context.Context, orgID, userID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := orgID + ":" + userID
+	delete(m.members, key)
+	return nil
+}
+
+func (m *mockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, role domain.OrgRole) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := orgID + ":" + userID
+	if mem, ok := m.members[key]; ok {
+		mem.Role = role
+	}
+	return nil
+}
+
+func (m *mockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*domain.OrgMember, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	key := orgID + ":" + userID
+	mem, ok := m.members[key]
+	if !ok {
+		return nil, nil
+	}
+	return mem, nil
+}
+
+func (m *mockOrgRepo) ListMembers(_ context.Context, orgID string, offset, limit int) ([]domain.OrgMemberDetail, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var all []domain.OrgMemberDetail
+	for _, mem := range m.members {
+		if mem.OrgID == orgID {
+			all = append(all, domain.OrgMemberDetail{OrgMember: *mem})
+		}
+	}
+	if offset > len(all) {
+		offset = len(all)
+	}
+	end := offset + limit
+	if end > len(all) {
+		end = len(all)
+	}
+	return all[offset:end], len(all), nil
+}
+
+func (m *mockOrgRepo) ListUserOrgs(_ context.Context, userID string) ([]domain.Organization, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []domain.Organization
+	for _, mem := range m.members {
+		if mem.UserID == userID {
+			if org, ok := m.orgs[mem.OrgID]; ok {
+				result = append(result, *org)
+			}
+		}
+	}
+	return result, nil
+}
+
+func (m *mockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID string, maxOrgs int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, mem := range m.members {
+		if mem.UserID == userID && mem.Role == domain.OrgRoleOwner {
+			count++
+		}
+	}
+	if count >= maxOrgs {
+		return domain.ErrOrgLimitReached
+	}
+	return nil
+}
+
+func (m *mockOrgRepo) DecrementUserOrgOwnerCount(_ context.Context, userID string) error {
+	return nil
+}
+
+func (m *mockOrgRepo) IncrementOrgMemberCount(_ context.Context, orgID string, maxMembers int) error {
+	return nil
+}
+
+func (m *mockOrgRepo) DecrementOrgMemberCount(_ context.Context, orgID string) error {
+	return nil
+}
+
+func (m *mockOrgRepo) TryDecrementOrgOwnerCount(_ context.Context, orgID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	count := 0
+	for _, mem := range m.members {
+		if mem.OrgID == orgID && mem.Role == domain.OrgRoleOwner {
+			count++
+		}
+	}
+	if count <= 1 {
+		return domain.ErrCannotRemoveLastOwner
+	}
+	return nil
+}
+
+func (m *mockOrgRepo) IncrementOrgOwnerCount(_ context.Context, orgID string) error {
+	return nil
+}
+
+func (m *mockOrgRepo) DecrementOwnerCountForOrgOwners(_ context.Context, orgID string) error {
+	return nil
+}
+
+// ─── mockOrgInviteRepo ───────────────────────────────────────────────
+
+type mockOrgInviteRepo struct {
+	mu      sync.Mutex
+	invites map[string]*domain.OrgInvite
+}
+
+func newMockOrgInviteRepo() *mockOrgInviteRepo {
+	return &mockOrgInviteRepo{invites: make(map[string]*domain.OrgInvite)}
+}
+
+func (m *mockOrgInviteRepo) Create(_ context.Context, invite *domain.OrgInvite) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.invites[invite.ID] = invite
+	m.invites["hash:"+invite.CodeHash] = invite
+	return nil
+}
+
+func (m *mockOrgInviteRepo) GetByID(_ context.Context, id string) (*domain.OrgInvite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inv, ok := m.invites[id]
+	if !ok {
+		return nil, nil
+	}
+	return inv, nil
+}
+
+func (m *mockOrgInviteRepo) GetByCodeHash(_ context.Context, codeHash string) (*domain.OrgInvite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inv, ok := m.invites["hash:"+codeHash]
+	if !ok {
+		return nil, nil
+	}
+	return inv, nil
+}
+
+func (m *mockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string) ([]domain.OrgInvite, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var result []domain.OrgInvite
+	seen := make(map[string]bool)
+	for _, inv := range m.invites {
+		if inv.OrgID == orgID && inv.ID != "" && !seen[inv.ID] {
+			result = append(result, *inv)
+			seen[inv.ID] = true
+		}
+	}
+	return result, nil
+}
+
+func (m *mockOrgInviteRepo) Update(_ context.Context, invite *domain.OrgInvite) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if existing, ok := m.invites[invite.ID]; ok {
+		delete(m.invites, "hash:"+existing.CodeHash)
+		existing.CodeHash = invite.CodeHash
+		existing.ExpiresAt = invite.ExpiresAt
+		m.invites["hash:"+existing.CodeHash] = existing
+	}
+	return nil
+}
+
+func (m *mockOrgInviteRepo) Delete(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if inv, ok := m.invites[id]; ok {
+		delete(m.invites, id)
+		delete(m.invites, "hash:"+inv.CodeHash)
+	}
+	return nil
+}
+
+func (m *mockOrgInviteRepo) ClaimInvite(_ context.Context, id string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	inv, ok := m.invites[id]
+	if !ok || time.Now().UTC().After(inv.ExpiresAt) {
+		return false, nil
+	}
+	delete(m.invites, id)
+	delete(m.invites, "hash:"+inv.CodeHash)
+	return true, nil
+}
+
+// ─── mockTxManager ───────────────────────────────────────────────────
+
+type mockTxManager struct{}
+
+func (m *mockTxManager) WithTx(_ context.Context, fn func(ctx context.Context) error) error {
+	return fn(context.Background())
+}
+
+// ─── testHarness ─────────────────────────────────────────────────────
+
 type testHarness struct {
-	handler  *Handler
-	users    *mockUserRepo
-	sessions *mockSessionRepo
-	tokens   *mockTokenRepo
-	mailer   *mockMailer
+	handler     *Handler
+	users       *mockUserRepo
+	sessions    *mockSessionRepo
+	tokens      *mockTokenRepo
+	mailer      *mockMailer
+	orgs        *mockOrgRepo
+	orgInvites  *mockOrgInviteRepo
 }
 
 func newTestHarness() *testHarness {
@@ -429,6 +726,8 @@ func newTestHarness() *testHarness {
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{}
 	mailer := &mockMailer{}
+	orgs := newMockOrgRepo()
+	orgInvites := newMockOrgInviteRepo()
 
 	cfg := service.Config{
 		AppName:    "TestApp",
@@ -446,14 +745,27 @@ func newTestHarness() *testHarness {
 	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
 	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, cfg, sessSvc)
 	adminSvc := service.NewAdminService(users, sessions, hasher, cfg, sessSvc)
+	orgSvc := service.NewOrgService(orgs, users, sessions, &mockTxManager{}, service.OrgServiceConfig{
+		MaxOrgsPerUser: 100,
+		Logger:         nil,
+	})
+	orgInviteSvc := service.NewOrgInviteService(orgInvites, orgs, users, &mockTxManager{}, gen, &mockMailer{}, service.OrgInviteServiceConfig{
+		MaxOrgsPerUser: 100,
+		InviteTTL:      7 * 24 * time.Hour,
+		BaseURL:        "http://localhost:3000",
+		AppName:        "TestApp",
+		Logger:         nil,
+	})
 
 	h := New(Services{
-		Auth:     authSvc,
-		Password: passSvc,
-		Session:  sessSvc,
-		Verify:   verifySvc,
-		Invite:   inviteSvc,
-		Admin:    adminSvc,
+		Auth:      authSvc,
+		Password:  passSvc,
+		Session:   sessSvc,
+		Verify:    verifySvc,
+		Invite:    inviteSvc,
+		Admin:     adminSvc,
+		Org:       orgSvc,
+		OrgInvite: orgInviteSvc,
 	})
-	return &testHarness{handler: h, users: users, sessions: sessions, tokens: tokens, mailer: mailer}
+	return &testHarness{handler: h, users: users, sessions: sessions, tokens: tokens, mailer: mailer, orgs: orgs, orgInvites: orgInvites}
 }

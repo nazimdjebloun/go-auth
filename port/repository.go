@@ -55,6 +55,11 @@ type SessionRepository interface {
 	UpdateLastActiveAt(ctx context.Context, tokenHash string) error
 	UpdateRefreshToken(ctx context.Context, input UpdateRefreshInput) (*domain.Session, error)
 	Revoke(ctx context.Context, id string) error
+
+	UpdateActiveOrgRoleForUser(ctx context.Context, userID, orgID string, newRole domain.OrgRole) error
+	ClearActiveOrgForUser(ctx context.Context, userID, orgID string) error
+	ClearActiveOrgForAllMembers(ctx context.Context, orgID string) error
+	SetActiveOrg(ctx context.Context, sessionID, orgID string, role domain.OrgRole) error
 }
 
 type TokenRepository interface {
@@ -91,4 +96,37 @@ type ProviderAccountRepository interface {
 	GetByProvider(ctx context.Context, provider, providerUserID string) (*domain.ProviderAccount, error)
 	ListByUserID(ctx context.Context, userID string) ([]domain.ProviderAccount, error)
 	Delete(ctx context.Context, userID, provider string) error
+}
+
+type OrgRepository interface {
+	Create(ctx context.Context, org *domain.Organization) error
+	GetByID(ctx context.Context, id string) (*domain.Organization, error)
+	GetBySlug(ctx context.Context, slug string) (*domain.Organization, error)
+	Update(ctx context.Context, org *domain.Organization) error
+	Delete(ctx context.Context, id string) error
+
+	AddMember(ctx context.Context, member *domain.OrgMember) error
+	RemoveMember(ctx context.Context, orgID, userID string) error
+	UpdateMemberRole(ctx context.Context, orgID, userID string, role domain.OrgRole) error
+	GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error)
+	ListMembers(ctx context.Context, orgID string, offset, limit int) ([]domain.OrgMemberDetail, int, error)
+	ListUserOrgs(ctx context.Context, userID string) ([]domain.Organization, error)
+
+	IncrementUserOrgOwnerCount(ctx context.Context, userID string, maxOrgs int) error
+	DecrementUserOrgOwnerCount(ctx context.Context, userID string) error
+	IncrementOrgMemberCount(ctx context.Context, orgID string, maxMembers int) error
+	DecrementOrgMemberCount(ctx context.Context, orgID string) error
+	TryDecrementOrgOwnerCount(ctx context.Context, orgID string) error
+	IncrementOrgOwnerCount(ctx context.Context, orgID string) error
+	DecrementOwnerCountForOrgOwners(ctx context.Context, orgID string) error
+}
+
+type OrgInviteRepository interface {
+	Create(ctx context.Context, invite *domain.OrgInvite) error
+	GetByID(ctx context.Context, id string) (*domain.OrgInvite, error)
+	GetByCodeHash(ctx context.Context, codeHash string) (*domain.OrgInvite, error)
+	ListByOrgID(ctx context.Context, orgID string) ([]domain.OrgInvite, error)
+	Update(ctx context.Context, invite *domain.OrgInvite) error
+	Delete(ctx context.Context, id string) error
+	ClaimInvite(ctx context.Context, id string) (bool, error)
 }

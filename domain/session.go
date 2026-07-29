@@ -17,4 +17,7 @@ type Session struct {
 	CreatedAt           time.Time  `json:"created_at"`
 	RevokedAt           *time.Time `json:"revoked_at,omitempty"`
 	LastActiveAt        time.Time  `json:"last_active_at,omitempty"`
+
+	ActiveOrgID   *string  `json:"active_org_id,omitempty"`
+	ActiveOrgRole *string  `json:"active_org_role,omitempty"`
 }

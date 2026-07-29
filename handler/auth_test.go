@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -57,7 +58,7 @@ func TestLoginSetsCookieAndHidesToken(t *testing.T) {
 	w := httptest.NewRecorder()
 	th.handler.Register(w, req)
 
-	user, _ := th.users.GetByEmail(nil, "bob@example.com")
+	user, _ := th.users.GetByEmail(context.Background(), "bob@example.com")
 	if user != nil {
 		user.IsVerified = true
 	}
@@ -134,7 +135,7 @@ func TestLogoutInvalidatesToken(t *testing.T) {
 	}
 
 	// Session should be invalid after logout
-	_, err := th.handler.services.Session.Validate(nil, token)
+	_, err := th.handler.services.Session.Validate(context.Background(), token)
 	if err == nil {
 		t.Fatal("expected session to be invalid after logout")
 	}
@@ -274,7 +275,7 @@ func TestRefresh_ClearsCookiesOnError(t *testing.T) {
 	}
 
 	// Revoke the session
-	if err := th.handler.services.Session.Revoke(nil, sessionToken); err != nil {
+	if err := th.handler.services.Session.Revoke(context.Background(), sessionToken); err != nil {
 		t.Fatal(err)
 	}
 

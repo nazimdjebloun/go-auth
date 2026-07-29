@@ -2,15 +2,15 @@ package sqlstore
 
 const (
 	userCreateQuery = `
-		INSERT INTO users (id, email, password_hash, name, role, is_verified, verified_at, is_banned, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
+		INSERT INTO users (id, email, password_hash, name, role, is_verified, verified_at, is_banned, org_owner_count, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 
 	userByIDQuery = `
-		SELECT id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at
+		SELECT id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, org_owner_count, created_at, updated_at
 		FROM users WHERE id = $1`
 
 	userByEmailQuery = `
-		SELECT id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at
+		SELECT id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, org_owner_count, created_at, updated_at
 		FROM users WHERE email = $1`
 
 	userUpdateQuery = `
@@ -27,5 +27,5 @@ const (
 
 	userDeleteQuery = `DELETE FROM users WHERE id = $1`
 
-	userSelectColumns = "id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, created_at, updated_at"
+	userSelectColumns = "id, email, password_hash, name, role, is_verified, verified_at, is_banned, banned_at, org_owner_count, created_at, updated_at"
 )

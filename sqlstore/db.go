@@ -4,7 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"strings"
+
+	"github.com/nazimdjebloun/go-auth/port"
 )
+
+var _ port.TxManager = (*DB)(nil)
 
 type DB struct {
 	*sql.DB
@@ -61,4 +65,33 @@ func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.
 
 func (d *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return d.DB.QueryRowContext(ctx, d.Rebind(query), args...)
+}
+
+type txKey struct{}
+
+type executor interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func (d *DB) WithTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	tx, err := d.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+
+	ctx = context.WithValue(ctx, txKey{}, tx)
+	if err := fn(ctx); err != nil {
+		tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func (d *DB) getExecutor(ctx context.Context) executor {
+	if tx, ok := ctx.Value(txKey{}).(executor); ok {
+		return tx
+	}
+	return d
 }

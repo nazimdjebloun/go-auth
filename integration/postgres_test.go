@@ -17,19 +17,31 @@ import (
 
 const testDBName = "goauth_test"
 
-func postgresConfig(mailer port.Mailer) goauth.Config {
-	return goauth.Config{
-		AppName: "TestAppPG",
-		Database: goauth.DatabaseConfig{
-			DB:     nil, // set below after open
-			Driver: goauth.DriverPostgres,
-		},
-		SessionTTL:          1 * time.Hour,
-		TokenTTL:            1 * time.Hour,
-		InviteTTL:           1 * time.Hour,
-		VerificationCodeTTL: 1 * time.Hour,
-		Mailer:              mailer,
+func postgresConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
+	cfg, err := goauth.NewConfig(
+		goauth.WithApp(goauth.AppConfig{
+			Name:    "TestAppPG",
+			BaseURL: "http://localhost:8080",
+			Database: goauth.DatabaseConfig{
+				DB:     db,
+				Driver: goauth.DriverPostgres,
+			},
+		}),
+		goauth.WithSession(goauth.SessionConfig{
+			TTL:     1 * time.Hour,
+			IdleTTL: 1 * time.Hour,
+		}),
+		goauth.WithSecurity(goauth.SecurityConfig{
+			AllowedOrigins: []string{"http://localhost:8080"},
+			TokenTTL:       1 * time.Hour,
+		}),
+		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+		goauth.WithMailer(mailer),
+	)
+	if err != nil {
+		panic(err)
 	}
+	return cfg
 }
 
 // postgresTestDB creates a dedicated goauth_test_db database (isolated from the
@@ -83,8 +95,7 @@ func TestPostgres_RegisterAndValidateSession(t *testing.T) {
 
 	mailer := &testMailer{}
 	migrateDB(t, db, "postgres")
-	cfg := postgresConfig(mailer)
-	cfg.Database.DB = db
+	cfg := postgresConfig(db, mailer)
 
 	a, err := goauth.New(cfg)
 	if err != nil {
@@ -154,8 +165,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 
 	mailer := &testMailer{}
 	migrateDB(t, db, "postgres")
-	cfg := postgresConfig(mailer)
-	cfg.Database.DB = db
+	cfg := postgresConfig(db, mailer)
 
 	a, err := goauth.New(cfg)
 	if err != nil {
