@@ -20,6 +20,8 @@ type Services struct {
 	Invite   *service.InviteService
 	Admin    *service.AdminService
 	OAuth    *service.OAuthService
+	Org      *service.OrgService
+	OrgInvite *service.OrgInviteService
 }
 
 type Handler struct {

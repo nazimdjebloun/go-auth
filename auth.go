@@ -27,23 +27,27 @@ type Auth struct {
 	Handlers   HandlerGroup
 	Middleware MiddlewareGroup
 
-	authService     *service.AuthService
-	passwordService *service.PasswordService
-	sessionService  *service.SessionService
-	verifyService   *service.VerificationService
-	inviteService   *service.InviteService
-	adminService    *service.AdminService
-	oAuthService    *service.OAuthService
+	authService      *service.AuthService
+	passwordService  *service.PasswordService
+	sessionService   *service.SessionService
+	verifyService    *service.VerificationService
+	inviteService    *service.InviteService
+	adminService     *service.AdminService
+	oAuthService     *service.OAuthService
+	orgService       *service.OrgService
+	orgInviteService *service.OrgInviteService
 }
 
 type Services struct {
-	Auth     *service.AuthService
-	Password *service.PasswordService
-	Session  *service.SessionService
-	Verify   *service.VerificationService
-	Invite   *service.InviteService
-	Admin    *service.AdminService
-	OAuth    *service.OAuthService
+	Auth      *service.AuthService
+	Password  *service.PasswordService
+	Session   *service.SessionService
+	Verify    *service.VerificationService
+	Invite    *service.InviteService
+	Admin     *service.AdminService
+	OAuth     *service.OAuthService
+	Org       *service.OrgService
+	OrgInvite *service.OrgInviteService
 }
 
 type HandlerGroup struct {
@@ -90,6 +94,22 @@ type HandlerGroup struct {
 	OAuthUnlink            http.HandlerFunc
 	OAuthProviders         http.HandlerFunc
 	CSRFToken              http.HandlerFunc
+	CreateOrg              http.HandlerFunc
+	GetOrg                 http.HandlerFunc
+	UpdateOrg              http.HandlerFunc
+	DeleteOrg              http.HandlerFunc
+	ListUserOrgs           http.HandlerFunc
+	ListOrgMembers         http.HandlerFunc
+	RemoveOrgMember        http.HandlerFunc
+	UpdateOrgMemberRole    http.HandlerFunc
+	LeaveOrg               http.HandlerFunc
+	SetActiveOrg           http.HandlerFunc
+	ClearActiveOrg         http.HandlerFunc
+	CreateOrgInvite        http.HandlerFunc
+	AcceptOrgInvite        http.HandlerFunc
+	ListOrgInvites         http.HandlerFunc
+	ResendOrgInvite        http.HandlerFunc
+	DeleteOrgInvite        http.HandlerFunc
 }
 
 type MiddlewareGroup struct {
@@ -100,36 +120,36 @@ type MiddlewareGroup struct {
 }
 
 func New(config Config) (*Auth, error) {
-	if config.AppName == "" {
-		config.AppName = "App"
+	if config.appName == "" {
+		config.appName = "App"
 	}
-	if config.SessionTTL == 0 {
-		config.SessionTTL = 30 * 24 * time.Hour
+	if config.sessionTTL == 0 {
+		config.sessionTTL = 30 * 24 * time.Hour
 	}
-	if config.TokenTTL == 0 {
-		config.TokenTTL = 1 * time.Hour
+	if config.tokenTTL == 0 {
+		config.tokenTTL = 1 * time.Hour
 	}
-	if config.RefreshTokenTTL == 0 {
-		config.RefreshTokenTTL = 30 * 24 * time.Hour
+	if config.refreshTokenTTL == 0 {
+		config.refreshTokenTTL = 30 * 24 * time.Hour
 	}
-	if config.SessionIdleTTL == 0 {
-		config.SessionIdleTTL = 7 * 24 * time.Hour
+	if config.sessionIdleTTL == 0 {
+		config.sessionIdleTTL = 7 * 24 * time.Hour
 	}
 
 	// Auto-derive CSRF token CookieSecure from session cookie Secure flag
 	// (which is itself auto-derived from BaseURL in validate()).
-	if config.CSRFToken != nil {
-		config.CSRFToken.CookieSecure = config.Cookie.Secure
+	if config.csrfToken != nil {
+		config.csrfToken.CookieSecure = config.cookie.Secure
 	}
 
 	var pool *pgxpool.Pool
 	var sqlDB *sqlstore.DB
 	var sessRepo *sqlstore.SessionRepository
 
-	if config.Database.Driver == "" {
-		config.Database.Driver = DriverPostgres
+	if config.database.Driver == "" {
+		config.database.Driver = DriverPostgres
 	}
-	switch config.Database.Driver {
+	switch config.database.Driver {
 	case DriverPostgres:
 		// supported natively
 	case DriverSQLite:
@@ -145,21 +165,21 @@ func New(config Config) (*Auth, error) {
 			)
 		}
 	default:
-		return nil, fmt.Errorf("go-auth: unsupported driver %q", config.Database.Driver)
+		return nil, fmt.Errorf("go-auth: unsupported driver %q", config.database.Driver)
 	}
 
 	switch {
-	case config.Database.Pool != nil:
-		pool = config.Database.Pool
+	case config.database.Pool != nil:
+		pool = config.database.Pool
 		rawDB := stdlib.OpenDBFromPool(pool)
 		sqlDB = sqlstore.NewDB(rawDB, string(DriverPostgres))
 		sessRepo = sqlstore.NewSessionRepository(sqlDB)
-	case config.Database.DB != nil:
-		sqlDB = sqlstore.NewDB(config.Database.DB, string(config.Database.Driver))
+	case config.database.DB != nil:
+		sqlDB = sqlstore.NewDB(config.database.DB, string(config.database.Driver))
 		sessRepo = sqlstore.NewSessionRepository(sqlDB)
-	case config.Database.URL != "":
-		driverName := sqlDriverName(config.Database.Driver)
-		db, err := sql.Open(driverName, config.Database.URL)
+	case config.database.URL != "":
+		driverName := sqlDriverName(config.database.Driver)
+		db, err := sql.Open(driverName, config.database.URL)
 		if err != nil {
 			return nil, fmt.Errorf("go-auth: open database: %w", err)
 		}
@@ -167,11 +187,11 @@ func New(config Config) (*Auth, error) {
 			db.Close()
 			return nil, fmt.Errorf("go-auth: ping database: %w", err)
 		}
-		config.Database.opened = true
-		sqlDB = sqlstore.NewDB(db, string(config.Database.Driver))
+		config.database.opened = true
+		sqlDB = sqlstore.NewDB(db, string(config.database.Driver))
 		sessRepo = sqlstore.NewSessionRepository(sqlDB)
-		if config.Database.Driver == DriverPostgres {
-			pool, err = pgxpool.New(context.Background(), config.Database.URL)
+		if config.database.Driver == DriverPostgres {
+			pool, err = pgxpool.New(context.Background(), config.database.URL)
 			if err != nil {
 				db.Close()
 				return nil, fmt.Errorf("go-auth: create connection pool: %w", err)
@@ -191,10 +211,10 @@ func New(config Config) (*Auth, error) {
 	genImpl := token.New()
 
 	var mailer port.Mailer
-	if config.Mailer != nil {
-		mailer = config.Mailer
-	} else if config.Email != nil {
-		m, err := newSMTPMailer(*config.Email)
+	if config.mailer != nil {
+		mailer = config.mailer
+	} else if config.email != nil {
+		m, err := newSMTPMailer(*config.email)
 		if err != nil {
 			return nil, err
 		}
@@ -202,31 +222,31 @@ func New(config Config) (*Auth, error) {
 	}
 
 	serviceCfg := service.Config{
-		AppName:                  config.AppName,
-		BaseURL:                  config.BaseURL,
-		InviteOnly:               config.InviteOnly,
-		RequireEmailVerification: config.RequireEmailVerification,
-		InviteTTL:                config.InviteTTL,
-		VerificationCodeTTL:      config.VerificationCodeTTL,
-		SessionTTL:               config.SessionTTL,
-		TokenTTL:                 config.TokenTTL,
-		PasswordPolicy:           config.PasswordPolicy,
-		Logger:                   config.Logger,
+		AppName:                  config.appName,
+		BaseURL:                  config.baseURL,
+		InviteOnly:               !config.registration.AllowPublic,
+		RequireEmailVerification: config.registration.RequireEmailVerification,
+		InviteTTL:                config.registration.InviteTTL,
+		VerificationCodeTTL:      config.registration.VerificationCodeTTL,
+		SessionTTL:               config.sessionTTL,
+		TokenTTL:                 config.tokenTTL,
+		PasswordPolicy:           config.passwordPolicy,
+		Logger:                   config.logger,
 	}
 
 	sessionCfg := service.DefaultSessionConfig()
-	sessionCfg.Duration = config.SessionTTL
-	sessionCfg.IdleTTL = config.SessionIdleTTL
-	sessionCfg.RefreshTTL = config.RefreshTokenTTL
-	sessionCfg.MaxLifetime = config.MaxLifetime
-	sessionCfg.GraceWindow = config.GraceWindow
-	sessionCfg.TouchDebounce = config.TouchDebounce
-	sessionCfg.CookieName = config.Cookie.Name
-	sessionCfg.Domain = config.Cookie.Domain
-	sessionCfg.Path = config.Cookie.Path
-	sessionCfg.Secure = config.Cookie.Secure
-	sessionCfg.SameSite = int(config.Cookie.SameSite)
-	sessionCfg.Logger = config.Logger
+	sessionCfg.Duration = config.sessionTTL
+	sessionCfg.IdleTTL = config.sessionIdleTTL
+	sessionCfg.RefreshTTL = config.refreshTokenTTL
+	sessionCfg.MaxLifetime = config.maxLifetime
+	sessionCfg.GraceWindow = config.graceWindow
+	sessionCfg.TouchDebounce = config.touchDebounce
+	sessionCfg.CookieName = config.cookie.Name
+	sessionCfg.Domain = config.cookie.Domain
+	sessionCfg.Path = config.cookie.Path
+	sessionCfg.Secure = config.cookie.Secure
+	sessionCfg.SameSite = int(config.cookie.SameSite)
+	sessionCfg.Logger = config.logger
 
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
 
@@ -237,8 +257,8 @@ func New(config Config) (*Auth, error) {
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, hasherImpl, serviceCfg, sessSvc)
 
 	// Attach logger to session repository
-	if config.Logger != nil {
-		sessionRepoSQL.WithLogger(config.Logger)
+	if config.logger != nil {
+		sessionRepoSQL.WithLogger(config.logger)
 	}
 
 	// Build OAuth providers from registered WithProvider calls
@@ -260,40 +280,60 @@ func New(config Config) (*Auth, error) {
 	var oauthSvc *service.OAuthService
 	if len(oauthProviders) > 0 {
 		oauthCfg := service.OAuthServiceConfig{
-			AppName:                  config.AppName,
-			BaseURL:                  config.BaseURL,
-			SessionTTL:               config.SessionTTL,
-			TokenTTL:                 config.TokenTTL,
-			CookieName:               config.Cookie.Name,
-			CookieDomain:             config.Cookie.Domain,
-			CookiePath:               config.Cookie.Path,
-			CookieSecure:             config.Cookie.Secure,
-			CookieSameSite:           config.Cookie.SameSite,
-			RequireEmailVerification: config.RequireEmailVerification,
-			Logger:                   config.Logger,
+			AppName:                  config.appName,
+			BaseURL:                  config.baseURL,
+			SessionTTL:               config.sessionTTL,
+			TokenTTL:                 config.tokenTTL,
+			CookieName:               config.cookie.Name,
+			CookieDomain:             config.cookie.Domain,
+			CookiePath:               config.cookie.Path,
+			CookieSecure:             config.cookie.Secure,
+			CookieSameSite:           config.cookie.SameSite,
+			RequireEmailVerification: config.registration.RequireEmailVerification,
+			Logger:                   config.logger,
 		}
 		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, oauthCfg)
 	}
 
+	var orgSvc *service.OrgService
+	var orgInviteSvc *service.OrgInviteService
+	if config.organizations.Enable {
+		orgRepo := sqlstore.NewOrgRepository(sqlDB)
+		orgInviteRepo := sqlstore.NewOrgInviteRepository(sqlDB)
+		orgSvc = service.NewOrgService(orgRepo, userRepo, sessRepo, sqlDB, service.OrgServiceConfig{
+			MaxOrgsPerUser: config.organizations.MaxOrgsPerUser,
+			Logger:         config.logger,
+		})
+		orgInviteSvc = service.NewOrgInviteService(orgInviteRepo, orgRepo, userRepo, sqlDB, genImpl, mailer, service.OrgInviteServiceConfig{
+			MaxOrgsPerUser: config.organizations.MaxOrgsPerUser,
+			InviteTTL:      inviteTTLForOrgs(config),
+			BaseURL:        config.baseURL,
+			AppName:        config.appName,
+			Logger:         config.logger,
+		})
+	}
+
 	h := handler.NewWithLogger(handler.Services{
-		Auth:     authSvc,
-		Password: passSvc,
-		Session:  sessSvc,
-		Verify:   verifySvc,
-		Invite:   inviteSvc,
-		Admin:    adminSvc,
-		OAuth:    oauthSvc,
-	}, config.Logger, config.CSRFToken)
+		Auth:      authSvc,
+		Password:  passSvc,
+		Session:   sessSvc,
+		Verify:    verifySvc,
+		Invite:    inviteSvc,
+		Admin:     adminSvc,
+		OAuth:     oauthSvc,
+		Org:       orgSvc,
+		OrgInvite: orgInviteSvc,
+	}, config.logger, config.csrfToken)
 
 	// OAuth handlers (separate because they need baseURL and session service for cookies)
-	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.BaseURL, config.CSRFToken)
+	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.baseURL, config.csrfToken)
 
 	authMW := middleware.AuthMiddleware(sessSvc, userRepo)
 	adminMW := middleware.RequireRole(domain.RoleAdmin)
-	rateLimitMW := middleware.RateLimit(config.RateLimit)
-	csrfMW := middleware.OriginCheck(config.AllowedOrigins, config.AllowMissingCSRFHeaders)
-	csrfTokenMW := middleware.CSRFToken(config.CSRFToken)
-	corsMW := middleware.CORS(config.AllowedOrigins)
+	rateLimitMW := middleware.RateLimit(config.rateLimit)
+	csrfMW := middleware.OriginCheck(config.allowedOrigins, config.allowMissingCSRFHeaders)
+	csrfTokenMW := middleware.CSRFToken(config.csrfToken)
+	corsMW := middleware.CORS(config.allowedOrigins)
 
 	return &Auth{
 		Config:          config,
@@ -306,14 +346,18 @@ func New(config Config) (*Auth, error) {
 		inviteService:   inviteSvc,
 		adminService:    adminSvc,
 		oAuthService:    oauthSvc,
+		orgService:       orgSvc,
+		orgInviteService: orgInviteSvc,
 		Services: Services{
-			Auth:     authSvc,
-			Password: passSvc,
-			Session:  sessSvc,
-			Verify:   verifySvc,
-			Invite:   inviteSvc,
-			Admin:    adminSvc,
-			OAuth:    oauthSvc,
+			Auth:      authSvc,
+			Password:  passSvc,
+			Session:   sessSvc,
+			Verify:    verifySvc,
+			Invite:    inviteSvc,
+			Admin:     adminSvc,
+			OAuth:     oauthSvc,
+			Org:       orgSvc,
+			OrgInvite: orgInviteSvc,
 		},
 		Handlers: HandlerGroup{
 			// Public auth endpoints: rate limit outer, then CSRF token + origin check.
@@ -361,6 +405,22 @@ func New(config Config) (*Auth, error) {
 			OAuthUnlink:            csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.Unlink)))).ServeHTTP,
 			OAuthProviders:         authMW(http.HandlerFunc(oauthHandlers.ListConnected)).ServeHTTP,
 			CSRFToken:              csrfTokenMW(http.HandlerFunc(h.GetCSRFToken)).ServeHTTP,
+			CreateOrg:              rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrg))))).ServeHTTP,
+			GetOrg:                 authMW(http.HandlerFunc(h.GetOrg)).ServeHTTP,
+			UpdateOrg:              csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.UpdateOrg)))).ServeHTTP,
+			DeleteOrg:              csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteOrg)))).ServeHTTP,
+			ListUserOrgs:           authMW(http.HandlerFunc(h.ListUserOrgs)).ServeHTTP,
+			ListOrgMembers:         authMW(http.HandlerFunc(h.ListOrgMembers)).ServeHTTP,
+			RemoveOrgMember:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RemoveMember)))).ServeHTTP,
+			UpdateOrgMemberRole:    csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.UpdateMemberRole)))).ServeHTTP,
+			LeaveOrg:               csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.LeaveOrg)))).ServeHTTP,
+			SetActiveOrg:           csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg)))).ServeHTTP,
+			ClearActiveOrg:         csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg)))).ServeHTTP,
+			CreateOrgInvite:        rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrgInvite))))).ServeHTTP,
+			AcceptOrgInvite:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite)))).ServeHTTP,
+			ListOrgInvites:         authMW(http.HandlerFunc(h.ListOrgInvites)).ServeHTTP,
+			ResendOrgInvite:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendOrgInvite)))).ServeHTTP,
+			DeleteOrgInvite:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteOrgInvite)))).ServeHTTP,
 		},
 		Middleware: MiddlewareGroup{
 			Authenticate: authMW,
@@ -375,7 +435,7 @@ func (a *Auth) Close() {
 	if a.Pool != nil {
 		a.Pool.Close()
 	}
-	if a.Config.Database.opened && a.DB != nil {
+	if a.Config.database.opened && a.DB != nil {
 		a.DB.Close()
 	}
 }
@@ -425,11 +485,29 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
 	mux.Handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
 	if a.oAuthService != nil {
-		mux.Handle("GET /auth/{provider}", a.Handlers.OAuthInitiate)
-		mux.Handle("GET /auth/{provider}/callback", a.Handlers.OAuthCallback)
-		mux.Handle("POST /auth/link/{provider}", a.Handlers.OAuthLink)
-		mux.Handle("POST /auth/unlink/{provider}", a.Handlers.OAuthUnlink)
-		mux.Handle("GET /auth/providers", a.Handlers.OAuthProviders)
+		mux.Handle("GET /auth/oauth/{provider}", a.Handlers.OAuthInitiate)
+		mux.Handle("GET /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
+		mux.Handle("POST /auth/oauth/link/{provider}", a.Handlers.OAuthLink)
+		mux.Handle("POST /auth/oauth/unlink/{provider}", a.Handlers.OAuthUnlink)
+		mux.Handle("GET /auth/oauth/providers", a.Handlers.OAuthProviders)
+	}
+	if a.orgService != nil {
+		mux.Handle("POST /auth/orgs", a.Handlers.CreateOrg)
+		mux.Handle("GET /auth/orgs", a.Handlers.ListUserOrgs)
+		mux.Handle("GET /auth/orgs/{orgID}", a.Handlers.GetOrg)
+		mux.Handle("PUT /auth/orgs/{orgID}", a.Handlers.UpdateOrg)
+		mux.Handle("DELETE /auth/orgs/{orgID}", a.Handlers.DeleteOrg)
+		mux.Handle("GET /auth/orgs/{orgID}/members", a.Handlers.ListOrgMembers)
+		mux.Handle("DELETE /auth/orgs/{orgID}/members/{userID}", a.Handlers.RemoveOrgMember)
+		mux.Handle("PATCH /auth/orgs/{orgID}/members/{userID}/role", a.Handlers.UpdateOrgMemberRole)
+		mux.Handle("POST /auth/orgs/{orgID}/leave", a.Handlers.LeaveOrg)
+		mux.Handle("PUT /auth/orgs/active", a.Handlers.SetActiveOrg)
+		mux.Handle("DELETE /auth/orgs/active", a.Handlers.ClearActiveOrg)
+		mux.Handle("POST /auth/orgs/{orgID}/invites", a.Handlers.CreateOrgInvite)
+		mux.Handle("POST /auth/orgs/invites/accept", a.Handlers.AcceptOrgInvite)
+		mux.Handle("GET /auth/orgs/{orgID}/invites", a.Handlers.ListOrgInvites)
+		mux.Handle("POST /auth/orgs/{orgID}/invites/{inviteID}/resend", a.Handlers.ResendOrgInvite)
+		mux.Handle("DELETE /auth/orgs/{orgID}/invites/{inviteID}", a.Handlers.DeleteOrgInvite)
 	}
 }
 
@@ -513,6 +591,13 @@ func isDriverRegistered(name string) bool {
 		}
 	}
 	return false
+}
+
+func inviteTTLForOrgs(cfg Config) time.Duration {
+	if cfg.organizations.InviteTTL > 0 {
+		return cfg.organizations.InviteTTL
+	}
+	return 7 * 24 * time.Hour
 }
 
 func sqlDriverName(driver Driver) string {
