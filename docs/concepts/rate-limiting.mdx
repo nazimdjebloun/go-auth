@@ -1,0 +1,17 @@
+---
+title: Rate Limiting
+description: Per-IP token bucket rate limiter configuration.
+---
+
+# Rate Limiting
+
+Per-IP token bucket rate limiter:
+
+```go
+goauth.WithRateLimit(ratelimit.Config{
+    Rate:  10,   // requests per second
+    Burst: 20,   // burst capacity
+})
+```
+
+Default: 10 req/s with burst of 20. Set to `nil` to disable.

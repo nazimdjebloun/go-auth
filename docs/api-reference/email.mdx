@@ -1,0 +1,26 @@
+---
+title: "Email Handlers"
+description: "Email verification and resend handlers."
+---
+
+## Routes
+
+| Method | Path | Middleware |
+|---|---|---|
+| POST | `/auth/verify-email` | RateLimit + CSRF + Origin |
+| POST | `/auth/resend-verification` | RateLimit + Auth + CSRF + Origin |
+| POST | `/auth/verify-email/resend` | RateLimit + CSRF + Origin |
+
+## Handlers
+
+### `POST /auth/verify-email`
+
+**Rate limited.** Request: `{ "code": "..." }`. Response 200 with user data.
+
+### `POST /auth/resend-verification`
+
+**Auth + RateLimit.** Response 200.
+
+### `POST /auth/verify-email/resend`
+
+**Rate limited.** Request: `{ "email": "a@b.com" }`. Response 200.

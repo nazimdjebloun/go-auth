@@ -1,0 +1,43 @@
+---
+title: Custom Provider
+description: Implementing a custom OAuth provider via the OAuthProvider interface.
+---
+
+# Custom OAuth Provider
+
+`import "github.com/nazimdjebloun/go-auth/port"`
+
+Implement the `port.OAuthProvider` interface:
+
+```go
+type CustomProvider struct {}
+
+func (p *CustomProvider) Name() string { return "facebook" }
+
+func (p *CustomProvider) DefaultScopes() []string {
+    return []string{"email", "public_profile"}
+}
+
+func (p *CustomProvider) AuthURL(state, codeChallenge string, scopes []string) string {
+    return "https://facebook.com/dialog/oauth?..." // build URL manually
+}
+
+func (p *CustomProvider) Exchange(ctx context.Context, code, codeVerifier string) (string, *time.Time, error) {
+    // POST to https://graph.facebook.com/v12.0/oauth/access_token
+    // Return accessToken, expiresAt, err
+}
+
+func (p *CustomProvider) UserInfo(ctx context.Context, accessToken string) (string, string, error) {
+    // GET https://graph.facebook.com/me?fields=email,name
+    // Return email, name, err
+}
+```
+
+Register via `NewConfig(WithProvider(customProvider))`:
+
+```go
+cfg, _ := goauth.NewConfig(
+    goauth.WithProvider(&CustomProvider{}),
+    goauth.WithProvider(google.New(id, secret, url)),
+)
+```

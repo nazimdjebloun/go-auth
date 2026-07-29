@@ -1,0 +1,28 @@
+---
+title: Error Handling
+description: Structured error types, sentinel errors, and handling patterns.
+---
+
+# Error Handling
+
+All service methods return `*domain.AuthError` with structured fields:
+
+```go
+type AuthError struct {
+    Code    string `json:"code"`
+    Message string `json:"message"`
+}
+```
+
+Use `errors.Is(err, domain.ErrInvalidCredentials)` to check specific errors. Common sentinel errors and their HTTP status mappings:
+
+| Error | HTTP | Meaning |
+|---|---|---|
+| `ErrInvalidCredentials` | 401 | Wrong email/password |
+| `ErrSessionExpired` | 401 | Session TTL exceeded |
+| `ErrUserBanned` | 403 | Account banned |
+| `ErrEmailNotVerified` | 403 | Email not yet verified |
+| `ErrRateLimited` | 429 | Too many requests |
+| `ErrOrgLimitReached` | 400 | Max orgs per user exceeded |
+| `ErrOrgMemberLimitReached` | 400 | Max members per org exceeded |
+| `ErrCannotRemoveLastOwner` | 400 | Cannot remove last owner from org |

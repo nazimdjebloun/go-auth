@@ -1,0 +1,109 @@
+---
+title: goauth Package (Root)
+description: Auth struct, Mount(), services, handlers, and middleware.
+---
+
+# goauth Package (Root)
+
+`import "github.com/nazimdjebloun/go-auth"`
+
+## Auth Struct
+
+The central struct returned by `goauth.New()`.
+
+```go
+type Auth struct {
+    Config     Config
+    Pool       *pgxpool.Pool       // database connection pool (nil if not pgx)
+    DB         *sqlstore.DB         // underlying DB wrapper
+    Services   Services             // all service facades
+    Handlers   HandlerGroup         // all pre-wired HTTP handlers
+    Middleware MiddlewareGroup      // reusable middleware
+}
+```
+
+### Methods
+
+| Method | Description |
+|---|---|
+| `Close()` | Closes pool/DB if opened by the library |
+| `Mount(mux *http.ServeMux)` | Registers all routes on the given mux |
+| `Register(ctx, RegisterInput)` | Programmatic registration (no cookies) |
+| `Login(ctx, LoginInput)` | Programmatic login (no cookies) |
+| `CompleteInviteRegistration(ctx, CompleteInviteInput)` | Complete invite-based signup |
+| `CheckSession(ctx, token string) bool` | Validate a session token |
+| `GetSession(ctx, token string) (*User, *Session, error)` | Validate + return user/session |
+
+## Services
+
+```go
+type Services struct {
+    Auth      *service.AuthService
+    Password  *service.PasswordService
+    Session   *service.SessionService
+    Verify    *service.VerificationService
+    Invite    *service.InviteService
+    Admin     *service.AdminService
+    OAuth     *service.OAuthService
+    Org       *service.OrgService
+    OrgInvite *service.OrgInviteService
+}
+```
+
+## HandlerGroup
+
+```go
+type HandlerGroup struct {
+    // Auth
+    Register, Login, Logout http.HandlerFunc
+    CheckSession, RefreshToken http.HandlerFunc
+    GetMe, ChangeName http.HandlerFunc
+    DeleteAccount, RequestDeleteAccount, ConfirmDeleteAccount http.HandlerFunc
+    CSRFToken http.HandlerFunc
+
+    // Password
+    ForgotPassword, ResetPassword, ChangePassword http.HandlerFunc
+    SetPasswordRequest, SetPasswordConfirm http.HandlerFunc
+
+    // Email
+    VerifyEmail, ResendVerification, ResendVerificationPublic http.HandlerFunc
+
+    // Sessions
+    ListSessions, RevokeSession, RevokeAllSessions http.HandlerFunc
+
+    // Invites
+    InviteRegister, GetInviteInfo http.HandlerFunc
+
+    // Admin
+    ListUsers, UpdateUserRole, BanUser, UnbanUser, DeleteUser http.HandlerFunc
+    RevokeUserSessions, AdminCreateUser http.HandlerFunc
+    AdminListUserSessions, AdminRevokeUserSession http.HandlerFunc
+
+    // Invite (admin)
+    CreateInvite, ListInvites, RevokeInvite, ResendInvite, HardDeleteInvite http.HandlerFunc
+
+    // OAuth
+    OAuthInitiate, OAuthCallback, OAuthLink, OAuthUnlink, OAuthProviders http.HandlerFunc
+
+    // Org
+    CreateOrg, GetOrg, UpdateOrg, DeleteOrg http.HandlerFunc
+    ListUserOrgs, ListOrgMembers http.HandlerFunc
+    RemoveOrgMember, UpdateOrgMemberRole, LeaveOrg http.HandlerFunc
+    SetActiveOrg, ClearActiveOrg http.HandlerFunc
+
+    // Org Invites
+    CreateOrgInvite, AcceptOrgInvite, ListOrgInvites http.HandlerFunc
+    ResendOrgInvite, DeleteOrgInvite http.HandlerFunc
+}
+```
+
+## MiddlewareGroup
+
+```go
+type MiddlewareGroup struct {
+    Authenticate func(http.Handler) http.Handler
+    RequireAdmin func(http.Handler) http.Handler
+    RateLimit    func(http.Handler) http.Handler
+    CORS         func(http.Handler) http.Handler
+}
+```

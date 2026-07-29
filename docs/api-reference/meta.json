@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "goauth",
+    "config",
+    "auth",
+    "sessions",
+    "password",
+    "email",
+    "invites",
+    "admin",
+    "oauth",
+    "organizations",
+    "middleware",
+    "service",
+    "domain",
+    "port"
+  ]
+}

@@ -1,0 +1,77 @@
+---
+title: "Admin Handlers"
+description: "User management, ban/unban, session management, and invite management for admins."
+---
+
+## Routes
+
+| Method | Path | Middleware |
+|---|---|---|
+| GET | `/admin/users` | Auth + Admin |
+| POST | `/admin/users` | Auth + Admin + CSRF + Origin |
+| PATCH | `/admin/users/{id}/role` | Auth + Admin + CSRF + Origin |
+| PATCH | `/admin/users/{id}/ban` | Auth + Admin + CSRF + Origin |
+| PATCH | `/admin/users/{id}/unban` | Auth + Admin + CSRF + Origin |
+| DELETE | `/admin/users/{id}` | Auth + Admin + CSRF + Origin |
+| GET | `/admin/users/{id}/sessions` | Auth + Admin |
+| DELETE | `/admin/users/{id}/sessions/{sessionId}` | Auth + Admin + CSRF + Origin |
+| DELETE | `/admin/users/{id}/sessions` | Auth + Admin + CSRF + Origin |
+| POST | `/admin/invites` | Auth + Admin + CSRF + Origin |
+| GET | `/admin/invites` | Auth + Admin |
+| DELETE | `/admin/invites/{id}` | Auth + Admin + CSRF + Origin |
+| POST | `/admin/invites/{id}/resend` | Auth + Admin + CSRF + Origin |
+| DELETE | `/admin/invites/{id}/hard` | Auth + Admin + CSRF + Origin |
+
+## Handlers
+
+### `GET /admin/users`
+
+**Auth + Admin.** Query: `?offset=0&limit=20&email=&search=&role=&orderBy=created_at&orderDirection=desc`. Returns `AdminListUsersResult`.
+
+### `POST /admin/users`
+
+**Auth + Admin.** Request: `CreateUserInput`. Response 201.
+
+### `PATCH /admin/users/{id}/role`
+
+**Auth + Admin.** Request: `{ "role": "admin" }`. Response 200.
+
+### `PATCH /admin/users/{id}/ban` / `.../{id}/unban`
+
+**Auth + Admin.** Response 200.
+
+### `DELETE /admin/users/{id}`
+
+**Auth + Admin.** Response 200.
+
+### `GET /admin/users/{id}/sessions`
+
+Query: `?offset=0&limit=20`. Returns `[Session]`.
+
+### `DELETE /admin/users/{id}/sessions/{sessionId}`
+
+Response 200.
+
+### `DELETE /admin/users/{id}/sessions`
+
+Revokes all sessions for user. Response 200.
+
+### `POST /admin/invites`
+
+Request: `{ "email": "a@b.com" }`. Response 201.
+
+### `GET /admin/invites`
+
+Query: `?offset=0&limit=20&search=&status=`. Response: `{ "invites": [...], "total": N }`.
+
+### `DELETE /admin/invites/{id}`
+
+Revokes invite. Response 200.
+
+### `POST /admin/invites/{id}/resend`
+
+Response 200.
+
+### `DELETE /admin/invites/{id}/hard`
+
+Hard deletes (not just revoke). Response 200.

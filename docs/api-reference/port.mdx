@@ -1,0 +1,198 @@
+---
+title: port Package
+description: Repository interfaces, service interfaces, and utility interfaces.
+---
+
+# port Package
+
+`import "github.com/nazimdjebloun/go-auth/port"`
+
+## Repository Interfaces (Database)
+
+### UserRepository
+
+```go
+type UserRepository interface {
+    Create(ctx, user *domain.User) error
+    GetByID(ctx, id string) (*domain.User, error)
+    GetByEmail(ctx, email string) (*domain.User, error)
+    Update(ctx, user *domain.User) error
+    Delete(ctx, id string) error
+    List(ctx, ListUsersInput) ([]domain.User, int, error)
+    Ban(ctx, id string) error
+    Unban(ctx, id string) error
+    UpdateRole(ctx, id string, role domain.Role) error
+    IncrementOrgOwnerCount(ctx, id string) error
+    DecrementOrgOwnerCount(ctx, id string) error
+}
+```
+
+### SessionRepository
+
+```go
+type SessionRepository interface {
+    Create(ctx, session *domain.Session) error
+    GetByTokenHash(ctx, tokenHash string) (*domain.Session, error)
+    GetByRefreshHash(ctx, refreshHash string) (*domain.Session, error)
+    Update(ctx, session *domain.Session) error
+    Delete(ctx, id string) error
+    DeleteAllByUserID(ctx, userID string) error
+    DeleteAllExcept(ctx, userID, exceptSessionID string) error
+    ListByUserID(ctx, userID string) ([]domain.Session, error)
+    GetByID(ctx, id string) (*domain.Session, error)
+    DeleteByUserIDExcept(ctx, userID, exceptID string) error
+    ListByUserIDPaginated(ctx, userID string, offset, limit int) ([]domain.Session, error)
+    UpdateActiveOrg(ctx, sessionID string, activeOrgID *string, activeOrgRole *domain.OrgRole) error
+}
+```
+
+### VerificationTokenRepository
+
+```go
+type VerificationTokenRepository interface {
+    Create(ctx, token *domain.VerificationToken) error
+    GetByTokenHash(ctx, tokenHash string) (*domain.VerificationToken, error)
+    MarkUsed(ctx, id string) error
+    MarkUsedByUserIDAndType(ctx, userID string, tokenType domain.TokenType) error
+    DeleteExpired(ctx) error
+}
+```
+
+### InviteRepository
+
+```go
+type InviteRepository interface {
+    Create(ctx, invite *domain.Invite) error
+    GetByCode(ctx, code string) (*domain.Invite, error)
+    GetByID(ctx, id string) (*domain.Invite, error)
+    Update(ctx, invite *domain.Invite) error
+    Delete(ctx, id string) error
+    List(ctx, ListInvitesInput) ([]domain.Invite, int, error)
+    UpdateStatus(ctx, id string, status domain.InviteStatus) error
+    HardDelete(ctx, id string) error
+    MarkExpired(ctx) error
+}
+```
+
+### OrgRepository
+
+```go
+type OrgRepository interface {
+    Create(ctx, org *domain.Organization) error
+    GetByID(ctx, id string) (*domain.Organization, error)
+    GetBySlug(ctx, slug string) (*domain.Organization, error)
+    Update(ctx, org *domain.Organization) error
+    Delete(ctx, id string) error
+    ListByUserID(ctx, userID string) ([]domain.Organization, error)
+    OwnerCount(ctx, orgID string) (int, error)
+    MemberCount(ctx, orgID string) (int, error)
+    CountByUserID(ctx, userID string) (int, error)
+}
+```
+
+### OrgMemberRepository
+
+```go
+type OrgMemberRepository interface {
+    Create(ctx, member *domain.OrgMember) error
+    GetByOrgAndUser(ctx, orgID, userID string) (*domain.OrgMember, error)
+    ListByOrgID(ctx, orgID string, offset, limit int) ([]domain.OrgMember, int, error)
+    Delete(ctx, orgID, userID string) error
+    UpdateRole(ctx, orgID, userID string, role domain.OrgRole) error
+    TransferOwnership(ctx, orgID, fromUserID, toUserID string) error
+    DeleteByUserID(ctx, userID string) error
+    OwnerCount(ctx, orgID string) (int, error)
+}
+```
+
+### OrgInviteRepository
+
+```go
+type OrgInviteRepository interface {
+    Create(ctx, invite *domain.OrgInvite) error
+    GetByCodeHash(ctx, codeHash string) (*domain.OrgInvite, error)
+    GetByID(ctx, id string) (*domain.OrgInvite, error)
+    ListByOrgID(ctx, orgID string) ([]domain.OrgInvite, error)
+    Delete(ctx, id string) error
+    MarkExpired(ctx, orgInviteTTL time.Duration) error
+}
+```
+
+### ProviderAccountRepository
+
+```go
+type ProviderAccountRepository interface {
+    Create(ctx, account *domain.ProviderAccount) error
+    GetByProviderID(ctx, providerID string) (*domain.ProviderAccount, error)
+    GetByUserAndProvider(ctx, userID, provider string) (*domain.ProviderAccount, error)
+    ListByUserID(ctx, userID string) ([]domain.ProviderAccount, error)
+    Delete(ctx, id string) error
+    DeleteByUserAndProvider(ctx, userID, provider string) error
+    UpdateEmail(ctx, id, email string) error
+}
+```
+
+## Service Interfaces
+
+### Mailer
+
+```go
+type Mailer interface {
+    Send(ctx, to, template string, data map[string]interface{}) error
+}
+```
+
+The library calls `templates/send-email-verification.gohtml`, `templates/send-password-reset.gohtml`, `templates/send-invite.gohtml`, `templates/send-org-invite.gohtml`, `templates/send-delete-account.gohtml`, `templates/send-set-password.gohtml`.
+
+### OAuthProvider
+
+```go
+type OAuthProvider interface {
+    Name() string
+    DefaultScopes() []string
+    AuthURL(state, codeChallenge string, scopes []string) string
+    Exchange(ctx, code, codeVerifier string) (accessToken string, expiresAt *time.Time, err error)
+    UserInfo(ctx, accessToken string) (email, name string, err error)
+}
+```
+
+### SessionService (internal)
+
+```go
+type SessionService interface {
+    Create(ctx, userID, ip, userAgent string) (*domain.Session, string, string, error)
+    Validate(ctx, token string) (*domain.Session, error)
+    Touch(ctx, token string, lastActiveAt time.Time) error
+    Revoke(ctx, token string) error
+    RevokeByID(ctx, id string) error
+    RevokeAll(ctx, userID string) error
+    RevokeAllExcept(ctx, userID string, exceptSessionID string) error
+    RevokeByUserID(ctx, userID string) error
+    List(ctx, userID string) ([]domain.Session, error)
+    RefreshSession(ctx, rawRefreshToken string) (*domain.Session, string, string, error)
+    GetByID(ctx, id string) (*domain.Session, error)
+    DeleteByUserIDExcept(ctx, userID, exceptSessionID string) error
+    Config() SessionConfig
+}
+```
+
+### TransactionManager
+
+```go
+type TransactionManager interface {
+    RunInTransaction(ctx, fn func(ctxTX context.Context) error) error
+}
+```
+
+### Various
+
+```go
+type TokenGenerator interface {
+    Generate() (raw string, hash string, err error)
+}
+
+type PasswordHasher interface {
+    Hash(password string) (hash string, err error)
+    Verify(password, hash string) bool
+}
+```

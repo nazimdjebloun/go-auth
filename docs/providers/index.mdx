@@ -1,0 +1,43 @@
+---
+title: Providers
+description: OAuth provider overview, interface, and configuration.
+---
+
+# Providers
+
+`import "github.com/nazimdjebloun/go-auth/port"`
+
+go-auth supports OAuth 2.0 authentication via pluggable providers. Each provider implements the `port.OAuthProvider` interface:
+
+```go
+type OAuthProvider interface {
+    Name() string
+    AuthURL(state, codeChallenge string) string
+    Exchange(ctx, code, codeVerifier string) (*OAuthProfile, error)
+}
+```
+
+## Registering Providers
+
+Use `goauth.WithProvider` in `NewConfig`:
+
+```go
+goauth.WithProvider(google.New(google.Config{...}))
+goauth.WithProvider(github.New(github.Config{...}))
+goauth.WithProvider(microsoft.New(microsoft.Config{...}))
+goauth.WithProvider(gitlab.New(gitlab.Config{...}))
+goauth.WithProvider(apple.New(apple.Config{...}))
+goauth.WithProvider(slack.New(slack.Config{...}))
+```
+
+### Import Paths
+
+| Provider | Import Path |
+|---|---|
+| Apple | `"github.com/nazimdjebloun/go-auth/provider/apple"` |
+| GitHub | `"github.com/nazimdjebloun/go-auth/provider/github"` |
+| GitLab | `"github.com/nazimdjebloun/go-auth/provider/gitlab"` |
+| Google | `"github.com/nazimdjebloun/go-auth/provider/google"` |
+| Microsoft / Azure | `"github.com/nazimdjebloun/go-auth/provider/microsoft"` |
+| Slack | `"github.com/nazimdjebloun/go-auth/provider/slack"` |
+| Custom | `"github.com/nazimdjebloun/go-auth/port"` (interface) |

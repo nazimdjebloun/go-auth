@@ -1,0 +1,51 @@
+---
+title: Installation
+description: Prerequisites, installation, and database setup instructions for go-auth.
+---
+
+# Installation
+
+## Prerequisites
+
+- Go 1.19+ (tested through 1.26)
+- A database: PostgreSQL (recommended), SQLite, or MySQL
+- (Optional) SMTP server for email features
+
+## Install
+
+```sh
+go get github.com/nazimdjebloun/go-auth
+```
+
+Dependencies are pulled automatically:
+
+| Dependency | Purpose |
+|---|---|
+| `github.com/jackc/pgx/v5` | PostgreSQL driver |
+| `modernc.org/sqlite` | SQLite driver (pure Go, no CGO) |
+| `github.com/go-sql-driver/mysql` | MySQL driver |
+| `golang.org/x/oauth2` | OAuth2 token exchange |
+| `golang.org/x/crypto` | bcrypt password hashing |
+| `github.com/wneessen/go-mail` | SMTP email delivery |
+
+## Database Setup
+
+Apply the schema before starting your app:
+
+```sh
+# PostgreSQL
+psql "$DATABASE_URL" -f schema/postgres.sql
+
+# SQLite
+sqlite3 data.db < schema/sqlite.sql
+
+# MySQL
+mysql "$DATABASE_URL" < schema/mysql.sql
+```
+
+The library also supports auto-migration for PostgreSQL via `auth.schema.sql` in the testing template. See the [Database](database.md) guide for details.
+
+## Next Steps
+
+- [Getting Started](getting-started.md) — run a minimal server in 5 minutes
+- [Configuration](configuration.md) — learn all available options

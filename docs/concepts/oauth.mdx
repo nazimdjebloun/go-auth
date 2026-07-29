@@ -1,0 +1,28 @@
+---
+title: OAuth / SSO
+description: OAuth 2.0 authentication flow with external providers.
+---
+
+# OAuth / SSO
+
+```text
+Client                          Server                    OAuth Provider
+  │                               │                         │
+  │ GET /auth/oauth/google        │                         │
+  │──────────────────────────────▶│                         │
+  │◀──── 302 Redirect to Google ──│                         │
+  │                               │                         │
+  │ (user authorizes)             │                         │
+  │                               │                         │
+  │ GET /auth/oauth/google/       │                         │
+  │ callback?code=X&state=Y      │                         │
+  │──────────────────────────────▶│                         │
+  │                               │ Exchange code for token │
+  │                               │────────────────────────▶│
+  │                               │◀────────────────────────│
+  │                               │ Fetch user info         │
+  │                               │────────────────────────▶│
+  │                               │◀────────────────────────│
+  │◀──── Set-Cookie: session ────│                         │
+  │◀──── Redirect to app ───────│                         │
+```

@@ -1,0 +1,75 @@
+---
+title: go-auth
+description: A comprehensive authentication, authorization, session management, and organizations library for Go web applications.
+---
+
+# go-auth
+
+A comprehensive authentication, authorization, session management, and organizations library for Go web applications. Designed as a drop-in backend — configure once, mount the routes, and get a full auth system with zero boilerplate.
+
+## Why go-auth?
+
+| Problem | Solution |
+|---|---|
+| Building auth from scratch | Pre-built register, login, session, password reset |
+| Multi-tenant orgs | Full org CRUD, roles, invites, membership |
+| OAuth integration | Provider interface with GitHub + Google built-in |
+| Security footguns | CSRF, rate limiting, refresh rotation, idle timeout |
+| Frontend glue | TypeScript API client, React hooks, cookie management |
+
+## Features at a Glance
+
+- **Authentication** — register, login, logout, check session, refresh tokens, delete account
+- **Password Management** — forgot password, reset password, change password, set password (invite flow)
+- **Email Verification** — on-signup or on-demand, resend support
+- **Session Management** — HTTP-only cookies, refresh token rotation, idle timeout, list/revoke sessions
+- **Admin Panel** — full user CRUD, ban/unban, role management, session revoke
+- **OAuth / SSO** — pluggable `port.OAuthProvider` interface; GitHub and Google providers included
+- **Invite-Only Mode** — registration gated behind invites, email delivery
+- **Organizations** — multi-tenant groups, role-based access (owner/admin/member), member management, email invites with code acceptance
+- **Rate Limiting** — per-IP token bucket with configurable rate and burst
+- **CSRF Protection** — double-submit cookie pattern
+- **CORS** — origin-based validation
+- **Multiple Databases** — PostgreSQL (via pgx), SQLite, MySQL
+- **Structured Logging** — uses `slog.Logger`
+
+## Architecture
+
+```text
+┌──────────────┐     ┌────────────┐     ┌──────────────┐
+│   Consumer    │────▶│  go-auth   │────▶│   Database   │
+│  (Your App)   │     │   Mount()  │     │ (pgx/sqlite) │
+└──────┬───────┘     └─────┬──────┘     └──────────────┘
+       │                   │
+       │ Handlers          │ Services
+       ▼                   ▼
+┌──────────────┐     ┌────────────┐
+│ Custom Routes │     │ auth.Services.* │
+│ + Middleware  │     │ (programmatic)  │
+└──────────────┘     └────────────┘
+```
+
+- **HTTP layer** — `Auth.Mount(mux)` registers all routes and middleware on your `*http.ServeMux`
+- **Programmatic layer** — `auth.Register()`, `Auth.Login()`, `Auth.Services.Org.ListUserOrgs()`, etc. callable from any Go code
+- **Handler layer** — `Auth.Handlers.*` are pre-wired `http.HandlerFunc` values with middleware already baked in
+- **Middleware layer** — `Auth.Middleware.*` exposes `Authenticate`, `RequireAdmin`, `RateLimit`, `CORS` for your own routes
+
+## Quick Links
+
+- [Getting Started](getting-started.md)
+- [Configuration](configuration.md)
+- [Core Concepts](core-concepts.md)
+- [Database](database.md)
+- [Frontend](frontend.md)
+- [Examples](examples.md)
+- [Migration Guide](migration-guide.md)
+
+### API Reference
+
+- [goauth](api-reference/goauth.md) — Auth struct, Mount(), services
+- [domain](api-reference/domain.md) — Domain types
+- [service](api-reference/service.md) — Service methods
+- [handler](api-reference/handler.md) — HTTP handlers
+- [middleware](api-reference/middleware.md) — Auth, org, role middleware
+- [port](api-reference/port.md) — Interfaces
+- [provider](api-reference/provider.md) — OAuth providers

@@ -1,0 +1,97 @@
+---
+title: middleware Package
+description: Authenticate, RequireAdmin, RateLimit, CORS middleware and context keys.
+---
+
+# middleware Package
+
+`import "github.com/nazimdjebloun/go-auth/middleware"`
+
+## Middleware Functions
+
+Returned by `NewMiddleware()` or accessible via `auth.Middleware`.
+
+```go
+type Middleware struct {
+    session port.SessionService
+    config  *Config
+}
+
+func NewMiddleware(svc port.SessionService, config Config) *Middleware
+```
+
+### `Authenticate`
+
+```go
+func (m *Middleware) Authenticate(next http.Handler) http.Handler
+```
+
+Validates session from `auth_token` cookie (or `Authorization: Bearer <token>` header). Sets `ctx.UserID`, `ctx.Email`, `ctx.Role`, `ctx.SessionID` on the request context.
+
+Returns 401 if session is missing, expired, or invalid.
+
+### `RequireAdmin`
+
+```go
+func (m *Middleware) RequireAdmin(next http.Handler) http.Handler
+```
+
+Must be used after `Authenticate`. Returns 403 if user role is not `admin`.
+
+### `RateLimit`
+
+```go
+func (m *Middleware) RateLimit(next http.Handler) http.Handler
+```
+
+Configurable via `WithRateLimit` in the root config.
+
+### `CORS`
+
+```go
+func (m *Middleware) CORS(next http.Handler) http.Handler
+```
+
+Handles `Access-Control-Allow-Origin`, `Vary: Origin`, `Access-Control-Allow-Credentials: true`, and OPTIONS preflight. Origin is validated against `Config.AllowedOrigins`.
+
+## Context Keys
+
+```go
+ctx.Value(middleware.UserIDKey).(string)
+ctx.Value(middleware.EmailKey).(string)
+ctx.Value(middleware.RoleKey).(string)       // domain.Role
+ctx.Value(middleware.SessionIDKey).(string)
+ctx.Value(middleware.OrgRoleKey).(domain.OrgRole)
+ctx.Value(middleware.SessionKey).(*domain.Session)
+```
+
+## CSRF Middleware
+
+```go
+type CSRFMiddleware struct {}
+
+func NewCSRF(config CSRFConfig) *CSRFMiddleware
+```
+
+Generated via `middleware.NewCSRF(config)`. Stored in `Handlers.CSRFToken`.
+
+### Configuration
+
+```go
+type CSRFConfig struct {
+    Secret     string // HMAC secret (auto-generated if empty)
+    TokenLen   int    // default 32
+    MaxAge     int    // seconds; default 86400 (24h)
+    Secure     bool   // default true
+    HTTPOnly   bool   // default true
+    SameSite   http.SameSite
+    Path       string // default "/"
+}
+
+type CSRF struct {
+    Verify func(next http.Handler) http.Handler
+    GetToken http.HandlerFunc
+}
+```
+
+**Verification:** CSRF reads token from `X-CSRF-Token` header and validates against `csrf_token` cookie using HMAC. Returns 403 on mismatch.
