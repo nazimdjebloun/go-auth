@@ -1,0 +1,223 @@
+---
+title: domain Package
+description: Domain types including User, Session, Organization, and error sentinels.
+---
+
+# domain Package
+
+`import "github.com/nazimdjebloun/go-auth/domain"`
+
+## Types
+
+### User
+
+```go
+type User struct {
+    ID            string     `json:"id"`
+    Email         string     `json:"email"`
+    PasswordHash  *string    `json:"-"`
+    Name          string     `json:"name"`
+    Role          Role       `json:"role"`              // "user" | "admin"
+    IsVerified    bool       `json:"isVerified"`
+    VerifiedAt    *time.Time `json:"verifiedAt,omitempty"`
+    IsBanned      bool       `json:"isBanned"`
+    BannedAt      *time.Time `json:"bannedAt,omitempty"`
+    OrgOwnerCount int        `json:"orgOwnerCount"`
+    CreatedAt     time.Time  `json:"createdAt"`
+    UpdatedAt     time.Time  `json:"updatedAt"`
+}
+
+func (u *User) HasPassword() bool
+```
+
+### Role
+
+```go
+type Role string
+
+const (
+    RoleUser  Role = "user"
+    RoleAdmin Role = "admin"
+)
+```
+
+### Session
+
+```go
+type Session struct {
+    ID              string     `json:"id"`
+    UserID          string     `json:"userId"`
+    TokenHash       string     `json:"-"`
+    RefreshHash     *string    `json:"-"`
+    PrevRefreshHash *string    `json:"-"`
+    IP              string     `json:"ip"`
+    UserAgent       string     `json:"userAgent"`
+    LastActiveAt    time.Time  `json:"lastActiveAt"`
+    ExpiresAt       time.Time  `json:"expiresAt"`
+    RefreshExpiresAt *time.Time `json:"refreshExpiresAt,omitempty"`
+    CreatedAt       time.Time  `json:"createdAt"`
+    ActiveOrgID     *string    `json:"activeOrgId,omitempty"`
+    ActiveOrgRole   *OrgRole   `json:"activeOrgRole,omitempty"`
+}
+```
+
+### VerificationToken
+
+```go
+type VerificationToken struct {
+    ID           string     `json:"id"`
+    UserID       *string    `json:"userId,omitempty"`
+    Email        string     `json:"email"`
+    TokenHash    string     `json:"-"`
+    Type         TokenType  `json:"type"`
+    ExpiresAt    time.Time  `json:"expiresAt"`
+    UsedAt       *time.Time `json:"usedAt,omitempty"`
+    CodeVerifier *string    `json:"-"`
+}
+```
+
+### TokenType
+
+```go
+type TokenType string
+
+const (
+    TokenVerifyEmail   TokenType = "verify_email"
+    TokenResetPass     TokenType = "reset_password"
+    TokenSetPass       TokenType = "set_password"
+    TokenInviteVerify  TokenType = "invite_verify"
+    TokenOAuthState    TokenType = "oauth_state"
+    TokenDeleteAccount TokenType = "delete_account"
+)
+```
+
+### Invite
+
+```go
+type InviteStatus string
+
+const (
+    InvitePending  InviteStatus = "pending"
+    InviteAccepted InviteStatus = "accepted"
+    InviteRevoked  InviteStatus = "revoked"
+    InviteExpired  InviteStatus = "expired"
+)
+
+type Invite struct {
+    ID         string       `json:"id"`
+    Email      string       `json:"email"`
+    Code       string       `json:"-"`
+    RawCode    string       `json:"rawCode,omitempty"`
+    CreatedBy  string       `json:"createdBy"`
+    Status     InviteStatus `json:"status"`
+    ExpiresAt  time.Time    `json:"expiresAt"`
+    AcceptedAt *time.Time   `json:"acceptedAt,omitempty"`
+    CreatedAt  time.Time    `json:"createdAt"`
+}
+```
+
+### Organization
+
+```go
+type Organization struct {
+    ID          string                 `json:"id"`
+    Name        string                 `json:"name"`
+    Slug        string                 `json:"slug"`
+    CreatedBy   *string                `json:"created_by,omitempty"`
+    OwnerCount  int                    `json:"owner_count"`
+    MemberCount int                    `json:"member_count"`
+    Metadata    map[string]interface{} `json:"metadata,omitempty"`
+    CreatedAt   time.Time              `json:"created_at"`
+    UpdatedAt   time.Time              `json:"updated_at"`
+}
+```
+
+### OrgMember
+
+```go
+type OrgMember struct {
+    OrgID    string    `json:"org_id"`
+    UserID   string    `json:"user_id"`
+    Role     OrgRole   `json:"role"`
+    JoinedAt time.Time `json:"joined_at"`
+}
+
+type OrgMemberDetail struct {
+    OrgMember
+    User *User `json:"user"`
+}
+```
+
+### OrgRole
+
+```go
+type OrgRole string
+
+const (
+    OrgRoleOwner  OrgRole = "owner"   // weight 3
+    OrgRoleAdmin  OrgRole = "admin"   // weight 2
+    OrgRoleMember OrgRole = "member"  // weight 1
+)
+
+func (r OrgRole) IsValid() bool
+func (r OrgRole) Weight() int
+```
+
+### OrgInvite
+
+```go
+type OrgInvite struct {
+    ID        string    `json:"id"`
+    OrgID     string    `json:"org_id"`
+    Email     string    `json:"email"`
+    Role      OrgRole   `json:"role"`
+    CodeHash  string    `json:"-"`
+    RawCode   string    `json:"rawCode,omitempty"`
+    InvitedBy string    `json:"invited_by"`
+    ExpiresAt time.Time `json:"expires_at"`
+    CreatedAt time.Time `json:"created_at"`
+}
+```
+
+### PasswordPolicy
+
+```go
+type PasswordPolicy struct {
+    MinLength    int  // default 8
+    RequireDigit bool // default true
+}
+```
+
+### Error Sentinel Values
+
+```go
+var ErrInvalidCredentials     = errors.New("invalid credentials")
+var ErrSessionExpired         = errors.New("session expired")
+var ErrUserBanned             = errors.New("user is banned")
+var ErrEmailNotVerified       = errors.New("email not verified")
+var ErrInvalidToken           = errors.New("invalid token")
+var ErrExpiredToken           = errors.New("token expired")
+var ErrTokenAlreadyUsed       = errors.New("token already used")
+var ErrUserNotFound           = errors.New("user not found")
+var ErrEmailTaken             = errors.New("email already taken")
+var ErrInviteExpired          = errors.New("invite expired")
+var ErrInviteRevoked          = errors.New("invite revoked")
+var ErrInviteEmailMismatch    = errors.New("invite email mismatch")
+var ErrOrgLimitReached        = errors.New("org limit reached")
+var ErrOrgMemberLimitReached  = errors.New("org member limit reached")
+var ErrCannotRemoveLastOwner  = errors.New("cannot remove last owner")
+var ErrOrgInviteExpired       = errors.New("org invite expired")
+var ErrOrgInviteEmailMismatch = errors.New("org invite email mismatch")
+var ErrNotOrgMember           = errors.New("not an org member")
+var ErrInsufficientRole       = errors.New("insufficient org role")
+var ErrOrgSlugTaken           = errors.New("org slug already taken")
+```
+
+### ReservedOrgSlugs
+
+```go
+var ReservedOrgSlugs = map[string]bool{
+    "api": true, "admin": true, "auth": true, "www": true,
+    "app": true, "static": true, "public": true, // ...
+}
+```

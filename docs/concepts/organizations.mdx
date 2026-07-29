@@ -1,0 +1,33 @@
+---
+title: Organizations
+description: Multi-tenant org groups, roles, active org, and org invites.
+---
+
+# Organizations
+
+The org feature provides multi-tenant groups:
+
+- **Owners** (weight 3) — full control, can delete the org
+- **Admins** (weight 2) — manage members, invites, settings
+- **Members** (weight 1) — read access, can leave
+
+### Active Org
+
+Each session can have an active org set. This is stored in `sessions.active_org_id` and `sessions.active_org_role`. The app uses this to scope queries:
+
+```go
+func myHandler(w http.ResponseWriter, r *http.Request) {
+    session := middleware.GetSessionFromContext(r.Context())
+    if session.ActiveOrgID != nil {
+        // scope queries by *session.ActiveOrgID
+    }
+}
+```
+
+### Org Invites
+
+Invites are code-based and delivered via email:
+
+1. Admin creates invite → system generates code, emails link: `{baseURL}/invite?code={rawCode}`
+2. User clicks link → frontend reads code, calls `POST /auth/orgs/invites/accept`
+3. Server verifies code hash + email match → user becomes member

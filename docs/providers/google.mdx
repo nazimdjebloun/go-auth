@@ -1,0 +1,47 @@
+---
+title: Google Provider
+description: Google OAuth provider setup and usage.
+---
+
+# Google Provider
+
+`import "github.com/nazimdjebloun/go-auth/provider/google"`
+
+```go
+type Provider struct {
+    // unexported fields
+}
+
+func New(cfg Config) *Provider
+```
+
+## Configuration
+
+| Param | Description |
+|---|---|
+| `ClientID` | Google OAuth 2.0 client ID |
+| `ClientSecret` | Google OAuth 2.0 client secret |
+| `RedirectURL` | Must match the authorized redirect URI in Google Cloud Console |
+
+## Methods
+
+| Method | Signature | Description |
+|---|---|---|
+| `Name()` | `string` | Returns `"google"` |
+| `AuthURL()` | `(state, codeChallenge string) string` | Google OAuth2 authorize URL |
+| `Exchange()` | `(ctx, code, codeVerifier string) (*port.OAuthProfile, error)` | Exchanges code for token and fetches user profile |
+
+## Default Scopes
+
+`["openid", "profile", "email"]`
+
+## Registration
+
+1. Go to Google Cloud Console → APIs & Services → Credentials → Create Credentials → OAuth client ID
+2. Add authorized redirect URI: `https://yourdomain.com/auth/oauth/google/callback`
+3. Use Client ID and Client Secret in config
+
+## Notes
+
+- Google returns `expires_in` from the token endpoint; `TokenExpiresAt` is set accordingly.
+- The `code_verifier` / `code_challenge` for PKCE is passed as the client secret during token exchange (Google's OAuth 2.0 endpoint accepts it as `client_secret`).

@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "index",
+    "apple",
+    "github",
+    "gitlab",
+    "google",
+    "microsoft",
+    "slack",
+    "custom"
+  ]
+}

@@ -1,0 +1,36 @@
+---
+title: "OAuth Handlers"
+description: "OAuth initiate, callback, link, unlink, and provider listing handlers."
+---
+
+## Routes
+
+| Method | Path | Middleware |
+|---|---|---|
+| GET | `/auth/oauth/{provider}` | none |
+| GET | `/auth/oauth/{provider}/callback` | none |
+| POST | `/auth/oauth/link/{provider}` | Auth + CSRF + Origin |
+| POST | `/auth/oauth/unlink/{provider}` | Auth + CSRF + Origin |
+| GET | `/auth/oauth/providers` | Auth |
+
+## Handlers
+
+### `GET /auth/oauth/{provider}`
+
+**Rate limited on callback.** Initiates OAuth flow. Redirects to provider's consent page. Also sets `oauth_state` cookie.
+
+### `GET /auth/oauth/{provider}/callback`
+
+Exchanges `code`+`state` for user info. Sets session cookie. Redirects to `BaseURL` on success.
+
+### `POST /auth/oauth/link/{provider}`
+
+**Auth + CSRF.** Request: `{ "code": "...", "state": "..." }`. Response 200.
+
+### `POST /auth/oauth/unlink/{provider}`
+
+**Auth + CSRF.** Response 200.
+
+### `GET /auth/oauth/providers`
+
+**Auth.** Returns `{ "providers": ["github", "google"] }`.

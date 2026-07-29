@@ -1,0 +1,82 @@
+---
+title: Migration Guide
+description: Breaking changes and schema migration from v0.x to v1.0.
+---
+
+# Migration Guide
+
+## v0.x → v1.0 (Org Invite Refactor)
+
+### Breaking Changes
+
+#### 1. `AddMember` Handler Removed
+
+The `POST /auth/orgs/{orgID}/members` handler (`AddMember`) was removed. All membership must go through the invite flow.
+
+**Before:** `POST /auth/orgs/{orgID}/members` with `{userId, role}`  
+**After:** `POST /auth/orgs/{orgID}/invites` with `{email, role}` → user receives email → `POST /auth/orgs/invites/accept` with `{code}`
+
+#### 2. `OrgService` Split
+
+`OrgService` no longer has invite-related methods. Use `OrgInviteService` instead:
+
+| Old | New |
+|---|---|
+| `OrgService.CreateOrgInvite` | `OrgInviteService.CreateOrgInvite` |
+| `OrgService.AcceptInvite` | `OrgInviteService.AcceptInvite` |
+| `OrgService.ListOrgInvites` | `OrgInviteService.ListOrgInvites` |
+| `OrgService.DeleteOrgInvite` | `OrgInviteService.DeleteOrgInvite` |
+| `OrgService.ResendOrgInviteEmail` | `OrgInviteService.ResendOrgInviteEmail` |
+
+#### 3. File Renames
+
+| Before | After |
+|---|---|
+| `service/org_service.go` | `service/org.go` |
+| `service/org_invite_service.go` | `service/org_invite.go` |
+| `sqlstore/org_repo.go` | `sqlstore/org_repo.go` + `sqlstore/org_queries.go` |
+
+#### 4. `NewOrgService` Signature
+
+Reduced from 8 to 5 params. Invite-related params removed.
+
+**Before:**
+```go
+svc := service.NewOrgService(orgs, users, orgInvites, txManager, gen, mailer, config, logger)
+```
+
+**After:**
+```go
+svc := service.NewOrgService(orgs, users, txManager, config, logger)
+orgInviteSvc := service.NewOrgInviteService(orgInvites, orgs, users, txManager, gen, mailer, inviteTTL, baseURL, appName, logger)
+```
+
+#### 5. OAuth Route Prefix
+
+OAuth routes moved from `/auth/{provider}` to `/auth/oauth/{provider}`.
+
+**Before:** `GET /auth/google`, `GET /auth/google/callback`  
+**After:** `GET /auth/oauth/google`, `GET /auth/oauth/google/callback`
+
+Update your frontend redirect URLs and API paths accordingly.
+
+### Schema Changes
+
+Run the migration SQL for existing databases:
+
+```sql
+-- Add org columns to users
+ALTER TABLE users ADD COLUMN IF NOT EXISTS org_owner_count INTEGER NOT NULL DEFAULT 0;
+
+-- Add active org columns to sessions
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS active_org_id UUID REFERENCES organizations(id) ON DELETE SET NULL;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS active_org_role TEXT;
+ALTER TABLE sessions ADD CONSTRAINT chk_active_org CHECK (
+    (active_org_id IS NULL AND active_org_role IS NULL)
+    OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL)
+);
+
+-- Fix verification_tokens CHECK to include delete_account
+ALTER TABLE verification_tokens DROP CONSTRAINT IF EXISTS ...;
+ALTER TABLE verification_tokens ADD CONSTRAINT ... CHECK(type IN (...'delete_account'));
+```

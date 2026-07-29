@@ -1,0 +1,230 @@
+---
+title: Database
+description: Supported drivers, connection options, schema, and indexes.
+---
+
+# Database
+
+## Supported Drivers
+
+| Driver | Value | Notes |
+|---|---|---|
+| PostgreSQL | `"postgres"` | Default. Uses `pgx/v5` |
+| SQLite | `"sqlite3"` | Pure Go via `modernc.org/sqlite` |
+| MySQL | `"mysql"` | Via `go-sql-driver/mysql` |
+
+## Connection Options
+
+```go
+// Option 1: Connection string (preferred — library manages the pool)
+WithApp(goauth.AppConfig{
+    Database: goauth.DatabaseConfig{
+        URL: "postgres://user:pass@localhost:5432/goauth?sslmode=disable",
+    },
+})
+
+// Option 2: Pre-opened *sql.DB
+WithApp(goauth.AppConfig{
+    Database: goauth.DatabaseConfig{
+        DB: sqlDB,
+    },
+})
+
+// Option 3: Pre-opened pgx pool
+WithApp(goauth.AppConfig{
+    Database: goauth.DatabaseConfig{
+        Pool: pgxPool,
+    },
+})
+```
+
+When using `URL`, the library opens the connection, validates it with a ping, and closes it on `Auth.Close()`.  
+
+When using `DB` or `Pool`, the library borrows the connection and does **not** close it.
+
+## Schema
+
+The full schema for all three drivers is in `internal/schema/`:
+
+| File | Driver |
+|---|---|
+| `internal/schema/postgres.sql` | PostgreSQL |
+| `internal/schema/sqlite.sql` | SQLite |
+| `internal/schema/mysql.sql` | MySQL |
+
+### Core Tables
+
+**`users`** — registered accounts
+
+```sql
+CREATE TABLE users (
+    id              TEXT PRIMARY KEY,
+    email           TEXT UNIQUE NOT NULL,
+    password_hash   TEXT,
+    name            TEXT NOT NULL DEFAULT '',
+    role            TEXT NOT NULL DEFAULT 'user'
+                    CHECK(role IN ('user', 'admin')),
+    is_verified     INTEGER NOT NULL DEFAULT 0,
+    verified_at     TIMESTAMP,
+    is_banned       INTEGER NOT NULL DEFAULT 0,
+    banned_at       TIMESTAMP,
+    org_owner_count INTEGER NOT NULL DEFAULT 0,
+    created_at      TIMESTAMP NOT NULL,
+    updated_at      TIMESTAMP NOT NULL
+);
+```
+
+**`sessions`** — active sessions
+
+```sql
+CREATE TABLE sessions (
+    id                  TEXT PRIMARY KEY,
+    user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash          TEXT UNIQUE NOT NULL,
+    refresh_token_hash  TEXT UNIQUE,       -- rotated on refresh
+    prev_refresh_hash   TEXT UNIQUE,       -- one-use grace detection
+    ip                  TEXT NOT NULL DEFAULT '',
+    user_agent          TEXT NOT NULL DEFAULT '',
+    last_active_at      TIMESTAMP NOT NULL,
+    expires_at          TIMESTAMP NOT NULL,
+    refresh_expires_at  TIMESTAMP,
+    created_at          TIMESTAMP NOT NULL,
+    active_org_id       UUID REFERENCES organizations(id) ON DELETE SET NULL,
+    active_org_role     TEXT
+                        CHECK(active_org_role IN ('owner', 'admin', 'member')),
+    CHECK (
+        (active_org_id IS NULL AND active_org_role IS NULL)
+        OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL)
+    )
+);
+```
+
+**`verification_tokens`** — email verification, password reset, etc.
+
+```sql
+CREATE TABLE verification_tokens (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT,
+    email           TEXT NOT NULL,
+    token_hash      TEXT NOT NULL,
+    type            TEXT NOT NULL
+                    CHECK(type IN ('verify_email', 'reset_password', 'set_password',
+                                   'invite_verify', 'oauth_state', 'delete_account')),
+    expires_at      TIMESTAMP NOT NULL,
+    used_at         TIMESTAMP,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**`invites`** — app-wide invites (for invite-only mode)
+
+```sql
+CREATE TABLE invites (
+    id              TEXT PRIMARY KEY,
+    email           TEXT NOT NULL,
+    code_hash       TEXT NOT NULL,
+    created_by      TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'pending'
+                    CHECK(status IN ('pending', 'accepted', 'revoked', 'expired')),
+    expires_at      TIMESTAMP NOT NULL,
+    accepted_at     TIMESTAMP,
+    created_at      TIMESTAMP NOT NULL
+);
+```
+
+### OAuth Tables
+
+**`provider_accounts`** — linked OAuth accounts
+
+```sql
+CREATE TABLE provider_accounts (
+    id                TEXT PRIMARY KEY,
+    user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider          TEXT NOT NULL,
+    provider_user_id  TEXT NOT NULL,
+    email             TEXT,
+    avatar_url        TEXT,
+    created_at        TIMESTAMP NOT NULL,
+    UNIQUE(provider, provider_user_id)
+);
+```
+
+### Organization Tables
+
+**`organizations`** — org groups
+
+```sql
+CREATE TABLE organizations (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    slug          TEXT UNIQUE NOT NULL,
+    created_by    TEXT,
+    owner_count   INTEGER NOT NULL DEFAULT 1,
+    member_count  INTEGER NOT NULL DEFAULT 1,
+    metadata      JSONB DEFAULT '{}',
+    created_at    TIMESTAMP NOT NULL,
+    updated_at    TIMESTAMP NOT NULL
+);
+```
+
+**`organization_members`** — membership + roles
+
+```sql
+CREATE TABLE organization_members (
+    org_id    TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id   TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role      TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member')),
+    joined_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (org_id, user_id)
+);
+```
+
+**`organization_invites`** — org invites
+
+```sql
+CREATE TABLE organization_invites (
+    id          TEXT PRIMARY KEY,
+    org_id      TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email       TEXT NOT NULL,
+    role        TEXT NOT NULL CHECK(role IN ('owner', 'admin', 'member')),
+    code_hash   TEXT NOT NULL,
+    invited_by  TEXT NOT NULL,
+    expires_at  TIMESTAMP NOT NULL,
+    created_at  TIMESTAMP NOT NULL
+);
+```
+
+## Migration
+
+For existing databases, apply `migration.sql` (PostgreSQL example):
+
+```sql
+ALTER TABLE users ADD COLUMN IF NOT EXISTS org_owner_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS active_org_id UUID REFERENCES organizations(id) ON DELETE SET NULL;
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS active_org_role TEXT;
+ALTER TABLE sessions ADD CONSTRAINT chk_active_org CHECK (
+    (active_org_id IS NULL AND active_org_role IS NULL)
+    OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL)
+);
+```
+
+## Indexes
+
+```sql
+-- Session lookups
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_refresh_hash ON sessions(refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh ON sessions(prev_refresh_hash);
+
+-- Org lookups
+CREATE INDEX IF NOT EXISTS idx_org_members_user ON organization_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_org_members_org_role ON organization_members(org_id, role);
+CREATE INDEX IF NOT EXISTS idx_org_invites_org ON organization_invites(org_id);
+
+-- Active org lookups
+CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+
+-- Verification tokens
+CREATE INDEX IF NOT EXISTS idx_token_user_type ON verification_tokens(user_id, type);
+```

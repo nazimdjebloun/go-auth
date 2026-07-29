@@ -1,0 +1,73 @@
+---
+title: Configuration
+description: Config types, With* helper functions, and input/result types.
+---
+
+# Configuration
+
+go-auth uses a functional options pattern for configuration. Use `NewConfig()` with `With*` functions to build a `Config` struct.
+
+## Config Struct
+
+```go
+// Config is the top-level configuration for go-auth.
+// All fields are unexported — use NewConfig with With* options.
+type Config struct {
+    // contains filtered or unexported fields
+}
+```
+
+## Helper Functions
+
+```go
+func DefaultConfig() Config
+func NewConfig(opts ...func(*Config)) (Config, error)
+
+func WithApp(cfg AppConfig) func(*Config)
+func WithSession(cfg SessionConfig) func(*Config)
+func WithSecurity(cfg SecurityConfig) func(*Config)
+func WithRegistration(cfg RegistrationConfig) func(*Config)
+func WithCookie(cfg CookieConfig) func(*Config)
+func WithEmail(cfg EmailConfig) func(*Config)
+func WithMailer(m port.Mailer) func(*Config)
+func WithOrganizations(cfg OrganizationConfig) func(*Config)
+func WithRateLimit(cfg ratelimit.Config) func(*Config)
+func WithLogger(l *slog.Logger) func(*Config)
+func WithProvider(p port.OAuthProvider) func(*Config)
+```
+
+## Input/Result Types
+
+```go
+type RegisterInput struct {
+    Email, Password, Name string
+}
+
+type RegisterResult struct {
+    User                  *domain.User
+    Session               *domain.Session
+    SessionToken, RefreshToken string
+    RequiresVerification  bool
+}
+
+type LoginInput struct {
+    Email, Password, IP, UserAgent string
+}
+
+type LoginResult struct {
+    User                  *domain.User
+    Session               *domain.Session
+    SessionToken, RefreshToken string
+    RequiresVerification  bool
+}
+
+type CompleteInviteInput struct {
+    Code, Name, Password, ConfirmPassword string
+}
+
+type CompleteInviteResult struct {
+    User                  *domain.User
+    Session               *domain.Session
+    SessionToken, RefreshToken string
+}
+```

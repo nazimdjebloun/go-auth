@@ -1,0 +1,28 @@
+---
+title: Authentication Flow
+description: Overview of the authentication request lifecycle.
+---
+
+# Authentication Flow
+
+The login flow begins when the client sends credentials to the server, which validates them against the database, creates a session, and returns session cookies to the client.
+
+```text
+Client                    Server                    Database
+  │                         │                         │
+  │  POST /auth/login       │                         │
+  │  {email, password}      │                         │
+  │────────────────────────▶│                         │
+  │                         │ Validate credentials    │
+  │                         │────────────────────────▶│
+  │                         │◀────────────────────────│
+  │                         │                         │
+  │                         │ Create session          │
+  │                         │────────────────────────▶│
+  │                         │◀────────────────────────│
+  │                         │                         │
+  │◀────────────────────────│                         │
+  │ Set-Cookie: session     │                         │
+  │ Set-Cookie: refresh     │                         │
+  │ {user, expiresAt}       │                         │
+```

@@ -1,0 +1,12 @@
+{
+  "pages": [
+    "index",
+    "sessions",
+    "csrf",
+    "rate-limiting",
+    "organizations",
+    "invite-only",
+    "oauth",
+    "error-handling"
+  ]
+}

@@ -1,0 +1,261 @@
+---
+title: Examples
+description: Basic server, route protection, programmatic usage, and common patterns.
+---
+
+# Examples
+
+## Basic Server
+
+```go
+package main
+
+import (
+    "log"
+    "net/http"
+    "os"
+
+    "github.com/nazimdjebloun/go-auth"
+)
+
+var Auth *goauth.Auth
+
+func main() {
+    cfg, _ := goauth.NewConfig(
+        goauth.WithApp(goauth.AppConfig{
+            Name:    "MyApp",
+            BaseURL: "http://localhost:3000",
+            Database: goauth.DatabaseConfig{
+                URL: os.Getenv("DATABASE_URL"),
+            },
+        }),
+        goauth.WithSecurity(goauth.SecurityConfig{
+            AllowedOrigins: []string{"http://localhost:3000"},
+        }),
+    )
+    Auth, _ = goauth.New(cfg)
+
+    mux := http.NewServeMux()
+    Auth.Mount(mux)
+    log.Fatal(http.ListenAndServe(":8080", mux))
+}
+```
+
+## Protecting a Custom Route
+
+```go
+func main() {
+    mux := http.NewServeMux()
+
+    // Unauthenticated
+    mux.HandleFunc("GET /", homePage)
+
+    // Authenticated
+    mux.Handle("GET /dashboard", Auth.Middleware.Authenticate(dashboardPage))
+
+    // Admin only
+    mux.Handle("GET /admin", Auth.Middleware.Authenticate(
+        Auth.Middleware.RequireAdmin(adminPage),
+    ))
+
+    Auth.Mount(mux)
+    log.Fatal(http.ListenAndServe(":8080", mux))
+}
+
+func dashboardPage(w http.ResponseWriter, r *http.Request) {
+    user := middleware.GetUserFromContext(r.Context())
+    json.NewEncoder(w).Encode(user)
+}
+```
+
+## Programmatic Registration
+
+```go
+func signupHandler(w http.ResponseWriter, r *http.Request) {
+    var input struct {
+        Email    string `json:"email"`
+        Password string `json:"password"`
+        Name     string `json:"name"`
+    }
+    json.NewDecoder(r.Body).Decode(&input)
+
+    result, err := Auth.Register(r.Context(), goauth.RegisterInput{
+        Email:    input.Email,
+        Password: input.Password,
+        Name:     input.Name,
+    })
+    if err != nil {
+        http.Error(w, err.Message, http.StatusBadRequest)
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(result.User)
+}
+```
+
+## Using Services Directly
+
+```go
+// List all orgs for the current user
+func myOrgsHandler(w http.ResponseWriter, r *http.Request) {
+    user := middleware.GetUserFromContext(r.Context())
+    orgs, err := Auth.Services.Org.ListUserOrgs(r.Context(), user.ID)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    json.NewEncoder(w).Encode(orgs)
+}
+
+// Check if a session is valid (from WebSocket token)
+func wsAuth(token string) bool {
+    return Auth.CheckSession(context.Background(), token)
+}
+
+// Get user from raw token
+func getUserFromToken(token string) (*domain.User, *domain.Session, error) {
+    return Auth.GetSession(context.Background(), token)
+}
+```
+
+## Org-Restricted Routes
+
+```go
+mux.Handle("POST /orgs/{orgID}/settings",
+    Auth.Middleware.Authenticate(
+        middleware.RequireOrgMember(Auth.Services.Org, func(ctx context.Context) string {
+            user := middleware.GetUserFromContext(ctx)
+            if user == nil { return "" }
+            return user.ID
+        })(
+            middleware.RequireOrgRole(domain.OrgRoleAdmin)(
+                orgSettingsHandler,
+            ),
+        ),
+    ),
+)
+
+func orgSettingsHandler(w http.ResponseWriter, r *http.Request) {
+    orgID := middleware.GetOrgID(r.Context())
+    role  := middleware.GetOrgRole(r.Context())
+
+    // Only owners/admins reach here
+    json.NewEncoder(w).Encode(map[string]string{
+        "org_id": orgID,
+        "role":   string(role),
+    })
+}
+```
+
+## Custom Mailer
+
+```go
+type LogMailer struct{}
+
+func (m *LogMailer) Send(ctx context.Context, to, subject, html, text string) error {
+    log.Printf("Email to=%s subject=%s", to, subject)
+    return nil
+}
+
+// In config:
+goauth.WithMailer(&LogMailer{})
+```
+
+## Custom OAuth Provider
+
+```go
+type DiscordProvider struct {
+    cfg *oauth2.Config
+}
+
+func NewDiscordProvider(clientID, clientSecret, redirectURL string) *DiscordProvider {
+    return &DiscordProvider{
+        cfg: &oauth2.Config{
+            ClientID:     clientID,
+            ClientSecret: clientSecret,
+            RedirectURL:  redirectURL,
+            Scopes:       []string{"identify", "email"},
+            Endpoint: oauth2.Endpoint{
+                AuthURL:  "https://discord.com/api/oauth2/authorize",
+                TokenURL: "https://discord.com/api/oauth2/token",
+            },
+        },
+    }
+}
+
+func (d *DiscordProvider) Name() string { return "discord" }
+
+func (d *DiscordProvider) AuthURL(state, codeChallenge string) string {
+    return d.cfg.AuthCodeURL(state,
+        oauth2.SetAuthURLParam("code_challenge", codeChallenge),
+    )
+}
+
+func (d *DiscordProvider) Exchange(ctx context.Context, code, verifier string) (*port.OAuthProfile, error) {
+    token, err := d.cfg.Exchange(ctx, code,
+        oauth2.SetAuthURLParam("code_verifier", verifier),
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    client := d.cfg.Client(ctx, token)
+    resp, err := client.Get("https://discord.com/api/users/@me")
+    // ... parse and return OAuthProfile
+}
+
+// Register:
+goauth.WithProvider(NewDiscordProvider(os.Getenv("DISCORD_ID"), os.Getenv("DISCORD_SECRET"), os.Getenv("DISCORD_REDIRECT")))
+```
+
+## Enabling Organizations
+
+```go
+goauth.WithOrganizations(goauth.OrganizationConfig{
+    Enable:         true,
+    MaxOrgsPerUser: 10,
+    InviteTTL:      24 * time.Hour,
+})
+```
+
+This automatically registers all org routes (see [handler reference](api-reference/handler.md)).
+
+## Full Flow: Invite + Accept
+
+**Backend:**
+
+```go
+// Admin creates an org invite
+func createInviteHandler(w http.ResponseWriter, r *http.Request) {
+    orgID := r.PathValue("orgID")
+    var body struct {
+        Email string          `json:"email"`
+        Role  domain.OrgRole  `json:"role"`
+    }
+    json.NewDecoder(r.Body).Decode(&body)
+
+    invite, err := Auth.Services.OrgInvite.CreateOrgInvite(r.Context(), service.CreateOrgInviteInput{
+        OrgID: orgID,
+        Email: body.Email,
+        Role:  body.Role,
+    })
+    // Email is sent automatically via the configured mailer
+}
+```
+
+**Frontend:**
+
+```typescript
+// Accept invite page
+import { orgsApi } from '@/lib/api/orgs';
+
+async function acceptInvite(code: string) {
+    try {
+        await orgsApi.acceptInvite(code);
+        alert('You are now a member!');
+    } catch (err) {
+        alert('Invalid or expired invite');
+    }
+}
+```

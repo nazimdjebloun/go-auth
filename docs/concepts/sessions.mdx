@@ -1,0 +1,30 @@
+---
+title: Sessions
+description: Session cookies, refresh token rotation, touch, and idle timeout.
+---
+
+# Sessions
+
+Sessions are managed via two HTTP-only cookies:
+
+- **Session Cookie** — short-lived (default 30d), contains the raw session token. Sent on every request.
+- **Refresh Cookie** — longer-lived (default 30d), contains a refresh token. Used only when the session expires.
+
+### Refresh Token Rotation
+
+When a session expires, `AuthMiddleware` transparently refreshes it using the refresh cookie:
+
+1. Session cookie is expired → server reads refresh cookie
+2. Refresh token is validated and rotated (old token is invalidated)
+3. New session + refresh cookies are set on the response
+4. The client never notices
+
+This mitigates session hijacking — a stolen refresh token can only be used once.
+
+### Session Touch
+
+Each authenticated request updates `last_active_at` in the database, but only if the last update was more than `TouchDebounce` ago (default 5 min). This avoids write amplification.
+
+### Idle Timeout
+
+If a session is not touched within `SessionIdleTTL` (default 7d), it's considered expired even if the absolute `SessionTTL` hasn't elapsed.

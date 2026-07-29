@@ -1,0 +1,240 @@
+---
+title: service Package
+description: AuthService, SessionService, PasswordService, and other service facades.
+---
+
+# service Package
+
+`import "github.com/nazimdjebloun/go-auth/service"`
+
+## AuthService
+
+```go
+type AuthService struct {}
+
+func (s *AuthService) Register(ctx, RegisterInput) (*RegisterResult, *domain.AuthError)
+func (s *AuthService) Login(ctx, LoginInput) (*LoginResult, *domain.AuthError)
+func (s *AuthService) ValidateSession(ctx, tokenRaw string) (*domain.User, *domain.Session, *domain.AuthError)
+func (s *AuthService) Logout(ctx, sessionID string) *domain.AuthError
+func (s *AuthService) ChangeName(ctx, userID, newName string) *domain.AuthError
+func (s *AuthService) DeleteAccount(ctx, userID, password string) *domain.AuthError
+func (s *AuthService) RequestDeleteAccount(ctx, userID string) *domain.AuthError
+func (s *AuthService) ConfirmDeleteAccount(ctx, ConfirmDeleteAccountInput) *domain.AuthError
+```
+
+## SessionService
+
+```go
+type SessionService struct {}
+
+func (s *SessionService) Create(ctx, userID, ip, userAgent string) (*domain.Session, string, string, error)
+func (s *SessionService) RefreshSession(ctx, rawRefreshToken string) (*domain.Session, string, string, error)
+func (s *SessionService) Validate(ctx, token string) (*domain.Session, error)
+func (s *SessionService) Touch(ctx, token string, lastActiveAt time.Time) error
+func (s *SessionService) Revoke(ctx, token string) error
+func (s *SessionService) RevokeByID(ctx, id string) error
+func (s *SessionService) RevokeAll(ctx, userID string) error
+func (s *SessionService) RevokeAllExcept(ctx, userID string, exceptSessionID string) error
+func (s *SessionService) List(ctx, userID string) ([]domain.Session, error)
+func (s *SessionService) Config() SessionConfig
+```
+
+**Helper:** `func IsSessionError(err error) bool`
+
+## PasswordService
+
+```go
+type PasswordService struct {}
+
+func (s *PasswordService) ForgotPassword(ctx, ForgotPasswordInput) *domain.AuthError
+func (s *PasswordService) ResetPassword(ctx, ResetPasswordInput) *domain.AuthError
+func (s *PasswordService) ChangePassword(ctx, ChangePasswordInput) *domain.AuthError
+func (s *PasswordService) RequestSetPassword(ctx, userID string) *domain.AuthError
+func (s *PasswordService) ConfirmSetPassword(ctx, ConfirmSetPasswordInput) *domain.AuthError
+```
+
+## VerificationService
+
+```go
+type VerificationService struct {}
+
+func (s *VerificationService) VerifyEmail(ctx, code string) (*domain.User, *domain.AuthError)
+func (s *VerificationService) SendVerification(ctx, user *domain.User) *domain.AuthError
+func (s *VerificationService) ResendVerification(ctx, userID string) *domain.AuthError
+func (s *VerificationService) SendVerificationByEmail(ctx, email string) *domain.AuthError
+```
+
+## InviteService
+
+```go
+type InviteService struct {}
+
+func (s *InviteService) GetInviteByToken(ctx, rawToken string) (*domain.Invite, *domain.AuthError)
+func (s *InviteService) CreateInvite(ctx, CreateInviteInput) (*domain.Invite, *domain.AuthError)
+func (s *InviteService) CompleteInviteRegistration(ctx, CompleteInviteInput) (*CompleteInviteResult, *domain.AuthError)
+func (s *InviteService) ListInvites(ctx, ListInvitesInput) ([]domain.Invite, int, *domain.AuthError)
+func (s *InviteService) HardDeleteInvite(ctx, inviteID string) *domain.AuthError
+func (s *InviteService) RevokeInvite(ctx, inviteID string) *domain.AuthError
+func (s *InviteService) ResendInviteEmail(ctx, inviteID string) *domain.AuthError
+```
+
+## AdminService
+
+```go
+type AdminService struct {}
+
+func (s *AdminService) ListUsers(ctx, AdminListUsersInput) (*AdminListUsersResult, *domain.AuthError)
+func (s *AdminService) BanUser(ctx, userID string) *domain.AuthError
+func (s *AdminService) UnbanUser(ctx, userID string) *domain.AuthError
+func (s *AdminService) UpdateUserRole(ctx, userID, role string) *domain.AuthError
+func (s *AdminService) DeleteUser(ctx, userID string) *domain.AuthError
+func (s *AdminService) RevokeUserSessions(ctx, userID string) *domain.AuthError
+func (s *AdminService) CreateUser(ctx, CreateUserInput) (*domain.User, *domain.AuthError)
+func (s *AdminService) ListUserSessions(ctx, AdminListUserSessionsInput) ([]domain.Session, *domain.AuthError)
+func (s *AdminService) RevokeUserSession(ctx, userID, sessionID string) *domain.AuthError
+```
+
+## OAuthService
+
+```go
+type OAuthService struct {}
+
+func (s *OAuthService) Initiate(ctx, providerName string) (string, *domain.AuthError)
+func (s *OAuthService) InitiateLink(ctx, providerName, userID string) (string, *domain.AuthError)
+func (s *OAuthService) Callback(ctx, providerName, code, rawState, ip, userAgent string) (string, string, bool, bool, string, *domain.AuthError)
+func (s *OAuthService) Link(ctx, userID, providerName, code, rawState string) *domain.AuthError
+func (s *OAuthService) Unlink(ctx, userID, providerName string) *domain.AuthError
+func (s *OAuthService) ListConnected(ctx, userID string) ([]domain.ProviderAccount, *domain.AuthError)
+```
+
+## OrgService
+
+```go
+type OrgService struct {}
+
+func (s *OrgService) CreateOrg(ctx, CreateOrgInput) (*domain.Organization, error)
+func (s *OrgService) GetByID(ctx, orgID string) (*domain.Organization, error)
+func (s *OrgService) GetBySlug(ctx, slug string) (*domain.Organization, error)
+func (s *OrgService) UpdateOrg(ctx, UpdateOrgInput) (*domain.Organization, error)
+func (s *OrgService) DeleteOrg(ctx, orgID string) error
+func (s *OrgService) ListUserOrgs(ctx, userID string) ([]domain.Organization, error)
+func (s *OrgService) GetMembership(ctx, orgID, userID string) (*domain.OrgMember, error)
+func (s *OrgService) AddMember(ctx, AddMemberInput) error
+func (s *OrgService) RemoveMember(ctx, orgID, userID string) error
+func (s *OrgService) UpdateMemberRole(ctx, UpdateMemberRoleInput) error
+func (s *OrgService) LeaveOrg(ctx, orgID, userID string) error
+func (s *OrgService) ListMembers(ctx, orgID string, offset, limit int) ([]domain.OrgMemberDetail, int, error)
+func (s *OrgService) SetActiveOrg(ctx, sessionID, userID, orgID string) error
+func (s *OrgService) ClearActiveOrg(ctx, sessionID, orgID string) error
+```
+
+## OrgInviteService
+
+```go
+type OrgInviteService struct {}
+
+func (s *OrgInviteService) CreateOrgInvite(ctx, CreateOrgInviteInput) (*domain.OrgInvite, error)
+func (s *OrgInviteService) AcceptInvite(ctx, AcceptInviteInput) error
+func (s *OrgInviteService) ListOrgInvites(ctx, orgID string) ([]domain.OrgInvite, error)
+func (s *OrgInviteService) DeleteOrgInvite(ctx, inviteID string) error
+func (s *OrgInviteService) ResendOrgInviteEmail(ctx, inviteID string) error
+```
+
+## Service Input Types
+
+```go
+type RegisterInput struct {
+    Email, Password, Name string
+}
+
+type LoginInput struct {
+    Email, Password, IP, UserAgent string
+}
+
+type ForgotPasswordInput struct {
+    Email string
+}
+
+type ResetPasswordInput struct {
+    Code, NewPassword string
+}
+
+type ChangePasswordInput struct {
+    UserID, OldPassword, NewPassword string
+}
+
+type ConfirmSetPasswordInput struct {
+    UserID, Code, NewPassword string
+}
+
+type ConfirmDeleteAccountInput struct {
+    UserID, Code string
+}
+
+type CreateInviteInput struct {
+    Email string
+}
+
+type CompleteInviteInput struct {
+    Code, Name, Password, ConfirmPassword string
+}
+
+type CompleteInviteResult struct {
+    User                     *domain.User
+    Session                  *domain.Session
+    SessionToken, RefreshToken string
+}
+
+type ListInvitesInput struct {
+    Offset, Limit int
+    Search, Status string
+}
+
+type AdminListUsersInput struct {
+    Offset, Limit int
+    Email, Search, Role string
+    OrderBy, OrderDirection string
+}
+
+type AdminListUsersResult struct {
+    Users []domain.User
+    Total int
+}
+
+type AdminListUserSessionsInput struct {
+    UserID string
+    Offset, Limit int
+}
+
+type CreateUserInput struct {
+    Email, Password, Name, Role string
+}
+
+type CreateOrgInput struct {
+    Name, Slug string
+    CreatedBy string
+}
+
+type UpdateOrgInput struct {
+    OrgID, Name, Slug string
+}
+
+type AddMemberInput struct {
+    OrgID, UserID string
+    Role domain.OrgRole
+}
+
+type UpdateMemberRoleInput struct {
+    OrgID, UserID string
+    Role domain.OrgRole
+}
+
+type CreateOrgInviteInput struct {
+    OrgID, Email string
+    Role domain.OrgRole
+}
+
+type AcceptInviteInput struct {
+    UserID, Code string
+}
+```

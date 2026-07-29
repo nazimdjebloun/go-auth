@@ -1,0 +1,26 @@
+---
+title: "Session Handlers"
+description: "List, revoke, and manage user sessions."
+---
+
+## Routes
+
+| Method | Path | Middleware |
+|---|---|---|
+| GET | `/auth/sessions` | Auth |
+| DELETE | `/auth/sessions/{id}` | Auth + CSRF + Origin |
+| DELETE | `/auth/sessions` | Auth + CSRF + Origin |
+
+## Handlers
+
+### `GET /auth/sessions`
+
+**Auth required.** Returns `[Session]`.
+
+### `DELETE /auth/sessions/{id}`
+
+**Auth required.** Revokes a specific session. Response 200.
+
+### `DELETE /auth/sessions`
+
+**Auth required.** Revokes all sessions. Response 200.

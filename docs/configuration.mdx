@@ -1,0 +1,209 @@
+---
+title: Configuration
+description: All configuration options for go-auth including database, sessions, cookies, email, and security.
+---
+
+# Configuration
+
+## Minimal Config
+
+The minimum required fields:
+
+```go
+cfg, err := goauth.NewConfig(
+    goauth.WithApp(goauth.AppConfig{
+        Name:    "MyApp",              // used in email subjects
+        BaseURL: "http://localhost:3000", // frontend base URL
+        Database: goauth.DatabaseConfig{
+            URL: "postgres://user:pass@localhost:5432/dbname",
+        },
+    }),
+    goauth.WithSecurity(goauth.SecurityConfig{
+        AllowedOrigins: []string{"http://localhost:3000"},
+    }),
+)
+```
+
+## Full Config
+
+### Application
+
+```go
+goauth.WithApp(goauth.AppConfig{
+    Name:    "MyApp",   // default "App"
+    BaseURL: "http://localhost:3000", // required
+})
+```
+
+### Database
+
+```go
+type DatabaseConfig struct {
+    URL    string          // connection string (preferred)
+    DB     *sql.DB         // pre-opened *sql.DB
+    Pool   *pgxpool.Pool   // pre-opened pgx pool
+    Driver Driver          // "postgres" (default), "sqlite3", "mysql"
+}
+```
+
+Provide exactly one of `URL`, `DB`, or `Pool`.
+
+### Password Policy
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{
+    PasswordPolicy: domain.PasswordPolicy{
+        MinLength:    8,      // default 8
+        RequireDigit: true,   // default true
+    },
+})
+```
+
+### Sessions
+
+| Field | Default | Description |
+|---|---|---|
+| `Session.TTL` | 720h (30d) | Absolute session expiry |
+| `Session.IdleTTL` | 168h (7d) | Idle timeout |
+| `Session.RefreshTokenTTL` | 720h (30d) | Refresh token lifetime |
+| `Session.MaxLifetime` | 0 (no limit) | Max session lifetime from creation |
+| `Session.GraceWindow` | 10s | Grace period for refresh token reuse |
+| `Session.TouchDebounce` | 5m | Min interval between last_active_at writes |
+| `Security.TokenTTL` | 1h | Verification/reset token duration |
+
+### Cookie
+
+```go
+goauth.WithCookie(goauth.CookieConfig{
+    Name:     "goauth_session",       // default
+    Domain:   "",                     // empty = current domain
+    Path:     "/",                    // default
+    Secure:   false,                  // auto-derived from BaseURL scheme
+    SameSite: http.SameSiteLaxMode,  // default
+})
+```
+
+### Email & Verification
+
+```go
+// Option 1: SMTP config
+goauth.WithEmail(goauth.EmailConfig{
+    Host: "smtp.example.com",
+    Port: 587,
+    User: "user",
+    Pass: "pass",
+    From: "noreply@example.com",
+})
+
+// Option 2: Custom mailer
+goauth.WithMailer(myMailer) // implements port.Mailer
+
+goauth.WithRegistration(goauth.RegistrationConfig{
+    RequireEmailVerification: true,
+    VerificationCodeTTL:      15 * time.Minute,
+})
+```
+
+### Invite-Only Mode
+
+```go
+goauth.WithRegistration(goauth.RegistrationConfig{
+    EnableInvite: true,                    // registration requires invite code
+    InviteTTL:    7 * 24 * time.Hour,     // default
+})
+```
+
+### Organizations
+
+```go
+goauth.WithOrganizations(goauth.OrganizationConfig{
+    Enable:         true,
+    MaxOrgsPerUser: 10,              // 0 = default 100, max 100
+    InviteTTL:      24 * time.Hour, // default 7d
+})
+```
+
+### Security
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{
+    AllowedOrigins:          []string{"http://localhost:3000", "https://myapp.com"},
+    AllowMissingCSRFHeaders: false,
+    CSRFToken: &middleware.CSRFTokenConfig{
+        CookieName: "csrf_token",
+        HeaderName: "X-CSRF-Token",
+        Secure:     true,
+    },
+})
+
+// Rate limiting
+goauth.WithRateLimit(ratelimit.Config{
+    Rate:  10,   // requests/sec per IP
+    Burst: 20,
+})
+```
+
+### OAuth Providers
+
+```go
+goauth.WithProvider(google.New(google.Config{...}))
+goauth.WithProvider(github.New(github.Config{...}))
+```
+
+Multiple providers are supported. Each must have a unique `Name()`.
+
+### Logging
+
+```go
+goauth.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+// default: slog.Default()
+```
+
+## Using NewConfig
+
+`NewConfig` applies option functions to `DefaultConfig()` and validates:
+
+```go
+cfg, err := goauth.NewConfig(
+    goauth.WithApp(goauth.AppConfig{
+        Name:    "MyApp",
+        BaseURL: "http://localhost:3000",
+        Database: goauth.DatabaseConfig{
+            URL: "postgres://...",
+        },
+    }),
+    goauth.WithSecurity(goauth.SecurityConfig{
+        AllowedOrigins: []string{"http://localhost:3000"},
+    }),
+    goauth.WithOrganizations(goauth.OrganizationConfig{
+        Enable: true,
+    }),
+    goauth.WithProvider(github.New(github.Config{...})),
+)
+```
+
+If validation fails, `err` aggregates all invalid fields via `errors.Join`. Example error:
+
+```text
+database: driver cannot be empty
+base_url must be a valid HTTP or HTTPS URL
+session_ttl must be positive
+```
+
+## Validation Rules
+
+| Field | Rule |
+|---|---|
+| `App.Database.Driver` | Must not be empty |
+| `App.Database` | One of URL, DB, or Pool required |
+| `App.Name` | Must not be empty |
+| `App.BaseURL` | Valid http/https URL |
+| `Session.TTL` | Positive |
+| `Session.IdleTTL` | Positive, ≤ Session.TTL |
+| `Session.RefreshTokenTTL` | Positive, ≥ Session.TTL |
+| `Security.AllowedOrigins` | At least one origin, no wildcards |
+| `Security.TokenTTL` | Positive |
+| `Cookie.Name` | Not empty |
+| Email config | Required if `Registration.RequireEmailVerification` or `Registration.EnableInvite` is true |
+| `Organization.MaxOrgsPerUser` | 0–100 |
+| Providers | Non-nil, unique names |

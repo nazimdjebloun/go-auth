@@ -1,0 +1,21 @@
+---
+title: "Invite Handlers"
+description: "App-level invite registration and info handlers."
+---
+
+## Routes
+
+| Method | Path | Middleware |
+|---|---|---|
+| GET | `/auth/invite/info` | none |
+| POST | `/auth/invite/register` | RateLimit + CSRF + Origin |
+
+## Handlers
+
+### `GET /auth/invite/info`
+
+Query: `?code=...`. Response 200: `{ "email": "...", "expiresAt": "..." }`.
+
+### `POST /auth/invite/register`
+
+**Rate limited.** Request: `CompleteInviteInput`. Response 201: `CompleteInviteResult`.
