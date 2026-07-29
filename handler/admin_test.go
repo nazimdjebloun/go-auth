@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -142,10 +143,10 @@ func TestAdminListUserSessions(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
 	}
-	if err := th.sessions.Create(nil, sess1); err != nil {
+	if err := th.sessions.Create(context.Background(), sess1); err != nil {
 		t.Fatal(err)
 	}
-	if err := th.sessions.Create(nil, sess2); err != nil {
+	if err := th.sessions.Create(context.Background(), sess2); err != nil {
 		t.Fatal(err)
 	}
 
@@ -213,7 +214,7 @@ func TestAdminRevokeUserSession(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
 	}
-	if err := th.sessions.Create(nil, sess); err != nil {
+	if err := th.sessions.Create(context.Background(), sess); err != nil {
 		t.Fatal(err)
 	}
 
@@ -228,7 +229,7 @@ func TestAdminRevokeUserSession(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res2.StatusCode)
 	}
 
-	sessions, _ := th.sessions.ListByUserID(nil, user.ID)
+	sessions, _ := th.sessions.ListByUserID(context.Background(), user.ID)
 	if len(sessions) != 0 {
 		t.Errorf("expected 0 sessions after revoke, got %d", len(sessions))
 	}
@@ -297,7 +298,7 @@ func TestAdminBanUser(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res2.StatusCode)
 	}
 
-	updated, _ := th.users.GetByID(nil, user.ID)
+	updated, _ := th.users.GetByID(context.Background(), user.ID)
 	if updated == nil || !updated.IsBanned {
 		t.Error("expected user to be banned")
 	}
@@ -337,7 +338,7 @@ func TestAdminUnbanUser(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res3.StatusCode)
 	}
 
-	updated, _ := th.users.GetByID(nil, user.ID)
+	updated, _ := th.users.GetByID(context.Background(), user.ID)
 	if updated == nil || updated.IsBanned {
 		t.Error("expected user to be unbanned")
 	}

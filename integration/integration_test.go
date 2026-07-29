@@ -84,20 +84,39 @@ func newSQLiteDB(t *testing.T) (*sql.DB, func()) {
 }
 
 func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
-	return goauth.Config{
-		AppName: "TestApp",
-		Database: goauth.DatabaseConfig{
-			DB:     db,
-			Driver: goauth.DriverSQLite,
-		},
-		SessionTTL:          1 * time.Hour,
-		SessionIdleTTL:      1 * time.Hour,
-		RefreshTokenTTL:     1 * time.Hour,
-		TokenTTL:            1 * time.Hour,
-		InviteTTL:           1 * time.Hour,
-		VerificationCodeTTL: 1 * time.Hour,
-		Mailer:              mailer,
+	cfg, err := goauth.NewConfig(
+		goauth.WithApp(goauth.AppConfig{
+			Name:    "TestApp",
+			BaseURL: "http://localhost:8080",
+			Database: goauth.DatabaseConfig{
+				DB:     db,
+				Driver: goauth.DriverSQLite,
+			},
+		}),
+		goauth.WithSession(goauth.SessionConfig{
+			TTL:             1 * time.Hour,
+			IdleTTL:         1 * time.Hour,
+			RefreshTokenTTL: 1 * time.Hour,
+		}),
+		goauth.WithSecurity(goauth.SecurityConfig{
+			AllowedOrigins: []string{"http://localhost:8080"},
+			TokenTTL:       1 * time.Hour,
+		}),
+		goauth.WithRegistration(goauth.RegistrationConfig{
+			EnablePassword:           true,
+			EnableOAuth:              true,
+			EnableInvite:             false,
+			AllowPublic:              true,
+			InviteTTL:                1 * time.Hour,
+			VerificationCodeTTL:      1 * time.Hour,
+		}),
+		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+		goauth.WithMailer(mailer),
+	)
+	if err != nil {
+		panic(err)
 	}
+	return cfg
 }
 
 func openAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
@@ -153,7 +172,7 @@ func TestMigrations_CreateTables(t *testing.T) {
 	defer closeDB()
 	migrateDB(t, db, "sqlite")
 
-	for _, name := range []string{"users", "sessions", "verification_tokens", "invites"} {
+	for _, name := range []string{"users", "sessions", "verification_tokens", "invites", "organizations", "organization_members", "organization_invites"} {
 		var n int
 		if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&n); err != nil {
 			t.Fatal(err)
@@ -479,8 +498,30 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
 	migrateDB(t, db, "sqlite")
-	cfg := testConfig(db, &testMailer{})
-	cfg.SessionTTL = 1 * time.Millisecond // expire immediately
+	cfg, err := goauth.NewConfig(
+		goauth.WithApp(goauth.AppConfig{
+			Name:    "TestApp",
+			BaseURL: "http://localhost:8080",
+			Database: goauth.DatabaseConfig{
+				DB:     db,
+				Driver: goauth.DriverSQLite,
+			},
+		}),
+		goauth.WithSession(goauth.SessionConfig{
+			TTL:             1 * time.Millisecond,
+			IdleTTL:         1 * time.Millisecond,
+			RefreshTokenTTL: 1 * time.Millisecond,
+		}),
+		goauth.WithSecurity(goauth.SecurityConfig{
+			TokenTTL:       1 * time.Millisecond,
+			AllowedOrigins: []string{"http://localhost:8080"},
+		}),
+		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+		goauth.WithMailer(&testMailer{}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	a, err := goauth.New(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -619,8 +660,30 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
 	migrateDB(t, db, "sqlite")
-	cfg := testConfig(db, &testMailer{})
-	cfg.SessionTTL = 1 * time.Millisecond
+	cfg, err := goauth.NewConfig(
+		goauth.WithApp(goauth.AppConfig{
+			Name:    "TestApp",
+			BaseURL: "http://localhost:8080",
+			Database: goauth.DatabaseConfig{
+				DB:     db,
+				Driver: goauth.DriverSQLite,
+			},
+		}),
+		goauth.WithSession(goauth.SessionConfig{
+			TTL:             1 * time.Millisecond,
+			IdleTTL:         1 * time.Millisecond,
+			RefreshTokenTTL: 1 * time.Millisecond,
+		}),
+		goauth.WithSecurity(goauth.SecurityConfig{
+			TokenTTL:       1 * time.Millisecond,
+			AllowedOrigins: []string{"http://localhost:8080"},
+		}),
+		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+		goauth.WithMailer(&testMailer{}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	a, err := goauth.New(cfg)
 	if err != nil {
 		t.Fatal(err)

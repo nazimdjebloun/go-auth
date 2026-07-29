@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -33,7 +34,7 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
-	th.users.Create(nil, user)
+	th.users.Create(context.Background(), user)
 
 	code := "ABC123"
 	now := time.Now().UTC()
@@ -45,7 +46,7 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(15 * time.Minute),
 	}
-	th.tokens.Create(nil, token)
+	th.tokens.Create(context.Background(), token)
 
 	body := `{"code":"ABC123"}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/verify-email", strings.NewReader(body))
@@ -58,7 +59,7 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 
-	updated, _ := th.users.GetByID(nil, uid)
+	updated, _ := th.users.GetByID(context.Background(), uid)
 	if !updated.IsVerified {
 		t.Fatal("expected user to be verified")
 	}
@@ -92,7 +93,7 @@ func TestVerifyEmail_ExpiredCode(t *testing.T) {
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
-	th.users.Create(nil, user)
+	th.users.Create(context.Background(), user)
 
 	code := "EXPIRED"
 	now := time.Now().UTC()
@@ -104,7 +105,7 @@ func TestVerifyEmail_ExpiredCode(t *testing.T) {
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(-1 * time.Hour),
 	}
-	th.tokens.Create(nil, token)
+	th.tokens.Create(context.Background(), token)
 
 	body := `{"code":"EXPIRED"}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/verify-email", strings.NewReader(body))
@@ -132,7 +133,7 @@ func TestResendVerification_HappyPath(t *testing.T) {
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
-	th.users.Create(nil, user)
+	th.users.Create(context.Background(), user)
 
 	body := `{}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/resend-verification", strings.NewReader(body))

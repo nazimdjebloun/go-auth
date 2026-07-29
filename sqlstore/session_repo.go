@@ -30,6 +30,7 @@ func scanSession(s *domain.Session, sc interface{ Scan(dest ...any) error }) err
 		&s.ID, &s.UserID, &s.TokenHash, &s.RefreshTokenHash, &s.PreviousRefreshHash,
 		&s.IP, &s.UserAgent, &s.IsRevoked, &s.ExpiresAt, &s.RefreshExpiresAt,
 		&s.RefreshRotatedAt, &s.CreatedAt, &s.RevokedAt, &s.LastActiveAt,
+		&s.ActiveOrgID, &s.ActiveOrgRole,
 	)
 }
 
@@ -37,7 +38,8 @@ func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error
 	_, err := r.db.ExecContext(ctx, sessionCreateQuery,
 		s.ID, s.UserID, s.TokenHash, s.RefreshTokenHash, s.PreviousRefreshHash,
 		s.IP, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.RefreshExpiresAt,
-		s.RefreshRotatedAt, s.CreatedAt, s.RevokedAt, s.LastActiveAt)
+		s.RefreshRotatedAt, s.CreatedAt, s.RevokedAt, s.LastActiveAt,
+		s.ActiveOrgID, s.ActiveOrgRole)
 	return err
 }
 
@@ -270,5 +272,33 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 
 func (r *SessionRepository) Revoke(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, sessionDeleteByIDQuery, id)
+	return err
+}
+
+func (r *SessionRepository) UpdateActiveOrgRoleForUser(ctx context.Context, userID, orgID string, newRole domain.OrgRole) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE sessions SET active_org_role = $1 WHERE user_id = $2 AND active_org_id = $3 AND is_revoked = false`,
+		string(newRole), userID, orgID)
+	return err
+}
+
+func (r *SessionRepository) ClearActiveOrgForUser(ctx context.Context, userID, orgID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE sessions SET active_org_id = NULL, active_org_role = NULL WHERE user_id = $1 AND active_org_id = $2 AND is_revoked = false`,
+		userID, orgID)
+	return err
+}
+
+func (r *SessionRepository) ClearActiveOrgForAllMembers(ctx context.Context, orgID string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE sessions SET active_org_id = NULL, active_org_role = NULL WHERE active_org_id = $1 AND is_revoked = false`,
+		orgID)
+	return err
+}
+
+func (r *SessionRepository) SetActiveOrg(ctx context.Context, sessionID, orgID string, role domain.OrgRole) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE sessions SET active_org_id = $1, active_org_role = $2 WHERE id = $3 AND is_revoked = false`,
+		orgID, string(role), sessionID)
 	return err
 }
