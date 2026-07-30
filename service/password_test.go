@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,31 +24,21 @@ func extractResetToken(mailer *testutil.MockMailer) string {
 		return ""
 	}
 	text := mailer.Calls[len(mailer.Calls)-1].Text
-	// text format: "Reset your password: http://...?token=TOKEN (expires in 1 hour)"
-	// Find the token= parameter
-	start := 0
-	for i, c := range text {
-		if c == ':' && i+2 < len(text) && text[i+1] == ' ' {
-			start = i + 2
-			break
+	// Find a URL containing ?token= in the text
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		u, err := url.Parse(line)
+		if err != nil {
+			continue
+		}
+		if tok := u.Query().Get("token"); tok != "" {
+			return tok
 		}
 	}
-	if start == 0 {
-		return ""
-	}
-	end := len(text)
-	for i := start; i < len(text); i++ {
-		if text[i] == ' ' || text[i] == '(' {
-			end = i
-			break
-		}
-	}
-	rawURL := text[start:end]
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
-	}
-	return u.Query().Get("token")
+	return ""
 }
 
 func TestForgotPassword_ExistingUser(t *testing.T) {

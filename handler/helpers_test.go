@@ -737,6 +737,8 @@ func newTestHarness() *testHarness {
 		InviteTTL:          7 * 24 * time.Hour,
 		SessionTTL:         30 * 24 * time.Hour,
 		TokenTTL:           1 * time.Hour,
+		BaseURL:            "http://localhost:3000",
+		URLValidator:       &port.URLValidator{AllowHTTP: true},
 	}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -757,6 +759,7 @@ func newTestHarness() *testHarness {
 		InviteTTL:      7 * 24 * time.Hour,
 		BaseURL:        "http://localhost:3000",
 		AppName:        "TestApp",
+		URLValidator:   &port.URLValidator{AllowHTTP: true},
 		Logger:         nil,
 	})
 

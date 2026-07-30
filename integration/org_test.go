@@ -43,6 +43,7 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(mailer),
+		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 		goauth.WithOrganizations(goauth.OrganizationConfig{
 			Enable: true,
 		}),

@@ -37,6 +37,7 @@ func postgresConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(mailer),
+		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
 		panic(err)
