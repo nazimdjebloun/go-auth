@@ -112,6 +112,7 @@ func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(mailer),
+		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
 		panic(err)
@@ -518,6 +519,7 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(&testMailer{}),
+		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -680,6 +682,7 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(&testMailer{}),
+		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
 		t.Fatal(err)

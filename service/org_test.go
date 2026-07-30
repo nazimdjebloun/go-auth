@@ -7,6 +7,7 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
+	"github.com/nazimdjebloun/go-auth/port"
 )
 
 func newTestOrgService() *OrgService {
@@ -34,11 +35,12 @@ func newTestOrgInviteService() (*OrgService, *OrgInviteService) {
 		Logger:         nil,
 	})
 	inviteSvc := NewOrgInviteService(invites, orgs, users, tx, gen, &testutil.MockMailer{}, OrgInviteServiceConfig{
-		MaxOrgsPerUser: 3,
-		InviteTTL:      7 * 24 * time.Hour,
-		BaseURL:        "http://localhost:3000",
-		AppName:        "TestApp",
-		Logger:         nil,
+		MaxOrgsPerUser:  3,
+		InviteTTL:       7 * 24 * time.Hour,
+		BaseURL:         "http://localhost:3000",
+		AppName:         "TestApp",
+		URLValidator:    &port.URLValidator{AllowHTTP: true},
+		Logger:          nil,
 	})
 	return orgSvc, inviteSvc
 }

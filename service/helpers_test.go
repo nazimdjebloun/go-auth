@@ -17,6 +17,8 @@ func defaultTestConfig() Config {
 		VerificationCodeTTL:     15 * time.Minute,
 		SessionTTL:              30 * 24 * time.Hour,
 		TokenTTL:                1 * time.Hour,
+		BaseURL:                 "http://localhost:3000",
+		URLValidator:            &port.URLValidator{AllowHTTP: true},
 	}
 }
 

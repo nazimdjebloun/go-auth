@@ -9,6 +9,7 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
+	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 )
 
@@ -22,6 +23,7 @@ func newVerificationConfig() service.Config {
 		AppName:             "TestApp",
 		VerificationCodeTTL: 15 * time.Minute,
 		TokenTTL:            1 * time.Hour,
+		URLValidator:        &port.URLValidator{AllowHTTP: true},
 	}
 }
 
