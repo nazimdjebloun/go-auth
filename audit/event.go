@@ -3,6 +3,8 @@ package audit
 import (
 	"net"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/domain"
 )
 
 type EventType string
@@ -64,18 +66,19 @@ const (
 )
 
 type Event struct {
-	ID            string         `json:"id"`
-	Type          EventType      `json:"type"`
-	Severity      Severity       `json:"severity"`
-	Success       bool           `json:"success"`
-	ActorID       *string        `json:"actorId,omitempty"`
-	TargetUserID  *string        `json:"targetUserId,omitempty"`
-	SessionID     *string        `json:"sessionId,omitempty"`
-	OrgID         *string        `json:"orgId,omitempty"`
-	IP            net.IP         `json:"ip,omitempty"`
-	UserAgent     string         `json:"userAgent,omitempty"`
-	RequestID     string         `json:"requestId,omitempty"`
-	CorrelationID string         `json:"correlationId,omitempty"`
-	Metadata      map[string]any `json:"metadata,omitempty"`
-	CreatedAt     time.Time      `json:"createdAt"`
+	ID            string                 `json:"id"`
+	Type          EventType              `json:"type"`
+	Severity      Severity               `json:"severity"`
+	Success       bool                   `json:"success"`
+	ActorID       *string                `json:"actorId,omitempty"`
+	TargetUserID  *string                `json:"targetUserId,omitempty"`
+	SessionID     *string                `json:"sessionId,omitempty"`
+	OrgID         *string                `json:"orgId,omitempty"`
+	IP            net.IP                 `json:"ip,omitempty"`
+	UserAgent     string                 `json:"userAgent,omitempty"`
+	ParsedUA      *domain.UserAgentInfo  `json:"parsedUA,omitempty"`
+	RequestID     string                 `json:"requestId,omitempty"`
+	CorrelationID string                 `json:"correlationId,omitempty"`
+	Metadata      map[string]any         `json:"metadata,omitempty"`
+	CreatedAt     time.Time              `json:"createdAt"`
 }
