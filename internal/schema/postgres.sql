@@ -121,3 +121,29 @@ CREATE INDEX IF NOT EXISTS idx_org_members_org_role ON organization_members(org_
 CREATE INDEX IF NOT EXISTS idx_org_invites_org ON organization_invites(org_id);
 CREATE INDEX IF NOT EXISTS idx_org_invites_email ON organization_invites(email);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    success BOOLEAN NOT NULL DEFAULT true,
+    actor_id UUID,
+    target_id UUID,
+    session_id UUID,
+    org_id UUID,
+    ip TEXT,
+    user_agent TEXT NOT NULL DEFAULT '',
+    parsed_ua JSONB,
+    request_id TEXT NOT NULL DEFAULT '',
+    correlation_id TEXT NOT NULL DEFAULT '',
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor_id ON audit_log(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_target_id ON audit_log(target_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_session_id ON audit_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_metadata ON audit_log USING GIN (metadata jsonb_path_ops);

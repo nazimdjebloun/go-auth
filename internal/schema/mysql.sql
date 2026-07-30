@@ -128,3 +128,28 @@ CREATE INDEX idx_org_members_org_role ON organization_members(org_id, role);
 CREATE INDEX idx_org_invites_org ON organization_invites(org_id);
 CREATE INDEX idx_org_invites_email ON organization_invites(email);
 CREATE INDEX idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id VARCHAR(64) PRIMARY KEY,
+    event_type VARCHAR(128) NOT NULL,
+    severity VARCHAR(16) NOT NULL DEFAULT 'info',
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    actor_id VARCHAR(64),
+    target_id VARCHAR(64),
+    session_id VARCHAR(64),
+    org_id VARCHAR(64),
+    ip VARCHAR(45),
+    user_agent TEXT NOT NULL,
+    parsed_ua JSON,
+    request_id VARCHAR(64) NOT NULL DEFAULT '',
+    correlation_id VARCHAR(64) NOT NULL DEFAULT '',
+    metadata JSON,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX idx_audit_log_actor_id ON audit_log(actor_id);
+CREATE INDEX idx_audit_log_target_id ON audit_log(target_id);
+CREATE INDEX idx_audit_log_session_id ON audit_log(session_id);
+CREATE INDEX idx_audit_log_org_id ON audit_log(org_id);
+CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
