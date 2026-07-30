@@ -730,10 +730,13 @@ func newTestHarness() *testHarness {
 	orgInvites := newMockOrgInviteRepo()
 
 	cfg := service.Config{
-		AppName:    "TestApp",
-		InviteTTL:  7 * 24 * time.Hour,
-		SessionTTL: 30 * 24 * time.Hour,
-		TokenTTL:   1 * time.Hour,
+		AppName:            "TestApp",
+		EnableEmailPassword: true,
+		EnableOAuth:        true,
+		EnableInvite:       true,
+		InviteTTL:          7 * 24 * time.Hour,
+		SessionTTL:         30 * 24 * time.Hour,
+		TokenTTL:           1 * time.Hour,
 	}
 
 	sessCfg := service.DefaultSessionConfig()

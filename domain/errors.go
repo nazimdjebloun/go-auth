@@ -62,4 +62,5 @@ var (
 	ErrOrgInviteExpired         = NewError("org_invite_expired", "Organization invite link has expired", http.StatusBadRequest)
 	ErrOrgInviteEmailMismatch   = NewError("org_invite_email_mismatch", "Authenticated email does not match invite recipient", http.StatusBadRequest)
 	ErrOrgMetadataTooLarge      = NewError("org_metadata_too_large", "Organization metadata exceeds 16KB limit", http.StatusBadRequest)
+	ErrMethodDisabled           = NewError("method_disabled", "This registration method is not available", http.StatusMethodNotAllowed)
 )

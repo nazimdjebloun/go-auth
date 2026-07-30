@@ -103,9 +103,9 @@ func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 			TokenTTL:       1 * time.Hour,
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
-			EnablePassword:           true,
+			EnableEmailPassword:           true,
 			EnableOAuth:              true,
-			EnableInvite:             false,
+			EnableInvite:             true,
 			AllowPublic:              true,
 			InviteTTL:                1 * time.Hour,
 			VerificationCodeTTL:      1 * time.Hour,

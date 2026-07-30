@@ -31,6 +31,9 @@ type Config struct {
 	AppName                  string
 	BaseURL                  string
 	InviteOnly               bool
+	EnableEmailPassword      bool
+	EnableOAuth              bool
+	EnableInvite             bool
 	RequireEmailVerification bool
 	InviteTTL                time.Duration
 	VerificationCodeTTL      time.Duration
@@ -75,6 +78,9 @@ func NewAuthService(
 }
 
 func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {
+	if !s.config.EnableEmailPassword {
+		return nil, domain.ErrMethodDisabled
+	}
 	if s.config.InviteOnly {
 		return nil, domain.ErrForbidden
 	}

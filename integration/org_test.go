@@ -34,7 +34,7 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 			TokenTTL:       1 * time.Hour,
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
-			EnablePassword:           true,
+			EnableEmailPassword:           true,
 			EnableOAuth:              true,
 			EnableInvite:             false,
 			AllowPublic:              true,
