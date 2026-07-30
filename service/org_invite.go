@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -36,6 +37,7 @@ type OrgInviteService struct {
 	baseURL    string
 	appName    string
 	log        *slog.Logger
+	audit      AuditPublisher
 }
 
 type OrgInviteServiceConfig struct {
@@ -46,6 +48,7 @@ type OrgInviteServiceConfig struct {
 	TemplateProvider port.TemplateProvider
 	URLValidator     *port.URLValidator
 	Logger          *slog.Logger
+	Audit           AuditPublisher
 }
 
 func NewOrgInviteService(
@@ -80,6 +83,7 @@ func NewOrgInviteService(
 		baseURL:    cfg.BaseURL,
 		appName:    cfg.AppName,
 		log:        cfg.Logger,
+		audit:      cfg.Audit,
 	}
 }
 
@@ -192,6 +196,11 @@ func (s *OrgInviteService) AcceptInvite(ctx context.Context, input AcceptInviteI
 		return err
 	}
 	s.log.Info("org invite accepted", "org_id", invite.OrgID, "user_id", input.UserID, "email", user.Email)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberInvited, input.UserID, invite.OrgID, &input.UserID))
+	}
+
 	return nil
 }
 

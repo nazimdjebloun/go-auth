@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -16,11 +17,13 @@ type OrgService struct {
 	txManager port.TxManager
 	maxOrgs   int
 	log       *slog.Logger
+	audit     AuditPublisher
 }
 
 type OrgServiceConfig struct {
 	MaxOrgsPerUser int
 	Logger         *slog.Logger
+	Audit          AuditPublisher
 }
 
 func NewOrgService(
@@ -41,6 +44,7 @@ func NewOrgService(
 		txManager: txManager,
 		maxOrgs:   resolvedMaxOrgs,
 		log:       cfg.Logger,
+		audit:     cfg.Audit,
 	}
 }
 
@@ -116,6 +120,11 @@ func (s *OrgService) CreateOrg(ctx context.Context, input CreateOrgInput) (*doma
 		return nil, err
 	}
 	s.log.Info("org created", "org_id", org.ID, "slug", org.Slug, "owner_id", input.OwnerID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgCreated, input.OwnerID, org.ID, nil))
+	}
+
 	return org, nil
 }
 
@@ -212,6 +221,11 @@ func (s *OrgService) DeleteOrg(ctx context.Context, orgID string) error {
 		return err
 	}
 	s.log.Info("org deleted", "org_id", orgID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgDeleted, "", orgID, nil))
+	}
+
 	return nil
 }
 
@@ -310,6 +324,11 @@ func (s *OrgService) RemoveMember(ctx context.Context, orgID, userID string) err
 		return err
 	}
 	s.log.Info("member removed", "org_id", orgID, "user_id", userID, "role", member.Role)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, "", orgID, &userID))
+	}
+
 	return nil
 }
 

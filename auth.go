@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/emailtemplate"
 	"github.com/nazimdjebloun/go-auth/handler"
@@ -37,6 +38,8 @@ type Auth struct {
 	oAuthService     *service.OAuthService
 	orgService       *service.OrgService
 	orgInviteService *service.OrgInviteService
+	auditService     *audit.AuditService
+	auditLogRepo     port.AuditLogRepository
 }
 
 type Services struct {
@@ -49,6 +52,7 @@ type Services struct {
 	OAuth     *service.OAuthService
 	Org       *service.OrgService
 	OrgInvite *service.OrgInviteService
+	AuditLog  port.AuditLogRepository
 }
 
 type HandlerGroup struct {
@@ -84,6 +88,8 @@ type HandlerGroup struct {
 	AdminListUserSessions  http.HandlerFunc
 	AdminRevokeUserSession http.HandlerFunc
 	GetUserDetail          http.HandlerFunc
+	AdminListAuditLogs     http.HandlerFunc
+	AdminListUserAuditLogs http.HandlerFunc
 	GetInviteInfo          http.HandlerFunc
 	CreateInvite           http.HandlerFunc
 	ListInvites            http.HandlerFunc
@@ -208,6 +214,7 @@ func New(config Config) (*Auth, error) {
 	tokenRepo := sqlstore.NewTokenRepository(sqlDB)
 	inviteRepo := sqlstore.NewInviteRepository(sqlDB)
 	providerAccountRepo := sqlstore.NewProviderAccountRepository(sqlDB)
+	auditLogRepo := sqlstore.NewAuditLogRepository(sqlDB)
 
 	hasherImpl := hasher.New(bcryptCost)
 	genImpl := token.New()
@@ -237,6 +244,28 @@ func New(config Config) (*Auth, error) {
 		templateProvider = p
 	}
 
+	// Audit service
+	var auditSvc *audit.AuditService
+	var auditPub service.AuditPublisher
+	if config.audit.Enabled {
+		auditCfg := audit.AuditServiceConfig{
+			FailureMode:   config.audit.FailureMode,
+			QueueSize:     config.audit.QueueSize,
+			Workers:       config.audit.Workers,
+			BatchSize:     config.audit.BatchSize,
+			FlushInterval: config.audit.FlushInterval,
+			RetentionDays: config.audit.RetentionDays,
+		}
+		auditSvc = audit.NewAuditService(auditCfg, config.logger)
+		auditSvc.AddSink(audit.NewSQLAuditSink(sqlDB))
+		auditSvc.AddSink(audit.NewLoggerSink(config.logger))
+		for _, sink := range config.auditSinks {
+			auditSvc.AddSink(sink)
+		}
+		auditSvc.Start(context.Background())
+		auditPub = auditSvc
+	}
+
 	serviceCfg := service.Config{
 		AppName:                  config.appName,
 		BaseURL:                  config.baseURL,
@@ -253,6 +282,7 @@ func New(config Config) (*Auth, error) {
 		TemplateProvider:         templateProvider,
 		URLValidator:             urlValidator,
 		Logger:                   config.logger,
+		Audit:                    auditPub,
 	}
 
 	sessionCfg := service.DefaultSessionConfig()
@@ -268,6 +298,7 @@ func New(config Config) (*Auth, error) {
 	sessionCfg.Secure = config.cookie.Secure
 	sessionCfg.SameSite = int(config.cookie.SameSite)
 	sessionCfg.Logger = config.logger
+	sessionCfg.Audit = auditPub
 
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
 
@@ -314,6 +345,7 @@ func New(config Config) (*Auth, error) {
 			EnableOAuth:              config.registration.EnableOAuth,
 			InviteOnly:               !config.registration.AllowPublic,
 			Logger:                   config.logger,
+			Audit:                    auditPub,
 		}
 		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, oauthCfg)
 	}
@@ -326,6 +358,7 @@ func New(config Config) (*Auth, error) {
 		orgSvc = service.NewOrgService(orgRepo, userRepo, sessRepo, sqlDB, service.OrgServiceConfig{
 			MaxOrgsPerUser: config.organizations.MaxOrgsPerUser,
 			Logger:         config.logger,
+			Audit:          auditPub,
 		})
 		orgInviteSvc = service.NewOrgInviteService(orgInviteRepo, orgRepo, userRepo, sqlDB, genImpl, mailer, service.OrgInviteServiceConfig{
 			MaxOrgsPerUser:  config.organizations.MaxOrgsPerUser,
@@ -335,6 +368,7 @@ func New(config Config) (*Auth, error) {
 			TemplateProvider: templateProvider,
 			URLValidator:     urlValidator,
 			Logger:          config.logger,
+			Audit:           auditPub,
 		})
 	}
 
@@ -348,6 +382,7 @@ func New(config Config) (*Auth, error) {
 		OAuth:     oauthSvc,
 		Org:       orgSvc,
 		OrgInvite: orgInviteSvc,
+		AuditLog:  auditLogRepo,
 	}, config.logger, config.csrfToken)
 
 	// OAuth handlers (separate because they need baseURL and session service for cookies)
@@ -373,6 +408,8 @@ func New(config Config) (*Auth, error) {
 		oAuthService:    oauthSvc,
 		orgService:       orgSvc,
 		orgInviteService: orgInviteSvc,
+		auditService:     auditSvc,
+		auditLogRepo:     auditLogRepo,
 		Services: Services{
 			Auth:      authSvc,
 			Password:  passSvc,
@@ -383,6 +420,7 @@ func New(config Config) (*Auth, error) {
 			OAuth:     oauthSvc,
 			Org:       orgSvc,
 			OrgInvite: orgInviteSvc,
+			AuditLog:  auditLogRepo,
 		},
 		Handlers: HandlerGroup{
 			// Public auth endpoints: rate limit outer, then CSRF token + origin check.
@@ -421,6 +459,8 @@ func New(config Config) (*Auth, error) {
 			AdminCreateUser:        rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser)))))).ServeHTTP,
 			AdminListUserSessions:  rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserSessions)))).ServeHTTP,
 			AdminRevokeUserSession: rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession)))))).ServeHTTP,
+			AdminListAuditLogs:     rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListAuditLogs)))).ServeHTTP,
+			AdminListUserAuditLogs: rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserAuditLogs)))).ServeHTTP,
 			CreateInvite:           rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite)))))).ServeHTTP,
 			ListInvites:            rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListInvites)))).ServeHTTP,
 			RevokeInvite:           rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))))).ServeHTTP,
@@ -459,6 +499,12 @@ func New(config Config) (*Auth, error) {
 }
 
 func (a *Auth) Close() {
+	// Stop audit service first — workers may need DB to flush remaining events.
+	if a.auditService != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = a.auditService.Stop(ctx)
+	}
 	if a.Pool != nil {
 		a.Pool.Close()
 	}
@@ -511,6 +557,8 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("GET /admin/users/{id}/sessions", a.Handlers.AdminListUserSessions)
 	mux.Handle("DELETE /admin/users/{id}/sessions/{sessionId}", a.Handlers.AdminRevokeUserSession)
 	mux.Handle("DELETE /admin/users/{id}/sessions", a.Handlers.RevokeUserSessions)
+	mux.Handle("GET /admin/audit-logs", a.Handlers.AdminListAuditLogs)
+	mux.Handle("GET /admin/users/{id}/audit-logs", a.Handlers.AdminListUserAuditLogs)
 	if a.Config.registration.EnableInvite {
 		mux.Handle("POST /admin/invites", a.Handlers.CreateInvite)
 		mux.Handle("GET /admin/invites", a.Handlers.ListInvites)
@@ -522,8 +570,8 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		mux.Handle("GET /auth/oauth/{provider}", a.Handlers.OAuthInitiate)
 		mux.Handle("GET /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
 		mux.Handle("POST /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
-		mux.Handle("POST /auth/oauth/link/{provider}", a.Handlers.OAuthLink)
-		mux.Handle("POST /auth/oauth/unlink/{provider}", a.Handlers.OAuthUnlink)
+		mux.Handle("POST /auth/oauth/{provider}/link", a.Handlers.OAuthLink)
+		mux.Handle("POST /auth/oauth/{provider}/unlink", a.Handlers.OAuthUnlink)
 		mux.Handle("GET /auth/oauth/providers", a.Handlers.OAuthProviders)
 	}
 	if a.orgService != nil {

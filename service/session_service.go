@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -17,6 +19,7 @@ type SessionService struct {
 	tokenGen port.TokenGenerator
 	config   SessionConfig
 	log      *slog.Logger
+	audit    AuditPublisher
 }
 
 type SessionConfig struct {
@@ -33,6 +36,7 @@ type SessionConfig struct {
 	GraceWindow       time.Duration
 	TouchDebounce     time.Duration // min interval between last_active_at updates
 	Logger            *slog.Logger
+	Audit             AuditPublisher
 }
 
 func DefaultSessionConfig() SessionConfig {
@@ -54,7 +58,7 @@ func NewSessionService(repo port.SessionRepository, tokenGen port.TokenGenerator
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &SessionService{repo: repo, tokenGen: tokenGen, config: config, log: logger}
+	return &SessionService{repo: repo, tokenGen: tokenGen, config: config, log: logger, audit: config.Audit}
 }
 
 func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*domain.Session, string, string, error) {
@@ -89,6 +93,11 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 	}
 
 	s.log.Info("session created", "user_id", userID, "session_id", session.ID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewSessionEvent(audit.EventSessionCreated, userID, session.ID, net.ParseIP(ip), userAgent))
+	}
+
 	return session, sessionToken, refreshToken, nil
 }
 
@@ -167,6 +176,9 @@ func (s *SessionService) RevokeByID(ctx context.Context, id string) error {
 func (s *SessionService) RevokeAll(ctx context.Context, userID string) error {
 	if err := s.repo.DeleteAllForUser(ctx, userID); err != nil {
 		return fmt.Errorf("session revoke all: %w", err)
+	}
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewSessionEvent(audit.EventSessionRevokedAll, userID, "", nil, ""))
 	}
 	return nil
 }

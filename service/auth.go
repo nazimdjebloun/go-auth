@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/mail"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -23,6 +25,7 @@ type AuthService struct {
 	templates  port.TemplateProvider
 	config     Config
 	log        *slog.Logger
+	audit      AuditPublisher
 
 	sessionSvc *SessionService
 	verifySvc  *VerificationService
@@ -44,6 +47,11 @@ type Config struct {
 	TemplateProvider         port.TemplateProvider
 	URLValidator             *port.URLValidator
 	Logger                   *slog.Logger
+	Audit                    AuditPublisher
+}
+
+type AuditPublisher interface {
+	Publish(ctx context.Context, event audit.Event)
 }
 
 func NewAuthService(
@@ -76,6 +84,7 @@ func NewAuthService(
 		templates:  resolveTemplates(config.TemplateProvider, config.URLValidator),
 		config:     config,
 		log:        config.Logger,
+		audit:      config.Audit,
 		sessionSvc: sessionSvc,
 		verifySvc:  verifySvc,
 	}
@@ -131,6 +140,10 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	}
 
 	s.log.Info("user registered", "user_id", user.ID, "email", user.Email)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewUserRegisteredEvent(user.ID, net.ParseIP(input.IP), input.UserAgent))
+	}
 
 	if s.config.RequireEmailVerification {
 		if err := s.verifySvc.SendVerification(ctx, user); err != nil {
@@ -194,6 +207,10 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 
 	s.log.Info("user logged in", "user_id", user.ID, "ip", input.IP)
 
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewLoginEvent(user.ID, session.ID, net.ParseIP(input.IP), input.UserAgent, true))
+	}
+
 	return &LoginResult{
 		User:         user,
 		Session:      session,
@@ -223,6 +240,9 @@ func (s *AuthService) Logout(ctx context.Context, sessionID string) *domain.Auth
 	if err := s.sessionSvc.RevokeByID(ctx, sessionID); err != nil {
 		s.log.Error("failed to revoke session", "err", err, "session_id", sessionID)
 		return domain.NewError("internal_error", "Internal server error", 500)
+	}
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewLogoutEvent("", sessionID, nil, ""))
 	}
 	return nil
 }

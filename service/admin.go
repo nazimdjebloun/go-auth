@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -19,6 +20,7 @@ type AdminService struct {
 	config     Config
 	sessionSvc *SessionService
 	log        *slog.Logger
+	audit      AuditPublisher
 }
 
 func NewAdminService(
@@ -40,6 +42,7 @@ func NewAdminService(
 		config:     config,
 		sessionSvc: sessionSvc,
 		log:        config.Logger,
+		audit:      config.Audit,
 	}
 }
 
@@ -108,6 +111,11 @@ func (s *AdminService) BanUser(ctx context.Context, userID string) *domain.AuthE
 	}
 
 	s.log.Info("user banned", "user_id", userID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserBanned, "", userID))
+	}
+
 	return nil
 }
 
@@ -128,6 +136,11 @@ func (s *AdminService) UnbanUser(ctx context.Context, userID string) *domain.Aut
 	}
 
 	s.log.Info("user unbanned", "user_id", userID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserUnbanned, "", userID))
+	}
+
 	return nil
 }
 
@@ -164,6 +177,11 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, userID string, role s
 	}
 
 	s.log.Info("user role updated", "user_id", userID, "new_role", role)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewRoleChangedEvent("", userID, string(user.Role), role))
+	}
+
 	return nil
 }
 
@@ -198,6 +216,11 @@ func (s *AdminService) DeleteUser(ctx context.Context, userID string) *domain.Au
 	}
 
 	s.log.Info("user deleted by admin", "user_id", userID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserDeleted, "", userID))
+	}
+
 	return nil
 }
 
@@ -262,6 +285,11 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	}
 
 	s.log.Info("user created by admin", "user_id", user.ID, "email", user.Email, "role", role)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserCreated, "", user.ID))
+	}
+
 	return user, nil
 }
 

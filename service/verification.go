@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -19,6 +20,7 @@ type VerificationService struct {
 	templates port.TemplateProvider
 	config    Config
 	log       *slog.Logger
+	audit     AuditPublisher
 }
 
 func NewVerificationService(
@@ -40,6 +42,7 @@ func NewVerificationService(
 		templates: resolveTemplates(config.TemplateProvider, config.URLValidator),
 		config:    config,
 		log:       logger,
+		audit:     config.Audit,
 	}
 }
 
@@ -86,6 +89,11 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	}
 
 	s.log.Info("email verified", "user_id", user.ID, "email", user.Email)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewEmailVerifiedEvent(user.ID))
+	}
+
 	return user, nil
 }
 
@@ -151,6 +159,10 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send verification email", "err", err, "user_id", user.ID)
 		return domain.NewError("email_failed", "Failed to send verification email", 500)
+	}
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewEmailVerificationSentEvent(user.Email))
 	}
 
 	return nil

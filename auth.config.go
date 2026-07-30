@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -100,6 +101,18 @@ type OrganizationConfig struct {
 	InviteTTL      time.Duration // how long org invites last (default 7d)
 }
 
+// AuditConfig controls audit logging behavior.
+type AuditConfig struct {
+	Enabled       bool
+	FailureMode   audit.AuditFailureMode
+	RetentionDays int             // default 90, 0 = forever
+	QueueSize     int             // default 1000
+	Workers       int             // default 3
+	BatchSize     int             // default 50
+	FlushInterval time.Duration   // default 100ms
+	Sinks         []audit.EventSink
+}
+
 // AppConfig groups the three identity-level settings for the application instance.
 type AppConfig struct {
 	Name     string         // app name displayed in emails
@@ -151,6 +164,9 @@ type Config struct {
 	csrfToken               *middleware.CSRFTokenConfig
 
 	providers []port.OAuthProvider
+
+	audit    AuditConfig
+	auditSinks []audit.EventSink
 
 	logger *slog.Logger
 
@@ -540,5 +556,21 @@ func WithLogger(logger *slog.Logger) func(*Config) {
 func WithProvider(p port.OAuthProvider) func(*Config) {
 	return func(c *Config) {
 		c.providers = append(c.providers, p)
+	}
+}
+
+// WithAudit configures audit logging.
+func WithAudit(cfg AuditConfig) func(*Config) {
+	return func(c *Config) {
+		c.audit = cfg
+		c.auditSinks = append(c.auditSinks, cfg.Sinks...)
+	}
+}
+
+// WithAuditSink adds a custom audit event sink (e.g. Kafka, NATS, webhook).
+// Only takes effect when audit is enabled via WithAudit.
+func WithAuditSink(sink audit.EventSink) func(*Config) {
+	return func(c *Config) {
+		c.auditSinks = append(c.auditSinks, sink)
 	}
 }
