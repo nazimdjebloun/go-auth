@@ -2,6 +2,7 @@ package port
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -137,4 +138,41 @@ type OrgInviteRepository interface {
 	Update(ctx context.Context, invite *domain.OrgInvite) error
 	Delete(ctx context.Context, id string) error
 	ClaimInvite(ctx context.Context, id string) (bool, error)
+}
+
+type AuditLogFilter struct {
+	Type         *string
+	ActorID      *string
+	TargetUserID *string
+	SessionID    *string
+	OrgID        *string
+	Success      *bool
+	Search       *string
+	FromDate     *time.Time
+	ToDate       *time.Time
+	Offset       int
+	Limit        int
+}
+
+type AuditLogEntry struct {
+	ID            string
+	Type          string
+	Severity      string
+	Success       bool
+	ActorID       *string
+	TargetUserID  *string
+	SessionID     *string
+	OrgID         *string
+	IP            string
+	UserAgent     string
+	ParsedUA      json.RawMessage
+	RequestID     string
+	CorrelationID string
+	Metadata      json.RawMessage
+	CreatedAt     time.Time
+}
+
+type AuditLogRepository interface {
+	List(ctx context.Context, filter AuditLogFilter) ([]AuditLogEntry, int, error)
+	GetByID(ctx context.Context, id string) (*AuditLogEntry, error)
 }
