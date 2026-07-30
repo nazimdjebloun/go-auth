@@ -13,14 +13,15 @@ import (
 )
 
 type PasswordService struct {
-	users    port.UserRepository
-	tokens   port.TokenRepository
-	hasher   port.Hasher
-	gen      port.TokenGenerator
-	mailer   port.Mailer
-	sessions port.SessionRepository
-	config   Config
-	log      *slog.Logger
+	users      port.UserRepository
+	tokens     port.TokenRepository
+	hasher     port.Hasher
+	gen        port.TokenGenerator
+	mailer     port.Mailer
+	templates  port.TemplateProvider
+	sessions   port.SessionRepository
+	config     Config
+	log        *slog.Logger
 }
 
 func NewPasswordService(
@@ -35,15 +36,17 @@ func NewPasswordService(
 	if config.Logger == nil {
 		config.Logger = slog.Default()
 	}
+	templates := resolveTemplates(config.TemplateProvider, config.URLValidator)
 	return &PasswordService{
-		users:    users,
-		tokens:   tokens,
-		hasher:   hasher,
-		gen:      gen,
-		mailer:   mailer,
-		sessions: sessions,
-		config:   config,
-		log:      config.Logger,
+		users:     users,
+		tokens:    tokens,
+		hasher:    hasher,
+		gen:       gen,
+		mailer:    mailer,
+		templates: templates,
+		sessions:  sessions,
+		config:    config,
+		log:       config.Logger,
 	}
 }
 
@@ -90,10 +93,17 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	}
 
 	url := s.config.BaseURL + "/reset-password?token=" + raw
-	html := "<p>Click <a href=\"" + url + "\">here</a> to reset your password. Expires in 1 hour.</p>"
-	text := "Reset your password: " + url + " (expires in 1 hour)"
+	result, err := s.templates.Render(port.PasswordResetData{
+		AppName:   s.config.AppName,
+		ResetURL:  url,
+		ExpiresIn: s.config.TokenTTL,
+	})
+	if err != nil {
+		s.log.Error("failed to render reset email template", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
+	}
 
-	if err := s.mailer.Send(ctx, user.Email, "Reset your password - "+s.config.AppName, html, text); err != nil {
+	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send reset email", "err", err, "user_id", user.ID)
 		return domain.NewError("email_failed", "Failed to send reset email", 500)
 	}
@@ -213,9 +223,16 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 	}
 
 	if s.mailer != nil {
-		html := "<p>Your set password code: <strong>" + raw + "</strong></p><p>Expires in 10 minutes.</p>"
-		text := "Your set password code: " + raw + " (expires in 10 minutes)"
-		if err := s.mailer.Send(ctx, user.Email, "Set your password - "+s.config.AppName, html, text); err != nil {
+		result, tplErr := s.templates.Render(port.SetPasswordData{
+			AppName:   s.config.AppName,
+			Code:      raw,
+			ExpiresIn: 10 * time.Minute,
+		})
+		if tplErr != nil {
+			s.log.Error("failed to render set-password email template", "err", tplErr, "user_id", userID)
+			return domain.NewError("internal_error", "Internal server error", 500)
+		}
+		if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 			s.log.Error("failed to send set-password email", "err", err, "user_id", userID)
 			return domain.NewError("email_failed", "Failed to send email", 500)
 		}

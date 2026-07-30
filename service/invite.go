@@ -17,6 +17,7 @@ type InviteService struct {
 	hasher     port.Hasher
 	gen        port.TokenGenerator
 	mailer     port.Mailer
+	templates  port.TemplateProvider
 	config     Config
 	sessionSvc *SessionService
 	log        *slog.Logger
@@ -42,6 +43,7 @@ func NewInviteService(
 		hasher:     hasher,
 		gen:        gen,
 		mailer:     mailer,
+		templates:  resolveTemplates(config.TemplateProvider, config.URLValidator),
 		config:     config,
 		sessionSvc: sessionSvc,
 		log:        config.Logger,
@@ -252,9 +254,15 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 
 	if s.mailer != nil {
 		url := s.config.BaseURL + "/invite?token=" + raw
-		html := "<p>You've been invited to join. <a href=\"" + url + "\">Click here</a> to accept.</p>"
-		text := "You've been invited to join: " + url
-		if err := s.mailer.Send(ctx, invite.Email, "You're invited - "+s.config.AppName, html, text); err != nil {
+		result, tplErr := s.templates.Render(port.InviteData{
+			AppName:   s.config.AppName,
+			InviteURL: url,
+		})
+		if tplErr != nil {
+			s.log.Error("failed to render invite email template", "err", tplErr, "invite_id", inviteID)
+			return domain.NewError("internal_error", "Internal server error", 500)
+		}
+		if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
 			s.log.Error("failed to send invite email", "err", err, "invite_id", inviteID)
 			return domain.NewError("email_failed", "Failed to send invite email", 500)
 		}

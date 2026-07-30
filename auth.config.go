@@ -53,12 +53,13 @@ type DatabaseConfig struct {
 
 // EmailConfig configures SMTP email delivery (transport only).
 type EmailConfig struct {
-	From    string
-	Host    string
-	Port    int
-	User    string
-	Pass    string
-	TLSMode TLSMode
+	From           string
+	Host           string
+	Port           int
+	User           string
+	Pass           string
+	TLSMode        TLSMode
+	AllowHTTPURLs  bool // allow http:// URLs in email templates (dev only, default false)
 }
 
 // CookieConfig configures the session cookie.
@@ -135,8 +136,9 @@ type Config struct {
 
 	cookie CookieConfig
 
-	mailer port.Mailer
-	email  *EmailConfig
+	mailer         port.Mailer
+	email          *EmailConfig
+	templateProvider port.TemplateProvider
 
 	registration RegistrationConfig
 
@@ -208,8 +210,8 @@ func (c *Config) validate() error {
 		errs = append(errs, errors.New("cookie name cannot be empty"))
 	}
 
-	// Email validation
-	if c.email != nil {
+	// Email validation — only check SMTP fields when no custom mailer is set
+	if c.email != nil && c.mailer == nil {
 		e := c.email
 		if e.Host == "" {
 			errs = append(errs, errors.New("email: host is required"))
@@ -392,6 +394,15 @@ func WithEmail(cfg EmailConfig) func(*Config) {
 func WithMailer(m port.Mailer) func(*Config) {
 	return func(c *Config) {
 		c.mailer = m
+	}
+}
+
+// WithTemplates provides a custom email template provider.
+// When set, the provider's Render method is called for every email instead of
+// the built-in default templates.
+func WithTemplates(p port.TemplateProvider) func(*Config) {
+	return func(c *Config) {
+		c.templateProvider = p
 	}
 }
 
