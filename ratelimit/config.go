@@ -63,6 +63,18 @@ func DefaultRateLimitConfig() *Config {
 			"POST /auth/orgs/*/invites":            {Requests: 20, Window: time.Hour},
 			"GET /auth/orgs/*/invites":             {Requests: 30, Window: time.Minute},
 			"DELETE /auth/orgs/*/invites/*":        {Requests: 10, Window: time.Minute},
+			// Admin endpoints
+			"GET /admin/users":          {Requests: 60, Window: time.Minute},
+			"POST /admin/users":         {Requests: 10, Window: time.Minute},
+			"PATCH /admin/users/*":      {Requests: 30, Window: time.Minute},
+			"DELETE /admin/users/*":     {Requests: 10, Window: time.Minute},
+			"GET /admin/users/*/sessions": {Requests: 60, Window: time.Minute},
+			"DELETE /admin/users/*/sessions":   {Requests: 20, Window: time.Minute},
+			"DELETE /admin/users/*/sessions/*": {Requests: 20, Window: time.Minute},
+			"POST /admin/invites":       {Requests: 10, Window: time.Minute},
+			"GET /admin/invites":        {Requests: 60, Window: time.Minute},
+			"DELETE /admin/invites/*":   {Requests: 10, Window: time.Minute},
+			"POST /admin/invites/*/resend": {Requests: 5, Window: time.Minute},
 		},
 	}
 }
