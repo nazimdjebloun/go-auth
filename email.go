@@ -33,14 +33,26 @@ func (m *SMTPMailer) Send(ctx context.Context, to, subject, html, text string) e
 	msg.SetBodyString(mail.TypeTextHTML, html)
 	msg.AddAlternativeString(mail.TypeTextPlain, text)
 
-	client, err := mail.NewClient(
-		m.cfg.Host,
+	tlsOption := mail.WithTLSPolicy(mail.NoTLS)
+	switch m.cfg.TLSMode {
+	case TLSStart:
+		tlsOption = mail.WithTLSPolicy(mail.TLSMandatory)
+	case TLSImplicit:
+		tlsOption = mail.WithSSL()
+	}
+
+	opts := []mail.Option{
 		mail.WithPort(m.cfg.Port),
-		mail.WithUsername(m.cfg.User),
-		mail.WithPassword(m.cfg.Pass),
-		mail.WithTLSPolicy(mail.TLSMandatory),
-		mail.WithSMTPAuth(mail.SMTPAuthPlain),
-	)
+		tlsOption,
+	}
+	if m.cfg.User != "" {
+		opts = append(opts,
+			mail.WithSMTPAuth(mail.SMTPAuthPlain),
+			mail.WithUsername(m.cfg.User),
+			mail.WithPassword(m.cfg.Pass),
+		)
+	}
+	client, err := mail.NewClient(m.cfg.Host, opts...)
 	if err != nil {
 		return fmt.Errorf("goauth: failed to create SMTP client: %w", err)
 	}

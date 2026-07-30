@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"time"
 
@@ -29,6 +31,14 @@ const tokenLength = 32
 
 // ─── Config sub-types ───────────────────────────────────────
 
+type TLSMode int
+
+const (
+	TLSNone     TLSMode = iota // plaintext — dev/local only
+	TLSStart                   // STARTTLS, typically port 587
+	TLSImplicit                // implicit TLS, typically port 465
+)
+
 // DatabaseConfig configures the database connection.
 // Provide one of URL, DB, or Pool. URL is the preferred option —
 // the library will open, validate, and close the connection automatically.
@@ -43,11 +53,12 @@ type DatabaseConfig struct {
 
 // EmailConfig configures SMTP email delivery (transport only).
 type EmailConfig struct {
-	From string
-	Host string
-	Port int
-	User string
-	Pass string
+	From    string
+	Host    string
+	Port    int
+	User    string
+	Pass    string
+	TLSMode TLSMode
 }
 
 // CookieConfig configures the session cookie.
@@ -72,13 +83,13 @@ type SessionConfig struct {
 // RegistrationConfig controls which registration methods are available.
 // Login is ALWAYS unconditional regardless of these flags.
 type RegistrationConfig struct {
-	EnablePassword            bool          // email+password registration (default true)
-	EnableOAuth               bool          // OAuth signup for new users (default true)
-	EnableInvite              bool          // invite-code registration (default true)
-	AllowPublic               bool          // public registration is allowed (default true)
-	RequireEmailVerification  bool          // require email verification on signup (default false)
-	InviteTTL                 time.Duration // how long signup invites last (default 7d)
-	VerificationCodeTTL       time.Duration // how long verification codes live (default 15m)
+	EnableEmailPassword      bool          // email+password registration (default true)
+	EnableOAuth              bool          // OAuth signup for new users (default true)
+	EnableInvite             bool          // invite-code registration (default true)
+	AllowPublic              bool          // public registration is allowed (default true)
+	RequireEmailVerification bool          // require email verification on signup (default false)
+	InviteTTL                time.Duration // how long signup invites last (default 7d)
+	VerificationCodeTTL      time.Duration // how long verification codes live (default 15m)
 }
 
 // OrganizationConfig controls the organizations feature.
@@ -97,11 +108,11 @@ type AppConfig struct {
 
 // SecurityConfig groups security-related settings.
 type SecurityConfig struct {
-	AllowedOrigins          []string                     // allowed origins for CSRF Origin/Referer check
-	AllowMissingCSRFHeaders bool                         // allow requests without Origin/Referer headers (default false)
-	CSRFToken               *middleware.CSRFTokenConfig  // double-submit cookie CSRF (optional, disabled by default)
-	PasswordPolicy          domain.PasswordPolicy         // password complexity requirements
-	TokenTTL                time.Duration                 // how long verification/reset tokens live (default 1h)
+	AllowedOrigins          []string                    // allowed origins for CSRF Origin/Referer check
+	AllowMissingCSRFHeaders bool                        // allow requests without Origin/Referer headers (default false)
+	CSRFToken               *middleware.CSRFTokenConfig // double-submit cookie CSRF (optional, disabled by default)
+	PasswordPolicy          domain.PasswordPolicy       // password complexity requirements
+	TokenTTL                time.Duration               // how long verification/reset tokens live (default 1h)
 }
 
 // ─── Top-level Config ───────────────────────────────────────
@@ -197,20 +208,71 @@ func (c *Config) validate() error {
 		errs = append(errs, errors.New("cookie name cannot be empty"))
 	}
 
-	// Registration validation
+	// Email validation
+	if c.email != nil {
+		e := c.email
+		if e.Host == "" {
+			errs = append(errs, errors.New("email: host is required"))
+		}
+		if e.Port <= 0 || e.Port > 65535 {
+			errs = append(errs, fmt.Errorf("email: port must be between 1 and 65535, got %d", e.Port))
+		}
+		if e.From == "" {
+			errs = append(errs, errors.New("email: from address is required"))
+		} else if _, err := mail.ParseAddress(e.From); err != nil {
+			errs = append(errs, fmt.Errorf("email: from address %q is not valid: %w", e.From, err))
+		}
+		if (e.User == "") != (e.Pass == "") {
+			errs = append(errs, errors.New("email: user and pass must both be set or both be empty"))
+		}
+		if e.TLSMode < TLSNone || e.TLSMode > TLSImplicit {
+			errs = append(
+				errs,
+				fmt.Errorf("email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got %d", e.TLSMode),
+			)
+		}
+	}
 	if (c.registration.RequireEmailVerification || c.registration.EnableInvite) && c.mailer == nil && c.email == nil {
 		errs = append(errs, errors.New("email: Mailer or Email config required when RequireEmailVerification or EnableInvite is enabled"))
 	}
-	if c.registration.RequireEmailVerification && !c.registration.EnablePassword {
-		errs = append(errs, errors.New("registration: RequireEmailVerification has no effect when EnablePassword is false"))
+	if c.registration.RequireEmailVerification && !c.registration.EnableEmailPassword && !c.registration.EnableOAuth {
+		errs = append(errs, errors.New("registration: RequireEmailVerification has no effect when both EnableEmailPassword and EnableOAuth are disabled"))
 	}
-	if c.registration.AllowPublic && !c.registration.EnablePassword && !c.registration.EnableOAuth && !c.registration.EnableInvite {
+	if c.registration.AllowPublic && !c.registration.EnableEmailPassword && !c.registration.EnableOAuth && !c.registration.EnableInvite {
 		errs = append(errs, errors.New("registration: AllowPublic is true but no registration method is enabled"))
 	}
 
 	if c.organizations.Enable {
 		if c.organizations.MaxOrgsPerUser < 0 || c.organizations.MaxOrgsPerUser > 100 {
 			errs = append(errs, errors.New("organizations.max_orgs_per_user must be between 0 and 100 (0 = default 100)"))
+		}
+	}
+
+	if c.rateLimit != nil && c.rateLimit.Enabled {
+		rl := c.rateLimit
+		if rl.Store == nil {
+			errs = append(errs, errors.New("rate_limit: store is nil but enabled is true - provide ratelimit.NewMemoryStore() or a distributed store"))
+		}
+		if err := validateRate("default", rl.Default); err != nil {
+			errs = append(errs, err)
+		}
+		for route, rate := range rl.Routes {
+			if err := validateRate(route, rate); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if rl.IPv6Subnet < 1 || rl.IPv6Subnet > 128 {
+			errs = append(errs, fmt.Errorf("rate_limit: ipv6_subnet must be between 1 and 128, got %d", rl.IPv6Subnet))
+		}
+		for _, ip := range rl.TrustedIPs {
+			if net.ParseIP(ip) == nil {
+				if _, _, err := net.ParseCIDR(ip); err != nil {
+					errs = append(errs, fmt.Errorf("rate_limit: trusted_ips contains invalid IP/CIDR %q", ip))
+				}
+			}
+		}
+		if rl.IPAddressHeader != "" && len(rl.TrustedIPs) == 0 {
+			errs = append(errs, errors.New("rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can be spoofed to bypass rate limiting"))
 		}
 	}
 
@@ -234,13 +296,23 @@ func (c *Config) validate() error {
 	return errors.Join(errs...)
 }
 
+func validateRate(name string, r ratelimit.Rate) error {
+	if r.Requests <= 0 {
+		return fmt.Errorf("rate_limit: route %q requests must be positive, got %d", name, r.Requests)
+	}
+	if r.Window <= 0 {
+		return fmt.Errorf("rate_limit: route %q window must be positive, got %s", name, r.Window)
+	}
+	return nil
+}
+
 // ─── Defaults ───────────────────────────────────────────────
 
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
 		registration: RegistrationConfig{
-			EnablePassword:           true,
+			EnableEmailPassword:      true,
 			EnableOAuth:              true,
 			EnableInvite:             true,
 			AllowPublic:              true,
@@ -248,14 +320,14 @@ func DefaultConfig() Config {
 			RequireEmailVerification: false,
 			VerificationCodeTTL:      15 * time.Minute,
 		},
-		sessionTTL:      30 * 24 * time.Hour,
-		sessionIdleTTL:  7 * 24 * time.Hour,
-		refreshTokenTTL: 30 * 24 * time.Hour,
-		maxLifetime:     0,
-		graceWindow:     10 * time.Second,
-		touchDebounce:   5 * time.Minute,
-		tokenTTL:        1 * time.Hour,
-		rateLimit:       ratelimit.DefaultRateLimitConfig(),
+		sessionTTL:              30 * 24 * time.Hour,
+		sessionIdleTTL:          7 * 24 * time.Hour,
+		refreshTokenTTL:         30 * 24 * time.Hour,
+		maxLifetime:             0,
+		graceWindow:             10 * time.Second,
+		touchDebounce:           5 * time.Minute,
+		tokenTTL:                1 * time.Hour,
+		rateLimit:               ratelimit.DefaultRateLimitConfig(),
 		allowMissingCSRFHeaders: false,
 		passwordPolicy: domain.PasswordPolicy{
 			MinLength:    8,
@@ -367,6 +439,80 @@ func WithSecurity(cfg SecurityConfig) func(*Config) {
 func WithRateLimit(cfg ratelimit.Config) func(*Config) {
 	return func(c *Config) {
 		c.rateLimit = &cfg
+	}
+}
+
+// WithRateLimitEnabled toggles rate limiting on/off without touching Routes, Default, or Store.
+func WithRateLimitEnabled(enabled bool) func(*Config) {
+	return func(c *Config) {
+		if c.rateLimit == nil {
+			c.rateLimit = ratelimit.DefaultRateLimitConfig()
+		}
+		c.rateLimit.Enabled = enabled
+	}
+}
+
+// WithRateLimitDefault overrides only the fallback rate applied to routes not present in Routes.
+func WithRateLimitDefault(r ratelimit.Rate) func(*Config) {
+	return func(c *Config) {
+		if c.rateLimit == nil {
+			c.rateLimit = ratelimit.DefaultRateLimitConfig()
+		}
+		c.rateLimit.Default = r
+	}
+}
+
+// WithRateLimitRoute overrides or adds a single route's rate without replacing the rest of the Routes table.
+func WithRateLimitRoute(pattern string, r ratelimit.Rate) func(*Config) {
+	return func(c *Config) {
+		if c.rateLimit == nil {
+			c.rateLimit = ratelimit.DefaultRateLimitConfig()
+		}
+		if c.rateLimit.Routes == nil {
+			c.rateLimit.Routes = map[string]ratelimit.Rate{}
+		}
+		c.rateLimit.Routes[pattern] = r
+	}
+}
+
+// WithRateLimitStore swaps the backing store (e.g. a Redis-backed Store) without touching Routes or Default.
+func WithRateLimitStore(s ratelimit.Store) func(*Config) {
+	return func(c *Config) {
+		if c.rateLimit == nil {
+			c.rateLimit = ratelimit.DefaultRateLimitConfig()
+		}
+		c.rateLimit.Store = s
+	}
+}
+
+// WithTrustedIPs sets the list of IPs/CIDRs trusted to supply IPAddressHeader.
+func WithTrustedIPs(ips []string) func(*Config) {
+	return func(c *Config) {
+		if c.rateLimit == nil {
+			c.rateLimit = ratelimit.DefaultRateLimitConfig()
+		}
+		c.rateLimit.TrustedIPs = ips
+	}
+}
+
+// WithIPv6Subnet sets the subnet prefix length used to bucket IPv6 clients for rate limiting.
+func WithIPv6Subnet(prefixLen int) func(*Config) {
+	return func(c *Config) {
+		if c.rateLimit == nil {
+			c.rateLimit = ratelimit.DefaultRateLimitConfig()
+		}
+		c.rateLimit.IPv6Subnet = prefixLen
+	}
+}
+
+// WithIPAddressHeader sets which header to trust for client IP (e.g. "CF-Connecting-IP").
+// Requires TrustedIPs to be set - validated in Config.validate().
+func WithIPAddressHeader(header string) func(*Config) {
+	return func(c *Config) {
+		if c.rateLimit == nil {
+			c.rateLimit = ratelimit.DefaultRateLimitConfig()
+		}
+		c.rateLimit.IPAddressHeader = header
 	}
 }
 
