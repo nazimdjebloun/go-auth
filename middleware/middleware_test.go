@@ -150,6 +150,101 @@ func TestIsSameOrigin_DifferentHost(t *testing.T) {
 	}
 }
 
+func TestIsSameOrigin_BehindReverseProxyHTTPS(t *testing.T) {
+	// Behind nginx/Cloudflare/ALB: r.TLS is nil but X-Forwarded-Proto is https.
+	r := httptest.NewRequest("GET", "https://example.com/path", nil)
+	r.Host = "example.com"
+	r.TLS = nil
+	r.Header.Set("X-Forwarded-Proto", "https")
+	if !isSameOrigin("https://example.com", r) {
+		t.Error("expected X-Forwarded-Proto https to match https origin")
+	}
+}
+
+func TestIsSameOrigin_BehindReverseProxyHTTP(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://example.com/path", nil)
+	r.Host = "example.com"
+	r.TLS = nil
+	r.Header.Set("X-Forwarded-Proto", "http")
+	if !isSameOrigin("http://example.com", r) {
+		t.Error("expected X-Forwarded-Proto http to match http origin")
+	}
+}
+
+func TestIsSameOrigin_ReverseProxySchemeMismatch(t *testing.T) {
+	// Proxy says http, but origin says https — should not match.
+	r := httptest.NewRequest("GET", "http://example.com/path", nil)
+	r.Host = "example.com"
+	r.TLS = nil
+	r.Header.Set("X-Forwarded-Proto", "http")
+	if isSameOrigin("https://example.com", r) {
+		t.Error("expected scheme mismatch to not match")
+	}
+}
+
+func TestIsSameOrigin_ForwardedHeader(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://example.com/path", nil)
+	r.Host = "example.com"
+	r.TLS = nil
+	r.Header.Set("Forwarded", "for=192.0.2.60;proto=https;host=example.com")
+	if !isSameOrigin("https://example.com", r) {
+		t.Error("expected Forwarded proto=https to match https origin")
+	}
+}
+
+func TestIsSameOrigin_XForwardedHost(t *testing.T) {
+	r := httptest.NewRequest("GET", "https://api.example.com/path", nil)
+	r.Host = "internal-host"
+	r.TLS = nil
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Host", "api.example.com")
+	if !isSameOrigin("https://api.example.com", r) {
+		t.Error("expected X-Forwarded-Host to be used for comparison")
+	}
+}
+
+func TestIsSameOrigin_SpoofedForwardedHeader(t *testing.T) {
+	// Even if an attacker spoofs X-Forwarded-Proto, they can't bypass
+	// the origin check because the origin must still match.
+	r := httptest.NewRequest("GET", "http://example.com/path", nil)
+	r.Host = "example.com"
+	r.TLS = nil
+	r.Header.Set("X-Forwarded-Proto", "https")
+	// Attacker origin is evil.com — should still fail.
+	if isSameOrigin("https://evil.com", r) {
+		t.Error("spoofed X-Forwarded-Proto should not help attacker")
+	}
+}
+
+func TestRequestSchemeHost_DirectHTTPS(t *testing.T) {
+	r := httptest.NewRequest("GET", "https://example.com/path", nil)
+	r.Host = "example.com"
+	scheme, host := requestSchemeHost(r)
+	if scheme != "https" || host != "example.com" {
+		t.Errorf("expected https://example.com, got %s://%s", scheme, host)
+	}
+}
+
+func TestRequestSchemeHost_DirectHTTP(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://example.com/path", nil)
+	r.Host = "example.com"
+	scheme, host := requestSchemeHost(r)
+	if scheme != "http" || host != "example.com" {
+		t.Errorf("expected http://example.com, got %s://%s", scheme, host)
+	}
+}
+
+func TestRequestSchemeHost_ProxyHTTPS(t *testing.T) {
+	r := httptest.NewRequest("GET", "http://example.com/path", nil)
+	r.Host = "internal"
+	r.Header.Set("X-Forwarded-Proto", "https")
+	r.Header.Set("X-Forwarded-Host", "example.com")
+	scheme, host := requestSchemeHost(r)
+	if scheme != "https" || host != "example.com" {
+		t.Errorf("expected https://example.com, got %s://%s", scheme, host)
+	}
+}
+
 func TestIsAllowed_Wildcard(t *testing.T) {
 	origins := map[string]bool{"*": true}
 	if !isAllowed("http://anything.com", origins) {
