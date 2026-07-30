@@ -74,6 +74,9 @@ func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (
 }
 
 func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInput) (*domain.Invite, *domain.AuthError) {
+	if !s.config.EnableInvite {
+		return nil, domain.ErrMethodDisabled
+	}
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	if err := validateEmail(input.Email); err != nil {
 		return nil, err
@@ -107,6 +110,9 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 }
 
 func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, *domain.AuthError) {
+	if !s.config.EnableInvite {
+		return nil, domain.ErrMethodDisabled
+	}
 	invite, err := s.invites.GetByCode(ctx, hashToken(input.Code))
 	if err != nil || invite == nil {
 		return nil, domain.ErrInviteNotFound

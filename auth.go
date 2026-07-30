@@ -225,6 +225,9 @@ func New(config Config) (*Auth, error) {
 		AppName:                  config.appName,
 		BaseURL:                  config.baseURL,
 		InviteOnly:               !config.registration.AllowPublic,
+		EnableEmailPassword:      config.registration.EnableEmailPassword,
+		EnableOAuth:              config.registration.EnableOAuth,
+		EnableInvite:             config.registration.EnableInvite,
 		RequireEmailVerification: config.registration.RequireEmailVerification,
 		InviteTTL:                config.registration.InviteTTL,
 		VerificationCodeTTL:      config.registration.VerificationCodeTTL,
@@ -290,6 +293,8 @@ func New(config Config) (*Auth, error) {
 			CookieSecure:             config.cookie.Secure,
 			CookieSameSite:           config.cookie.SameSite,
 			RequireEmailVerification: config.registration.RequireEmailVerification,
+			EnableOAuth:              config.registration.EnableOAuth,
+			InviteOnly:               !config.registration.AllowPublic,
 			Logger:                   config.logger,
 		}
 		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, oauthCfg)
@@ -442,15 +447,19 @@ func (a *Auth) Close() {
 
 func (a *Auth) Mount(mux *http.ServeMux) {
 	// All middleware (csrf, auth, admin) is already baked into a.Handlers.
-	mux.Handle("POST /auth/register", a.Handlers.Register)
-	mux.Handle("POST /auth/signup", a.Handlers.Register)
+	if a.Config.registration.EnableEmailPassword {
+		mux.Handle("POST /auth/register", a.Handlers.Register)
+		mux.Handle("POST /auth/signup", a.Handlers.Register)
+	}
 	mux.Handle("POST /auth/login", a.Handlers.Login)
 	mux.Handle("POST /auth/signin", a.Handlers.Login)
 	mux.Handle("POST /auth/forgot-password", a.Handlers.ForgotPassword)
 	mux.Handle("POST /auth/reset-password", a.Handlers.ResetPassword)
 	mux.Handle("POST /auth/verify-email", a.Handlers.VerifyEmail)
-	mux.Handle("GET /auth/invite/info", a.Handlers.GetInviteInfo)
-	mux.Handle("POST /auth/invite/register", a.Handlers.InviteRegister)
+	if a.Config.registration.EnableInvite {
+		mux.Handle("GET /auth/invite/info", a.Handlers.GetInviteInfo)
+		mux.Handle("POST /auth/invite/register", a.Handlers.InviteRegister)
+	}
 	mux.Handle("POST /auth/logout", a.Handlers.Logout)
 	mux.Handle("POST /auth/signout", a.Handlers.Logout)
 	mux.Handle("GET /auth/me", a.Handlers.GetMe)
@@ -479,14 +488,17 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("GET /admin/users/{id}/sessions", a.Handlers.AdminListUserSessions)
 	mux.Handle("DELETE /admin/users/{id}/sessions/{sessionId}", a.Handlers.AdminRevokeUserSession)
 	mux.Handle("DELETE /admin/users/{id}/sessions", a.Handlers.RevokeUserSessions)
-	mux.Handle("POST /admin/invites", a.Handlers.CreateInvite)
-	mux.Handle("GET /admin/invites", a.Handlers.ListInvites)
-	mux.Handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
-	mux.Handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
-	mux.Handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
-	if a.oAuthService != nil {
+	if a.Config.registration.EnableInvite {
+		mux.Handle("POST /admin/invites", a.Handlers.CreateInvite)
+		mux.Handle("GET /admin/invites", a.Handlers.ListInvites)
+		mux.Handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
+		mux.Handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
+		mux.Handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
+	}
+	if a.Config.registration.EnableOAuth && a.oAuthService != nil {
 		mux.Handle("GET /auth/oauth/{provider}", a.Handlers.OAuthInitiate)
 		mux.Handle("GET /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
+		mux.Handle("POST /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
 		mux.Handle("POST /auth/oauth/link/{provider}", a.Handlers.OAuthLink)
 		mux.Handle("POST /auth/oauth/unlink/{provider}", a.Handlers.OAuthUnlink)
 		mux.Handle("GET /auth/oauth/providers", a.Handlers.OAuthProviders)

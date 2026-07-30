@@ -39,6 +39,8 @@ type OAuthServiceConfig struct {
 	CookieSecure             bool
 	CookieSameSite           http.SameSite
 	RequireEmailVerification bool
+	EnableOAuth              bool
+	InviteOnly               bool
 	Logger                   *slog.Logger
 }
 
@@ -267,6 +269,13 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		_ = session
 		_ = refreshToken
 		return rawToken, refreshToken, false, false, "", nil
+	}
+
+	if !s.config.EnableOAuth {
+		return "", "", false, false, "", domain.ErrMethodDisabled
+	}
+	if s.config.InviteOnly {
+		return "", "", false, false, "", domain.ErrForbidden
 	}
 
 	existingUser, userErr := s.userRepo.GetByEmail(ctx, info.Email)

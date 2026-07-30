@@ -72,8 +72,8 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	provider := r.PathValue("provider")
-	code := r.URL.Query().Get("code")
-	state := r.URL.Query().Get("state")
+	code := r.FormValue("code")
+	state := r.FormValue("state")
 
 	if code == "" || state == "" {
 		http.Redirect(w, r, h.baseURL+"/auth/callback?error=invalid_request&provider="+provider, http.StatusFound)
