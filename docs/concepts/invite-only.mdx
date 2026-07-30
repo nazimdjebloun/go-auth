@@ -10,8 +10,11 @@ When invite-only mode is enabled, registration requires a valid invite code. Thi
 ```go
 goauth.WithRegistration(goauth.RegistrationConfig{
     EnableInvite: true,
+    AllowPublic:  false, // gate all public registration
 })
 ```
+
+When `AllowPublic` is `false` and `EnableInvite` is `true`, only users with an invite code can register. Set `AllowPublic` to `true` to allow public registration alongside invite codes.
 
 The flow:
 

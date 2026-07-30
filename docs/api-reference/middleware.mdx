@@ -44,7 +44,7 @@ Must be used after `Authenticate`. Returns 403 if user role is not `admin`.
 func (m *Middleware) RateLimit(next http.Handler) http.Handler
 ```
 
-Configurable via `WithRateLimit` in the root config.
+Configurable via `WithRateLimit` or granular options (`WithRateLimitEnabled`, `WithRateLimitRoute`, etc.) in the root config.
 
 ### `CORS`
 

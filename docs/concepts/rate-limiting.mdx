@@ -1,17 +1,92 @@
 ---
 title: Rate Limiting
-description: Per-IP token bucket rate limiter configuration.
+description: Per-IP token bucket rate limiter with granular configuration.
 ---
 
 # Rate Limiting
 
-Per-IP token bucket rate limiter:
+Per-IP token bucket rate limiter with configurable per-route limits.
+
+## Enabling Rate Limiting
+
+The simplest way to enable rate limiting while preserving the default route table:
+
+```go
+goauth.WithRateLimitEnabled(true)
+```
+
+This preserves all built-in route limits (login: 5/min, register: 3/min, etc.) and the default fallback (60/min).
+
+## Granular Options
+
+Each option initializes from `DefaultRateLimitConfig()` if needed, then mutates only the target field:
+
+```go
+goauth.NewConfig(
+    // Toggle on/off — preserves default Routes table
+    goauth.WithRateLimitEnabled(true),
+
+    // Override the fallback rate for unmatched routes
+    goauth.WithRateLimitDefault(ratelimit.Rate{Requests: 100, Window: time.Minute}),
+
+    // Override or add a single route's rate
+    goauth.WithRateLimitRoute("POST /custom/endpoint", ratelimit.Rate{Requests: 5, Window: time.Minute}),
+
+    // Swap the backing store (e.g. Redis)
+    goauth.WithRateLimitStore(redisStore),
+
+    // IPs/CIDRs trusted to supply IPAddressHeader
+    goauth.WithTrustedIPs([]string{"10.0.0.0/8", "192.168.1.0/24"}),
+
+    // IPv6 bucketing prefix length (1-128, default 64)
+    goauth.WithIPv6Subnet(64),
+
+    // Header for client IP (requires TrustedIPs)
+    goauth.WithIPAddressHeader("CF-Connecting-IP"),
+)
+```
+
+## Full Replace
+
+For complete control, replace the entire config:
 
 ```go
 goauth.WithRateLimit(ratelimit.Config{
-    Rate:  10,   // requests per second
-    Burst: 20,   // burst capacity
+    Enabled: true,
+    Default: ratelimit.Rate{Requests: 60, Window: time.Minute},
+    Routes: map[string]ratelimit.Rate{
+        "POST /auth/login": {Requests: 5, Window: time.Minute},
+    },
+    Store:      ratelimit.NewMemoryStore(),
+    IPv6Subnet: 64,
 })
 ```
 
-Default: 10 req/s with burst of 20. Set to `nil` to disable.
+## Config Struct
+
+```go
+type Config struct {
+    Enabled         bool
+    Default         Rate              // fallback for unmatched routes
+    Routes          map[string]Rate   // per-route overrides
+    Store           Store             // NewMemoryStore() or distributed store
+    DisabledPaths   []string          // paths to exclude from rate limiting (reserved, not yet wired to validation)
+    TrustedIPs      []string          // IPs/CIDRs trusted for IPAddressHeader
+    IPv6Subnet      int               // subnet prefix length (1-128, default 64)
+    IPAddressHeader string            // e.g. "CF-Connecting-IP"
+}
+```
+
+## Default Route Limits
+
+| Route | Limit |
+|---|---|
+| `POST /auth/login` | 5/min |
+| `POST /auth/register` | 3/min |
+| `POST /auth/forgot-password` | 3/hour |
+| `POST /auth/refresh` | 3/min |
+| All other routes | 60/min |
+
+## Validation
+
+Rate-limit config is only validated when `Enabled` is `true`. Disabled rate limiting does not block startup regardless of config quality.

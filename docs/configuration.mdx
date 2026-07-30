@@ -83,35 +83,71 @@ goauth.WithCookie(goauth.CookieConfig{
 })
 ```
 
+### Registration
+
+Controls which registration methods are available. Login is always unconditional regardless of these flags.
+
+```go
+goauth.WithRegistration(goauth.RegistrationConfig{
+    EnableEmailPassword:           true,   // email+password signup (default true)
+    EnableOAuth:              true,   // OAuth signup for new users (default true)
+    EnableInvite:             true,   // invite-code registration (default true)
+    AllowPublic:              true,   // allow public registration (default true)
+    RequireEmailVerification: false,  // require email verification on signup (default false)
+    InviteTTL:                7 * 24 * time.Hour,    // how long invite codes last (default 7d)
+    VerificationCodeTTL:      15 * time.Minute,      // verify code lifetime (default 15m)
+})
+```
+
+When `AllowPublic` is `false`, registration is gated — only invited users or OAuth users (if `EnableOAuth` is `true`) can sign up.
+
+| Field | Default | Description |
+|---|---|---|
+| `EnableEmailPassword` | `true` | Email + password registration |
+| `EnableOAuth` | `true` | OAuth signup for new users |
+| `EnableInvite` | `true` | Invite-code registration |
+| `AllowPublic` | `true` | Public registration allowed |
+| `RequireEmailVerification` | `false` | Verify email on signup |
+| `InviteTTL` | 168h (7d) | Invite code lifetime |
+| `VerificationCodeTTL` | 15m | Verification code lifetime |
+
 ### Email & Verification
+
+```go
+type EmailConfig struct {
+    Host    string   // SMTP host, required
+    Port    int      // SMTP port, required, 1-65535
+    User    string   // SMTP username, optional
+    Pass    string   // SMTP password, optional (must be set together with User, or both empty)
+    From    string   // sender address, required, must be a valid email address
+    TLSMode TLSMode  // TLSNone, TLSStart, or TLSImplicit
+}
+```
 
 ```go
 // Option 1: SMTP config
 goauth.WithEmail(goauth.EmailConfig{
-    Host: "smtp.example.com",
-    Port: 587,
-    User: "user",
-    Pass: "pass",
-    From: "noreply@example.com",
+    Host:    "smtp.example.com",
+    Port:    587,
+    User:    "user",
+    Pass:    "pass",
+    From:    "noreply@example.com",
+    TLSMode: goauth.TLSStart, // STARTTLS (port 587)
 })
 
 // Option 2: Custom mailer
 goauth.WithMailer(myMailer) // implements port.Mailer
-
-goauth.WithRegistration(goauth.RegistrationConfig{
-    RequireEmailVerification: true,
-    VerificationCodeTTL:      15 * time.Minute,
-})
 ```
 
-### Invite-Only Mode
+#### TLSMode
 
-```go
-goauth.WithRegistration(goauth.RegistrationConfig{
-    EnableInvite: true,                    // registration requires invite code
-    InviteTTL:    7 * 24 * time.Hour,     // default
-})
-```
+| Constant | Use When |
+|---|---|
+| `goauth.TLSNone` | Plaintext SMTP — dev/local only, never production |
+| `goauth.TLSStart` | STARTTLS upgrade — typical for port 587 with auth |
+| `goauth.TLSImplicit` | Implicit TLS from the start — typical for port 465 |
+
+Email or a custom mailer is required when `RequireEmailVerification` or `EnableInvite` is `true`.
 
 ### Organizations
 
@@ -136,10 +172,13 @@ goauth.WithSecurity(goauth.SecurityConfig{
     },
 })
 
-// Rate limiting
+// Rate limiting — granular options (recommended)
+goauth.WithRateLimitEnabled(true),
+
+// Or full replace for complete control:
 goauth.WithRateLimit(ratelimit.Config{
-    Rate:  10,   // requests/sec per IP
-    Burst: 20,
+    Enabled: true,
+    // ... full config
 })
 ```
 
@@ -205,5 +244,20 @@ session_ttl must be positive
 | `Security.TokenTTL` | Positive |
 | `Cookie.Name` | Not empty |
 | Email config | Required if `Registration.RequireEmailVerification` or `Registration.EnableInvite` is true |
+| `Email.Host` | Required (when Email config is set) |
+| `Email.Port` | 1–65535 (when Email config is set) |
+| `Email.From` | Required, must be a valid email address (when Email config is set) |
+| `Email.User` / `Email.Pass` | Both set or both empty (when Email config is set) |
+| `Email.TLSMode` | Must be TLSNone, TLSStart, or TLSImplicit (when Email config is set) |
+| `Registration.RequireEmailVerification` | Has no effect when both `EnableEmailPassword` and `EnableOAuth` are false |
+| `Registration.AllowPublic` | At least one of `EnableEmailPassword`, `EnableOAuth`, `EnableInvite` must be true |
 | `Organization.MaxOrgsPerUser` | 0–100 |
 | Providers | Non-nil, unique names |
+| `RateLimit.Default.Requests` | Positive (when enabled) |
+| `RateLimit.Default.Window` | Positive (when enabled) |
+| `RateLimit.Routes.*.Requests` | Positive (when enabled) |
+| `RateLimit.Routes.*.Window` | Positive (when enabled) |
+| `RateLimit.IPv6Subnet` | 1–128 (when enabled) |
+| `RateLimit.TrustedIPs` | Valid IP or CIDR (when enabled) |
+| `RateLimit.IPAddressHeader` | Requires non-empty `TrustedIPs` (when enabled) |
+| `RateLimit.Store` | Non-nil (when enabled) |
