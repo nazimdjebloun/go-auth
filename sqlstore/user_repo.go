@@ -32,9 +32,10 @@ func scanRow(s scanner) (*domain.User, error) {
 	u := &domain.User{}
 	var bannedAt sql.NullTime
 	var verifiedAt sql.NullTime
+	var lastLoginAt sql.NullTime
 	if err := s.Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
-		&u.IsVerified, &verifiedAt, &u.IsBanned, &bannedAt, &u.OrgOwnerCount, &u.CreatedAt, &u.UpdatedAt,
+		&u.IsVerified, &verifiedAt, &u.IsBanned, &bannedAt, &u.OrgOwnerCount, &lastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -43,6 +44,9 @@ func scanRow(s scanner) (*domain.User, error) {
 	}
 	if bannedAt.Valid {
 		u.BannedAt = &bannedAt.Time
+	}
+	if lastLoginAt.Valid {
+		u.LastLoginAt = &lastLoginAt.Time
 	}
 	return u, nil
 }
@@ -114,6 +118,11 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, userDeleteQuery, id)
+	return err
+}
+
+func (r *UserRepository) UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error {
+	_, err := r.db.ExecContext(ctx, userUpdateLastLoginQuery, t, t, userID)
 	return err
 }
 

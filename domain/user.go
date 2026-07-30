@@ -19,6 +19,7 @@ type User struct {
 	VerifiedAt    *time.Time `json:"verifiedAt,omitempty"`
 	IsBanned      bool       `json:"isBanned"`
 	BannedAt      *time.Time `json:"bannedAt,omitempty"`
+	LastLoginAt    *time.Time `json:"lastLoginAt,omitempty"`
 	OrgOwnerCount int        `json:"orgOwnerCount"`
 	CreatedAt     time.Time  `json:"createdAt"`
 	UpdatedAt     time.Time  `json:"updatedAt"`
