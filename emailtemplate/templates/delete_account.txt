@@ -1,0 +1,9 @@
+Delete Your Account
+
+Use the code below to confirm deletion of your {{.AppName}} account.
+
+Your code: {{.Code}}
+
+This code expires in {{.ExpiresIn}}.
+
+If you did not request account deletion, you can safely ignore this email. Your account will not be deleted.

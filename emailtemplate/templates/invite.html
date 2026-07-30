@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You've Been Invited</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="padding:40px 48px;">
+              <h1 style="margin:0 0 24px;font-size:24px;font-weight:600;color:#1a1a1a;">You've Been Invited</h1>
+              <p style="margin:0 0 16px;font-size:16px;line-height:24px;color:#4a4a4a;">
+                You've been invited to join <strong>{{.AppName}}</strong>.
+              </p>
+              <p style="margin:0 0 32px;font-size:16px;line-height:24px;color:#4a4a4a;">
+                Click the button below to accept the invitation and create your account.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="width:100%;">
+                <tr>
+                  <td align="center">
+                    <a href="{{.InviteURL}}" style="display:inline-block;padding:14px 32px;background-color:#4f46e5;color:#ffffff;font-size:16px;font-weight:600;text-decoration:none;border-radius:6px;">Accept Invitation</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:32px 0 0;font-size:14px;line-height:20px;color:#999999;">
+                If you were not expecting this invitation, you can safely ignore this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:24px 0 0;font-size:12px;line-height:16px;color:#999999;">
+          {{.AppName}}
+        </p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

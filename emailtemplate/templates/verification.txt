@@ -1,0 +1,9 @@
+Verify Your Email
+
+Use the code below to verify your email address for {{.AppName}}.
+
+Your code: {{.Code}}
+
+This code expires in {{formatDuration .ExpiresIn}}.
+
+If you did not create an account, you can safely ignore this email.
