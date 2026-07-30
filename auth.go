@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/emailtemplate"
 	"github.com/nazimdjebloun/go-auth/handler"
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/middleware"
@@ -221,6 +222,20 @@ func New(config Config) (*Auth, error) {
 		mailer = m
 	}
 
+	var templateProvider port.TemplateProvider
+	var urlValidator *port.URLValidator
+	if config.templateProvider != nil {
+		templateProvider = config.templateProvider
+	} else {
+		allowHTTP := config.email != nil && config.email.AllowHTTPURLs
+		urlValidator = &port.URLValidator{AllowHTTP: allowHTTP}
+		p, err := emailtemplate.New(urlValidator)
+		if err != nil {
+			return nil, err
+		}
+		templateProvider = p
+	}
+
 	serviceCfg := service.Config{
 		AppName:                  config.appName,
 		BaseURL:                  config.baseURL,
@@ -234,6 +249,8 @@ func New(config Config) (*Auth, error) {
 		SessionTTL:               config.sessionTTL,
 		TokenTTL:                 config.tokenTTL,
 		PasswordPolicy:           config.passwordPolicy,
+		TemplateProvider:         templateProvider,
+		URLValidator:             urlValidator,
 		Logger:                   config.logger,
 	}
 
@@ -310,11 +327,13 @@ func New(config Config) (*Auth, error) {
 			Logger:         config.logger,
 		})
 		orgInviteSvc = service.NewOrgInviteService(orgInviteRepo, orgRepo, userRepo, sqlDB, genImpl, mailer, service.OrgInviteServiceConfig{
-			MaxOrgsPerUser: config.organizations.MaxOrgsPerUser,
-			InviteTTL:      inviteTTLForOrgs(config),
-			BaseURL:        config.baseURL,
-			AppName:        config.appName,
-			Logger:         config.logger,
+			MaxOrgsPerUser:  config.organizations.MaxOrgsPerUser,
+			InviteTTL:       inviteTTLForOrgs(config),
+			BaseURL:         config.baseURL,
+			AppName:         config.appName,
+			TemplateProvider: templateProvider,
+			URLValidator:     urlValidator,
+			Logger:          config.logger,
 		})
 	}
 

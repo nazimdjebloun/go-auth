@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"crypto/rand"
-	"fmt"
 	"log/slog"
 	"math/big"
 	"time"
@@ -12,31 +11,14 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-func formatDuration(d time.Duration) string {
-	d = d.Round(time.Minute)
-	h := int(d.Hours())
-
-	if h > 0 && d%time.Hour == 0 {
-		if h == 1 {
-			return "1 hour"
-		}
-		return fmt.Sprintf("%d hours", h)
-	}
-
-	m := int(d.Minutes())
-	if m == 1 {
-		return "1 minute"
-	}
-	return fmt.Sprintf("%d minutes", m)
-}
-
 type VerificationService struct {
-	users  port.UserRepository
-	tokens port.TokenRepository
-	gen    port.TokenGenerator
-	mailer port.Mailer
-	config Config
-	log    *slog.Logger
+	users     port.UserRepository
+	tokens    port.TokenRepository
+	gen       port.TokenGenerator
+	mailer    port.Mailer
+	templates port.TemplateProvider
+	config    Config
+	log       *slog.Logger
 }
 
 func NewVerificationService(
@@ -51,12 +33,13 @@ func NewVerificationService(
 		logger = slog.Default()
 	}
 	return &VerificationService{
-		users:  users,
-		tokens: tokens,
-		gen:    gen,
-		mailer: mailer,
-		config: config,
-		log:    logger,
+		users:     users,
+		tokens:    tokens,
+		gen:       gen,
+		mailer:    mailer,
+		templates: resolveTemplates(config.TemplateProvider, config.URLValidator),
+		config:    config,
+		log:       logger,
 	}
 }
 
@@ -154,11 +137,18 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	ttl := formatDuration(s.config.VerificationCodeTTL)
-	html := "<p>Your verification code: <strong>" + raw + "</strong></p><p>Expires in " + ttl + ".</p>"
-	text := "Your verification code: " + raw + " (expires in " + ttl + ")"
+	ttl := s.config.VerificationCodeTTL
+	result, err := s.templates.Render(port.VerificationData{
+		AppName:   s.config.AppName,
+		Code:      raw,
+		ExpiresIn: ttl,
+	})
+	if err != nil {
+		s.log.Error("failed to render verification email template", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
+	}
 
-	if err := s.mailer.Send(ctx, user.Email, "Verify your email - "+s.config.AppName, html, text); err != nil {
+	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send verification email", "err", err, "user_id", user.ID)
 		return domain.NewError("email_failed", "Failed to send verification email", 500)
 	}

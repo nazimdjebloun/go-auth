@@ -14,14 +14,15 @@ import (
 )
 
 type AuthService struct {
-	users    port.UserRepository
-	sessions port.SessionRepository
-	tokens   port.TokenRepository
-	hasher   port.Hasher
-	gen      port.TokenGenerator
-	mailer   port.Mailer
-	config   Config
-	log      *slog.Logger
+	users      port.UserRepository
+	sessions   port.SessionRepository
+	tokens     port.TokenRepository
+	hasher     port.Hasher
+	gen        port.TokenGenerator
+	mailer     port.Mailer
+	templates  port.TemplateProvider
+	config     Config
+	log        *slog.Logger
 
 	sessionSvc *SessionService
 	verifySvc  *VerificationService
@@ -40,6 +41,8 @@ type Config struct {
 	SessionTTL               time.Duration
 	TokenTTL                 time.Duration
 	PasswordPolicy           domain.PasswordPolicy
+	TemplateProvider         port.TemplateProvider
+	URLValidator             *port.URLValidator
 	Logger                   *slog.Logger
 }
 
@@ -70,6 +73,7 @@ func NewAuthService(
 		hasher:     hasher,
 		gen:        gen,
 		mailer:     mailer,
+		templates:  resolveTemplates(config.TemplateProvider, config.URLValidator),
 		config:     config,
 		log:        config.Logger,
 		sessionSvc: sessionSvc,
@@ -300,10 +304,17 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) *
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	html := "<p>Your account deletion code: <strong>" + raw + "</strong></p><p>Expires in 10 minutes.</p>"
-	text := "Your account deletion code: " + raw + " (expires in 10 minutes)"
+	result, err := s.templates.Render(port.DeleteAccountData{
+		AppName:   s.config.AppName,
+		Code:      raw,
+		ExpiresIn: 10 * time.Minute,
+	})
+	if err != nil {
+		s.log.Error("failed to render deletion email template", "err", err, "user_id", userID)
+		return domain.NewError("internal_error", "Internal server error", 500)
+	}
 
-	if err := s.mailer.Send(ctx, user.Email, "Delete your account - "+s.config.AppName, html, text); err != nil {
+	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send deletion email", "err", err, "user_id", userID)
 		return domain.NewError("email_failed", "Failed to send deletion email", 500)
 	}

@@ -436,7 +436,7 @@ func GetLastVerificationCode(mailer *MockMailer) string {
 
 	codeEnd := -1
 	for i := codeStart; i < len(text); i++ {
-		if text[i] == ' ' || text[i] == '(' {
+		if text[i] == ' ' || text[i] == '(' || text[i] == '\n' || text[i] == '\r' {
 			codeEnd = i
 			break
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ type OrgInviteService struct {
 	txManager  port.TxManager
 	gen        port.TokenGenerator
 	mailer     port.Mailer
+	templates  port.TemplateProvider
 	maxOrgs    int
 	inviteTTL  time.Duration
 	baseURL    string
@@ -37,11 +39,13 @@ type OrgInviteService struct {
 }
 
 type OrgInviteServiceConfig struct {
-	MaxOrgsPerUser int
-	InviteTTL      time.Duration
-	BaseURL        string
-	AppName        string
-	Logger         *slog.Logger
+	MaxOrgsPerUser  int
+	InviteTTL       time.Duration
+	BaseURL         string
+	AppName         string
+	TemplateProvider port.TemplateProvider
+	URLValidator     *port.URLValidator
+	Logger          *slog.Logger
 }
 
 func NewOrgInviteService(
@@ -70,6 +74,7 @@ func NewOrgInviteService(
 		txManager:  txManager,
 		gen:        gen,
 		mailer:     mailer,
+		templates:  resolveTemplates(cfg.TemplateProvider, cfg.URLValidator),
 		maxOrgs:    resolvedMaxOrgs,
 		inviteTTL:  cfg.InviteTTL,
 		baseURL:    cfg.BaseURL,
@@ -263,11 +268,14 @@ func (s *OrgInviteService) sendOrgInviteEmail(ctx context.Context, invite *domai
 	if org != nil {
 		orgName = org.Name
 	}
-	html := "<p>You've been invited to <strong>" + orgName + "</strong>.</p>" +
-		"<p>Click <a href=\"" + url + "\">here</a> to accept the invitation.</p>" +
-		"<p>This invite expires in " + s.inviteTTL.String() + ".</p>"
-	text := "You've been invited to " + orgName + ".\n\n" +
-		"Click here to accept: " + url + "\n\n" +
-		"This invite expires in " + s.inviteTTL.String() + "."
-	return s.mailer.Send(ctx, invite.Email, "You're invited to "+orgName+" - "+s.appName, html, text)
+	result, err := s.templates.Render(port.OrgInviteData{
+		AppName:   s.appName,
+		OrgName:   orgName,
+		InviteURL: url,
+		ExpiresIn: s.inviteTTL,
+	})
+	if err != nil {
+		return fmt.Errorf("render org invite template: %w", err)
+	}
+	return s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text)
 }
