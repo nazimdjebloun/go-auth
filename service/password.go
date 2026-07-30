@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -22,6 +23,7 @@ type PasswordService struct {
 	sessions   port.SessionRepository
 	config     Config
 	log        *slog.Logger
+	audit      AuditPublisher
 }
 
 func NewPasswordService(
@@ -47,6 +49,7 @@ func NewPasswordService(
 		sessions:  sessions,
 		config:    config,
 		log:       config.Logger,
+		audit:     config.Audit,
 	}
 }
 
@@ -109,6 +112,11 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	}
 
 	s.log.Info("password reset requested", "user_id", user.ID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewPasswordResetRequestedEvent(user.Email, nil, ""))
+	}
+
 	return nil
 }
 
@@ -170,6 +178,11 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 	}
 
 	s.log.Info("password reset completed", "user_id", user.ID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewPasswordResetCompletedEvent(user.ID, nil, ""))
+	}
+
 	return nil
 }
 
@@ -335,5 +348,10 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 	}
 
 	s.log.Info("password changed", "user_id", input.UserID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewPasswordChangedEvent(input.UserID, nil, ""))
+	}
+
 	return nil
 }

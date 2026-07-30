@@ -7,10 +7,12 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -26,6 +28,7 @@ type OAuthService struct {
 	verifySvc    *VerificationService
 	config       OAuthServiceConfig
 	log          *slog.Logger
+	audit        AuditPublisher
 }
 
 type OAuthServiceConfig struct {
@@ -42,6 +45,7 @@ type OAuthServiceConfig struct {
 	EnableOAuth              bool
 	InviteOnly               bool
 	Logger                   *slog.Logger
+	Audit                    AuditPublisher
 }
 
 func NewOAuthService(
@@ -70,6 +74,7 @@ func NewOAuthService(
 		verifySvc:    verifySvc,
 		config:       config,
 		log:          logger,
+		audit:        config.Audit,
 	}
 }
 
@@ -231,6 +236,9 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 			return "", "", false, false, "", linkErr
 		}
 		s.log.Info("provider linked", "user_id", *userID, "provider", providerName)
+		if s.audit != nil {
+			s.audit.Publish(ctx, audit.NewOAuthEvent(audit.EventOAuthLinked, *userID, providerName, net.ParseIP(ip), userAgent))
+		}
 		return "", "", false, false, "", nil
 	}
 
@@ -266,6 +274,9 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 			return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
 		}
 		s.log.Info("oauth login", "user_id", user.ID, "provider", providerName, "ip", ip)
+		if s.audit != nil {
+			s.audit.Publish(ctx, audit.NewOAuthEvent(audit.EventOAuthLogin, user.ID, providerName, net.ParseIP(ip), userAgent))
+		}
 		_ = session
 		_ = refreshToken
 		return rawToken, refreshToken, false, false, "", nil
@@ -308,6 +319,10 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	}
 
 	s.log.Info("oauth register", "user_id", newUser.ID, "provider", providerName, "email_verified", info.EmailVerified)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewUserRegisteredEvent(newUser.ID, net.ParseIP(ip), userAgent))
+	}
 
 	// Only send verification email if the provider did NOT verify the email
 	// and email verification is required.
@@ -357,6 +372,11 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 	}
 
 	s.log.Info("provider unlinked", "user_id", userID, "provider", providerName)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOAuthEvent(audit.EventOAuthUnlinked, userID, providerName, nil, ""))
+	}
+
 	return nil
 }
 

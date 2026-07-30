@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -21,6 +22,7 @@ type InviteService struct {
 	config     Config
 	sessionSvc *SessionService
 	log        *slog.Logger
+	audit      AuditPublisher
 }
 
 func NewInviteService(
@@ -47,6 +49,7 @@ func NewInviteService(
 		config:     config,
 		sessionSvc: sessionSvc,
 		log:        config.Logger,
+		audit:      config.Audit,
 	}
 }
 
@@ -176,6 +179,10 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}
 
 	s.log.Info("invite registered", "user_id", user.ID, "email", user.Email, "invite_id", invite.ID)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewUserRegisteredEvent(user.ID, nil, ""))
+	}
 
 	return &CompleteInviteResult{
 		User:         user,
