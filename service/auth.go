@@ -188,6 +188,10 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
+	if err := s.users.UpdateLastLoginAt(ctx, user.ID, time.Now().UTC()); err != nil {
+		s.log.Error("failed to update last login time", "err", err, "user_id", user.ID)
+	}
+
 	s.log.Info("user logged in", "user_id", user.ID, "ip", input.IP)
 
 	return &LoginResult{
