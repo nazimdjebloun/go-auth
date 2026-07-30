@@ -29,13 +29,13 @@ func (s *SQLAuditSink) HandleBatch(ctx context.Context, events []Event) error {
 	}
 
 	cols := `id, event_type, severity, success, actor_id, target_id,
-		session_id, org_id, ip, user_agent, request_id, correlation_id, metadata, created_at`
+		session_id, org_id, ip, user_agent, parsed_ua, request_id, correlation_id, metadata, created_at`
 
 	var rows []string
 	for i := 0; i < len(events); i++ {
-		offset := i * 14
-		placeholders := make([]string, 14)
-		for j := 0; j < 14; j++ {
+		offset := i * 15
+		placeholders := make([]string, 15)
+		for j := 0; j < 15; j++ {
 			placeholders[j] = fmt.Sprintf("$%d", offset+j+1)
 		}
 		rows = append(rows, "("+fmt.Sprintf("%s", joinPlaceholders(placeholders))+")")
@@ -55,6 +55,15 @@ func (s *SQLAuditSink) HandleBatch(ctx context.Context, events []Event) error {
 			}
 		}
 
+		var parsedUARaw []byte
+		if e.ParsedUA != nil {
+			var err error
+			parsedUARaw, err = json.Marshal(e.ParsedUA)
+			if err != nil {
+				return fmt.Errorf("marshal parsed_ua: %w", err)
+			}
+		}
+
 		ipStr := ""
 		if e.IP != nil {
 			ipStr = e.IP.String()
@@ -63,7 +72,7 @@ func (s *SQLAuditSink) HandleBatch(ctx context.Context, events []Event) error {
 		args = append(args,
 			e.ID, string(e.Type), string(e.Severity), e.Success,
 			e.ActorID, e.TargetUserID, e.SessionID, e.OrgID,
-			ipStr, e.UserAgent, e.RequestID, e.CorrelationID,
+			ipStr, e.UserAgent, parsedUARaw, e.RequestID, e.CorrelationID,
 			metaJSON, e.CreatedAt.UTC(),
 		)
 	}
