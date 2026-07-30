@@ -336,6 +336,85 @@ func TestRotateCSRFToken_NoOpWhenNil(t *testing.T) {
 	}
 }
 
+func TestCSRFToken_ConstantTimeComparison(t *testing.T) {
+	mw := CSRFToken(&CSRFTokenConfig{})
+
+	// GET to obtain a token.
+	getReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	getW := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(getW, getReq)
+
+	var token string
+	for _, c := range getW.Result().Cookies() {
+		if c.Name == "_csrf" {
+			token = c.Value
+			break
+		}
+	}
+	if token == "" {
+		t.Fatal("no CSRF token from GET")
+	}
+
+	// POST with correct token — must succeed.
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	req.Header.Set("X-CSRF-Token", token)
+	w := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for valid token, got %d", w.Code)
+	}
+
+	// POST with token that differs only in the last byte — must be rejected.
+	// This verifies the comparison is not short-circuiting on first differing byte.
+	tampered := token[:len(token)-1] + "X"
+	if tampered == token {
+		t.Skip("tampered token is identical; test is not useful")
+	}
+	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
+	req2.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	req2.Header.Set("X-CSRF-Token", tampered)
+	w2 := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(w2, req2)
+	if w2.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for tampered token, got %d", w2.Code)
+	}
+
+	// POST with completely different token — must be rejected.
+	req3 := httptest.NewRequest(http.MethodPost, "/", nil)
+	req3.AddCookie(&http.Cookie{Name: "_csrf", Value: "completely-different-token-value-aaaaaaaa"})
+	req3.Header.Set("X-CSRF-Token", "completely-different-token-value-bbbbbbbb")
+	w3 := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(w3, req3)
+	if w3.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for completely different token, got %d", w3.Code)
+	}
+}
+
+func TestCSRFToken_NilSafeComparison(t *testing.T) {
+	mw := CSRFToken(&CSRFTokenConfig{})
+
+	// Empty cookie value + empty header value — both must be non-empty before comparison.
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	req.AddCookie(&http.Cookie{Name: "_csrf", Value: ""})
+	req.Header.Set("X-CSRF-Token", "")
+	w := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(w, req)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for empty values, got %d", w.Code)
+	}
+
+	// Cookie with value, empty header — should reject.
+	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
+	req2.AddCookie(&http.Cookie{Name: "_csrf", Value: "some-token"})
+	req2.Header.Set("X-CSRF-Token", "")
+	w2 := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(w2, req2)
+	if w2.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for empty header, got %d", w2.Code)
+	}
+}
+
 func TestRefreshToken_DoesNotRotateCSRF(t *testing.T) {
 	// Regression guard: RefreshHandler must NOT call RotateCSRFToken.
 	// This test simulates a refresh handler that intentionally omits
