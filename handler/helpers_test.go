@@ -816,6 +816,7 @@ func newTestHarness() *testHarness {
 		Admin:     adminSvc,
 		Org:       orgSvc,
 		OrgInvite: orgInviteSvc,
+		AuditLog:  nil,
 	})
 	return &testHarness{handler: h, users: users, sessions: sessions, tokens: tokens, mailer: mailer, orgs: orgs, orgInvites: orgInvites, providers: providers}
 }

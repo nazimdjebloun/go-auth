@@ -4,24 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
+	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 )
 
 type Services struct {
-	Auth     *service.AuthService
-	Password *service.PasswordService
-	Session  *service.SessionService
-	Verify   *service.VerificationService
-	Invite   *service.InviteService
-	Admin    *service.AdminService
-	OAuth    *service.OAuthService
-	Org      *service.OrgService
+	Auth      *service.AuthService
+	Password  *service.PasswordService
+	Session   *service.SessionService
+	Verify    *service.VerificationService
+	Invite    *service.InviteService
+	Admin     *service.AdminService
+	OAuth     *service.OAuthService
+	Org       *service.OrgService
 	OrgInvite *service.OrgInviteService
+	AuditLog  port.AuditLogRepository
 }
 
 type Handler struct {
@@ -57,7 +61,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		Email:     body.Email,
 		Password:  body.Password,
 		Name:      body.Name,
-		IP:        r.RemoteAddr,
+		IP:        extractIP(r.RemoteAddr),
 		UserAgent: r.UserAgent(),
 	})
 	if err != nil {
@@ -94,7 +98,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	result, err := h.services.Auth.Login(r.Context(), service.LoginInput{
 		Email:     body.Email,
 		Password:  body.Password,
-		IP:        r.RemoteAddr,
+		IP:        extractIP(r.RemoteAddr),
 		UserAgent: r.UserAgent(),
 	})
 	if err != nil {
@@ -366,7 +370,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, rawToken, refreshToken, sessionErr := h.services.Session.Create(r.Context(), user.ID, r.RemoteAddr, r.UserAgent())
+	session, rawToken, refreshToken, sessionErr := h.services.Session.Create(r.Context(), user.ID, extractIP(r.RemoteAddr), r.UserAgent())
 	if sessionErr != nil {
 		h.log.Error("failed to create session after verification", "err", sessionErr, "user_id", user.ID)
 		writeError(w, domain.NewError("internal_error", "Internal server error", 500))
@@ -551,7 +555,7 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 		Name:            body.Name,
 		Password:        body.Password,
 		ConfirmPassword: body.ConfirmPassword,
-		IP:              r.RemoteAddr,
+		IP:              extractIP(r.RemoteAddr),
 		UserAgent:       r.UserAgent(),
 	})
 	if err != nil {
@@ -740,6 +744,97 @@ func (h *Handler) AdminRevokeUserSession(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
 }
 
+func (h *Handler) AdminListAuditLogs(w http.ResponseWriter, r *http.Request) {
+	h.listAuditLogs(w, r, nil)
+}
+
+func (h *Handler) AdminListUserAuditLogs(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+	h.listAuditLogs(w, r, &userID)
+}
+
+func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request, userID *string) {
+	if h.services.AuditLog == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "audit_not_configured", "message": "Audit logging is not enabled"})
+		return
+	}
+
+	filter := port.AuditLogFilter{
+		Offset: 0,
+		Limit:  50,
+	}
+
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			filter.Offset = n
+		}
+	}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			filter.Limit = n
+		}
+	}
+	if filter.Limit <= 0 {
+		filter.Limit = 50
+	} else if filter.Limit > 200 {
+		filter.Limit = 200
+	}
+
+	if v := r.URL.Query().Get("event_type"); v != "" {
+		filter.Type = &v
+	}
+	if v := r.URL.Query().Get("actor_id"); v != "" {
+		filter.ActorID = &v
+	}
+	if v := r.URL.Query().Get("target_user_id"); v != "" {
+		filter.TargetUserID = &v
+	}
+	if v := r.URL.Query().Get("session_id"); v != "" {
+		filter.SessionID = &v
+	}
+	if v := r.URL.Query().Get("org_id"); v != "" {
+		filter.OrgID = &v
+	}
+	if v := r.URL.Query().Get("search"); v != "" {
+		filter.Search = &v
+	}
+	if v := r.URL.Query().Get("from"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			filter.FromDate = &t
+		}
+	}
+	if v := r.URL.Query().Get("to"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			filter.ToDate = &t
+		}
+	}
+	if v := r.URL.Query().Get("success"); v == "true" {
+		b := true
+		filter.Success = &b
+	} else if v := r.URL.Query().Get("success"); v == "false" {
+		b := false
+		filter.Success = &b
+	}
+
+	if userID != nil {
+		filter.TargetUserID = userID
+	}
+
+	events, total, err := h.services.AuditLog.List(r.Context(), filter)
+	if err != nil {
+		h.log.ErrorContext(r.Context(), "failed to list audit logs", "err", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Failed to list audit logs"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"events": events,
+		"total":  total,
+		"limit":  filter.Limit,
+		"offset": filter.Offset,
+	})
+}
+
 func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 
@@ -908,4 +1003,12 @@ func GetUserID(ctx context.Context) string {
 		return ""
 	}
 	return user.ID
+}
+
+func extractIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return remoteAddr
+	}
+	return host
 }
