@@ -3,8 +3,11 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -26,18 +29,28 @@ func (r *SessionRepository) WithLogger(logger *slog.Logger) *SessionRepository {
 }
 
 func scanSession(s *domain.Session, sc interface{ Scan(dest ...any) error }) error {
-	return sc.Scan(
+	var parsedUARaw []byte
+	err := sc.Scan(
 		&s.ID, &s.UserID, &s.TokenHash, &s.RefreshTokenHash, &s.PreviousRefreshHash,
-		&s.IP, &s.UserAgent, &s.IsRevoked, &s.ExpiresAt, &s.RefreshExpiresAt,
+		&s.IP, &s.UserAgent, &parsedUARaw, &s.IsRevoked, &s.ExpiresAt, &s.RefreshExpiresAt,
 		&s.RefreshRotatedAt, &s.CreatedAt, &s.RevokedAt, &s.LastActiveAt,
 		&s.ActiveOrgID, &s.ActiveOrgRole,
 	)
+	if err != nil {
+		return err
+	}
+	s.ParsedUA = domain.ParseUserAgentFromJSON(parsedUARaw)
+	return nil
 }
 
 func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error {
+	var parsedUAJSON []byte
+	if s.ParsedUA != nil {
+		parsedUAJSON, _ = json.Marshal(s.ParsedUA)
+	}
 	_, err := r.db.ExecContext(ctx, sessionCreateQuery,
 		s.ID, s.UserID, s.TokenHash, s.RefreshTokenHash, s.PreviousRefreshHash,
-		s.IP, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.RefreshExpiresAt,
+		s.IP, s.UserAgent, parsedUAJSON, s.IsRevoked, s.ExpiresAt, s.RefreshExpiresAt,
 		s.RefreshRotatedAt, s.CreatedAt, s.RevokedAt, s.LastActiveAt,
 		s.ActiveOrgID, s.ActiveOrgRole)
 	return err
@@ -83,11 +96,17 @@ func (r *SessionRepository) LockAndGetByRefreshHash(ctx context.Context, hash st
 	return s, err
 }
 
-func (r *SessionRepository) ListByUserID(ctx context.Context, userID string) ([]domain.Session, error) {
+func (r *SessionRepository) ListByUserID(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
 	now := time.Now().UTC()
-	rows, err := r.db.QueryContext(ctx, sessionListByUserQuery, userID, now)
+
+	var total int
+	if err := r.db.QueryRowContext(ctx, sessionCountByUserQuery, userID, now).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, sessionListByUserPaginatedQuery, userID, now, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -95,14 +114,59 @@ func (r *SessionRepository) ListByUserID(ctx context.Context, userID string) ([]
 	for rows.Next() {
 		var s domain.Session
 		if err := scanSession(&s, rows); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		sessions = append(sessions, s)
 	}
 	if sessions == nil {
 		sessions = []domain.Session{}
 	}
-	return sessions, rows.Err()
+	return sessions, total, rows.Err()
+}
+
+func (r *SessionRepository) ListAllSessions(ctx context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
+	now := time.Now().UTC()
+
+	where := []string{"is_revoked = false", "expires_at > $1"}
+	args := []any{now}
+	argIdx := 2
+
+	if filter.UserID != nil {
+		where = append(where, fmt.Sprintf("user_id = $%d", argIdx))
+		args = append(args, *filter.UserID)
+		argIdx++
+	}
+
+	whereClause := strings.Join(where, " AND ")
+
+	var total int
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM sessions WHERE %s", whereClause)
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM sessions WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d",
+		sessionCols, whereClause, argIdx, argIdx+1)
+	args = append(args, filter.Limit, filter.Offset)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var sessions []domain.Session
+	for rows.Next() {
+		var s domain.Session
+		if err := scanSession(&s, rows); err != nil {
+			return nil, 0, err
+		}
+		sessions = append(sessions, s)
+	}
+	if sessions == nil {
+		sessions = []domain.Session{}
+	}
+	return sessions, total, rows.Err()
 }
 
 func (r *SessionRepository) Delete(ctx context.Context, tokenHash string) error {

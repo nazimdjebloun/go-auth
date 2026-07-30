@@ -91,6 +91,17 @@ func (m *mockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned b
 	return nil
 }
 
+func (m *mockUserRepo) UpdateLastLoginAt(_ context.Context, userID string, t time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return nil
+	}
+	u.LastLoginAt = &t
+	return nil
+}
+
 func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, tokenID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -167,7 +178,7 @@ func (m *mockSessionRepo) LockAndGetByRefreshHash(ctx context.Context, hash stri
 	return m.GetByRefreshHash(ctx, hash)
 }
 
-func (m *mockSessionRepo) ListByUserID(_ context.Context, userID string) ([]domain.Session, error) {
+func (m *mockSessionRepo) ListByUserID(_ context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var res []domain.Session
@@ -176,7 +187,38 @@ func (m *mockSessionRepo) ListByUserID(_ context.Context, userID string) ([]doma
 			res = append(res, *s)
 		}
 	}
-	return res, nil
+	total := len(res)
+	if offset > 0 && offset < total {
+		res = res[offset:]
+	} else if offset >= total {
+		res = []domain.Session{}
+	}
+	if limit > 0 && limit < len(res) {
+		res = res[:limit]
+	}
+	return res, total, nil
+}
+
+func (m *mockSessionRepo) ListAllSessions(_ context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var res []domain.Session
+	for _, s := range m.byID {
+		if filter.UserID != nil && s.UserID != *filter.UserID {
+			continue
+		}
+		res = append(res, *s)
+	}
+	total := len(res)
+	if filter.Offset > 0 && filter.Offset < total {
+		res = res[filter.Offset:]
+	} else if filter.Offset >= total {
+		res = []domain.Session{}
+	}
+	if filter.Limit > 0 && filter.Limit < len(res) {
+		res = res[:filter.Limit]
+	}
+	return res, total, nil
 }
 
 func (m *mockSessionRepo) Delete(_ context.Context, tokenHash string) error {
@@ -717,6 +759,7 @@ type testHarness struct {
 	mailer      *mockMailer
 	orgs        *mockOrgRepo
 	orgInvites  *mockOrgInviteRepo
+	providers   *mockProviderAccountRepo
 }
 
 func newTestHarness() *testHarness {
@@ -749,7 +792,8 @@ func newTestHarness() *testHarness {
 	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
 	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
 	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, cfg, sessSvc)
-	adminSvc := service.NewAdminService(users, sessions, hasher, cfg, sessSvc)
+	providers := newMockProviderAccountRepo()
+	adminSvc := service.NewAdminService(users, sessions, providers, hasher, cfg, sessSvc)
 	orgSvc := service.NewOrgService(orgs, users, sessions, &mockTxManager{}, service.OrgServiceConfig{
 		MaxOrgsPerUser: 100,
 		Logger:         nil,
@@ -773,5 +817,5 @@ func newTestHarness() *testHarness {
 		Org:       orgSvc,
 		OrgInvite: orgInviteSvc,
 	})
-	return &testHarness{handler: h, users: users, sessions: sessions, tokens: tokens, mailer: mailer, orgs: orgs, orgInvites: orgInvites}
+	return &testHarness{handler: h, users: users, sessions: sessions, tokens: tokens, mailer: mailer, orgs: orgs, orgInvites: orgInvites, providers: providers}
 }

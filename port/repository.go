@@ -28,6 +28,7 @@ type UserRepository interface {
 	List(ctx context.Context, filter UserFilter) ([]domain.User, int, error)
 	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, tokenID string) error
 	SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error
+	UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error
 }
 
 type UpdateRefreshInput struct {
@@ -40,13 +41,20 @@ type UpdateRefreshInput struct {
 	GraceWindow    time.Duration
 }
 
+type SessionFilter struct {
+	UserID *string
+	Offset int
+	Limit  int
+}
+
 type SessionRepository interface {
 	Create(ctx context.Context, s *domain.Session) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Session, error)
 	GetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
 	GetByPreviousRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
 	LockAndGetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
-	ListByUserID(ctx context.Context, userID string) ([]domain.Session, error)
+	ListByUserID(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error)
+	ListAllSessions(ctx context.Context, filter SessionFilter) ([]domain.Session, int, error)
 	Delete(ctx context.Context, tokenHash string) error
 	DeleteByID(ctx context.Context, id string) error
 	DeleteAllForUser(ctx context.Context, userID string) error

@@ -14,7 +14,8 @@ func newTestAdminService(users *testutil.MockUserRepo, sessions *testutil.MockSe
 	sessSvc := newTestSessionService(sessions, gen)
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	return NewAdminService(users, sessions, hasher, cfg, sessSvc)
+	providers := testutil.NewMockProviderAccountRepo()
+	return NewAdminService(users, sessions, providers, hasher, cfg, sessSvc)
 }
 
 // ─── ListUsers ─────────────────────────────────────────────────────
@@ -140,7 +141,7 @@ func TestAdminBanUser_RevokesSessions(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	sessList, _ := sessions.ListByUserID(context.Background(), "user-1")
+	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
 	if len(sessList) != 0 {
 		t.Fatalf("expected 0 sessions after ban, got %d", len(sessList))
 	}
@@ -277,7 +278,7 @@ func TestAdminDeleteUser_HappyPath(t *testing.T) {
 		t.Fatal("expected user to be deleted")
 	}
 
-	sessList, _ := sessions.ListByUserID(context.Background(), "user-1")
+	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
 	if len(sessList) != 0 {
 		t.Fatal("expected sessions to be revoked after delete")
 	}
@@ -449,7 +450,7 @@ func TestAdminListUserSessions_HappyPath(t *testing.T) {
 	sessions.Create(context.Background(), &domain.Session{ID: "sess-1", UserID: "user-1"})
 	sessions.Create(context.Background(), &domain.Session{ID: "sess-2", UserID: "user-1"})
 
-	result, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
+	result, _, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
 		UserID: "user-1",
 	})
 	if err != nil {
@@ -465,7 +466,7 @@ func TestAdminListUserSessions_NotFound(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	_, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
+	_, _, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
 		UserID: "nonexistent",
 	})
 	if err == nil {
@@ -491,7 +492,7 @@ func TestAdminListUserSessions_WithOffsetLimit(t *testing.T) {
 		})
 	}
 
-	result, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
+	result, _, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
 		UserID: "user-1",
 		Offset: 1,
 		Limit:  2,
@@ -512,7 +513,7 @@ func TestAdminListUserSessions_EmptyResult(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	users.Create(context.Background(), user)
 
-	result, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
+	result, _, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
 		UserID: "user-1",
 	})
 	if err != nil {
@@ -540,7 +541,7 @@ func TestAdminRevokeUserSession_HappyPath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	sessList, _ := sessions.ListByUserID(context.Background(), "user-1")
+	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
 	if len(sessList) != 0 {
 		t.Fatalf("expected 0 sessions after revoke, got %d", len(sessList))
 	}
@@ -595,7 +596,7 @@ func TestAdminRevokeUserSessions_HappyPath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	sessList, _ := sessions.ListByUserID(context.Background(), "user-1")
+	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
 	if len(sessList) != 0 {
 		t.Fatalf("expected 0 sessions, got %d", len(sessList))
 	}

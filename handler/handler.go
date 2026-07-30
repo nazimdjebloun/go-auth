@@ -450,7 +450,7 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	currentSession := middleware.GetSessionFromContext(r.Context())
 
-	sessions, err := h.services.Session.List(r.Context(), user.ID)
+	sessions, _, err := h.services.Session.List(r.Context(), user.ID)
 	if err != nil {
 		h.log.Error("failed to list sessions", "err", err, "user_id", user.ID)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
@@ -470,7 +470,7 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	sessionID := r.PathValue("id")
 
-	sessions, err := h.services.Session.List(r.Context(), user.ID)
+	sessions, _, err := h.services.Session.List(r.Context(), user.ID)
 	if err != nil {
 		h.log.Error("failed to list sessions for revoke check", "err", err, "user_id", user.ID)
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
@@ -706,7 +706,7 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 		limit = 100
 	}
 
-	sessions, aerr := h.services.Admin.ListUserSessions(r.Context(), service.AdminListUserSessionsInput{
+	sessions, total, aerr := h.services.Admin.ListUserSessions(r.Context(), service.AdminListUserSessionsInput{
 		UserID: userID,
 		Offset: offset,
 		Limit:  limit,
@@ -715,7 +715,18 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 		writeError(w, aerr)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions})
+	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions, "total": total})
+}
+
+func (h *Handler) GetUserDetail(w http.ResponseWriter, r *http.Request) {
+	userID := r.PathValue("id")
+
+	detail, aerr := h.services.Admin.GetUserDetail(r.Context(), userID)
+	if aerr != nil {
+		writeError(w, aerr)
+		return
+	}
+	writeJSON(w, http.StatusOK, detail)
 }
 
 func (h *Handler) AdminRevokeUserSession(w http.ResponseWriter, r *http.Request) {

@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS users (
     banned_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    org_owner_count INT NOT NULL DEFAULT 0
+    org_owner_count INT NOT NULL DEFAULT 0,
+    last_login_at DATETIME
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS organizations (
@@ -50,6 +51,26 @@ CREATE TABLE IF NOT EXISTS organization_invites (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS sessions (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    parsed_ua TEXT,
+    is_revoked BOOLEAN NOT NULL DEFAULT false,
+    expires_at DATETIME NOT NULL,
+    refresh_expires_at DATETIME,
+    refresh_rotated_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at DATETIME,
+    last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    active_org_id VARCHAR(36),
+    active_org_role VARCHAR(50),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (active_org_id) REFERENCES organizations(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS verification_tokens (
     id VARCHAR(36) PRIMARY KEY,
