@@ -79,15 +79,58 @@ func OriginCheck(allowedOrigins []string, allowMissing bool) func(http.Handler) 
 }
 
 // isSameOrigin checks whether the given origin matches the request's own Host,
-// handling standard port inference.
+// handling standard port inference. When behind a reverse proxy (r.TLS is nil
+// but X-Forwarded-Proto is set), the forwarded headers are used to determine
+// the original scheme and host.
 func isSameOrigin(origin string, r *http.Request) bool {
-	scheme := "http"
-	if r.TLS != nil {
-		scheme = "https"
-	}
-	expected := scheme + "://" + r.Host
+	scheme, host := requestSchemeHost(r)
+	expected := scheme + "://" + host
 	// Normalize and compare
 	return normalizeOrigin(origin) == normalizeOrigin(expected)
+}
+
+// requestSchemeHost returns the effective scheme and host for the request,
+// respecting reverse proxy forwarded headers when the direct connection
+// appears to be plaintext (r.TLS == nil).
+func requestSchemeHost(r *http.Request) (scheme, host string) {
+	scheme = "http"
+	if r.TLS != nil {
+		scheme = "https"
+		host = r.Host
+		return
+	}
+
+	// r.TLS is nil — this is typical behind reverse proxies (nginx, Cloudflare,
+	// ALB, Caddy, Traefik). Check forwarded headers to recover the original
+	// scheme and host. These headers are set by the proxy and should not be
+	// trusted from arbitrary clients, but for same-origin CSRF checks the
+	// worst case is an attacker making CSRF work for themselves (not exploitable).
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		if p := strings.SplitN(proto, ",", 2)[0]; p == "https" || p == "http" {
+			scheme = p
+		}
+	} else if forwarded := r.Header.Get("Forwarded"); forwarded != "" {
+		// RFC 7239: Forwarded: for=192.0.2.60;proto=https;host=example.com
+		for _, part := range strings.Split(forwarded, ";") {
+			part = strings.TrimSpace(part)
+			if strings.HasPrefix(strings.ToLower(part), "proto=") {
+				proto := strings.TrimSpace(part[6:])
+				if proto == "https" || proto == "http" {
+					scheme = proto
+					break
+				}
+			}
+		}
+	}
+
+	// For Host, check X-Forwarded-Host first (proxy may have multiple virtual hosts).
+	if xhost := r.Header.Get("X-Forwarded-Host"); xhost != "" {
+		host = strings.TrimSpace(strings.SplitN(xhost, ",", 2)[0])
+	} else {
+		host = r.Host
+	}
+
+	return
 }
 
 func normalizeOrigin(origin string) string {
