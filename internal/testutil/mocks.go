@@ -94,6 +94,17 @@ func (m *MockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned b
 	return nil
 }
 
+func (m *MockUserRepo) UpdateLastLoginAt(_ context.Context, userID string, t time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return nil
+	}
+	u.LastLoginAt = &t
+	return nil
+}
+
 func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, tokenID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -172,7 +183,7 @@ func (m *MockSessionRepo) LockAndGetByRefreshHash(ctx context.Context, hash stri
 	return m.GetByRefreshHash(ctx, hash)
 }
 
-func (m *MockSessionRepo) ListByUserID(_ context.Context, userID string) ([]domain.Session, error) {
+func (m *MockSessionRepo) ListByUserID(_ context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var res []domain.Session
@@ -181,7 +192,40 @@ func (m *MockSessionRepo) ListByUserID(_ context.Context, userID string) ([]doma
 			res = append(res, *s)
 		}
 	}
-	return res, nil
+	total := len(res)
+	if offset > 0 && offset < total {
+		res = res[offset:]
+	} else if offset >= total {
+		res = []domain.Session{}
+	}
+	if limit > 0 && limit < len(res) {
+		res = res[:limit]
+	}
+	return res, total, nil
+}
+
+func (m *MockSessionRepo) ListAllSessions(_ context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var res []domain.Session
+	for _, s := range m.byID {
+		if !s.IsRevoked {
+			if filter.UserID != nil && s.UserID != *filter.UserID {
+				continue
+			}
+			res = append(res, *s)
+		}
+	}
+	total := len(res)
+	if filter.Offset > 0 && filter.Offset < total {
+		res = res[filter.Offset:]
+	} else if filter.Offset >= total {
+		res = []domain.Session{}
+	}
+	if filter.Limit > 0 && filter.Limit < len(res) {
+		res = res[:filter.Limit]
+	}
+	return res, total, nil
 }
 
 func (m *MockSessionRepo) Delete(_ context.Context, tokenHash string) error {
@@ -868,6 +912,59 @@ func (m *MockMailer) Send(ctx context.Context, to, subject, html, text string) e
 	m.Calls = append(m.Calls, struct{ To, Subject, HTML, Text string }{to, subject, html, text})
 	if m.SendFn != nil {
 		return m.SendFn(ctx, to, subject, html, text)
+	}
+	return nil
+}
+
+// ─── MockProviderAccountRepo ───────────────────────────────────────
+
+type MockProviderAccountRepo struct {
+	mu       sync.Mutex
+	accounts map[string]*domain.ProviderAccount
+}
+
+func NewMockProviderAccountRepo() *MockProviderAccountRepo {
+	return &MockProviderAccountRepo{accounts: make(map[string]*domain.ProviderAccount)}
+}
+
+func (m *MockProviderAccountRepo) Create(_ context.Context, pa *domain.ProviderAccount) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.accounts[pa.ID] = pa
+	return nil
+}
+
+func (m *MockProviderAccountRepo) GetByProvider(_ context.Context, provider, providerUserID string) (*domain.ProviderAccount, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, pa := range m.accounts {
+		if pa.Provider == provider && pa.ProviderUserID == providerUserID {
+			return pa, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *MockProviderAccountRepo) ListByUserID(_ context.Context, userID string) ([]domain.ProviderAccount, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var res []domain.ProviderAccount
+	for _, pa := range m.accounts {
+		if pa.UserID == userID {
+			res = append(res, *pa)
+		}
+	}
+	return res, nil
+}
+
+func (m *MockProviderAccountRepo) Delete(_ context.Context, userID, provider string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, pa := range m.accounts {
+		if pa.UserID == userID && pa.Provider == provider {
+			delete(m.accounts, id)
+			break
+		}
 	}
 	return nil
 }

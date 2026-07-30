@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_banned INTEGER NOT NULL DEFAULT 0,
     banned_at DATETIME,
     org_owner_count INTEGER NOT NULL DEFAULT 0,
+    last_login_at DATETIME,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL
 );
@@ -21,6 +22,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
+    parsed_ua TEXT,
     is_revoked INTEGER NOT NULL DEFAULT 0,
     expires_at DATETIME NOT NULL,
     refresh_expires_at DATETIME,

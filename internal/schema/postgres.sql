@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
     banned_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    org_owner_count INT NOT NULL DEFAULT 0
+    org_owner_count INT NOT NULL DEFAULT 0,
+    last_login_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS organizations (
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
+    parsed_ua JSONB,
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at TIMESTAMPTZ NOT NULL,
     refresh_expires_at TIMESTAMPTZ,

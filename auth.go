@@ -83,6 +83,7 @@ type HandlerGroup struct {
 	AdminCreateUser        http.HandlerFunc
 	AdminListUserSessions  http.HandlerFunc
 	AdminRevokeUserSession http.HandlerFunc
+	GetUserDetail          http.HandlerFunc
 	GetInviteInfo          http.HandlerFunc
 	CreateInvite           http.HandlerFunc
 	ListInvites            http.HandlerFunc
@@ -274,7 +275,7 @@ func New(config Config) (*Auth, error) {
 	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc)
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
-	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, hasherImpl, serviceCfg, sessSvc)
+	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, providerAccountRepo, hasherImpl, serviceCfg, sessSvc)
 
 	// Attach logger to session repository
 	if config.logger != nil {
@@ -409,20 +410,22 @@ func New(config Config) (*Auth, error) {
 			RequestDeleteAccount:     rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RequestDeleteAccount))))).ServeHTTP,
 			// Confirm delete requires an authenticated session (user ID from context only).
 			ConfirmDeleteAccount: rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ConfirmDeleteAccount))))).ServeHTTP,
-			ListUsers:              authMW(adminMW(http.HandlerFunc(h.ListUsers))).ServeHTTP,
-			UpdateUserRole:         csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole))))).ServeHTTP,
-			BanUser:                csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser))))).ServeHTTP,
-			UnbanUser:              csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser))))).ServeHTTP,
-			DeleteUser:             csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser))))).ServeHTTP,
-			RevokeUserSessions:     csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions))))).ServeHTTP,
-			AdminCreateUser:        csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser))))).ServeHTTP,
-			AdminListUserSessions:  authMW(adminMW(http.HandlerFunc(h.AdminListUserSessions))).ServeHTTP,
-			AdminRevokeUserSession: csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession))))).ServeHTTP,
-			CreateInvite:           csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite))))).ServeHTTP,
-			ListInvites:            authMW(adminMW(http.HandlerFunc(h.ListInvites))).ServeHTTP,
-			RevokeInvite:           csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite))))).ServeHTTP,
-			ResendInvite:           csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite))))).ServeHTTP,
-			HardDeleteInvite:       csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite))))).ServeHTTP,
+			// Admin endpoints: rate limit outer, then auth + admin role check.
+			ListUsers:              rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListUsers)))).ServeHTTP,
+			GetUserDetail:          rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetUserDetail)))).ServeHTTP,
+			UpdateUserRole:         rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole)))))).ServeHTTP,
+			BanUser:                rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser)))))).ServeHTTP,
+			UnbanUser:              rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser)))))).ServeHTTP,
+			DeleteUser:             rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser)))))).ServeHTTP,
+			RevokeUserSessions:     rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions)))))).ServeHTTP,
+			AdminCreateUser:        rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser)))))).ServeHTTP,
+			AdminListUserSessions:  rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserSessions)))).ServeHTTP,
+			AdminRevokeUserSession: rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession)))))).ServeHTTP,
+			CreateInvite:           rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite)))))).ServeHTTP,
+			ListInvites:            rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListInvites)))).ServeHTTP,
+			RevokeInvite:           rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))))).ServeHTTP,
+			ResendInvite:           rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite)))))).ServeHTTP,
+			HardDeleteInvite:       rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite)))))).ServeHTTP,
 			OAuthInitiate:          http.HandlerFunc(oauthHandlers.Initiate).ServeHTTP,
 			OAuthCallback:          http.HandlerFunc(oauthHandlers.Callback).ServeHTTP,
 			OAuthLink:              csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.InitiateLink)))).ServeHTTP,
@@ -499,6 +502,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	mux.Handle("POST /auth/verify-email/resend", a.Handlers.ResendVerificationPublic)
 	mux.Handle("POST /auth/refresh", a.Handlers.RefreshToken)
 	mux.Handle("GET /admin/users", a.Handlers.ListUsers)
+	mux.Handle("GET /admin/users/{id}", a.Handlers.GetUserDetail)
 	mux.Handle("PATCH /admin/users/{id}/role", a.Handlers.UpdateUserRole)
 	mux.Handle("PATCH /admin/users/{id}/ban", a.Handlers.BanUser)
 	mux.Handle("PATCH /admin/users/{id}/unban", a.Handlers.UnbanUser)

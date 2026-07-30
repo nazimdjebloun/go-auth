@@ -14,6 +14,7 @@ import (
 type AdminService struct {
 	users      port.UserRepository
 	sessions   port.SessionRepository
+	providers  port.ProviderAccountRepository
 	hasher     port.Hasher
 	config     Config
 	sessionSvc *SessionService
@@ -23,6 +24,7 @@ type AdminService struct {
 func NewAdminService(
 	users port.UserRepository,
 	sessions port.SessionRepository,
+	providers port.ProviderAccountRepository,
 	hasher port.Hasher,
 	config Config,
 	sessionSvc *SessionService,
@@ -33,6 +35,7 @@ func NewAdminService(
 	return &AdminService{
 		users:      users,
 		sessions:   sessions,
+		providers:  providers,
 		hasher:     hasher,
 		config:     config,
 		sessionSvc: sessionSvc,
@@ -262,31 +265,19 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	return user, nil
 }
 
-func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUserSessionsInput) ([]domain.Session, *domain.AuthError) {
+func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUserSessionsInput) ([]domain.Session, int, *domain.AuthError) {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
-		return nil, domain.ErrUserNotFound
+		return nil, 0, domain.ErrUserNotFound
 	}
 
-	sessions, err := s.sessions.ListByUserID(ctx, input.UserID)
+	sessions, total, err := s.sessions.ListByUserID(ctx, input.UserID, input.Offset, input.Limit)
 	if err != nil {
 		s.log.Error("failed to list user sessions", "err", err, "user_id", input.UserID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, 0, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	if input.Limit > 0 {
-		start := input.Offset
-		if start > len(sessions) {
-			return []domain.Session{}, nil
-		}
-		end := start + input.Limit
-		if end > len(sessions) {
-			end = len(sessions)
-		}
-		return sessions[start:end], nil
-	}
-
-	return sessions, nil
+	return sessions, total, nil
 }
 
 func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID string) *domain.AuthError {
@@ -295,7 +286,7 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID 
 		return domain.ErrUserNotFound
 	}
 
-	sessions, err := s.sessions.ListByUserID(ctx, userID)
+	sessions, _, err := s.sessions.ListByUserID(ctx, userID, 0, 0)
 	if err != nil {
 		s.log.Error("failed to list user sessions", "err", err, "user_id", userID)
 		return domain.NewError("internal_error", "Internal server error", 500)
@@ -319,4 +310,35 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID 
 
 	s.log.Info("user session revoked by admin", "user_id", userID, "session_id", sessionID)
 	return nil
+}
+
+type AdminUserDetail struct {
+	User               domain.User              `json:"user"`
+	ActiveSessionCount int                      `json:"activeSessionCount"`
+	Providers          []domain.ProviderAccount  `json:"providers"`
+}
+
+func (s *AdminService) GetUserDetail(ctx context.Context, userID string) (*AdminUserDetail, *domain.AuthError) {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return nil, domain.ErrUserNotFound
+	}
+
+	_, activeSessionCount, err := s.sessions.ListByUserID(ctx, userID, 0, 1)
+	if err != nil {
+		s.log.Error("failed to count sessions", "err", err, "user_id", userID)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
+	}
+
+	providers, err := s.providers.ListByUserID(ctx, userID)
+	if err != nil {
+		s.log.Error("failed to list providers", "err", err, "user_id", userID)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
+	}
+
+	return &AdminUserDetail{
+		User:               *user,
+		ActiveSessionCount: activeSessionCount,
+		Providers:          providers,
+	}, nil
 }
