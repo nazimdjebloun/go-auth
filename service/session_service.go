@@ -77,6 +77,7 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 		PreviousRefreshHash: "",
 		IP:                  ip,
 		UserAgent:           userAgent,
+		ParsedUA:            domain.ParseUserAgent(userAgent),
 		ExpiresAt:           now.Add(s.config.Duration),
 		RefreshExpiresAt:    now.Add(s.config.RefreshTTL),
 		CreatedAt:           now,
@@ -177,8 +178,8 @@ func (s *SessionService) RevokeAllExcept(ctx context.Context, userID string, exc
 	return nil
 }
 
-func (s *SessionService) List(ctx context.Context, userID string) ([]domain.Session, error) {
-	return s.repo.ListByUserID(ctx, userID)
+func (s *SessionService) List(ctx context.Context, userID string) ([]domain.Session, int, error) {
+	return s.repo.ListByUserID(ctx, userID, 0, 0)
 }
 
 func (s *SessionService) Config() SessionConfig {
