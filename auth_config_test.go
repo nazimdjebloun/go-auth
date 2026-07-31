@@ -50,7 +50,7 @@ func TestValidate_NoDatabase(t *testing.T) {
 }
 
 func TestValidate_WithDB(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
 	err := cfg.validate()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -106,7 +106,7 @@ func TestValidate_EmptyCookieName(t *testing.T) {
 }
 
 func TestValidate_RequiresEmailWithMailer(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, mailer: &mockMailer{}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, mailer: &mockMailer{}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
 	cfg.registration.EnableEmailPassword = true
 	cfg.registration.RequireEmailVerification = true
 	err := cfg.validate()
@@ -538,6 +538,7 @@ func validConfigOpts() []func(*Config) {
 			c.cookie.Name = "goauth_session"
 			c.allowedOrigins = []string{"http://localhost"}
 			c.registration.EnableInvite = false
+			c.secret = "0123456789abcdef0123456789abcdef"
 		},
 	}
 }
@@ -573,6 +574,7 @@ func TestNewConfig_OverridesDefault(t *testing.T) {
 			c.cookie.Name = "goauth_session"
 			c.allowedOrigins = []string{"http://localhost"}
 			c.registration.EnableInvite = false
+			c.secret = "0123456789abcdef0123456789abcdef"
 		},
 	)
 	if err != nil {
@@ -590,6 +592,44 @@ func TestNewConfig_SameSiteDefault(t *testing.T) {
 	}
 	if cfg.cookie.SameSite != http.SameSiteLaxMode {
 		t.Errorf("expected SameSiteLaxMode, got %v", cfg.cookie.SameSite)
+	}
+}
+
+func TestValidate_SecretRequired(t *testing.T) {
+	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	err := cfg.validate()
+	if err == nil {
+		t.Fatal("expected error for missing secret")
+	}
+	if !strings.Contains(err.Error(), "secret: signing secret is required") {
+		t.Fatalf("expected secret required error, got %v", err)
+	}
+}
+
+func TestValidate_SecretTooShort(t *testing.T) {
+	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcde"}
+	err := cfg.validate()
+	if err == nil {
+		t.Fatal("expected error for 31-byte secret")
+	}
+	if !strings.Contains(err.Error(), "secret: signing secret must be at least 32 bytes") {
+		t.Fatalf("expected secret too short error, got %v", err)
+	}
+}
+
+func TestValidate_Secret32BytesOK(t *testing.T) {
+	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
+	err := cfg.validate()
+	if err != nil {
+		t.Fatalf("unexpected error for 32-byte secret: %v", err)
+	}
+}
+
+func TestWithSecret_SetsSecret(t *testing.T) {
+	cfg := DefaultConfig()
+	WithSecret("0123456789abcdef0123456789abcdef")(&cfg)
+	if cfg.secret != "0123456789abcdef0123456789abcdef" {
+		t.Fatal("expected secret to be set")
 	}
 }
 

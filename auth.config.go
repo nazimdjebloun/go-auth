@@ -159,6 +159,7 @@ type Config struct {
 
 	allowedOrigins          []string
 	allowMissingCSRFHeaders bool
+	secret                  string // app-wide HMAC signing key; signers MUST fail closed on empty (see csrf_token.go) - validate() only guards NewConfig
 	passwordPolicy          domain.PasswordPolicy
 	rateLimit               *ratelimit.Config
 	csrfToken               *middleware.CSRFTokenConfig
@@ -224,6 +225,11 @@ func (c *Config) validate() error {
 	}
 	if c.cookie.Name == "" {
 		errs = append(errs, errors.New("cookie name cannot be empty"))
+	}
+	if len(c.secret) == 0 {
+		errs = append(errs, errors.New("secret: signing secret is required"))
+	} else if len(c.secret) < 32 {
+		errs = append(errs, errors.New("secret: signing secret must be at least 32 bytes for HMAC-SHA256"))
 	}
 
 	// Email validation — only check SMTP fields when no custom mailer is set
@@ -457,6 +463,17 @@ func WithSecurity(cfg SecurityConfig) func(*Config) {
 		c.csrfToken = cfg.CSRFToken
 		c.passwordPolicy = cfg.PasswordPolicy
 		c.tokenTTL = cfg.TokenTTL
+	}
+}
+
+// WithSecret sets the app-wide signing secret. This is the first signing key
+// material the library introduces and is intentionally general-purpose: it is
+// used to sign CSRF tokens today and any future HMAC-based tokens this library
+// adds. It is required and must be at least 32 bytes for HMAC-SHA256. Do not
+// commit secrets to source control; supply it from the environment.
+func WithSecret(secret string) func(*Config) {
+	return func(c *Config) {
+		c.secret = secret
 	}
 }
 

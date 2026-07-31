@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
@@ -112,6 +114,7 @@ func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(mailer),
+		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
@@ -519,6 +522,7 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(&testMailer{}),
+		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
@@ -682,6 +686,7 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(&testMailer{}),
+		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
@@ -910,5 +915,68 @@ func TestRefreshToken_E2E(t *testing.T) {
 	_, _, _, err = a.Services.Session.RefreshSession(ctx, refresh2)
 	if err == nil {
 		t.Fatal("expected error when using new refresh token after session revocation")
+	}
+}
+
+// TestMount_BakesInCORS verifies Mount wires the CORS middleware into every
+// mounted handler so consumers don't need to wrap the mux with
+// Auth.Middleware.CORS themselves.
+func TestMount_BakesInCORS(t *testing.T) {
+	db, cleanup := newSQLiteDB(t)
+	defer cleanup()
+	a := openAuth(t, db, &testMailer{})
+
+	mux := http.NewServeMux()
+	a.Mount(mux)
+
+	// A real request from an allowed origin must carry CORS response headers.
+	req := httptest.NewRequest("GET", "/auth/me", nil)
+	req.Header.Set("Origin", "http://localhost:8080")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:8080" {
+		t.Errorf("expected Access-Control-Allow-Origin http://localhost:8080, got %q", got)
+	}
+	varySet := false
+	for _, v := range rec.Header().Values("Vary") {
+		if v == "Origin" {
+			varySet = true
+		}
+	}
+	if !varySet {
+		t.Errorf("expected Vary: Origin on origin-echoed response, got %v", rec.Header().Values("Vary"))
+	}
+
+	// Preflight OPTIONS must short-circuit at the CORS layer with 204, before
+	// any rate-limit accounting or handler runs.
+	pre := httptest.NewRequest("OPTIONS", "/auth/login", nil)
+	pre.Header.Set("Origin", "http://localhost:8080")
+	pre.Header.Set("Access-Control-Request-Method", "POST")
+	preRec := httptest.NewRecorder()
+	mux.ServeHTTP(preRec, pre)
+
+	if preRec.Code != http.StatusNoContent {
+		t.Errorf("expected 204 preflight, got %d", preRec.Code)
+	}
+	if got := preRec.Header().Get("Access-Control-Allow-Origin"); got != "http://localhost:8080" {
+		t.Errorf("expected preflight Access-Control-Allow-Origin, got %q", got)
+	}
+
+	// Preflight to a path go-auth does not own must still 404 and must NOT be
+	// answered by the CORS layer — OPTIONS is registered 1:1 with real routes,
+	// never a catch-all. (The same would hold for a consumer's own routes on a
+	// shared mux.)
+	unknown := httptest.NewRequest("OPTIONS", "/auth/does-not-exist", nil)
+	unknown.Header.Set("Origin", "http://localhost:8080")
+	unknown.Header.Set("Access-Control-Request-Method", "POST")
+	unknownRec := httptest.NewRecorder()
+	mux.ServeHTTP(unknownRec, unknown)
+
+	if unknownRec.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for OPTIONS on unregistered path, got %d", unknownRec.Code)
+	}
+	if got := unknownRec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+		t.Errorf("expected no CORS header for unregistered path, got %q", got)
 	}
 }
