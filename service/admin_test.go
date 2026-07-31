@@ -141,7 +141,7 @@ func TestAdminBanUser_RevokesSessions(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
+	sessList, _ := sessions.ListAllByUserID(context.Background(), "user-1")
 	if len(sessList) != 0 {
 		t.Fatalf("expected 0 sessions after ban, got %d", len(sessList))
 	}
@@ -278,7 +278,7 @@ func TestAdminDeleteUser_HappyPath(t *testing.T) {
 		t.Fatal("expected user to be deleted")
 	}
 
-	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
+	sessList, _ := sessions.ListAllByUserID(context.Background(), "user-1")
 	if len(sessList) != 0 {
 		t.Fatal("expected sessions to be revoked after delete")
 	}
@@ -541,7 +541,7 @@ func TestAdminRevokeUserSession_HappyPath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
+	sessList, _ := sessions.ListAllByUserID(context.Background(), "user-1")
 	if len(sessList) != 0 {
 		t.Fatalf("expected 0 sessions after revoke, got %d", len(sessList))
 	}
@@ -596,7 +596,7 @@ func TestAdminRevokeUserSessions_HappyPath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
+	sessList, _ := sessions.ListAllByUserID(context.Background(), "user-1")
 	if len(sessList) != 0 {
 		t.Fatalf("expected 0 sessions, got %d", len(sessList))
 	}

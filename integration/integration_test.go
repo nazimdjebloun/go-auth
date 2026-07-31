@@ -291,6 +291,116 @@ func TestSession_RevokeInvalidates(t *testing.T) {
 	}
 }
 
+func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	mailer := &testMailer{}
+	a := openAuth(t, db, mailer)
+	defer a.Close()
+
+	ctx := context.Background()
+	alice, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "alice@revoke.com",
+		Password: "V@lidPswd1",
+		Name:     "Alice",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+	bob, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "bob@revoke.com",
+		Password: "V@lidPswd1",
+		Name:     "Bob",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	revoked, err := a.Services.Session.RevokeByIDForUser(ctx, "not-a-uuid", alice.User.ID)
+	if err != nil {
+		t.Fatalf("malformed id should not error: %v", err)
+	}
+	if revoked {
+		t.Error("expected revoked=false for malformed id")
+	}
+
+	revoked, err = a.Services.Session.RevokeByIDForUser(ctx, alice.Session.ID, bob.User.ID)
+	if err != nil {
+		t.Fatalf("cross-user revoke should not error: %v", err)
+	}
+	if revoked {
+		t.Error("expected revoked=false for another user's session")
+	}
+
+	_, _, aerr = a.Services.Auth.ValidateSession(ctx, alice.SessionToken)
+	if aerr != nil {
+		t.Error("alice session should still be valid")
+	}
+
+	revoked, err = a.Services.Session.RevokeByIDForUser(ctx, alice.Session.ID, alice.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !revoked {
+		t.Error("expected revoked=true when owner revokes")
+	}
+	_, _, aerr = a.Services.Auth.ValidateSession(ctx, alice.SessionToken)
+	if aerr == nil {
+		t.Error("alice session should be invalid after owner revoke")
+	}
+}
+
+func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	mailer := &testMailer{}
+	a := openAuth(t, db, mailer)
+	defer a.Close()
+
+	ctx := context.Background()
+	alice, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "alice2@revoke.com",
+		Password: "V@lidPswd1",
+		Name:     "Alice",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+	bob, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "bob2@revoke.com",
+		Password: "V@lidPswd1",
+		Name:     "Bob",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	n, err := a.Services.Session.RevokeManyForUser(ctx, []string{bob.Session.ID, "not-a-uuid"}, alice.User.ID)
+	if err != nil {
+		t.Fatalf("mixed revoke should not error: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("expected 0 revoked for bob's session + malformed id, got %d", n)
+	}
+
+	n, err = a.Services.Session.RevokeManyForUser(ctx, []string{alice.Session.ID, "not-a-uuid"}, alice.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Errorf("expected 1 revoked, got %d", n)
+	}
+
+	_, _, aerr = a.Services.Auth.ValidateSession(ctx, alice.SessionToken)
+	if aerr == nil {
+		t.Error("alice session should be invalid after revoke")
+	}
+	_, _, aerr = a.Services.Auth.ValidateSession(ctx, bob.SessionToken)
+	if aerr != nil {
+		t.Error("bob session should still be valid")
+	}
+}
+
 func TestPassword_ForgotAndReset(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()

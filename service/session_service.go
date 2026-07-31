@@ -173,6 +173,22 @@ func (s *SessionService) RevokeByID(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *SessionService) RevokeByIDForUser(ctx context.Context, id, userID string) (bool, error) {
+	ok, err := s.repo.RevokeByIDForUser(ctx, id, userID)
+	if err != nil {
+		return false, fmt.Errorf("session revoke by id: %w", err)
+	}
+	return ok, nil
+}
+
+func (s *SessionService) RevokeManyForUser(ctx context.Context, ids []string, userID string) (int, error) {
+	n, err := s.repo.RevokeManyForUser(ctx, ids, userID)
+	if err != nil {
+		return 0, fmt.Errorf("session revoke many: %w", err)
+	}
+	return n, nil
+}
+
 func (s *SessionService) RevokeAll(ctx context.Context, userID string) error {
 	if err := s.repo.DeleteAllForUser(ctx, userID); err != nil {
 		return fmt.Errorf("session revoke all: %w", err)
@@ -190,8 +206,12 @@ func (s *SessionService) RevokeAllExcept(ctx context.Context, userID string, exc
 	return nil
 }
 
-func (s *SessionService) List(ctx context.Context, userID string) ([]domain.Session, int, error) {
-	return s.repo.ListByUserID(ctx, userID, 0, 0)
+func (s *SessionService) List(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
+	return s.repo.ListByUserID(ctx, userID, offset, limit)
+}
+
+func (s *SessionService) ListAll(ctx context.Context, userID string) ([]domain.Session, error) {
+	return s.repo.ListAllByUserID(ctx, userID)
 }
 
 func (s *SessionService) Config() SessionConfig {

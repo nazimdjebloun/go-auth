@@ -442,7 +442,7 @@ func TestChangePassword_RevokesOtherSessions(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
+	sessList, _ := sessions.ListAllByUserID(context.Background(), "user-1")
 	if len(sessList) != 0 {
 		t.Fatalf("expected all sessions revoked, got %d", len(sessList))
 	}
@@ -482,7 +482,7 @@ func TestChangePassword_KeepsExceptSession(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	sessList, _, _ := sessions.ListByUserID(context.Background(), "user-1", 0, 0)
+	sessList, _ := sessions.ListAllByUserID(context.Background(), "user-1")
 	if len(sessList) != 1 {
 		t.Fatalf("expected 1 session kept, got %d", len(sessList))
 	}
