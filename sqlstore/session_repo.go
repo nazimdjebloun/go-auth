@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -96,6 +97,29 @@ func (r *SessionRepository) LockAndGetByRefreshHash(ctx context.Context, hash st
 	return s, err
 }
 
+func (r *SessionRepository) ListAllByUserID(ctx context.Context, userID string) ([]domain.Session, error) {
+	now := time.Now().UTC()
+
+	rows, err := r.db.QueryContext(ctx, sessionListByUserQuery, userID, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var sessions []domain.Session
+	for rows.Next() {
+		var s domain.Session
+		if err := scanSession(&s, rows); err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, s)
+	}
+	if sessions == nil {
+		sessions = []domain.Session{}
+	}
+	return sessions, rows.Err()
+}
+
 func (r *SessionRepository) ListByUserID(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
 	now := time.Now().UTC()
 
@@ -124,7 +148,7 @@ func (r *SessionRepository) ListByUserID(ctx context.Context, userID string, off
 	return sessions, total, rows.Err()
 }
 
-func (r *SessionRepository) ListAllSessions(ctx context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
+func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
 	now := time.Now().UTC()
 
 	where := []string{"is_revoked = false", "expires_at > $1"}
@@ -145,9 +169,12 @@ func (r *SessionRepository) ListAllSessions(ctx context.Context, filter port.Ses
 		return nil, 0, err
 	}
 
-	query := fmt.Sprintf("SELECT %s FROM sessions WHERE %s ORDER BY created_at DESC LIMIT $%d OFFSET $%d",
-		sessionCols, whereClause, argIdx, argIdx+1)
-	args = append(args, filter.Limit, filter.Offset)
+	query := fmt.Sprintf("SELECT %s FROM sessions WHERE %s ORDER BY created_at DESC",
+		sessionCols, whereClause)
+	if filter.Limit > 0 {
+		query = fmt.Sprintf("%s LIMIT $%d OFFSET $%d", query, argIdx, argIdx+1)
+		args = append(args, filter.Limit, filter.Offset)
+	}
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -177,6 +204,50 @@ func (r *SessionRepository) Delete(ctx context.Context, tokenHash string) error 
 func (r *SessionRepository) DeleteByID(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, sessionDeleteByIDQuery, id)
 	return err
+}
+
+func (r *SessionRepository) RevokeByIDForUser(ctx context.Context, id, userID string) (bool, error) {
+	if _, err := uuid.Parse(id); err != nil {
+		return false, nil
+	}
+	res, err := r.db.ExecContext(ctx, sessionRevokeByIDForUserQuery, id, userID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (r *SessionRepository) RevokeManyForUser(ctx context.Context, ids []string, userID string) (int, error) {
+	valid := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, err := uuid.Parse(id); err == nil {
+			valid = append(valid, id)
+		}
+	}
+	if len(valid) == 0 {
+		return 0, nil
+	}
+	placeholders := make([]string, len(valid))
+	args := make([]any, 0, len(valid)+1)
+	args = append(args, userID)
+	for i, id := range valid {
+		placeholders[i] = fmt.Sprintf("$%d", i+2)
+		args = append(args, id)
+	}
+	query := fmt.Sprintf("DELETE FROM sessions WHERE user_id = $1 AND id IN (%s)", strings.Join(placeholders, ", "))
+	res, err := r.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }
 
 func (r *SessionRepository) DeleteAllForUser(ctx context.Context, userID string) error {
@@ -251,12 +322,7 @@ func (r *SessionRepository) updateRefreshTokenReturning(ctx context.Context, inp
 
 // updateRefreshTokenNoReturning uses ExecContext + RowsAffected (MySQL).
 func (r *SessionRepository) updateRefreshTokenNoReturning(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut time.Time) (*domain.Session, error) {
-	query := r.db.Rebind(`UPDATE sessions
-		SET token_hash = ?, refresh_token_hash = ?,
-		    prev_refresh_token_hash = refresh_token_hash,
-		    refresh_rotated_at = ?, expires_at = ?
-		WHERE refresh_token_hash = ? AND is_revoked = false
-		  AND refresh_expires_at > ? AND created_at > ?`)
+	query := r.db.Rebind(sessionRotateRefreshNoReturningQuery)
 
 	result, err := r.db.ExecContext(ctx, query,
 		input.NewTokenHash, input.NewRefreshHash, now, input.NewExpiresAt,
@@ -322,7 +388,7 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 			"user_id", prev.UserID,
 			"session_id", prev.ID,
 		)
-		if revokeErr := r.Revoke(ctx, prev.ID); revokeErr != nil {
+		if revokeErr := r.DeleteByID(ctx, prev.ID); revokeErr != nil {
 			r.log.Error("failed to revoke session on reuse detection",
 				"err", revokeErr,
 				"session_id", prev.ID,
@@ -334,35 +400,22 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 	return nil, domain.ErrInvalidRefreshToken
 }
 
-func (r *SessionRepository) Revoke(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, sessionDeleteByIDQuery, id)
-	return err
-}
-
 func (r *SessionRepository) UpdateActiveOrgRoleForUser(ctx context.Context, userID, orgID string, newRole domain.OrgRole) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE sessions SET active_org_role = $1 WHERE user_id = $2 AND active_org_id = $3 AND is_revoked = false`,
-		string(newRole), userID, orgID)
+	_, err := r.db.ExecContext(ctx, sessionUpdateActiveOrgRoleQuery, string(newRole), userID, orgID)
 	return err
 }
 
 func (r *SessionRepository) ClearActiveOrgForUser(ctx context.Context, userID, orgID string) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE sessions SET active_org_id = NULL, active_org_role = NULL WHERE user_id = $1 AND active_org_id = $2 AND is_revoked = false`,
-		userID, orgID)
+	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgForUserQuery, userID, orgID)
 	return err
 }
 
 func (r *SessionRepository) ClearActiveOrgForAllMembers(ctx context.Context, orgID string) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE sessions SET active_org_id = NULL, active_org_role = NULL WHERE active_org_id = $1 AND is_revoked = false`,
-		orgID)
+	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgForAllMembersQuery, orgID)
 	return err
 }
 
 func (r *SessionRepository) SetActiveOrg(ctx context.Context, sessionID, orgID string, role domain.OrgRole) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE sessions SET active_org_id = $1, active_org_role = $2 WHERE id = $3 AND is_revoked = false`,
-		orgID, string(role), sessionID)
+	_, err := r.db.ExecContext(ctx, sessionSetActiveOrgQuery, orgID, string(role), sessionID)
 	return err
 }

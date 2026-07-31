@@ -229,7 +229,7 @@ func TestAdminRevokeUserSession(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res2.StatusCode)
 	}
 
-	sessions, _, _ := th.sessions.ListByUserID(context.Background(), user.ID, 0, 0)
+	sessions, _ := th.sessions.ListAllByUserID(context.Background(), user.ID)
 	if len(sessions) != 0 {
 		t.Errorf("expected 0 sessions after revoke, got %d", len(sessions))
 	}

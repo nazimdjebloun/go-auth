@@ -204,7 +204,19 @@ func (m *MockSessionRepo) ListByUserID(_ context.Context, userID string, offset,
 	return res, total, nil
 }
 
-func (m *MockSessionRepo) ListAllSessions(_ context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
+func (m *MockSessionRepo) ListAllByUserID(_ context.Context, userID string) ([]domain.Session, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var res []domain.Session
+	for _, s := range m.byID {
+		if s.UserID == userID && !s.IsRevoked {
+			res = append(res, *s)
+		}
+	}
+	return res, nil
+}
+
+func (m *MockSessionRepo) ListAll(_ context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var res []domain.Session
@@ -254,6 +266,39 @@ func (m *MockSessionRepo) DeleteByID(_ context.Context, id string) error {
 		}
 	}
 	return nil
+}
+
+func (m *MockSessionRepo) RevokeByIDForUser(_ context.Context, id, userID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s, ok := m.byID[id]
+	if ok && s.UserID == userID {
+		delete(m.byID, id)
+		delete(m.sessions, s.TokenHash)
+		if s.RefreshTokenHash != "" {
+			delete(m.byRefreshHash, s.RefreshTokenHash)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (m *MockSessionRepo) RevokeManyForUser(_ context.Context, ids []string, userID string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	revoked := 0
+	for _, id := range ids {
+		s, ok := m.byID[id]
+		if ok && s.UserID == userID {
+			delete(m.byID, id)
+			delete(m.sessions, s.TokenHash)
+			if s.RefreshTokenHash != "" {
+				delete(m.byRefreshHash, s.RefreshTokenHash)
+			}
+			revoked++
+		}
+	}
+	return revoked, nil
 }
 
 func (m *MockSessionRepo) DeleteAllForUser(_ context.Context, userID string) error {
@@ -354,20 +399,6 @@ func (m *MockSessionRepo) UpdateRefreshToken(_ context.Context, input port.Updat
 	}
 
 	return nil, domain.ErrInvalidRefreshToken
-}
-
-func (m *MockSessionRepo) Revoke(_ context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	s, ok := m.byID[id]
-	if ok {
-		delete(m.byID, id)
-		delete(m.sessions, s.TokenHash)
-		if s.RefreshTokenHash != "" {
-			delete(m.byRefreshHash, s.RefreshTokenHash)
-		}
-	}
-	return nil
 }
 
 func (m *MockSessionRepo) UpdateActiveOrgRoleForUser(_ context.Context, userID, orgID string, newRole domain.OrgRole) error {

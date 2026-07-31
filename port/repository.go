@@ -49,22 +49,48 @@ type SessionFilter struct {
 }
 
 type SessionRepository interface {
+	// Create persists a new session.
 	Create(ctx context.Context, s *domain.Session) error
+
+	// ── Lookups ─────────────────────────────────────────────────────────────
 	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Session, error)
 	GetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
 	GetByPreviousRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
 	LockAndGetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
+
+	// ── Listing ─────────────────────────────────────────────────────────────
+	// ListByUserID returns a user's active sessions, paginated, plus a total count.
 	ListByUserID(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error)
-	ListAllSessions(ctx context.Context, filter SessionFilter) ([]domain.Session, int, error)
+	// ListAllByUserID returns all of a user's active sessions (no pagination).
+	ListAllByUserID(ctx context.Context, userID string) ([]domain.Session, error)
+	// ListAll returns active sessions across all users, optionally filtered (admin).
+	ListAll(ctx context.Context, filter SessionFilter) ([]domain.Session, int, error)
+
+	// ── Delete (hard delete, no ownership check) ─────────────────────────────
+	// Delete removes a session by its access-token hash (logout path).
 	Delete(ctx context.Context, tokenHash string) error
+	// DeleteByID removes a session by its id.
 	DeleteByID(ctx context.Context, id string) error
+	// DeleteAllForUser removes every session belonging to a user.
 	DeleteAllForUser(ctx context.Context, userID string) error
+	// DeleteAllForUserExcept removes all of a user's sessions except one.
 	DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error
+	// DeleteExpired removes sessions past their refresh expiry (maintenance).
 	DeleteExpired(ctx context.Context) error
+
+	// ── Revoke (user-scoped delete, ownership enforced in SQL) ───────────────
+	// RevokeByIDForUser removes one session only if it belongs to userID.
+	// Returns false if the session is missing or belongs to someone else.
+	RevokeByIDForUser(ctx context.Context, id, userID string) (bool, error)
+	// RevokeManyForUser removes the given sessions only if they belong to userID.
+	// Returns the number of sessions actually removed.
+	RevokeManyForUser(ctx context.Context, ids []string, userID string) (int, error)
+
+	// ── State updates ────────────────────────────────────────────────────────
 	UpdateLastActiveAt(ctx context.Context, tokenHash string) error
 	UpdateRefreshToken(ctx context.Context, input UpdateRefreshInput) (*domain.Session, error)
-	Revoke(ctx context.Context, id string) error
 
+	// ── Active org ───────────────────────────────────────────────────────────
 	UpdateActiveOrgRoleForUser(ctx context.Context, userID, orgID string, newRole domain.OrgRole) error
 	ClearActiveOrgForUser(ctx context.Context, userID, orgID string) error
 	ClearActiveOrgForAllMembers(ctx context.Context, orgID string) error

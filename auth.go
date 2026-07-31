@@ -69,7 +69,9 @@ type HandlerGroup struct {
 	ResendVerification     http.HandlerFunc
 	ResendVerificationPublic http.HandlerFunc
 	ListSessions           http.HandlerFunc
+	GetAllSessions         http.HandlerFunc
 	RevokeSession          http.HandlerFunc
+	RevokeManySessions     http.HandlerFunc
 	RevokeAllSessions      http.HandlerFunc
 	InviteRegister         http.HandlerFunc
 	CheckSession           http.HandlerFunc
@@ -445,7 +447,9 @@ func New(config Config) (*Auth, error) {
 			ResendVerification:       corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendVerification)))))).ServeHTTP,
 			ResendVerificationPublic: corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendVerificationPublic))))).ServeHTTP,
 			ListSessions:             corsMW(authMW(http.HandlerFunc(h.ListSessions))).ServeHTTP,
+			GetAllSessions:           corsMW(authMW(http.HandlerFunc(h.GetAllSessions))).ServeHTTP,
 			RevokeSession:            corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeSession))))).ServeHTTP,
+			RevokeManySessions:       corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeManySessions))))).ServeHTTP,
 			RevokeAllSessions:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))))).ServeHTTP,
 			InviteRegister:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.InviteRegister))))).ServeHTTP,
 			GetInviteInfo:            corsMW(http.HandlerFunc(h.GetInviteInfo)).ServeHTTP,
@@ -573,7 +577,9 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	handle("GET /auth/csrf-token", a.Handlers.CSRFToken)
 	handle("PUT /auth/name", a.Handlers.ChangeName)
 	handle("GET /auth/sessions", a.Handlers.ListSessions)
+	handle("GET /auth/sessions/all", a.Handlers.GetAllSessions)
 	handle("DELETE /auth/sessions/{id}", a.Handlers.RevokeSession)
+	handle("POST /auth/sessions/revoke", a.Handlers.RevokeManySessions)
 	handle("DELETE /auth/sessions", a.Handlers.RevokeAllSessions)
 	handle("PUT /auth/password", a.Handlers.ChangePassword)
 	handle("POST /auth/change-password", a.Handlers.ChangePassword)

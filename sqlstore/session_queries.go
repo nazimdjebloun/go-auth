@@ -17,13 +17,11 @@ const (
 
 	sessionListByUserPaginatedQuery = `SELECT ` + sessionCols + ` FROM sessions WHERE user_id = $1 AND is_revoked = false AND expires_at > $2 ORDER BY created_at DESC LIMIT $3 OFFSET $4`
 
-	sessionCountAllQuery = `SELECT COUNT(*) FROM sessions WHERE is_revoked = false AND expires_at > $1`
-
-	sessionListAllPaginatedQuery = `SELECT ` + sessionCols + ` FROM sessions WHERE is_revoked = false AND expires_at > $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`
-
 	sessionDeleteByTokenHashQuery = `DELETE FROM sessions WHERE token_hash = $1`
 
 	sessionDeleteByIDQuery = `DELETE FROM sessions WHERE id = $1`
+
+	sessionRevokeByIDForUserQuery = `DELETE FROM sessions WHERE id = $1 AND user_id = $2`
 
 	sessionDeleteByUserQuery = `DELETE FROM sessions WHERE user_id = $1`
 
@@ -44,4 +42,23 @@ const (
 		  AND refresh_expires_at > $6
 		  AND created_at > $7
 		RETURNING ` + sessionCols
+
+	sessionRotateRefreshNoReturningQuery = `UPDATE sessions
+		SET token_hash              = $1,
+		    refresh_token_hash      = $2,
+		    prev_refresh_token_hash = refresh_token_hash,
+		    refresh_rotated_at      = $3,
+		    expires_at              = $4
+		WHERE refresh_token_hash = $5
+		  AND is_revoked = false
+		  AND refresh_expires_at > $6
+		  AND created_at > $7`
+
+	sessionUpdateActiveOrgRoleQuery = `UPDATE sessions SET active_org_role = $1 WHERE user_id = $2 AND active_org_id = $3 AND is_revoked = false`
+
+	sessionClearActiveOrgForUserQuery = `UPDATE sessions SET active_org_id = NULL, active_org_role = NULL WHERE user_id = $1 AND active_org_id = $2 AND is_revoked = false`
+
+	sessionClearActiveOrgForAllMembersQuery = `UPDATE sessions SET active_org_id = NULL, active_org_role = NULL WHERE active_org_id = $1 AND is_revoked = false`
+
+	sessionSetActiveOrgQuery = `UPDATE sessions SET active_org_id = $1, active_org_role = $2 WHERE id = $3 AND is_revoked = false`
 )
