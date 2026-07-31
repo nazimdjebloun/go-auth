@@ -398,10 +398,22 @@ func WithApp(cfg AppConfig) func(*Config) {
 	}
 }
 
-// WithCookie sets the session cookie configuration.
+// WithCookie sets the session cookie configuration. Fields left at their zero
+// value keep their defaults: an empty Name keeps "goauth_session", an empty
+// Path keeps "/", and an unset SameSite keeps SameSiteLaxMode.
 func WithCookie(cfg CookieConfig) func(*Config) {
 	return func(c *Config) {
-		c.cookie = cfg
+		if cfg.Name != "" {
+			c.cookie.Name = cfg.Name
+		}
+		c.cookie.Domain = cfg.Domain
+		if cfg.Path != "" {
+			c.cookie.Path = cfg.Path
+		}
+		c.cookie.Secure = cfg.Secure
+		if cfg.SameSite != 0 {
+			c.cookie.SameSite = cfg.SameSite
+		}
 	}
 }
 

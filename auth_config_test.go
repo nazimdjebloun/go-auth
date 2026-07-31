@@ -595,6 +595,45 @@ func TestNewConfig_SameSiteDefault(t *testing.T) {
 	}
 }
 
+func TestWithCookie_PartialConfigKeepsDefaults(t *testing.T) {
+	cfg, err := NewConfig(append(validConfigOpts(),
+		WithCookie(CookieConfig{Name: "custom_session"}),
+	)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.cookie.Name != "custom_session" {
+		t.Errorf("expected cookie name custom_session, got %q", cfg.cookie.Name)
+	}
+	if cfg.cookie.Path != "/" {
+		t.Errorf("expected default cookie path /, got %q", cfg.cookie.Path)
+	}
+	if cfg.cookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("expected default SameSiteLaxMode, got %v", cfg.cookie.SameSite)
+	}
+}
+
+func TestWithCookie_ExplicitOverridesDefaults(t *testing.T) {
+	cfg, err := NewConfig(append(validConfigOpts(),
+		WithCookie(CookieConfig{Name: "custom", Domain: "example.com", Path: "/api", SameSite: http.SameSiteNoneMode}),
+	)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.cookie.Name != "custom" {
+		t.Errorf("expected cookie name custom, got %q", cfg.cookie.Name)
+	}
+	if cfg.cookie.Domain != "example.com" {
+		t.Errorf("expected cookie domain example.com, got %q", cfg.cookie.Domain)
+	}
+	if cfg.cookie.Path != "/api" {
+		t.Errorf("expected cookie path /api, got %q", cfg.cookie.Path)
+	}
+	if cfg.cookie.SameSite != http.SameSiteNoneMode {
+		t.Errorf("expected SameSiteNoneMode, got %v", cfg.cookie.SameSite)
+	}
+}
+
 func TestValidate_SecretRequired(t *testing.T) {
 	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
 	err := cfg.validate()
