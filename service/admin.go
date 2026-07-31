@@ -314,26 +314,13 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID 
 		return domain.ErrUserNotFound
 	}
 
-	sessions, _, err := s.sessions.ListByUserID(ctx, userID, 0, 0)
+	revoked, err := s.sessions.RevokeByIDForUser(ctx, sessionID, userID)
 	if err != nil {
-		s.log.Error("failed to list user sessions", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
-	}
-
-	found := false
-	for _, sess := range sessions {
-		if sess.ID == sessionID {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return domain.NewError("session_not_found", "Session not found", 404)
-	}
-
-	if err := s.sessions.DeleteByID(ctx, sessionID); err != nil {
 		s.log.Error("failed to revoke session", "err", err, "user_id", userID, "session_id", sessionID)
 		return domain.NewError("internal_error", "Internal server error", 500)
+	}
+	if !revoked {
+		return domain.NewError("session_not_found", "Session not found", 404)
 	}
 
 	s.log.Info("user session revoked by admin", "user_id", userID, "session_id", sessionID)
