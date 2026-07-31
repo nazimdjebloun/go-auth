@@ -1,6 +1,9 @@
 package ratelimit
 
-import "time"
+import (
+	"log/slog"
+	"time"
+)
 
 type StoreResult struct {
 	Count   int
@@ -19,8 +22,9 @@ type Config struct {
 	Store           Store
 	DisabledPaths   []string
 	TrustedIPs      []string
-	IPv6Subnet      int    // subnet prefix length for IPv6 rate limiting (default 64)
-	IPAddressHeader string // e.g. "CF-Connecting-IP", "X-Real-IP" (default: "X-Forwarded-For")
+	IPv6Subnet      int          // subnet prefix length for IPv6 rate limiting (default 64)
+	IPAddressHeader string       // e.g. "CF-Connecting-IP", "X-Real-IP" (default: "X-Forwarded-For")
+	Logger          *slog.Logger // structured logger for rate limit store errors; defaults to slog.Default()
 }
 
 type Rate struct {

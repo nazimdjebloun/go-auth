@@ -19,9 +19,19 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 
 			if origin != "" && (allowAll || origins[origin]) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
+				// The origin is echoed verbatim, so the response varies by the
+				// Origin header; without this, a shared cache could serve one
+				// origin's response to another.
+				w.Header().Add("Vary", "Origin")
+				// Credentials are only granted for a specific configured
+				// origin. Echoing the request origin with Allow-Credentials
+				// under a wildcard config would let any site read
+				// authenticated responses.
+				if origins[origin] {
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
+				}
 			}
 
 			if r.Method == "OPTIONS" {

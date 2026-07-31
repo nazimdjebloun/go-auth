@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -148,6 +149,8 @@ func New(config Config) (*Auth, error) {
 	// (which is itself auto-derived from BaseURL in validate()).
 	if config.csrfToken != nil {
 		config.csrfToken.CookieSecure = config.cookie.Secure
+		config.csrfToken.Secret = []byte(config.secret)
+		config.csrfToken.Logger = config.logger
 	}
 
 	var pool *pgxpool.Pool
@@ -388,10 +391,15 @@ func New(config Config) (*Auth, error) {
 	// OAuth handlers (separate because they need baseURL and session service for cookies)
 	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.baseURL, config.csrfToken)
 
-	authMW := middleware.AuthMiddleware(sessSvc, userRepo)
-	adminMW := middleware.RequireRole(domain.RoleAdmin)
+	authMW := middleware.AuthMiddleware(sessSvc, userRepo, config.logger)
+	adminMW := middleware.RequireRole(domain.RoleAdmin, config.logger)
+	var trustedIPs []string
+	if config.rateLimit != nil {
+		config.rateLimit.Logger = config.logger
+		trustedIPs = config.rateLimit.TrustedIPs
+	}
 	rateLimitMW := middleware.RateLimit(config.rateLimit)
-	csrfMW := middleware.OriginCheck(config.allowedOrigins, config.allowMissingCSRFHeaders)
+	csrfMW := middleware.OriginCheck(config.allowedOrigins, config.allowMissingCSRFHeaders, trustedIPs, config.logger)
 	csrfTokenMW := middleware.CSRFToken(config.csrfToken)
 	corsMW := middleware.CORS(config.allowedOrigins)
 
@@ -423,71 +431,72 @@ func New(config Config) (*Auth, error) {
 			AuditLog:  auditLogRepo,
 		},
 		Handlers: HandlerGroup{
-			// Public auth endpoints: rate limit outer, then CSRF token + origin check.
-			Register:                 rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Register)))).ServeHTTP,
-			Login:                    rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Login)))).ServeHTTP,
-			Logout:                   csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Logout)))).ServeHTTP,
-			ForgotPassword:           rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ForgotPassword)))).ServeHTTP,
-			ResetPassword:            rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResetPassword)))).ServeHTTP,
-			ChangePassword:           csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangePassword)))).ServeHTTP,
-			SetPasswordRequest:       rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetPasswordRequest))))).ServeHTTP,
-			SetPasswordConfirm:       rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.SetPasswordConfirm)))).ServeHTTP,
-			VerifyEmail:              rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.VerifyEmail)))).ServeHTTP,
-			ResendVerification:       rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendVerification))))).ServeHTTP,
-			ResendVerificationPublic: rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendVerificationPublic)))).ServeHTTP,
-			ListSessions:             authMW(http.HandlerFunc(h.ListSessions)).ServeHTTP,
-			RevokeSession:            csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeSession)))).ServeHTTP,
-			RevokeAllSessions:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions)))).ServeHTTP,
-			InviteRegister:           rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.InviteRegister)))).ServeHTTP,
-			GetInviteInfo:            http.HandlerFunc(h.GetInviteInfo).ServeHTTP,
-			GetMe:                    authMW(http.HandlerFunc(h.GetMe)).ServeHTTP,
-			CheckSession:             http.HandlerFunc(h.CheckAuth).ServeHTTP,
-			RefreshToken:             rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.RefreshToken)))).ServeHTTP,
-			ChangeName:               csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangeName)))).ServeHTTP,
-			DeleteAccount:            csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteAccount)))).ServeHTTP,
-			RequestDeleteAccount:     rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RequestDeleteAccount))))).ServeHTTP,
+			// Public auth endpoints: CORS outer, then rate limit, then CSRF token + origin check.
+			// CORS is outermost so preflight OPTIONS short-circuits before rate-limit accounting.
+			Register:                 corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Register))))).ServeHTTP,
+			Login:                    corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Login))))).ServeHTTP,
+			Logout:                   corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Logout))))).ServeHTTP,
+			ForgotPassword:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ForgotPassword))))).ServeHTTP,
+			ResetPassword:            corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResetPassword))))).ServeHTTP,
+			ChangePassword:           corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangePassword))))).ServeHTTP,
+			SetPasswordRequest:       corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetPasswordRequest)))))).ServeHTTP,
+			SetPasswordConfirm:       corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.SetPasswordConfirm))))).ServeHTTP,
+			VerifyEmail:              corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.VerifyEmail))))).ServeHTTP,
+			ResendVerification:       corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendVerification)))))).ServeHTTP,
+			ResendVerificationPublic: corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendVerificationPublic))))).ServeHTTP,
+			ListSessions:             corsMW(authMW(http.HandlerFunc(h.ListSessions))).ServeHTTP,
+			RevokeSession:            corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeSession))))).ServeHTTP,
+			RevokeAllSessions:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))))).ServeHTTP,
+			InviteRegister:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.InviteRegister))))).ServeHTTP,
+			GetInviteInfo:            corsMW(http.HandlerFunc(h.GetInviteInfo)).ServeHTTP,
+			GetMe:                    corsMW(authMW(http.HandlerFunc(h.GetMe))).ServeHTTP,
+			CheckSession:             corsMW(http.HandlerFunc(h.CheckAuth)).ServeHTTP,
+			RefreshToken:             corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.RefreshToken))))).ServeHTTP,
+			ChangeName:               corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangeName))))).ServeHTTP,
+			DeleteAccount:            corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))))).ServeHTTP,
+			RequestDeleteAccount:     corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RequestDeleteAccount)))))).ServeHTTP,
 			// Confirm delete requires an authenticated session (user ID from context only).
-			ConfirmDeleteAccount: rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ConfirmDeleteAccount))))).ServeHTTP,
-			// Admin endpoints: rate limit outer, then auth + admin role check.
-			ListUsers:              rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListUsers)))).ServeHTTP,
-			GetUserDetail:          rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetUserDetail)))).ServeHTTP,
-			UpdateUserRole:         rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole)))))).ServeHTTP,
-			BanUser:                rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser)))))).ServeHTTP,
-			UnbanUser:              rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser)))))).ServeHTTP,
-			DeleteUser:             rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser)))))).ServeHTTP,
-			RevokeUserSessions:     rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions)))))).ServeHTTP,
-			AdminCreateUser:        rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser)))))).ServeHTTP,
-			AdminListUserSessions:  rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserSessions)))).ServeHTTP,
-			AdminRevokeUserSession: rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession)))))).ServeHTTP,
-			AdminListAuditLogs:     rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListAuditLogs)))).ServeHTTP,
-			AdminListUserAuditLogs: rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserAuditLogs)))).ServeHTTP,
-			CreateInvite:           rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite)))))).ServeHTTP,
-			ListInvites:            rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListInvites)))).ServeHTTP,
-			RevokeInvite:           rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))))).ServeHTTP,
-			ResendInvite:           rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite)))))).ServeHTTP,
-			HardDeleteInvite:       rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite)))))).ServeHTTP,
-			OAuthInitiate:          http.HandlerFunc(oauthHandlers.Initiate).ServeHTTP,
-			OAuthCallback:          http.HandlerFunc(oauthHandlers.Callback).ServeHTTP,
-			OAuthLink:              csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.InitiateLink)))).ServeHTTP,
-			OAuthUnlink:            csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.Unlink)))).ServeHTTP,
-			OAuthProviders:         authMW(http.HandlerFunc(oauthHandlers.ListConnected)).ServeHTTP,
-			CSRFToken:              csrfTokenMW(http.HandlerFunc(h.GetCSRFToken)).ServeHTTP,
-			CreateOrg:              rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrg))))).ServeHTTP,
-			GetOrg:                 authMW(http.HandlerFunc(h.GetOrg)).ServeHTTP,
-			UpdateOrg:              csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.UpdateOrg)))).ServeHTTP,
-			DeleteOrg:              csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteOrg)))).ServeHTTP,
-			ListUserOrgs:           authMW(http.HandlerFunc(h.ListUserOrgs)).ServeHTTP,
-			ListOrgMembers:         authMW(http.HandlerFunc(h.ListOrgMembers)).ServeHTTP,
-			RemoveOrgMember:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RemoveMember)))).ServeHTTP,
-			UpdateOrgMemberRole:    csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.UpdateMemberRole)))).ServeHTTP,
-			LeaveOrg:               csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.LeaveOrg)))).ServeHTTP,
-			SetActiveOrg:           csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg)))).ServeHTTP,
-			ClearActiveOrg:         csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg)))).ServeHTTP,
-			CreateOrgInvite:        rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrgInvite))))).ServeHTTP,
-			AcceptOrgInvite:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite)))).ServeHTTP,
-			ListOrgInvites:         authMW(http.HandlerFunc(h.ListOrgInvites)).ServeHTTP,
-			ResendOrgInvite:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendOrgInvite)))).ServeHTTP,
-			DeleteOrgInvite:        csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteOrgInvite)))).ServeHTTP,
+			ConfirmDeleteAccount: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ConfirmDeleteAccount)))))).ServeHTTP,
+			// Admin endpoints: CORS outer, then rate limit, then auth + admin role check.
+			ListUsers:              corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListUsers))))).ServeHTTP,
+			GetUserDetail:          corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetUserDetail))))).ServeHTTP,
+			UpdateUserRole:         corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole))))))).ServeHTTP,
+			BanUser:                corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser))))))).ServeHTTP,
+			UnbanUser:              corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser))))))).ServeHTTP,
+			DeleteUser:             corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser))))))).ServeHTTP,
+			RevokeUserSessions:     corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions))))))).ServeHTTP,
+			AdminCreateUser:        corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser))))))).ServeHTTP,
+			AdminListUserSessions:  corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserSessions))))).ServeHTTP,
+			AdminRevokeUserSession: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession))))))).ServeHTTP,
+			AdminListAuditLogs:     corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListAuditLogs))))).ServeHTTP,
+			AdminListUserAuditLogs: corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserAuditLogs))))).ServeHTTP,
+			CreateInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite))))))).ServeHTTP,
+			ListInvites:            corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListInvites))))).ServeHTTP,
+			RevokeInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite))))))).ServeHTTP,
+			ResendInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite))))))).ServeHTTP,
+			HardDeleteInvite:       corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite))))))).ServeHTTP,
+			OAuthInitiate:          corsMW(http.HandlerFunc(oauthHandlers.Initiate)).ServeHTTP,
+			OAuthCallback:          corsMW(http.HandlerFunc(oauthHandlers.Callback)).ServeHTTP,
+			OAuthLink:              corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.InitiateLink))))).ServeHTTP,
+			OAuthUnlink:            corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.Unlink))))).ServeHTTP,
+			OAuthProviders:         corsMW(authMW(http.HandlerFunc(oauthHandlers.ListConnected))).ServeHTTP,
+			CSRFToken:              corsMW(csrfTokenMW(http.HandlerFunc(h.GetCSRFToken))).ServeHTTP,
+			CreateOrg:              corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrg)))))).ServeHTTP,
+			GetOrg:                 corsMW(authMW(http.HandlerFunc(h.GetOrg))).ServeHTTP,
+			UpdateOrg:              corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.UpdateOrg))))).ServeHTTP,
+			DeleteOrg:              corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteOrg))))).ServeHTTP,
+			ListUserOrgs:           corsMW(authMW(http.HandlerFunc(h.ListUserOrgs))).ServeHTTP,
+			ListOrgMembers:         corsMW(authMW(http.HandlerFunc(h.ListOrgMembers))).ServeHTTP,
+			RemoveOrgMember:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RemoveMember))))).ServeHTTP,
+			UpdateOrgMemberRole:    corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.UpdateMemberRole))))).ServeHTTP,
+			LeaveOrg:               corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.LeaveOrg))))).ServeHTTP,
+			SetActiveOrg:           corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg))))).ServeHTTP,
+			ClearActiveOrg:         corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg))))).ServeHTTP,
+			CreateOrgInvite:        corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrgInvite)))))).ServeHTTP,
+			AcceptOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite))))).ServeHTTP,
+			ListOrgInvites:         corsMW(authMW(http.HandlerFunc(h.ListOrgInvites))).ServeHTTP,
+			ResendOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendOrgInvite))))).ServeHTTP,
+			DeleteOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteOrgInvite))))).ServeHTTP,
 		},
 		Middleware: MiddlewareGroup{
 			Authenticate: authMW,
@@ -514,83 +523,112 @@ func (a *Auth) Close() {
 }
 
 func (a *Auth) Mount(mux *http.ServeMux) {
-	// All middleware (csrf, auth, admin) is already baked into a.Handlers.
+	// All middleware (CORS, rate limit, csrf token, origin check, auth, admin)
+	// is already baked into a.Handlers — CORS outermost so preflight OPTIONS
+	// short-circuits before rate limiting. Mount only registers routes; do NOT
+	// wrap the mux again with a.Middleware.CORS or any other middleware.
+	//
+	// handle registers a route and, when CORS origins are configured, also the
+	// exact OPTIONS twin for the same path. OPTIONS is registered 1:1 with each
+	// route go-auth owns — never a catch-all — so preflight requests for paths
+	// go-auth does not own (including a consumer's own routes on a shared mux)
+	// still get a normal 404/405 and never reach the CORS layer.
+	preflight := len(a.Config.allowedOrigins) > 0
+	preflightPaths := make(map[string]bool)
+	handle := func(pattern string, h http.Handler) {
+		mux.Handle(pattern, h)
+		if preflight {
+			// OPTIONS is registered once per path. Multiple methods may share a
+			// path (GET /auth/sessions, DELETE /auth/sessions), but preflight is
+			// method-agnostic, so a duplicate registration would panic. CORS
+			// short-circuits OPTIONS with 204 before the handler runs, so any
+			// of the shared handlers answers it correctly.
+			if i := strings.IndexByte(pattern, ' '); i > 0 {
+				p := pattern[i+1:]
+				if !preflightPaths[p] {
+					preflightPaths[p] = true
+					mux.Handle("OPTIONS "+p, h)
+				}
+			}
+		}
+	}
+
 	if a.Config.registration.EnableEmailPassword {
-		mux.Handle("POST /auth/register", a.Handlers.Register)
-		mux.Handle("POST /auth/signup", a.Handlers.Register)
+		handle("POST /auth/register", a.Handlers.Register)
+		handle("POST /auth/signup", a.Handlers.Register)
 	}
-	mux.Handle("POST /auth/login", a.Handlers.Login)
-	mux.Handle("POST /auth/signin", a.Handlers.Login)
-	mux.Handle("POST /auth/forgot-password", a.Handlers.ForgotPassword)
-	mux.Handle("POST /auth/reset-password", a.Handlers.ResetPassword)
-	mux.Handle("POST /auth/verify-email", a.Handlers.VerifyEmail)
+	handle("POST /auth/login", a.Handlers.Login)
+	handle("POST /auth/signin", a.Handlers.Login)
+	handle("POST /auth/forgot-password", a.Handlers.ForgotPassword)
+	handle("POST /auth/reset-password", a.Handlers.ResetPassword)
+	handle("POST /auth/verify-email", a.Handlers.VerifyEmail)
 	if a.Config.registration.EnableInvite {
-		mux.Handle("GET /auth/invite/info", a.Handlers.GetInviteInfo)
-		mux.Handle("POST /auth/invite/register", a.Handlers.InviteRegister)
+		handle("GET /auth/invite/info", a.Handlers.GetInviteInfo)
+		handle("POST /auth/invite/register", a.Handlers.InviteRegister)
 	}
-	mux.Handle("POST /auth/logout", a.Handlers.Logout)
-	mux.Handle("POST /auth/signout", a.Handlers.Logout)
-	mux.Handle("GET /auth/me", a.Handlers.GetMe)
-	mux.Handle("GET /auth/check", a.Handlers.CheckSession)
-	mux.Handle("GET /auth/csrf-token", a.Handlers.CSRFToken)
-	mux.Handle("PUT /auth/name", a.Handlers.ChangeName)
-	mux.Handle("GET /auth/sessions", a.Handlers.ListSessions)
-	mux.Handle("DELETE /auth/sessions/{id}", a.Handlers.RevokeSession)
-	mux.Handle("DELETE /auth/sessions", a.Handlers.RevokeAllSessions)
-	mux.Handle("PUT /auth/password", a.Handlers.ChangePassword)
-	mux.Handle("POST /auth/change-password", a.Handlers.ChangePassword)
-	mux.Handle("POST /auth/set-password/request", a.Handlers.SetPasswordRequest)
-	mux.Handle("POST /auth/set-password/confirm", a.Handlers.SetPasswordConfirm)
-	mux.Handle("DELETE /auth/account", a.Handlers.DeleteAccount)
-	mux.Handle("POST /auth/account/delete/request", a.Handlers.RequestDeleteAccount)
-	mux.Handle("POST /auth/account/delete/confirm", a.Handlers.ConfirmDeleteAccount)
-	mux.Handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
-	mux.Handle("POST /auth/verify-email/resend", a.Handlers.ResendVerificationPublic)
-	mux.Handle("POST /auth/refresh", a.Handlers.RefreshToken)
-	mux.Handle("GET /admin/users", a.Handlers.ListUsers)
-	mux.Handle("GET /admin/users/{id}", a.Handlers.GetUserDetail)
-	mux.Handle("PATCH /admin/users/{id}/role", a.Handlers.UpdateUserRole)
-	mux.Handle("PATCH /admin/users/{id}/ban", a.Handlers.BanUser)
-	mux.Handle("PATCH /admin/users/{id}/unban", a.Handlers.UnbanUser)
-	mux.Handle("DELETE /admin/users/{id}", a.Handlers.DeleteUser)
-	mux.Handle("POST /admin/users", a.Handlers.AdminCreateUser)
-	mux.Handle("GET /admin/users/{id}/sessions", a.Handlers.AdminListUserSessions)
-	mux.Handle("DELETE /admin/users/{id}/sessions/{sessionId}", a.Handlers.AdminRevokeUserSession)
-	mux.Handle("DELETE /admin/users/{id}/sessions", a.Handlers.RevokeUserSessions)
-	mux.Handle("GET /admin/audit-logs", a.Handlers.AdminListAuditLogs)
-	mux.Handle("GET /admin/users/{id}/audit-logs", a.Handlers.AdminListUserAuditLogs)
+	handle("POST /auth/logout", a.Handlers.Logout)
+	handle("POST /auth/signout", a.Handlers.Logout)
+	handle("GET /auth/me", a.Handlers.GetMe)
+	handle("GET /auth/check", a.Handlers.CheckSession)
+	handle("GET /auth/csrf-token", a.Handlers.CSRFToken)
+	handle("PUT /auth/name", a.Handlers.ChangeName)
+	handle("GET /auth/sessions", a.Handlers.ListSessions)
+	handle("DELETE /auth/sessions/{id}", a.Handlers.RevokeSession)
+	handle("DELETE /auth/sessions", a.Handlers.RevokeAllSessions)
+	handle("PUT /auth/password", a.Handlers.ChangePassword)
+	handle("POST /auth/change-password", a.Handlers.ChangePassword)
+	handle("POST /auth/set-password/request", a.Handlers.SetPasswordRequest)
+	handle("POST /auth/set-password/confirm", a.Handlers.SetPasswordConfirm)
+	handle("DELETE /auth/account", a.Handlers.DeleteAccount)
+	handle("POST /auth/account/delete/request", a.Handlers.RequestDeleteAccount)
+	handle("POST /auth/account/delete/confirm", a.Handlers.ConfirmDeleteAccount)
+	handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
+	handle("POST /auth/verify-email/resend", a.Handlers.ResendVerificationPublic)
+	handle("POST /auth/refresh", a.Handlers.RefreshToken)
+	handle("GET /admin/users", a.Handlers.ListUsers)
+	handle("GET /admin/users/{id}", a.Handlers.GetUserDetail)
+	handle("PATCH /admin/users/{id}/role", a.Handlers.UpdateUserRole)
+	handle("PATCH /admin/users/{id}/ban", a.Handlers.BanUser)
+	handle("PATCH /admin/users/{id}/unban", a.Handlers.UnbanUser)
+	handle("DELETE /admin/users/{id}", a.Handlers.DeleteUser)
+	handle("POST /admin/users", a.Handlers.AdminCreateUser)
+	handle("GET /admin/users/{id}/sessions", a.Handlers.AdminListUserSessions)
+	handle("DELETE /admin/users/{id}/sessions/{sessionId}", a.Handlers.AdminRevokeUserSession)
+	handle("DELETE /admin/users/{id}/sessions", a.Handlers.RevokeUserSessions)
+	handle("GET /admin/audit-logs", a.Handlers.AdminListAuditLogs)
+	handle("GET /admin/users/{id}/audit-logs", a.Handlers.AdminListUserAuditLogs)
 	if a.Config.registration.EnableInvite {
-		mux.Handle("POST /admin/invites", a.Handlers.CreateInvite)
-		mux.Handle("GET /admin/invites", a.Handlers.ListInvites)
-		mux.Handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
-		mux.Handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
-		mux.Handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
+		handle("POST /admin/invites", a.Handlers.CreateInvite)
+		handle("GET /admin/invites", a.Handlers.ListInvites)
+		handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
+		handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
+		handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
 	}
 	if a.Config.registration.EnableOAuth && a.oAuthService != nil {
-		mux.Handle("GET /auth/oauth/{provider}", a.Handlers.OAuthInitiate)
-		mux.Handle("GET /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
-		mux.Handle("POST /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
-		mux.Handle("POST /auth/oauth/{provider}/link", a.Handlers.OAuthLink)
-		mux.Handle("POST /auth/oauth/{provider}/unlink", a.Handlers.OAuthUnlink)
-		mux.Handle("GET /auth/oauth/providers", a.Handlers.OAuthProviders)
+		handle("GET /auth/oauth/{provider}", a.Handlers.OAuthInitiate)
+		handle("GET /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
+		handle("POST /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
+		handle("POST /auth/oauth/{provider}/link", a.Handlers.OAuthLink)
+		handle("POST /auth/oauth/{provider}/unlink", a.Handlers.OAuthUnlink)
+		handle("GET /auth/oauth/providers", a.Handlers.OAuthProviders)
 	}
 	if a.orgService != nil {
-		mux.Handle("POST /auth/orgs", a.Handlers.CreateOrg)
-		mux.Handle("GET /auth/orgs", a.Handlers.ListUserOrgs)
-		mux.Handle("GET /auth/orgs/{orgID}", a.Handlers.GetOrg)
-		mux.Handle("PUT /auth/orgs/{orgID}", a.Handlers.UpdateOrg)
-		mux.Handle("DELETE /auth/orgs/{orgID}", a.Handlers.DeleteOrg)
-		mux.Handle("GET /auth/orgs/{orgID}/members", a.Handlers.ListOrgMembers)
-		mux.Handle("DELETE /auth/orgs/{orgID}/members/{userID}", a.Handlers.RemoveOrgMember)
-		mux.Handle("PATCH /auth/orgs/{orgID}/members/{userID}/role", a.Handlers.UpdateOrgMemberRole)
-		mux.Handle("POST /auth/orgs/{orgID}/leave", a.Handlers.LeaveOrg)
-		mux.Handle("PUT /auth/orgs/active", a.Handlers.SetActiveOrg)
-		mux.Handle("DELETE /auth/orgs/active", a.Handlers.ClearActiveOrg)
-		mux.Handle("POST /auth/orgs/{orgID}/invites", a.Handlers.CreateOrgInvite)
-		mux.Handle("POST /auth/orgs/invites/accept", a.Handlers.AcceptOrgInvite)
-		mux.Handle("GET /auth/orgs/{orgID}/invites", a.Handlers.ListOrgInvites)
-		mux.Handle("POST /auth/orgs/{orgID}/invites/{inviteID}/resend", a.Handlers.ResendOrgInvite)
-		mux.Handle("DELETE /auth/orgs/{orgID}/invites/{inviteID}", a.Handlers.DeleteOrgInvite)
+		handle("POST /auth/orgs", a.Handlers.CreateOrg)
+		handle("GET /auth/orgs", a.Handlers.ListUserOrgs)
+		handle("GET /auth/orgs/{orgID}", a.Handlers.GetOrg)
+		handle("PUT /auth/orgs/{orgID}", a.Handlers.UpdateOrg)
+		handle("DELETE /auth/orgs/{orgID}", a.Handlers.DeleteOrg)
+		handle("GET /auth/orgs/{orgID}/members", a.Handlers.ListOrgMembers)
+		handle("DELETE /auth/orgs/{orgID}/members/{userID}", a.Handlers.RemoveOrgMember)
+		handle("PATCH /auth/orgs/{orgID}/members/{userID}/role", a.Handlers.UpdateOrgMemberRole)
+		handle("POST /auth/orgs/{orgID}/leave", a.Handlers.LeaveOrg)
+		handle("PUT /auth/orgs/active", a.Handlers.SetActiveOrg)
+		handle("DELETE /auth/orgs/active", a.Handlers.ClearActiveOrg)
+		handle("POST /auth/orgs/{orgID}/invites", a.Handlers.CreateOrgInvite)
+		handle("POST /auth/orgs/invites/accept", a.Handlers.AcceptOrgInvite)
+		handle("GET /auth/orgs/{orgID}/invites", a.Handlers.ListOrgInvites)
+		handle("POST /auth/orgs/{orgID}/invites/{inviteID}/resend", a.Handlers.ResendOrgInvite)
+		handle("DELETE /auth/orgs/{orgID}/invites/{inviteID}", a.Handlers.DeleteOrgInvite)
 	}
 }
 

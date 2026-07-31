@@ -1,10 +1,23 @@
 package middleware
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
+
+// testSecret is a 32-byte HMAC-SHA256 key used across CSRF token tests.
+const testSecret = "0123456789abcdef0123456789abcdef"
+
+func testCSRFConfig() *CSRFTokenConfig {
+	return &CSRFTokenConfig{Secret: []byte(testSecret)}
+}
 
 func okHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -26,7 +39,7 @@ func TestCSRFToken_PassthroughWhenNil(t *testing.T) {
 }
 
 func TestCSRFToken_SetsCookieOnGet(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	w := httptest.NewRecorder()
 
@@ -56,7 +69,7 @@ func TestCSRFToken_SetsCookieOnGet(t *testing.T) {
 }
 
 func TestCSRFToken_SetsCookieOnHead(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 	req := httptest.NewRequest(http.MethodHead, "/", nil)
 	w := httptest.NewRecorder()
 
@@ -76,7 +89,7 @@ func TestCSRFToken_SetsCookieOnHead(t *testing.T) {
 }
 
 func TestCSRFToken_SetsCookieOnOptions(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 	req := httptest.NewRequest(http.MethodOptions, "/", nil)
 	w := httptest.NewRecorder()
 
@@ -96,7 +109,7 @@ func TestCSRFToken_SetsCookieOnOptions(t *testing.T) {
 }
 
 func TestCSRFToken_DoesNotOverwriteExistingCookieOnGet(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 
 	// First GET to seed a token.
 	req1 := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -128,7 +141,7 @@ func TestCSRFToken_DoesNotOverwriteExistingCookieOnGet(t *testing.T) {
 }
 
 func TestCSRFToken_AcceptsMatchingToken(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 
 	// GET to obtain a token.
 	getReq := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -160,7 +173,7 @@ func TestCSRFToken_AcceptsMatchingToken(t *testing.T) {
 }
 
 func TestCSRFToken_RejectsMismatchedToken(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "_csrf", Value: "cookie-token"})
@@ -175,7 +188,7 @@ func TestCSRFToken_RejectsMismatchedToken(t *testing.T) {
 }
 
 func TestCSRFToken_RejectsMissingHeader(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "_csrf", Value: "some-token"})
@@ -189,7 +202,7 @@ func TestCSRFToken_RejectsMissingHeader(t *testing.T) {
 }
 
 func TestCSRFToken_RejectsMissingCookie(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.Header.Set("X-CSRF-Token", "some-token")
@@ -203,7 +216,7 @@ func TestCSRFToken_RejectsMissingCookie(t *testing.T) {
 }
 
 func TestCSRFToken_DoesNotRotateTokenOnMutation(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 
 	// GET to seed token.
 	getReq := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -243,6 +256,7 @@ func TestCSRFToken_CustomConfig(t *testing.T) {
 		CookieName:   "x-csrf",
 		HeaderName:   "X-XSRF-TOKEN",
 		CookieSecure: true,
+		Secret:       []byte(testSecret),
 	}
 	mw := CSRFToken(cfg)
 
@@ -279,7 +293,7 @@ func TestCSRFToken_CustomConfig(t *testing.T) {
 }
 
 func TestCSRFToken_SameSiteDefaultIsLax(t *testing.T) {
-	cfg := &CSRFTokenConfig{}
+	cfg := testCSRFConfig()
 	cfg.defaults()
 
 	if cfg.CookieSameSite != http.SameSiteLaxMode {
@@ -303,7 +317,7 @@ func TestCSRFToken_SameSiteDefaultIsLax(t *testing.T) {
 }
 
 func TestRotateCSRFToken_SetsNewCookie(t *testing.T) {
-	cfg := &CSRFTokenConfig{}
+	cfg := testCSRFConfig()
 	cfg.defaults() // mirrors production: CSRFToken(cfg) calls defaults() once at construction
 
 	w := httptest.NewRecorder()
@@ -337,7 +351,7 @@ func TestRotateCSRFToken_NoOpWhenNil(t *testing.T) {
 }
 
 func TestCSRFToken_ConstantTimeComparison(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 
 	// GET to obtain a token.
 	getReq := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -392,7 +406,7 @@ func TestCSRFToken_ConstantTimeComparison(t *testing.T) {
 }
 
 func TestCSRFToken_NilSafeComparison(t *testing.T) {
-	mw := CSRFToken(&CSRFTokenConfig{})
+	mw := CSRFToken(testCSRFConfig())
 
 	// Empty cookie value + empty header value — both must be non-empty before comparison.
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -421,7 +435,7 @@ func TestRefreshToken_DoesNotRotateCSRF(t *testing.T) {
 	// RotateCSRFToken, verifying the response cookie is identical to the
 	// request cookie. Without this guard, someone could later add
 	// RotateCSRFToken to refresh and reintroduce the multi-tab race.
-	cfg := &CSRFTokenConfig{}
+	cfg := testCSRFConfig()
 	mw := CSRFToken(cfg)
 
 	// GET to seed token.
@@ -461,6 +475,171 @@ func TestRefreshToken_DoesNotRotateCSRF(t *testing.T) {
 	for _, c := range w.Result().Cookies() {
 		if c.Name == "_csrf" {
 			t.Fatalf("refresh handler must not rotate CSRF token; got new cookie %q", c.Value)
+		}
+	}
+}
+
+func TestCSRFToken_RejectsForgedCookie(t *testing.T) {
+	// Simulates a cookie-write-only attacker (e.g. sibling-subdomain cookie
+	// injection): they inject an arbitrary _csrf cookie value of their own
+	// choosing and send it back as the header. Without the signing secret they
+	// cannot produce a value whose HMAC verifies, so the server must reject it.
+	mw := CSRFToken(testCSRFConfig())
+
+	t.Run("bare attacker nonce", func(t *testing.T) {
+		forged := base64.RawURLEncoding.EncodeToString([]byte("attacker-controlled-nonce"))
+
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.AddCookie(&http.Cookie{Name: "_csrf", Value: forged})
+		req.Header.Set("X-CSRF-Token", forged)
+		w := httptest.NewRecorder()
+
+		mw(okHandler()).ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 for forged cookie, got %d", w.Code)
+		}
+	})
+
+	t.Run("attacker nonce with bogus signature", func(t *testing.T) {
+		forged := "MTIzNDU2Nzg5MA.attacker-controlled-signature"
+
+		req := httptest.NewRequest(http.MethodPost, "/", nil)
+		req.AddCookie(&http.Cookie{Name: "_csrf", Value: forged})
+		req.Header.Set("X-CSRF-Token", forged)
+		w := httptest.NewRecorder()
+
+		mw(okHandler()).ServeHTTP(w, req)
+
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("expected 403 for forged nonce.signature, got %d", w.Code)
+		}
+	})
+}
+
+func TestCSRFToken_RejectsTokenSignedWithDifferentSecret(t *testing.T) {
+	// A token minted by a server with secret A must be rejected by a server
+	// validating with secret B — guards against misconfiguration across restarts.
+	issuer := CSRFToken(&CSRFTokenConfig{Secret: []byte(strings.Repeat("A", 32))})
+	validator := CSRFToken(testCSRFConfig())
+
+	getReq := httptest.NewRequest(http.MethodGet, "/", nil)
+	getW := httptest.NewRecorder()
+	issuer(okHandler()).ServeHTTP(getW, getReq)
+
+	var token string
+	for _, c := range getW.Result().Cookies() {
+		if c.Name == "_csrf" {
+			token = c.Value
+			break
+		}
+	}
+	if token == "" {
+		t.Fatal("no token issued")
+	}
+
+	postReq := httptest.NewRequest(http.MethodPost, "/", nil)
+	postReq.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	postReq.Header.Set("X-CSRF-Token", token)
+	w := httptest.NewRecorder()
+	validator(okHandler()).ServeHTTP(w, postReq)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for token signed with a different secret, got %d", w.Code)
+	}
+}
+
+func TestCSRFToken_TokenIsSigned(t *testing.T) {
+	mw := CSRFToken(testCSRFConfig())
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(w, req)
+
+	var token string
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "_csrf" {
+			token = c.Value
+			break
+		}
+	}
+	if token == "" {
+		t.Fatal("no _csrf cookie set")
+	}
+
+	parts := strings.Split(token, ".")
+	if len(parts) != 2 {
+		t.Fatalf("expected nonce.signature token, got %q", token)
+	}
+	mac := hmac.New(sha256.New, []byte(testSecret))
+	mac.Write([]byte(parts[0]))
+	expected := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if parts[1] != expected {
+		t.Fatal("cookie signature does not recompute from nonce + secret")
+	}
+}
+
+func TestCSRFToken_FailsClosedWhenSecretMissing(t *testing.T) {
+	// Direct Config{} construction bypasses validate(); the sign/verify path
+	// must fail closed rather than sign or verify with an empty key.
+	mw := CSRFToken(&CSRFTokenConfig{})
+
+	// Safe method: cannot issue an unsigned token.
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	w := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on GET with no secret, got %d", w.Code)
+	}
+
+	// State-changing method: cannot verify without a secret.
+	postReq := httptest.NewRequest(http.MethodPost, "/", nil)
+	postReq.AddCookie(&http.Cookie{Name: "_csrf", Value: "any.value"})
+	postReq.Header.Set("X-CSRF-Token", "any.value")
+	postW := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(postW, postReq)
+	if postW.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on POST with no secret, got %d", postW.Code)
+	}
+}
+
+func TestRotateCSRFToken_FailsClosedWhenSecretMissing(t *testing.T) {
+	w := httptest.NewRecorder()
+	RotateCSRFToken(w, &CSRFTokenConfig{})
+	if len(w.Result().Cookies()) != 0 {
+		t.Fatal("expected no cookie to be set when signing secret is empty")
+	}
+}
+
+func TestCSRFToken_FailsClosedLogsStructured(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	mw := CSRFToken(&CSRFTokenConfig{Logger: logger})
+
+	// Issue path: safe method with no secret.
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	w := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on GET with no secret, got %d", w.Code)
+	}
+
+	// Verify path: state-changing method with no secret.
+	postReq := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
+	postReq.AddCookie(&http.Cookie{Name: "_csrf", Value: "any.value"})
+	postReq.Header.Set("X-CSRF-Token", "any.value")
+	postW := httptest.NewRecorder()
+	mw(okHandler()).ServeHTTP(postW, postReq)
+	if postW.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 on POST with no secret, got %d", postW.Code)
+	}
+
+	// Rotate path: no request in scope, so no path field.
+	RotateCSRFToken(httptest.NewRecorder(), &CSRFTokenConfig{Logger: logger})
+
+	out := buf.String()
+	for _, want := range []string{"check=issue", "check=verify", "check=rotate", "path=/auth/login"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected log output to contain %q, got:\n%s", want, out)
 		}
 	}
 }

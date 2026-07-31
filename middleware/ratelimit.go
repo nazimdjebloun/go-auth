@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"strconv"
@@ -14,7 +14,10 @@ import (
 
 func extractIP(r *http.Request, cfg *ratelimit.Config) string {
 	ip := ""
-	if cfg.IPAddressHeader != "" {
+	// Only honor the IPAddressHeader when the immediate peer is a trusted
+	// proxy (the same list the CSRF origin check uses). An untrusted client
+	// can otherwise spoof the header to pick the rate-limit key.
+	if peerIsTrusted(r, cfg.TrustedIPs) {
 		ip = r.Header.Get(cfg.IPAddressHeader)
 	}
 	if ip == "" {
@@ -50,17 +53,15 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 	if cfg == nil || !cfg.Enabled {
 		return func(next http.Handler) http.Handler { return next }
 	}
+	if cfg.Logger == nil {
+		cfg.Logger = slog.Default()
+	}
 
 	var store ratelimit.Store
 	if cfg.Store != nil {
 		store = cfg.Store
 	} else {
 		store = ratelimit.NewMemoryStore()
-	}
-
-	trusted := make(map[string]bool)
-	for _, ip := range cfg.TrustedIPs {
-		trusted[ip] = true
 	}
 
 	disabled := make(map[string]bool)
@@ -71,11 +72,6 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			clientIP := extractIP(r, cfg)
-
-			if trusted[clientIP] {
-				next.ServeHTTP(w, r)
-				return
-			}
 
 			if disabled[r.URL.Path] {
 				next.ServeHTTP(w, r)
@@ -107,12 +103,17 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 			storeKey := rateLimitKey(r, clientIP)
 			result, err := store.Increment(storeKey, rate.Window)
 			if err != nil {
-				log.Printf("rate limit error: %v", err)
+				cfg.Logger.Error("rate limit store error",
+					"error", err,
+					"method", r.Method,
+					"path", r.URL.Path,
+					"ip", clientIP,
+				)
 				w.Header().Set("Retry-After", "60")
 				writeJSON(w, http.StatusTooManyRequests, map[string]string{
 					"error":   "rate_limit_error",
 					"message": "Service temporarily unavailable",
-				})
+				}, cfg.Logger)
 				return
 			}
 
@@ -123,7 +124,7 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 				writeJSON(w, http.StatusTooManyRequests, map[string]string{
 					"error":   "rate_limit_exceeded",
 					"message": "Too many requests, please try again later",
-				})
+				}, cfg.Logger)
 				return
 			}
 
