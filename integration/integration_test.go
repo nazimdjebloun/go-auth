@@ -71,7 +71,7 @@ func newSQLiteDB(t *testing.T) (*sql.DB, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open("sqlite", f.Name())
+	db, err := sql.Open("sqlite", f.Name()+"?_pragma=busy_timeout(10000)")
 	if err != nil {
 		os.Remove(f.Name())
 		t.Fatal(err)
@@ -116,6 +116,7 @@ func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
+		goauth.WithAudit(goauth.AuditConfig{Enabled: true}),
 	)
 	if err != nil {
 		panic(err)
@@ -1025,6 +1026,118 @@ func TestRefreshToken_E2E(t *testing.T) {
 	_, _, _, err = a.Services.Session.RefreshSession(ctx, refresh2)
 	if err == nil {
 		t.Fatal("expected error when using new refresh token after session revocation")
+	}
+}
+
+// TestAuditLogList_HandlesNullJSONColumns is a regression test for a bug where
+// the SQLite driver returned SQL NULL for parsed_ua / metadata and scanning
+// them into json.RawMessage failed, making every admin audit-log listing 500.
+func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email:    "audit@example.com",
+		Password: "V@lidPswd1",
+		Name:     "Audit",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+	if res.User == nil {
+		t.Fatal("user not created")
+	}
+
+	// Both a user-agent-carrying event (login) and one with neither parsed_ua
+	// nor metadata (admin-created user) exercise the NULL scan path.
+	if _, aerr := a.Login(ctx, goauth.LoginInput{
+		Email:     "audit@example.com",
+		Password:  "V@lidPswd1",
+		UserAgent: "TestAgent/1.0",
+	}); aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	var events []port.AuditLogEntry
+	var total int
+	var err error
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		events, total, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50})
+		if err != nil {
+			t.Fatalf("audit log list must not fail on NULL json columns: %v", err)
+		}
+		if total > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if total == 0 || len(events) == 0 {
+		t.Fatal("expected audit events to be recorded")
+	}
+	// GetByID must also survive NULL columns.
+	for _, e := range events {
+		got, err := a.Services.AuditLog.GetByID(ctx, e.ID)
+		if err != nil {
+			t.Fatalf("audit log get by id %s failed: %v", e.ID, err)
+		}
+		if got == nil {
+			t.Fatalf("audit log %s not found", e.ID)
+		}
+	}
+
+	// Regression: the search filter referenced the same placeholder twice but
+	// bound a single argument, which failed on ?-placeholder drivers.
+	search := "TestAgent"
+	searched, _, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
+	if err != nil {
+		t.Fatalf("search filter must not fail: %v", err)
+	}
+	if len(searched) == 0 {
+		deadline = time.Now().Add(5 * time.Second)
+		for len(searched) == 0 && !time.Now().After(deadline) {
+			time.Sleep(50 * time.Millisecond)
+			searched, _, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
+			if err != nil {
+				t.Fatalf("search filter must not fail: %v", err)
+			}
+		}
+	}
+	if len(searched) == 0 {
+		t.Fatal("expected audit events matching search to be returned")
+	}
+
+	// Regression: event-type filter must bind correctly.
+	loginType := "login.success"
+	typed, _, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Type: &loginType})
+	if err != nil {
+		t.Fatalf("event-type filter must not fail: %v", err)
+	}
+	if len(typed) == 0 {
+		deadline = time.Now().Add(5 * time.Second)
+		for len(typed) == 0 && !time.Now().After(deadline) {
+			time.Sleep(50 * time.Millisecond)
+			typed, _, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Type: &loginType})
+			if err != nil {
+				t.Fatalf("event-type filter must not fail: %v", err)
+			}
+		}
+	}
+	if len(typed) == 0 {
+		rows, _ := db.Query("SELECT event_type, user_agent FROM audit_log")
+		defer rows.Close()
+		for rows.Next() {
+			var et, ua string
+			_ = rows.Scan(&et, &ua)
+			t.Logf("stored event: type=%s ua=%q", et, ua)
+		}
+		t.Fatal("expected login.success audit events to be returned")
 	}
 }
 
