@@ -33,11 +33,19 @@ func (s *SessionService) Validate(ctx, token string) (*domain.Session, error)
 func (s *SessionService) Touch(ctx, token string, lastActiveAt time.Time) error
 func (s *SessionService) Revoke(ctx, token string) error
 func (s *SessionService) RevokeByID(ctx, id string) error
+func (s *SessionService) RevokeByIDForUser(ctx, id, userID string) (bool, error)
+func (s *SessionService) RevokeManyForUser(ctx, ids []string, userID string) (int, error)
 func (s *SessionService) RevokeAll(ctx, userID string) error
 func (s *SessionService) RevokeAllExcept(ctx, userID string, exceptSessionID string) error
-func (s *SessionService) List(ctx, userID string) ([]domain.Session, error)
+func (s *SessionService) List(ctx, userID string, offset, limit int) ([]domain.Session, int, error)
+func (s *SessionService) ListAll(ctx, userID string) ([]domain.Session, error)
 func (s *SessionService) Config() SessionConfig
 ```
+
+- `Create` stores `parsed_ua` on the session, derived from `userAgent`.
+- `RevokeByIDForUser` returns `false` when the session doesn't exist or belongs to another user (UUID-validated, ownership enforced in SQL).
+- `RevokeManyForUser` returns the count of sessions actually deleted; malformed or foreign IDs are silently skipped.
+- `List` returns paginated active sessions plus a `total`; `ListAll` returns every active session (no pagination).
 
 **Helper:** `func IsSessionError(err error) bool`
 
@@ -90,9 +98,12 @@ func (s *AdminService) UpdateUserRole(ctx, userID, role string) *domain.AuthErro
 func (s *AdminService) DeleteUser(ctx, userID string) *domain.AuthError
 func (s *AdminService) RevokeUserSessions(ctx, userID string) *domain.AuthError
 func (s *AdminService) CreateUser(ctx, CreateUserInput) (*domain.User, *domain.AuthError)
-func (s *AdminService) ListUserSessions(ctx, AdminListUserSessionsInput) ([]domain.Session, *domain.AuthError)
+func (s *AdminService) ListUserSessions(ctx, AdminListUserSessionsInput) ([]domain.Session, int, *domain.AuthError)
 func (s *AdminService) RevokeUserSession(ctx, userID, sessionID string) *domain.AuthError
+func (s *AdminService) GetUserDetail(ctx, userID string) (*AdminUserDetail, *domain.AuthError)
 ```
+
+- `RevokeUserSession` is **user-scoped**: it revokes the session only if it belongs to `userID`, returning `404 session_not_found` otherwise.
 
 ## OAuthService
 
@@ -199,6 +210,12 @@ type AdminListUsersInput struct {
 type AdminListUsersResult struct {
     Users []domain.User
     Total int
+}
+
+type AdminUserDetail struct {
+    User               domain.User
+    ActiveSessionCount int
+    Providers          []domain.ProviderAccount
 }
 
 type AdminListUserSessionsInput struct {

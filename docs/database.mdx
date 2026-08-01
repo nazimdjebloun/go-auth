@@ -74,28 +74,55 @@ CREATE TABLE users (
 );
 ```
 
-**`sessions`** — active sessions
+**`sessions`** — sessions with rotation and revocation state
 
 ```sql
 CREATE TABLE sessions (
-    id                  TEXT PRIMARY KEY,
-    user_id             TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash          TEXT UNIQUE NOT NULL,
-    refresh_token_hash  TEXT UNIQUE,       -- rotated on refresh
-    prev_refresh_hash   TEXT UNIQUE,       -- one-use grace detection
-    ip                  TEXT NOT NULL DEFAULT '',
-    user_agent          TEXT NOT NULL DEFAULT '',
-    last_active_at      TIMESTAMP NOT NULL,
-    expires_at          TIMESTAMP NOT NULL,
-    refresh_expires_at  TIMESTAMP,
-    created_at          TIMESTAMP NOT NULL,
-    active_org_id       UUID REFERENCES organizations(id) ON DELETE SET NULL,
-    active_org_role     TEXT
-                        CHECK(active_org_role IN ('owner', 'admin', 'member')),
+    id                      TEXT PRIMARY KEY,
+    user_id                 TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash              TEXT UNIQUE NOT NULL,
+    refresh_token_hash      TEXT NOT NULL DEFAULT '',   -- rotated on refresh
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',   -- reuse/grace detection
+    ip_address              TEXT NOT NULL DEFAULT '',
+    user_agent              TEXT NOT NULL DEFAULT '',
+    parsed_ua               JSONB,                      -- structured device info
+    is_revoked              BOOLEAN NOT NULL DEFAULT false,
+    expires_at              TIMESTAMP NOT NULL,
+    refresh_expires_at      TIMESTAMP,                  -- absolute cap, never slides
+    refresh_rotated_at      TIMESTAMP,
+    created_at              TIMESTAMP NOT NULL DEFAULT now(),
+    revoked_at              TIMESTAMP,
+    last_active_at          TIMESTAMP NOT NULL DEFAULT now(),
+    active_org_id           TEXT REFERENCES organizations(id) ON DELETE SET NULL,
+    active_org_role         TEXT,
     CHECK (
         (active_org_id IS NULL AND active_org_role IS NULL)
         OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL)
     )
+);
+```
+
+Indexed by `user_id`, `token_hash`, `refresh_token_hash`, `prev_refresh_token_hash`, and `(user_id, active_org_id)`.
+
+**`audit_log`** — security audit events (written only when audit logging is enabled)
+
+```sql
+CREATE TABLE audit_log (
+    id             TEXT PRIMARY KEY,
+    event_type     TEXT NOT NULL,
+    severity       TEXT NOT NULL DEFAULT 'info',
+    success        BOOLEAN NOT NULL DEFAULT true,
+    actor_id       TEXT,
+    target_id      TEXT,
+    session_id     TEXT,
+    org_id         TEXT,
+    ip             TEXT,
+    user_agent     TEXT NOT NULL DEFAULT '',
+    parsed_ua      JSONB,
+    request_id     TEXT NOT NULL DEFAULT '',
+    correlation_id TEXT NOT NULL DEFAULT '',
+    metadata       JSONB,
+    created_at     TIMESTAMP NOT NULL DEFAULT now()
 );
 ```
 

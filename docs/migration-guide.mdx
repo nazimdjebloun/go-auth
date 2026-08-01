@@ -5,6 +5,31 @@ description: Breaking changes and schema migration from v0.x to v1.0.
 
 # Migration Guide
 
+## Session Management Rework (v1.1)
+
+### New Endpoints
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /auth/sessions/all` | List **all** active sessions, no pagination. Returns `{ "sessions": [...], "current_session_id": "..." }`. |
+| `POST /auth/sessions/revoke` | Revoke several sessions at once. Body `{ "session_ids": ["..."] }` (1–100). Returns `{ "revoked": n }`. |
+
+### Breaking Changes
+
+1. **`GET /auth/sessions` response shape changed.** Previously returned a bare array; now returns a paginated envelope:
+
+```json
+{ "sessions": [...], "total": 4, "limit": 20, "offset": 0, "current_session_id": "..." }
+```
+
+2. **Session JSON fields are now snake_case.** e.g. `user_id`, `ip_address`, `expires_at`, `last_active_at`, plus a new `parsed_ua` device object. Update clients that read the old `userId`/`ip`/`lastActiveAt` keys.
+
+3. **`DELETE /auth/sessions/{id}` is user-scoped.** Sessions that don't belong to the caller now return `404 session_not_found` instead of being silently ignored. Malformed (non-UUID) IDs also return `404`.
+
+4. **`DELETE /auth/sessions` keeps the current session.** It now revokes **all other** sessions, leaving the current device signed in.
+
+5. **`Service.Session.List` is paginated.** Signature is now `List(ctx, userID string, offset, limit int) ([]domain.Session, int, error)`. The unpaginated variant is `ListAll(ctx, userID string) ([]domain.Session, error)`.
+
 ## v0.x → v1.0 (Org Invite Refactor)
 
 ### Breaking Changes

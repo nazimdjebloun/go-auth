@@ -1,13 +1,18 @@
 ---
 title: "Admin Handlers"
-description: "User management, ban/unban, session management, and invite management for admins."
+description: "User management, ban/unban, session management, audit logs, and invite management for admins."
 ---
+
+# Admin Handlers
+
+All routes require the caller to be authenticated **and** have role `admin` (`Auth + Admin`).
 
 ## Routes
 
 | Method | Path | Middleware |
 |---|---|---|
 | GET | `/admin/users` | Auth + Admin |
+| GET | `/admin/users/{id}` | Auth + Admin |
 | POST | `/admin/users` | Auth + Admin + CSRF + Origin |
 | PATCH | `/admin/users/{id}/role` | Auth + Admin + CSRF + Origin |
 | PATCH | `/admin/users/{id}/ban` | Auth + Admin + CSRF + Origin |
@@ -16,6 +21,8 @@ description: "User management, ban/unban, session management, and invite managem
 | GET | `/admin/users/{id}/sessions` | Auth + Admin |
 | DELETE | `/admin/users/{id}/sessions/{sessionId}` | Auth + Admin + CSRF + Origin |
 | DELETE | `/admin/users/{id}/sessions` | Auth + Admin + CSRF + Origin |
+| GET | `/admin/audit-logs` | Auth + Admin |
+| GET | `/admin/users/{id}/audit-logs` | Auth + Admin |
 | POST | `/admin/invites` | Auth + Admin + CSRF + Origin |
 | GET | `/admin/invites` | Auth + Admin |
 | DELETE | `/admin/invites/{id}` | Auth + Admin + CSRF + Origin |
@@ -27,6 +34,10 @@ description: "User management, ban/unban, session management, and invite managem
 ### `GET /admin/users`
 
 **Auth + Admin.** Query: `?offset=0&limit=20&email=&search=&role=&orderBy=created_at&orderDirection=desc`. Returns `AdminListUsersResult`.
+
+### `GET /admin/users/{id}`
+
+**Auth + Admin.** Returns full detail for one user (`AdminUserDetail`), including session and login metadata.
 
 ### `POST /admin/users`
 
@@ -46,15 +57,46 @@ description: "User management, ban/unban, session management, and invite managem
 
 ### `GET /admin/users/{id}/sessions`
 
-Query: `?offset=0&limit=20`. Returns `[Session]`.
+Query: `?offset=0&limit=20`. Returns `{ "sessions": [Session], "total": N }`. The session objects include `parsed_ua` for device display.
 
 ### `DELETE /admin/users/{id}/sessions/{sessionId}`
 
-Response 200.
+Revokes a single session for the user. The revoke is **user-scoped** — it only takes effect if the session actually belongs to `{id}`; otherwise `404 session_not_found`. Response 200.
 
 ### `DELETE /admin/users/{id}/sessions`
 
 Revokes all sessions for user. Response 200.
+
+### `GET /admin/audit-logs`
+
+**Auth + Admin.** Returns security audit events, newest first. Available only when audit logging is enabled (see configuration); otherwise `404 audit_not_configured`.
+
+Query params (all optional):
+
+| Param | Meaning |
+|---|---|
+| `offset` / `limit` | Pagination (default `0` / `50`, max `200`) |
+| `event_type` | Filter by event type, e.g. `login.success` |
+| `actor_id` | Events where this user performed the action |
+| `target_user_id` | Events targeting this user |
+| `session_id` | Events for a specific session |
+| `org_id` | Events for a specific org |
+| `search` | Free-text search over metadata/agent |
+| `from` / `to` | RFC3339 timestamp range |
+| `success` | `true` / `false` |
+
+```json
+{
+  "events": [ /* audit.Event */ ],
+  "total": 137,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+### `GET /admin/users/{id}/audit-logs`
+
+Same as above, pre-filtered to `target_user_id = {id}`.
 
 ### `POST /admin/invites`
 

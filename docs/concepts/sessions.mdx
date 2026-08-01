@@ -1,30 +1,99 @@
 ---
 title: Sessions
-description: Session cookies, refresh token rotation, touch, and idle timeout.
+description: Session cookies, refresh token rotation, idle timeout, session listing, and revocation.
 ---
 
 # Sessions
 
 Sessions are managed via two HTTP-only cookies:
 
-- **Session Cookie** — short-lived (default 30d), contains the raw session token. Sent on every request.
-- **Refresh Cookie** — longer-lived (default 30d), contains a refresh token. Used only when the session expires.
+- **Session Cookie** (`goauth_session`) — short-lived (default 30d), contains the raw session token. Sent on every request.
+- **Refresh Cookie** (`goauth_refresh`) — longer-lived (default 30d), contains a refresh token. Used only when the session expires.
 
-### Refresh Token Rotation
+## Lifetime Model
+
+A session has three independent timestamps (defaults from the root `Config`):
+
+| Field | Default | Meaning |
+|---|---|---|
+| `TTL` | 30d | Session cookie expiry; **slides** forward on every refresh (`expires_at = now + TTL`) |
+| `IdleTTL` | 7d | Idle timeout; session dies if untouched for this long |
+| `RefreshTokenTTL` | 30d | Absolute expiry of the refresh token; **never slides** |
+
+Validation enforces `IdleTTL <= TTL <= RefreshTokenTTL`.
+
+The refresh token is an **absolute cap**: refreshing always slides `expires_at`, but never `refresh_expires_at`. A session can never outlive `created_at + RefreshTokenTTL`. This means a long-lived "never log out" UX is achieved by raising `RefreshTokenTTL` (e.g. 365d) — it cannot be set to `0` (which is invalid) or infinite.
+
+Optional: `MaxLifetime` (default `0` = no limit) caps total session life from `created_at` regardless of sliding, and `GraceWindow` (default 10s) tolerates brief refresh-token reuse.
+
+## Refresh Token Rotation
 
 When a session expires, `AuthMiddleware` transparently refreshes it using the refresh cookie:
 
 1. Session cookie is expired → server reads refresh cookie
-2. Refresh token is validated and rotated (old token is invalidated)
-3. New session + refresh cookies are set on the response
-4. The client never notices
+2. Refresh token is validated and rotated atomically (old token invalidated, new session + refresh tokens issued)
+3. `expires_at` slides to `now + TTL`; `refresh_expires_at` is unchanged
+4. New session + refresh cookies are set on the response
+5. The client never notices
 
-This mitigates session hijacking — a stolen refresh token can only be used once.
+Rotation is a single atomic `UPDATE ... RETURNING` guarded by `is_revoked = false`, `refresh_expires_at > now`, and (when set) `created_at > now - MaxLifetime`.
 
-### Session Touch
+### Reuse Detection
+
+If a refresh token is presented **after** it was already rotated, the server detects it as a previous hash:
+
+- Reuse within `GraceWindow` (default 10s) → returns `ErrTokenAlreadyRotated`. This tolerates retries/concurrent tabs after a rotation race.
+- Reuse after the grace window → the whole session is **revoked** (theft suspected) and `ErrSessionRevoked` is returned.
+
+## Session Touch
 
 Each authenticated request updates `last_active_at` in the database, but only if the last update was more than `TouchDebounce` ago (default 5 min). This avoids write amplification.
 
-### Idle Timeout
+## Idle Timeout
 
-If a session is not touched within `SessionIdleTTL` (default 7d), it's considered expired even if the absolute `SessionTTL` hasn't elapsed.
+If a session is not touched within `IdleTTL` (default 7d), it's considered expired even if the absolute `TTL` hasn't elapsed.
+
+## Device Fingerprinting (`parsed_ua`)
+
+When a session is created, the `User-Agent` header is parsed into a structured `parsed_ua` object:
+
+```json
+{
+  "browser": "Chrome",
+  "browser_version": "125.0",
+  "os": "Windows",
+  "os_version": "11",
+  "device_type": "desktop"
+}
+```
+
+This is stored per-session and returned on every list endpoint, so clients can render device/browser icons without parsing user agents themselves. It is `null` when no user agent was captured.
+
+## Listing Sessions
+
+Two endpoints expose a user's active sessions (`is_revoked = false AND expires_at > now`):
+
+- `GET /auth/sessions` — paginated (`offset`/`limit`, default 20, max 100). Response includes `total`, `limit`, `offset`, and `current_session_id`.
+- `GET /auth/sessions/all` — unpaginated; returns every active session.
+
+Both return the current session's ID so the UI can highlight the device in use and disable its own revoke button.
+
+## Revoking Sessions
+
+| Endpoint | Scope | Semantics |
+|---|---|---|
+| `DELETE /auth/sessions/{id}` | Single | User-scoped: the session is deleted **only if it belongs to the caller**. Malformed UUID or foreign session → `404 session_not_found`. |
+| `POST /auth/sessions/revoke` | Batch (1–100 IDs) | User-scoped delete in one statement. Malformed/foreign IDs are silently skipped. Returns `{ "revoked": n }` — the count actually deleted. |
+| `DELETE /auth/sessions` | All but current | Revokes every session except the one making the request. |
+
+Revocation is a hard delete (rows are removed, not soft-flagged). Ownership is enforced in the SQL (`WHERE user_id = $1 AND id = $2`), so a user can never revoke another user's session.
+
+## Admin Session Management
+
+Admins can manage any user's sessions:
+
+- `GET /admin/users/{id}/sessions` — paginated list for a user
+- `DELETE /admin/users/{id}/sessions/{sessionId}` — revoke one of the user's sessions
+- `DELETE /admin/users/{id}/sessions` — revoke all of the user's sessions
+
+See the [Admin Handlers](/docs/api-reference/admin) reference.
