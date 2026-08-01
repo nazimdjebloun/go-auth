@@ -30,6 +30,8 @@ func WithRegistration(cfg RegistrationConfig) func(*Config)
 func WithCookie(cfg CookieConfig) func(*Config)
 func WithEmail(cfg EmailConfig) func(*Config)
 func WithMailer(m port.Mailer) func(*Config)
+func WithTemplates(p port.TemplateProvider) func(*Config)
+func WithSecret(secret string) func(*Config)
 func WithOrganizations(cfg OrganizationConfig) func(*Config)
 func WithRateLimit(cfg ratelimit.Config) func(*Config)
 func WithRateLimitEnabled(enabled bool) func(*Config)
@@ -41,6 +43,39 @@ func WithIPv6Subnet(prefixLen int) func(*Config)
 func WithIPAddressHeader(header string) func(*Config)
 func WithLogger(l *slog.Logger) func(*Config)
 func WithProvider(p port.OAuthProvider) func(*Config)
+func WithAudit(cfg AuditConfig) func(*Config)
+func WithAuditSink(sink audit.EventSink) func(*Config)
+```
+
+- `WithSecret` sets the app-wide HMAC signing key (used for CSRF tokens today, future HMAC tokens). Required via `NewConfig`; must be at least 32 bytes for HMAC-SHA256. Never commit it — supply from the environment.
+- `WithAudit` enables audit logging. `WithAuditSink` adds custom sinks (e.g. Kafka, NATS, webhook); it only takes effect when audit is enabled.
+
+### SessionConfig
+
+```go
+type SessionConfig struct {
+    TTL             time.Duration // absolute session expiry (default 30d)
+    IdleTTL         time.Duration // idle timeout after last activity (default 7d)
+    RefreshTokenTTL time.Duration // refresh token absolute expiry (default 30d)
+    MaxLifetime     time.Duration // max session lifetime from created_at (0 = no limit)
+    GraceWindow     time.Duration // grace period for reusing old refresh token (default 10s)
+    TouchDebounce   time.Duration // minimum interval between last_active_at updates (default 5m)
+}
+```
+
+### AuditConfig
+
+```go
+type AuditConfig struct {
+    Enabled       bool
+    FailureMode   audit.AuditFailureMode
+    RetentionDays int              // default 90, 0 = forever
+    QueueSize     int              // default 1000
+    Workers       int              // default 3
+    BatchSize     int              // default 50
+    FlushInterval time.Duration    // default 100ms
+    Sinks         []audit.EventSink
+}
 ```
 
 ## Input/Result Types

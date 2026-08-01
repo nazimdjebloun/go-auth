@@ -182,6 +182,32 @@ goauth.WithRateLimit(ratelimit.Config{
 })
 ```
 
+### Signing Secret
+
+```go
+goauth.WithSecret("0123456789abcdef0123456789abcdef") // >= 32 bytes, HMAC-SHA256
+```
+
+`WithSecret` sets the app-wide signing key used for CSRF tokens (and future HMAC tokens). Required when using CSRF protection. **Never hardcode it** — load from the environment.
+
+### Audit Logging
+
+```go
+goauth.WithAudit(goauth.AuditConfig{
+    Enabled:       true,
+    RetentionDays: 90,                 // 0 = keep forever
+    QueueSize:     1000,               // default
+    Workers:       3,                  // default
+    BatchSize:     50,                 // default
+    FlushInterval: 100 * time.Millisecond, // default
+})
+
+// Optional custom sink (Kafka, NATS, webhook, ...)
+goauth.WithAuditSink(mySink) // implements audit.EventSink
+```
+
+When enabled, security events (login, logout, registration, password changes, session revocations, admin actions, OAuth, org events) are queued and flushed to sinks — by default the built-in `audit.SQLAuditSink` persists them to the `audit_logs` table. Exposed to admins via `GET /admin/audit-logs` and `GET /admin/users/{id}/audit-logs` (returns `404 audit_not_configured` when disabled).
+
 ### OAuth Providers
 
 ```go

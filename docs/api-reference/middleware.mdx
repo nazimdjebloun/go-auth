@@ -1,97 +1,117 @@
 ---
 title: middleware Package
-description: Authenticate, RequireAdmin, RateLimit, CORS middleware and context keys.
+description: AuthMiddleware, RequireRole, CSRF, Origin, CORS, and RateLimit middleware plus context helpers.
 ---
 
 # middleware Package
 
 `import "github.com/nazimdjebloun/go-auth/middleware"`
 
-## Middleware Functions
+All middleware are plain functions that take their configuration (and often a logger) and return `func(http.Handler) http.Handler`. The pre-wired versions are exposed via `auth.Middleware` (`Authenticate`, `RequireAdmin`, `RateLimit`, `CORS`) — but when composing custom route sets, use these functions directly.
 
-Returned by `NewMiddleware()` or accessible via `auth.Middleware`.
+## AuthMiddleware
 
 ```go
-type Middleware struct {
-    session port.SessionService
-    config  *Config
-}
-
-func NewMiddleware(svc port.SessionService, config Config) *Middleware
+func AuthMiddleware(
+    sessionSvc *service.SessionService,
+    userRepo interface { GetByID(ctx context.Context, id string) (*domain.User, error) },
+    logger *slog.Logger,
+) func(http.Handler) http.Handler
 ```
 
-### `Authenticate`
+Validates the session from the `goauth_session` cookie. Sets the `*domain.Session` and `*domain.User` on the request context (retrievable via `GetSessionFromContext` / `GetUserFromContext`) and calls `SessionService.Touch` on each authenticated request.
+
+Resolution order:
+
+1. **Missing cookie** → `401 session_expired`.
+2. **Invalid session** → `401 unauthorized`.
+3. **Expired session** → transparently attempts `RefreshSession` using the refresh cookie. Success sets fresh session + refresh cookies and continues; failure → `401 session_expired`.
+4. **User lookup fails** → `401 unauthorized`; **banned user** → `403 user_banned`.
+
+## RequireRole
 
 ```go
-func (m *Middleware) Authenticate(next http.Handler) http.Handler
+func RequireRole(role domain.Role, logger *slog.Logger) func(http.Handler) http.Handler
 ```
 
-Validates session from `auth_token` cookie (or `Authorization: Bearer <token>` header). Sets `ctx.UserID`, `ctx.Email`, `ctx.Role`, `ctx.SessionID` on the request context.
+Must be used after `AuthMiddleware`. Returns `403 forbidden` when the authenticated user's role doesn't match. `domain.RoleAdmin` is the admin gate used by `auth.Middleware.RequireAdmin`.
 
-Returns 401 if session is missing, expired, or invalid.
-
-### `RequireAdmin`
+## CSRF
 
 ```go
-func (m *Middleware) RequireAdmin(next http.Handler) http.Handler
+func CSRFToken(cfg *CSRFTokenConfig) func(http.Handler) http.Handler
+func RotateCSRFToken(w http.ResponseWriter, cfg *CSRFTokenConfig)
 ```
 
-Must be used after `Authenticate`. Returns 403 if user role is not `admin`.
+Double-submit cookie protection. `cfg == nil` is a passthrough (no protection).
 
-### `RateLimit`
-
-```go
-func (m *Middleware) RateLimit(next http.Handler) http.Handler
-```
-
-Configurable via `WithRateLimit` or granular options (`WithRateLimitEnabled`, `WithRateLimitRoute`, etc.) in the root config.
-
-### `CORS`
+- **Safe methods** (GET/HEAD/OPTIONS): if the `_csrf` cookie is missing, generates and sets a signed token; never overwrites an existing one.
+- **State-changing methods** (POST/PUT/PATCH/DELETE): verifies the cookie is a valid HMAC-signed token, then checks it matches the `X-CSRF-Token` header. Mismatch/forgery → `403`.
+- **Fail closed**: if `Secret` is empty at the point of use, returns `500` (never signs or verifies with an empty key).
+- **No rotation here** — handlers that change credentials/session lifecycle (login, logout, password change) call `RotateCSRFToken`.
 
 ```go
-func (m *Middleware) CORS(next http.Handler) http.Handler
-```
-
-Handles `Access-Control-Allow-Origin`, `Vary: Origin`, `Access-Control-Allow-Credentials: true`, and OPTIONS preflight. Origin is validated against `Config.AllowedOrigins`.
-
-## Context Keys
-
-```go
-ctx.Value(middleware.UserIDKey).(string)
-ctx.Value(middleware.EmailKey).(string)
-ctx.Value(middleware.RoleKey).(string)       // domain.Role
-ctx.Value(middleware.SessionIDKey).(string)
-ctx.Value(middleware.OrgRoleKey).(domain.OrgRole)
-ctx.Value(middleware.SessionKey).(*domain.Session)
-```
-
-## CSRF Middleware
-
-```go
-type CSRFMiddleware struct {}
-
-func NewCSRF(config CSRFConfig) *CSRFMiddleware
-```
-
-Generated via `middleware.NewCSRF(config)`. Stored in `Handlers.CSRFToken`.
-
-### Configuration
-
-```go
-type CSRFConfig struct {
-    Secret     string // HMAC secret (auto-generated if empty)
-    TokenLen   int    // default 32
-    MaxAge     int    // seconds; default 86400 (24h)
-    Secure     bool   // default true
-    HTTPOnly   bool   // default true
-    SameSite   http.SameSite
-    Path       string // default "/"
-}
-
-type CSRF struct {
-    Verify func(next http.Handler) http.Handler
-    GetToken http.HandlerFunc
+type CSRFTokenConfig struct {
+    TokenLength    int           // bytes, default 32
+    CookieName     string        // default "_csrf"
+    HeaderName     string        // default "X-CSRF-Token"
+    CookiePath     string        // default "/"
+    CookieSecure   bool          // matches session cookie secure flag; auto-derived from BaseURL
+    CookieSameSite http.SameSite // default Lax; cross-site deploys MUST set None + Secure
+    Secret         []byte        // HMAC-SHA256 signing key; set by goauth.New from Config.Secret
+    Logger         *slog.Logger
 }
 ```
 
-**Verification:** CSRF reads token from `X-CSRF-Token` header and validates against `csrf_token` cookie using HMAC. Returns 403 on mismatch.
+> **Priming:** the client must call `GET /auth/csrf-token` before its first mutation, or no `_csrf` cookie exists and mutations 403. Cross-site deployments (different registrable domains) must set `SameSite=None` + `CookieSecure=true`, or every mutation silently 403s.
+
+## OriginCheck
+
+```go
+func OriginCheck(
+    allowedOrigins []string,
+    allowMissing bool,
+    trustedIPs []string,
+    logger *slog.Logger,
+) func(http.Handler) http.Handler
+```
+
+Rejects requests whose `Origin`/`Referer` isn't in the allowed list (`403`), defending against CSRF. `allowMissing` permits requests with no Origin/Referer (e.g. curl). `trustedIPs` controls whether proxy headers like `X-Forwarded-*`/`Forwarded` are honored when deriving the request scheme/host (untrusted peers can't spoof them).
+
+## CORS
+
+```go
+func CORS(allowedOrigins []string) func(http.Handler) http.Handler
+```
+
+Sets `Access-Control-Allow-Origin` (origin echoed only when allowed), `Vary: Origin`, `Access-Control-Allow-Credentials: true`, and answers OPTIONS preflight with `204`. A `*` wildcard omits the credentials header.
+
+## RateLimit
+
+```go
+func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler
+```
+
+Per-route in-memory rate limiting. Configured via `WithRateLimit` / `WithRateLimitEnabled` / `WithRateLimitRoute` on the root config. See [Rate Limiting](/docs/concepts/rate-limiting).
+
+## Context Helpers
+
+```go
+ctx := middleware.ContextWithUser(ctx, user)
+ctx := middleware.ContextWithSession(ctx, session)
+
+user    := middleware.GetUserFromContext(ctx)      // *domain.User or nil
+session := middleware.GetSessionFromContext(ctx)   // *domain.Session or nil
+```
+
+## Organizations
+
+```go
+func RequireOrgMember(orgs port.OrgRepository, userKeyFn func(context.Context) string) func(http.Handler) http.Handler
+func RequireOrgRole(minRole domain.OrgRole) func(http.Handler) http.Handler
+
+func GetOrgID(ctx context.Context) string
+func GetOrgRole(ctx context.Context) domain.OrgRole
+```
+
+Org-aware auth helpers for org-scoped routes. `RequireOrgRole` enforces a minimum role (owner > admin > member).

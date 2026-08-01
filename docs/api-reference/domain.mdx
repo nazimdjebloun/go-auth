@@ -22,6 +22,7 @@ type User struct {
     VerifiedAt    *time.Time `json:"verifiedAt,omitempty"`
     IsBanned      bool       `json:"isBanned"`
     BannedAt      *time.Time `json:"bannedAt,omitempty"`
+    LastLoginAt   *time.Time `json:"lastLoginAt,omitempty"`
     OrgOwnerCount int        `json:"orgOwnerCount"`
     CreatedAt     time.Time  `json:"createdAt"`
     UpdatedAt     time.Time  `json:"updatedAt"`
@@ -45,20 +46,41 @@ const (
 
 ```go
 type Session struct {
-    ID              string     `json:"id"`
-    UserID          string     `json:"userId"`
-    TokenHash       string     `json:"-"`
-    RefreshHash     *string    `json:"-"`
-    PrevRefreshHash *string    `json:"-"`
-    IP              string     `json:"ip"`
-    UserAgent       string     `json:"userAgent"`
-    LastActiveAt    time.Time  `json:"lastActiveAt"`
-    ExpiresAt       time.Time  `json:"expiresAt"`
-    RefreshExpiresAt *time.Time `json:"refreshExpiresAt,omitempty"`
-    CreatedAt       time.Time  `json:"createdAt"`
-    ActiveOrgID     *string    `json:"activeOrgId,omitempty"`
-    ActiveOrgRole   *OrgRole   `json:"activeOrgRole,omitempty"`
+    ID                  string         `json:"id"`
+    UserID              string         `json:"user_id"`
+    TokenHash           string         `json:"-"`
+    RefreshTokenHash    string         `json:"-"`
+    PreviousRefreshHash string         `json:"-"`
+    IP                  string         `json:"ip_address,omitempty"`
+    UserAgent           string         `json:"user_agent,omitempty"`
+    ParsedUA            *UserAgentInfo `json:"parsed_ua,omitempty"`
+    IsRevoked           bool           `json:"is_revoked"`
+    ExpiresAt           time.Time      `json:"expires_at"`
+    RefreshExpiresAt    time.Time      `json:"refresh_expires_at,omitempty"`
+    RefreshRotatedAt    *time.Time     `json:"refresh_rotated_at,omitempty"`
+    CreatedAt           time.Time      `json:"created_at"`
+    RevokedAt           *time.Time     `json:"revoked_at,omitempty"`
+    LastActiveAt        time.Time      `json:"last_active_at,omitempty"`
+    ActiveOrgID         *string        `json:"active_org_id,omitempty"`
+    ActiveOrgRole       *string        `json:"active_org_role,omitempty"`
 }
+```
+
+### UserAgentInfo
+
+Parsed device/browser info stored on each session at creation.
+
+```go
+type UserAgentInfo struct {
+    BrowserName    string `json:"browser"`
+    BrowserVersion string `json:"browser_version,omitempty"`
+    OS             string `json:"os"`
+    OSVersion      string `json:"os_version,omitempty"`
+    DeviceType     string `json:"device_type"` // "desktop" | "mobile" | "tablet" | "bot"
+}
+
+func ParseUserAgent(raw string) *UserAgentInfo
+func ParseUserAgentFromJSON(data []byte) *UserAgentInfo
 ```
 
 ### VerificationToken

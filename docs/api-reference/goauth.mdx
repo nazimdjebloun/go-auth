@@ -47,6 +47,7 @@ type Services struct {
     OAuth     *service.OAuthService
     Org       *service.OrgService
     OrgInvite *service.OrgInviteService
+    AuditLog  port.AuditLogRepository
 }
 ```
 
@@ -69,15 +70,17 @@ type HandlerGroup struct {
     VerifyEmail, ResendVerification, ResendVerificationPublic http.HandlerFunc
 
     // Sessions
-    ListSessions, RevokeSession, RevokeAllSessions http.HandlerFunc
+    ListSessions, GetAllSessions http.HandlerFunc
+    RevokeSession, RevokeManySessions, RevokeAllSessions http.HandlerFunc
 
     // Invites
     InviteRegister, GetInviteInfo http.HandlerFunc
 
     // Admin
-    ListUsers, UpdateUserRole, BanUser, UnbanUser, DeleteUser http.HandlerFunc
+    ListUsers, GetUserDetail, UpdateUserRole, BanUser, UnbanUser, DeleteUser http.HandlerFunc
     RevokeUserSessions, AdminCreateUser http.HandlerFunc
     AdminListUserSessions, AdminRevokeUserSession http.HandlerFunc
+    AdminListAuditLogs, AdminListUserAuditLogs http.HandlerFunc
 
     // Invite (admin)
     CreateInvite, ListInvites, RevokeInvite, ResendInvite, HardDeleteInvite http.HandlerFunc
