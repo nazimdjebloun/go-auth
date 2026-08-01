@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -46,13 +47,22 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 	var entries []port.AuditLogEntry
 	for rows.Next() {
 		var e port.AuditLogEntry
+		var parsedUA, metadata sql.NullString
 		if err := rows.Scan(
 			&e.ID, &e.Type, &e.Severity, &e.Success,
 			&e.ActorID, &e.TargetUserID, &e.SessionID, &e.OrgID,
-			&e.IP, &e.UserAgent, &e.ParsedUA, &e.RequestID, &e.CorrelationID,
-			&e.Metadata, &e.CreatedAt,
+			&e.IP, &e.UserAgent, &parsedUA, &e.RequestID, &e.CorrelationID,
+			&metadata, &e.CreatedAt,
 		); err != nil {
 			return nil, 0, err
+		}
+		e.ParsedUA = json.RawMessage(parsedUA.String)
+		e.Metadata = json.RawMessage(metadata.String)
+		if len(e.ParsedUA) == 0 {
+			e.ParsedUA = json.RawMessage("null")
+		}
+		if len(e.Metadata) == 0 {
+			e.Metadata = json.RawMessage("null")
 		}
 		entries = append(entries, e)
 	}
@@ -64,14 +74,25 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 
 func (r *AuditLogRepository) GetByID(ctx context.Context, id string) (*port.AuditLogEntry, error) {
 	var e port.AuditLogEntry
+	var parsedUA, metadata sql.NullString
 	err := r.db.QueryRowContext(ctx, auditLogByIDQuery, id).Scan(
 		&e.ID, &e.Type, &e.Severity, &e.Success,
 		&e.ActorID, &e.TargetUserID, &e.SessionID, &e.OrgID,
-		&e.IP, &e.UserAgent, &e.ParsedUA, &e.RequestID, &e.CorrelationID,
-		&e.Metadata, &e.CreatedAt,
+		&e.IP, &e.UserAgent, &parsedUA, &e.RequestID, &e.CorrelationID,
+		&metadata, &e.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
+	}
+	if err == nil {
+		e.ParsedUA = json.RawMessage(parsedUA.String)
+		e.Metadata = json.RawMessage(metadata.String)
+		if len(e.ParsedUA) == 0 {
+			e.ParsedUA = json.RawMessage("null")
+		}
+		if len(e.Metadata) == 0 {
+			e.Metadata = json.RawMessage("null")
+		}
 	}
 	return &e, err
 }
@@ -115,14 +136,14 @@ func (r *AuditLogRepository) buildWhere(filter port.AuditLogFilter) (string, []a
 		searchPattern := "%" + *filter.Search + "%"
 		switch r.db.Driver() {
 		case "mysql":
-			conditions = append(conditions, fmt.Sprintf("(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$')) LIKE $%d OR user_agent LIKE $%d)", argIdx, argIdx))
+			conditions = append(conditions, fmt.Sprintf("(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$')) LIKE $%d OR user_agent LIKE $%d)", argIdx, argIdx+1))
 		case "sqlite", "sqlite3":
-			conditions = append(conditions, fmt.Sprintf("(metadata LIKE $%d OR user_agent LIKE $%d)", argIdx, argIdx))
+			conditions = append(conditions, fmt.Sprintf("(metadata LIKE $%d OR user_agent LIKE $%d)", argIdx, argIdx+1))
 		default:
-			conditions = append(conditions, fmt.Sprintf("(metadata::text ILIKE $%d OR user_agent ILIKE $%d)", argIdx, argIdx))
+			conditions = append(conditions, fmt.Sprintf("(metadata::text ILIKE $%d OR user_agent ILIKE $%d)", argIdx, argIdx+1))
 		}
-		args = append(args, searchPattern)
-		argIdx++
+		args = append(args, searchPattern, searchPattern)
+		argIdx += 2
 	}
 	if filter.FromDate != nil {
 		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argIdx))
