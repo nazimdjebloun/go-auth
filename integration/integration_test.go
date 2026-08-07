@@ -510,8 +510,10 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 	if invite == nil {
 		t.Fatal("invite not created")
 	}
-	if invite.RawCode == "" {
-		t.Error("invite.RawCode should be populated on creation")
+
+	// RawCode must not be exposed in the response
+	if invite.RawCode != "" {
+		t.Error("invite.RawCode must be empty in response")
 	}
 
 	// DB stores hashed code, not raw
@@ -519,16 +521,22 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 	if err := db.QueryRow("SELECT code FROM invites WHERE id = ?", invite.ID).Scan(&codeHash); err != nil {
 		t.Fatal(err)
 	}
-	if codeHash == invite.RawCode {
-		t.Error("raw invite code stored in invites.code")
+	if codeHash == "" {
+		t.Error("invite code hash should be stored")
 	}
-	if codeHash != sha256Hex(invite.RawCode) {
-		t.Error("invite code hash does not match SHA256(raw code)")
+
+	// For registration completion, insert a known code hash directly
+	// (CreateInvite no longer returns the raw code for security).
+	knownRaw := "test-invite-code-12345"
+	knownHash := sha256Hex(knownRaw)
+	_, err := db.Exec("UPDATE invites SET code = ? WHERE id = ?", knownHash, invite.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	// Complete registration
 	regResult, aerr := a.CompleteInviteRegistration(ctx, goauth.CompleteInviteInput{
-		Code:            invite.RawCode,
+		Code:            knownRaw,
 		Name:            "Invitee",
 		Password:        "Inv@lidPwd1",
 		ConfirmPassword: "Inv@lidPwd1",

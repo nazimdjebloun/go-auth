@@ -110,6 +110,25 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
+	if s.mailer != nil {
+	inviteURL := s.config.BaseURL + "/invite?token=" + raw
+		result, tplErr := s.templates.Render(port.InviteData{
+			AppName:   s.config.AppName,
+			InviteURL: inviteURL,
+			ExpiresIn: s.config.InviteTTL,
+		})
+		if tplErr != nil {
+			s.log.Error("failed to render invite email template", "err", tplErr, "email", input.Email)
+			return nil, domain.NewError("internal_error", "Internal server error", 500)
+		}
+		if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
+			s.log.Error("failed to send invite email", "err", err, "email", input.Email)
+			return nil, domain.NewError("email_failed", "Failed to send invite email", 500)
+		}
+	}
+
+	invite.RawCode = ""
+
 	s.log.Info("invite created", "invite_id", invite.ID, "email", input.Email, "admin_id", input.AdminID)
 	return invite, nil
 }

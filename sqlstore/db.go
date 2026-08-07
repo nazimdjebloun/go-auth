@@ -39,18 +39,38 @@ func (d *DB) Rebind(query string) string {
 func rebindQuery(query string) string {
 	var b strings.Builder
 	b.Grow(len(query))
+	inQuote := false
 	i := 0
 	for i < len(query) {
+		if inQuote {
+			b.WriteByte(query[i])
+			if query[i] == '\'' && i+1 < len(query) && query[i+1] == '\'' {
+				b.WriteByte('\'')
+				i += 2
+				continue
+			}
+			if query[i] == '\'' {
+				inQuote = false
+			}
+			i++
+			continue
+		}
+		if query[i] == '\'' {
+			inQuote = true
+			b.WriteByte('\'')
+			i++
+			continue
+		}
 		if query[i] == '$' && i+1 < len(query) && query[i+1] >= '1' && query[i+1] <= '9' {
 			b.WriteByte('?')
 			i++
 			for i < len(query) && query[i] >= '0' && query[i] <= '9' {
 				i++
 			}
-		} else {
-			b.WriteByte(query[i])
-			i++
+			continue
 		}
+		b.WriteByte(query[i])
+		i++
 	}
 	return b.String()
 }

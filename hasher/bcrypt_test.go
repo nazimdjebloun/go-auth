@@ -47,7 +47,7 @@ func TestNew_MinCostClamp(t *testing.T) {
 
 func TestHash_LongPassword(t *testing.T) {
 	h := New(4)
-	password := strings.Repeat("A", 100) + "!1a"
+	password := strings.Repeat("A", 72)
 	hash, err := h.Hash(password)
 	if err != nil {
 		t.Fatal(err)
@@ -55,20 +55,17 @@ func TestHash_LongPassword(t *testing.T) {
 	if err := h.Compare(password, hash); err != nil {
 		t.Errorf("compare should succeed for long password: %v", err)
 	}
-	truncated := password[:72]
+	truncated := password[:71]
 	if err := h.Compare(truncated, hash); err == nil {
 		t.Error("truncated password should not match")
 	}
 }
 
-func TestCompare_256BytePassword(t *testing.T) {
+func TestCompare_PasswordTooLong(t *testing.T) {
 	h := New(4)
-	password := strings.Repeat("B", 256) + "!1x"
-	hash, err := h.Hash(password)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := h.Compare(password, hash); err != nil {
-		t.Errorf("compare should succeed for 256-byte password: %v", err)
+	password := strings.Repeat("B", 100)
+	_, err := h.Hash(password)
+	if err == nil {
+		t.Error("expected error for password exceeding 72 bytes")
 	}
 }

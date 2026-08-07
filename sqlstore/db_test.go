@@ -45,10 +45,8 @@ func TestRebindQuery_NoParams(t *testing.T) {
 }
 
 func TestRebindQuery_DollarInString(t *testing.T) {
-	// rebindQuery is a simple tokenizer and does not parse string literals.
-	// $1 inside quotes is still replaced. This is a known limitation.
 	got := rebindQuery("SELECT * FROM foo WHERE name = '$1'")
-	want := "SELECT * FROM foo WHERE name = '?'"
+	want := "SELECT * FROM foo WHERE name = '$1'"
 	if got != want {
 		t.Errorf("expected %q, got %q", want, got)
 	}

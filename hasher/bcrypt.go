@@ -1,8 +1,6 @@
 package hasher
 
 import (
-	"crypto/sha256"
-
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -18,8 +16,7 @@ func New(cost int) *BcryptHasher {
 }
 
 func (h *BcryptHasher) Hash(password string) (string, error) {
-	preHashed := sha256.Sum256([]byte(password))
-	bytes, err := bcrypt.GenerateFromPassword(preHashed[:], h.cost)
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), h.cost)
 	if err != nil {
 		return "", err
 	}
@@ -27,6 +24,5 @@ func (h *BcryptHasher) Hash(password string) (string, error) {
 }
 
 func (h *BcryptHasher) Compare(password, hash string) error {
-	preHashed := sha256.Sum256([]byte(password))
-	return bcrypt.CompareHashAndPassword([]byte(hash), preHashed[:])
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 }
