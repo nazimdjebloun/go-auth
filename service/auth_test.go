@@ -645,3 +645,174 @@ func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
 		t.Fatalf("Expected delete_code_already_used, got %s", err2.Code)
 	}
 }
+
+func newAdminLoginService(t *testing.T) *AuthService {
+	t.Helper()
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	return NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
+}
+
+func createAdminUser(t *testing.T, svc *AuthService, email, password string, banned bool) {
+	t.Helper()
+	hash, _ := svc.hasher.Hash(password)
+	user := &domain.User{
+		ID:           "admin-" + email,
+		Email:        email,
+		PasswordHash: &hash,
+		Name:         "Admin",
+		Role:         domain.RoleAdmin,
+		IsVerified:   true,
+		IsBanned:     banned,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := svc.users.Create(context.Background(), user); err != nil {
+		t.Fatalf("failed to create admin user: %v", err)
+	}
+}
+
+func TestAdminLogin_Success(t *testing.T) {
+	svc := newAdminLoginService(t)
+	createAdminUser(t, svc, "admin@example.com", "Passw0rd!", false)
+
+	result, err := svc.AdminLogin(context.Background(), LoginInput{
+		Email:    "admin@example.com",
+		Password: "Passw0rd!",
+		IP:       "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("AdminLogin failed: %v", err)
+	}
+	if result.User == nil {
+		t.Fatal("Expected user, got nil")
+	}
+	if result.User.Role != domain.RoleAdmin {
+		t.Fatalf("Expected admin role, got %s", result.User.Role)
+	}
+	if result.SessionToken == "" {
+		t.Fatal("Expected session token, got empty")
+	}
+	if result.Session == nil {
+		t.Fatal("Expected session, got nil")
+	}
+}
+
+func TestAdminLogin_NonAdmin_GenericError(t *testing.T) {
+	svc := newAdminLoginService(t)
+	hash, _ := svc.hasher.Hash("Passw0rd!")
+	user := &domain.User{
+		ID:           "user-id",
+		Email:        "user@example.com",
+		PasswordHash: &hash,
+		Name:         "User",
+		Role:         domain.RoleUser,
+		IsVerified:   true,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := svc.users.Create(context.Background(), user); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	result, err := svc.AdminLogin(context.Background(), LoginInput{
+		Email:    "user@example.com",
+		Password: "Passw0rd!",
+	})
+	if err == nil {
+		t.Fatal("Expected error for non-admin user, got nil")
+	}
+	if err.Code != "invalid_credentials" {
+		t.Fatalf("Expected invalid_credentials, got %s", err.Code)
+	}
+	if result != nil {
+		t.Fatal("Expected nil result for non-admin user")
+	}
+}
+
+func TestAdminLogin_WrongPassword(t *testing.T) {
+	svc := newAdminLoginService(t)
+	createAdminUser(t, svc, "admin@example.com", "Passw0rd!", false)
+
+	_, err := svc.AdminLogin(context.Background(), LoginInput{
+		Email:    "admin@example.com",
+		Password: "wrongpassword",
+	})
+	if err == nil {
+		t.Fatal("Expected error for wrong password, got nil")
+	}
+	if err.Code != "invalid_credentials" {
+		t.Fatalf("Expected invalid_credentials, got %s", err.Code)
+	}
+}
+
+func TestAdminLogin_BannedAdmin(t *testing.T) {
+	svc := newAdminLoginService(t)
+	createAdminUser(t, svc, "admin@example.com", "Passw0rd!", true)
+
+	_, err := svc.AdminLogin(context.Background(), LoginInput{
+		Email:    "admin@example.com",
+		Password: "Passw0rd!",
+	})
+	if err == nil {
+		t.Fatal("Expected error for banned admin, got nil")
+	}
+	if err.Code != "user_banned" {
+		t.Fatalf("Expected user_banned, got %s", err.Code)
+	}
+}
+
+func TestAdminLogin_NonexistentUser(t *testing.T) {
+	svc := newAdminLoginService(t)
+
+	_, err := svc.AdminLogin(context.Background(), LoginInput{
+		Email:    "nobody@example.com",
+		Password: "Passw0rd!",
+	})
+	if err == nil {
+		t.Fatal("Expected error for nonexistent user, got nil")
+	}
+	if err.Code != "invalid_credentials" {
+		t.Fatalf("Expected invalid_credentials, got %s", err.Code)
+	}
+}
+
+func TestAdminLogin_UnverifiedAdmin_Succeeds(t *testing.T) {
+	svc := newAdminLoginService(t)
+	hash, _ := svc.hasher.Hash("Passw0rd!")
+	user := &domain.User{
+		ID:           "admin-unverified",
+		Email:        "admin-unverified@example.com",
+		PasswordHash: &hash,
+		Name:         "Admin",
+		Role:         domain.RoleAdmin,
+		IsVerified:   false,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := svc.users.Create(context.Background(), user); err != nil {
+		t.Fatalf("failed to create admin user: %v", err)
+	}
+
+	cfg := defaultTestConfig()
+	cfg.RequireEmailVerification = true
+	svc.config = cfg
+
+	result, err := svc.AdminLogin(context.Background(), LoginInput{
+		Email:    "admin-unverified@example.com",
+		Password: "Passw0rd!",
+	})
+	if err != nil {
+		t.Fatalf("AdminLogin for unverified admin should succeed: %v", err)
+	}
+	if result.User == nil {
+		t.Fatal("Expected user, got nil")
+	}
+	if result.SessionToken == "" {
+		t.Fatal("Expected session token, got empty")
+	}
+}

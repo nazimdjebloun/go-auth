@@ -2,13 +2,12 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
 	"log/slog"
-	"math/big"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/otp"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -97,25 +96,6 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	return user, nil
 }
 
-// codeChars omits ambiguous glyphs (I/O/0/1). 8 chars from a 32-symbol
-// alphabet ≈ 40 bits of entropy — enough for short-lived emailed OTPs
-// when paired with rate limits.
-var codeChars = []byte("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-
-const otpCodeLength = 8
-
-func generateCode() string {
-	b := make([]byte, otpCodeLength)
-	for i := range b {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(codeChars))))
-		if err != nil {
-			panic("generateCode: " + err.Error())
-		}
-		b[i] = codeChars[n.Int64()]
-	}
-	return string(b)
-}
-
 func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) *domain.AuthError {
 	if s.mailer == nil {
 		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
@@ -128,7 +108,11 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		}
 	}
 
-	raw := generateCode()
+	raw, err := otp.Generate(8)
+	if err != nil {
+		s.log.Error("failed to generate verification code", "err", err, "user_id", user.ID)
+		return domain.NewError("internal_error", "Internal server error", 500)
+	}
 
 	now := time.Now().UTC()
 	token := &domain.VerificationToken{

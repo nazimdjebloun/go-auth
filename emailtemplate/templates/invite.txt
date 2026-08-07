@@ -6,4 +6,6 @@ Use the link below to accept the invitation and create your account.
 
 {{.InviteURL}}
 
+This invitation expires in {{.ExpiresIn}}.
+
 If you were not expecting this invitation, you can safely ignore this email.

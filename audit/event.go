@@ -11,10 +11,12 @@ type EventType string
 
 const (
 	// Authentication
-	EventLoginSuccess  EventType = "login.success"
-	EventLoginFailed   EventType = "login.failed"
-	EventLoginLocked   EventType = "login.locked"
-	EventLogout        EventType = "logout"
+	EventLoginSuccess      EventType = "login.success"
+	EventLoginFailed       EventType = "login.failed"
+	EventLoginLocked       EventType = "login.locked"
+	EventLogout            EventType = "logout"
+	EventAdminLoginSuccess EventType = "admin.login.success"
+	EventAdminLoginFailed  EventType = "admin.login.failed"
 
 	// Registration
 	EventUserRegistered EventType = "user.registered"

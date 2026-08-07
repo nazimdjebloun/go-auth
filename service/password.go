@@ -2,16 +2,17 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
 	"log/slog"
-	"math/big"
 	"strings"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/otp"
 	"github.com/nazimdjebloun/go-auth/port"
 )
+
+const setPasswordCodeTTL = 10 * time.Minute
 
 type PasswordService struct {
 	users      port.UserRepository
@@ -58,7 +59,9 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
 	if err != nil || user == nil {
-		// Don't reveal whether email exists
+		// Constant-time: simulate token work to prevent timing-based email enumeration
+		_, _ = s.gen.Generate()
+		_, _ = s.gen.Generate()
 		return nil
 	}
 
@@ -186,18 +189,6 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 	return nil
 }
 
-func (s *PasswordService) generateOTP() (string, error) {
-	b := make([]byte, otpCodeLength)
-	for i := range b {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(codeChars))))
-		if err != nil {
-			return "", err
-		}
-		b[i] = codeChars[n.Int64()]
-	}
-	return string(b), nil
-}
-
 func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string) *domain.AuthError {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
@@ -208,7 +199,7 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 		return domain.NewError("already_set", "User already has a password", 400)
 	}
 
-	raw, err := s.generateOTP()
+	raw, err := otp.Generate(8)
 	if err != nil {
 		s.log.Error("failed to generate OTP", "err", err, "user_id", userID)
 		return domain.NewError("internal_error", "Internal server error", 500)
@@ -227,7 +218,7 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 		Email:     user.Email,
 		TokenHash: hashToken(raw),
 		Type:      domain.TokenSetPass,
-		ExpiresAt: now.Add(10 * time.Minute),
+		ExpiresAt: now.Add(setPasswordCodeTTL),
 	}
 
 	if err := s.tokens.Create(ctx, token); err != nil {
@@ -239,7 +230,7 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 		result, tplErr := s.templates.Render(port.SetPasswordData{
 			AppName:   s.config.AppName,
 			Code:      raw,
-			ExpiresIn: 10 * time.Minute,
+			ExpiresIn: setPasswordCodeTTL,
 		})
 		if tplErr != nil {
 			s.log.Error("failed to render set-password email template", "err", tplErr, "user_id", userID)

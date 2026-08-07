@@ -120,6 +120,33 @@ func NewLoginLockedEvent(email string, ip net.IP, ua string) Event {
 	}
 }
 
+func NewAdminLoginSuccessEvent(actorID, sessionID string, ip net.IP, ua string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventAdminLoginSuccess,
+		Severity:  SeverityInfo,
+		Success:   true,
+		ActorID:   strPtr(actorID),
+		SessionID: strPtr(sessionID),
+		IP:        ip,
+		UserAgent: ua,
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func NewAdminLoginFailedEvent(email string, ip net.IP, ua string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventAdminLoginFailed,
+		Severity:  SeverityWarning,
+		Success:   false,
+		ActorID:   strPtr(email),
+		IP:        ip,
+		UserAgent: ua,
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
 func NewLogoutEvent(actorID, sessionID string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),

@@ -34,7 +34,7 @@ type Rate struct {
 
 func DefaultRateLimitConfig() *Config {
 	return &Config{
-		Enabled:    false, // must be explicitly enabled — avoids blocking dev workflows
+		Enabled:    true,
 		IPv6Subnet: 64,
 		Default:    Rate{Requests: 60, Window: time.Minute},
 		Store:      NewMemoryStore(),
@@ -42,6 +42,7 @@ func DefaultRateLimitConfig() *Config {
 			// Login / register (including aliases mounted by Auth.Mount)
 			"POST /auth/login":    {Requests: 5, Window: time.Minute},
 			"POST /auth/signin":   {Requests: 5, Window: time.Minute},
+			"POST /auth/admin/login": {Requests: 3, Window: time.Minute},
 			"POST /auth/register": {Requests: 3, Window: time.Minute},
 			"POST /auth/signup":   {Requests: 3, Window: time.Minute},
 			// Password / verification
