@@ -48,6 +48,7 @@ type VerificationToken struct {
 	Type         TokenType  `json:"type"`
 	ExpiresAt    time.Time  `json:"expiresAt"`
 	UsedAt       *time.Time `json:"usedAt,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt"`
 	CodeVerifier *string    `json:"-"` // PKCE code verifier for OAuth state tokens
 }
 

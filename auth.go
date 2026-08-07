@@ -149,6 +149,9 @@ func New(config Config) (*Auth, error) {
 	if config.sessionIdleTTL == 0 {
 		config.sessionIdleTTL = 7 * 24 * time.Hour
 	}
+	if config.environment.normalize() == EnvironmentDev && config.logger != nil {
+		config.logger.Warn("goauth: running in dev environment — cookies are not Secure")
+	}
 
 	// Derive all cryptographic keys from the single application secret.
 	keys := keyring.Derive([]byte(config.secret))
@@ -288,15 +291,16 @@ func New(config Config) (*Auth, error) {
 	}
 
 	serviceCfg := service.Config{
-		AppName:                  config.appName,
-		BaseURL:                  config.baseURL,
-		InviteOnly:               !config.registration.AllowPublic,
-		EnableEmailPassword:      config.registration.EnableEmailPassword,
-		EnableOAuth:              config.registration.EnableOAuth,
-		EnableInvite:             config.registration.EnableInvite,
-		RequireEmailVerification: config.registration.RequireEmailVerification,
-		InviteTTL:                config.registration.InviteTTL,
-		VerificationCodeTTL:      config.registration.VerificationCodeTTL,
+		AppName:                    config.appName,
+		BaseURL:                    config.baseURL,
+		InviteOnly:                 !config.registration.AllowPublic,
+		EnableEmailPassword:        config.registration.EnableEmailPassword,
+		EnableOAuth:                config.registration.EnableOAuth,
+		EnableInvite:               config.registration.EnableInvite,
+		RequireEmailVerification:   config.registration.RequireEmailVerification,
+		InviteTTL:                  config.registration.InviteTTL,
+		VerificationCodeTTL:        config.registration.VerificationCodeTTL,
+		VerificationResendInterval: config.verificationResendInterval,
 		SessionTTL:               config.sessionTTL,
 		TokenTTL:                 config.tokenTTL,
 		PasswordPolicy:           config.passwordPolicy,

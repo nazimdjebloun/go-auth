@@ -7,6 +7,8 @@ const (
 
 	tokenHasValidByUserAndTypeQuery = `SELECT EXISTS(SELECT 1 FROM verification_tokens WHERE user_id=$1 AND type=$2 AND used_at IS NULL AND expires_at > $3)`
 
+	tokenGetLastByUserAndTypeQuery = `SELECT id, user_id, email, token_hash, type, expires_at, used_at, created_at, code_verifier FROM verification_tokens WHERE user_id=$1 AND type=$2 ORDER BY created_at DESC LIMIT 1`
+
 	tokenMarkUsedQuery = `UPDATE verification_tokens SET used_at = $1 WHERE id = $2 AND used_at IS NULL`
 
 	tokenDeleteExpiredQuery = `DELETE FROM verification_tokens WHERE expires_at < $1`

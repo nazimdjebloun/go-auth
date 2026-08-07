@@ -47,6 +47,31 @@ func (r *TokenRepository) GetByHash(ctx context.Context, hash string) (*domain.V
 	return t, nil
 }
 
+func (r *TokenRepository) GetLastByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error) {
+	t := &domain.VerificationToken{}
+	var userIDNull sql.NullString
+	var usedAt sql.NullTime
+	var codeVerifier sql.NullString
+	err := r.db.QueryRowContext(ctx, tokenGetLastByUserAndTypeQuery, userID, tokenType).Scan(
+		&t.ID, &userIDNull, &t.Email, &t.TokenHash, &t.Type, &t.ExpiresAt, &usedAt, &t.CreatedAt, &codeVerifier)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if userIDNull.Valid {
+		t.UserID = &userIDNull.String
+	}
+	if usedAt.Valid {
+		t.UsedAt = &usedAt.Time
+	}
+	if codeVerifier.Valid {
+		t.CodeVerifier = &codeVerifier.String
+	}
+	return t, nil
+}
+
 func (r *TokenRepository) MarkUsed(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, tokenMarkUsedQuery, time.Now().UTC(), id)
 	return err

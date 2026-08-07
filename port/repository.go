@@ -100,6 +100,7 @@ type SessionRepository interface {
 type TokenRepository interface {
 	Create(ctx context.Context, t *domain.VerificationToken) error
 	GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error)
+	GetLastByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error)
 	HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error)
 	MarkUsed(ctx context.Context, id string) error
 	DeleteExpired(ctx context.Context) error

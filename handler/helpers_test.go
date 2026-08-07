@@ -453,6 +453,20 @@ func (m *mockTokenRepo) DeleteUnusedByUserAndType(_ context.Context, userID stri
 	return nil
 }
 
+func (m *mockTokenRepo) GetLastByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var last *domain.VerificationToken
+	for _, t := range m.tokens {
+		if t.UserID != nil && *t.UserID == userID && t.Type == tokenType {
+			if last == nil || t.CreatedAt.After(last.CreatedAt) {
+				last = t
+			}
+		}
+	}
+	return last, nil
+}
+
 func (m *mockTokenRepo) HasValidByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -106,6 +106,12 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		if err == nil && hasValid {
 			return nil
 		}
+		if s.config.VerificationResendInterval > 0 {
+			lastToken, err := s.tokens.GetLastByUserAndType(ctx, user.ID, domain.TokenVerifyEmail)
+			if err == nil && lastToken != nil && time.Since(lastToken.CreatedAt) < s.config.VerificationResendInterval {
+				return nil
+			}
+		}
 	}
 
 	raw, err := otp.Generate(8)

@@ -35,22 +35,23 @@ type AuthService struct {
 }
 
 type Config struct {
-	AppName                  string
-	BaseURL                  string
-	InviteOnly               bool
-	EnableEmailPassword      bool
-	EnableOAuth              bool
-	EnableInvite             bool
-	RequireEmailVerification bool
-	InviteTTL                time.Duration
-	VerificationCodeTTL      time.Duration
-	SessionTTL               time.Duration
-	TokenTTL                 time.Duration
-	PasswordPolicy           domain.PasswordPolicy
-	TemplateProvider         port.TemplateProvider
-	URLValidator             *port.URLValidator
-	Logger                   *slog.Logger
-	Audit                    AuditPublisher
+	AppName                    string
+	BaseURL                    string
+	InviteOnly                 bool
+	EnableEmailPassword        bool
+	EnableOAuth                bool
+	EnableInvite               bool
+	RequireEmailVerification   bool
+	InviteTTL                  time.Duration
+	VerificationCodeTTL        time.Duration
+	VerificationResendInterval time.Duration
+	SessionTTL                 time.Duration
+	TokenTTL                   time.Duration
+	PasswordPolicy             domain.PasswordPolicy
+	TemplateProvider           port.TemplateProvider
+	URLValidator               *port.URLValidator
+	Logger                     *slog.Logger
+	Audit                      AuditPublisher
 }
 
 type AuditPublisher interface {

@@ -113,11 +113,32 @@ type AuditConfig struct {
 	Sinks         []audit.EventSink
 }
 
+type Environment string
+
+const (
+	EnvironmentDev     Environment = "dev"
+	EnvironmentStaging Environment = "staging"
+	EnvironmentProd    Environment = "prod"
+)
+
+func (e Environment) normalize() Environment {
+	switch string(e) {
+	case "development":
+		return EnvironmentDev
+	case "production":
+		return EnvironmentProd
+	default:
+		return e
+	}
+}
+
 // AppConfig groups the three identity-level settings for the application instance.
 type AppConfig struct {
-	Name     string         // app name displayed in emails
-	BaseURL  string         // frontend base URL for email links
-	Database DatabaseConfig // database connection
+	Name                     string         // app name displayed in emails
+	BaseURL                  string         // frontend base URL for email links
+	Database                 DatabaseConfig // database connection
+	Environment              Environment    // deployment environment (dev, staging, prod)
+	VerificationResendInterval time.Duration // minimum interval between verification resends (0 = no minimum)
 }
 
 // SecurityConfig groups security-related settings.
@@ -134,8 +155,9 @@ type SecurityConfig struct {
 // Config is the top-level configuration for go-auth.
 // All fields are unexported — use NewConfig + With* functions.
 type Config struct {
-	appName string
-	baseURL string
+	appName      string
+	baseURL      string
+	environment  Environment
 
 	database DatabaseConfig
 
@@ -159,8 +181,9 @@ type Config struct {
 
 	allowedOrigins          []string
 	allowMissingCSRFHeaders bool
-	secret                  string // app-wide HMAC signing key; signers MUST fail closed on empty (see csrf_token.go) - validate() only guards NewConfig
-	passwordPolicy          domain.PasswordPolicy
+	secret                    string // app-wide HMAC signing key; signers MUST fail closed on empty (see csrf_token.go) - validate() only guards NewConfig
+	passwordPolicy            domain.PasswordPolicy
+	verificationResendInterval time.Duration
 	rateLimit               *ratelimit.Config
 	csrfToken               *middleware.CSRFTokenConfig
 
@@ -195,7 +218,8 @@ func (c *Config) validate() error {
 	} else if parsedURL, err := url.Parse(c.baseURL); err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
 		errs = append(errs, errors.New("base_url must be a valid HTTP or HTTPS URL"))
 	} else if !c.cookieSecureExplicit {
-		c.cookie.Secure = parsedURL.Scheme == "https"
+		env := c.environment.normalize()
+		c.cookie.Secure = parsedURL.Scheme == "https" || env != EnvironmentDev
 	}
 	if c.sessionTTL <= 0 {
 		errs = append(errs, errors.New("session_ttl must be positive"))
@@ -335,6 +359,7 @@ func validateRate(name string, r ratelimit.Rate) error {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
+		environment: EnvironmentProd,
 		registration: RegistrationConfig{
 			EnableEmailPassword:      true,
 			EnableOAuth:              true,
@@ -348,7 +373,7 @@ func DefaultConfig() Config {
 		sessionIdleTTL:          7 * 24 * time.Hour,
 		refreshTokenTTL:         30 * 24 * time.Hour,
 		maxLifetime:             0,
-		graceWindow:             10 * time.Second,
+		graceWindow:             5 * time.Second,
 		touchDebounce:           5 * time.Minute,
 		tokenTTL:                1 * time.Hour,
 		rateLimit:               ratelimit.DefaultRateLimitConfig(),
@@ -395,6 +420,10 @@ func WithApp(cfg AppConfig) func(*Config) {
 		c.appName = cfg.Name
 		c.baseURL = cfg.BaseURL
 		c.database = cfg.Database
+		c.environment = cfg.Environment
+		if cfg.VerificationResendInterval > 0 {
+			c.verificationResendInterval = cfg.VerificationResendInterval
+		}
 	}
 }
 
