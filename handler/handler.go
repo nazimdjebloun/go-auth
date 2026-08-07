@@ -123,6 +123,34 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	result, err := h.services.Auth.AdminLogin(r.Context(), service.LoginInput{
+		Email:     body.Email,
+		Password:  body.Password,
+		IP:        extractIP(r.RemoteAddr),
+		UserAgent: r.UserAgent(),
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	setSessionCookie(w, h.services.Session, result.SessionToken)
+	setRefreshCookie(w, h.services.Session, result.RefreshToken)
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
+	result.SessionToken = ""
+	result.RefreshToken = ""
+	writeJSON(w, http.StatusOK, result)
+}
+
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	cfg := h.services.Session.Config()
 	cookie, err := r.Cookie(cfg.CookieName)

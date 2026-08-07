@@ -82,6 +82,7 @@ func (d VerificationData) Template() EmailTemplateType { return TemplateVerifica
 type InviteData struct {
 	AppName   string
 	InviteURL string
+	ExpiresIn time.Duration
 }
 
 func (d InviteData) Template() EmailTemplateType { return TemplateInvite }

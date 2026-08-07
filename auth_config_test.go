@@ -506,7 +506,7 @@ func TestNewConfig_RateLimitGranularOptions(t *testing.T) {
 		}
 	})
 
-	t.Run("route only initializes disabled config", func(t *testing.T) {
+	t.Run("route initializes enabled config by default", func(t *testing.T) {
 		customRate := ratelimit.Rate{Requests: 5, Window: time.Minute}
 		cfg, err := NewConfig(append(validConfigOpts(), WithRateLimitRoute("POST /custom/endpoint", customRate))...)
 		if err != nil {
@@ -515,8 +515,8 @@ func TestNewConfig_RateLimitGranularOptions(t *testing.T) {
 		if cfg.rateLimit == nil {
 			t.Fatal("expected rate limit config to be initialized")
 		}
-		if cfg.rateLimit.Enabled {
-			t.Fatal("expected rate limiting to remain disabled")
+		if !cfg.rateLimit.Enabled {
+			t.Fatal("expected rate limiting to be enabled by default")
 		}
 		if got := cfg.rateLimit.Routes["POST /custom/endpoint"]; got != customRate {
 			t.Fatalf("expected custom route %+v, got %+v", customRate, got)

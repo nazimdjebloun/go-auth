@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/crypto"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -26,6 +27,7 @@ type OAuthService struct {
 	gen          port.TokenGenerator
 	sessionSvc   *SessionService
 	verifySvc    *VerificationService
+	encryptor    *crypto.Encryptor
 	config       OAuthServiceConfig
 	log          *slog.Logger
 	audit        AuditPublisher
@@ -46,6 +48,7 @@ type OAuthServiceConfig struct {
 	InviteOnly               bool
 	Logger                   *slog.Logger
 	Audit                    AuditPublisher
+	Encryptor                *crypto.Encryptor
 }
 
 func NewOAuthService(
@@ -72,6 +75,7 @@ func NewOAuthService(
 		gen:          gen,
 		sessionSvc:   sessionSvc,
 		verifySvc:    verifySvc,
+		encryptor:    config.Encryptor,
 		config:       config,
 		log:          logger,
 		audit:        config.Audit,
@@ -390,6 +394,27 @@ func (s *OAuthService) ListConnected(ctx context.Context, userID string) ([]doma
 }
 
 func (s *OAuthService) createProviderAccount(ctx context.Context, userID string, info *port.OAuthProfile) (*domain.ProviderAccount, *domain.AuthError) {
+	accessToken := info.AccessToken
+	refreshToken := info.RefreshToken
+	if s.encryptor != nil {
+		if accessToken != "" {
+			enc, err := s.encryptor.Encrypt(accessToken)
+			if err != nil {
+				s.log.Error("failed to encrypt access token", "err", err, "user_id", userID)
+				return nil, domain.NewError("internal_error", "Internal server error", 500)
+			}
+			accessToken = enc
+		}
+		if refreshToken != "" {
+			enc, err := s.encryptor.Encrypt(refreshToken)
+			if err != nil {
+				s.log.Error("failed to encrypt refresh token", "err", err, "user_id", userID)
+				return nil, domain.NewError("internal_error", "Internal server error", 500)
+			}
+			refreshToken = enc
+		}
+	}
+
 	now := time.Now().UTC()
 	pa := &domain.ProviderAccount{
 		ID:             uuid.New().String(),
@@ -399,6 +424,9 @@ func (s *OAuthService) createProviderAccount(ctx context.Context, userID string,
 		ProviderEmail:  info.Email,
 		ProviderName:   info.Name,
 		AvatarURL:      info.AvatarURL,
+		AccessToken:    accessToken,
+		RefreshToken:   refreshToken,
+		TokenExpiresAt: info.TokenExpiresAt,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}

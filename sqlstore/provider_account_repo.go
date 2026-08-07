@@ -9,11 +9,16 @@ import (
 )
 
 type ProviderAccountRepository struct {
-	db *DB
+	db            *DB
+	decryptToken  func(string) (string, error)
 }
 
 func NewProviderAccountRepository(db *DB) *ProviderAccountRepository {
 	return &ProviderAccountRepository{db: db}
+}
+
+func (r *ProviderAccountRepository) WithDecryptor(decrypt func(string) (string, error)) {
+	r.decryptToken = decrypt
 }
 
 func (r *ProviderAccountRepository) Create(ctx context.Context, pa *domain.ProviderAccount) error {
@@ -41,10 +46,10 @@ func (r *ProviderAccountRepository) GetByProvider(ctx context.Context, provider,
 		return nil, err
 	}
 	if accessToken.Valid {
-		pa.AccessToken = accessToken.String
+		pa.AccessToken = r.decrypt(accessToken.String)
 	}
 	if refreshToken.Valid {
-		pa.RefreshToken = refreshToken.String
+		pa.RefreshToken = r.decrypt(refreshToken.String)
 	}
 	if tokenExpiresAt.Valid {
 		pa.TokenExpiresAt = &tokenExpiresAt.Time
@@ -70,10 +75,10 @@ func (r *ProviderAccountRepository) ListByUserID(ctx context.Context, userID str
 			return nil, err
 		}
 		if accessToken.Valid {
-			pa.AccessToken = accessToken.String
+			pa.AccessToken = r.decrypt(accessToken.String)
 		}
 		if refreshToken.Valid {
-			pa.RefreshToken = refreshToken.String
+			pa.RefreshToken = r.decrypt(refreshToken.String)
 		}
 		if tokenExpiresAt.Valid {
 			pa.TokenExpiresAt = &tokenExpiresAt.Time
@@ -84,6 +89,17 @@ func (r *ProviderAccountRepository) ListByUserID(ctx context.Context, userID str
 		return []domain.ProviderAccount{}, nil
 	}
 	return accounts, rows.Err()
+}
+
+func (r *ProviderAccountRepository) decrypt(s string) string {
+	if r.decryptToken == nil || s == "" {
+		return s
+	}
+	dec, err := r.decryptToken(s)
+	if err != nil {
+		return s
+	}
+	return dec
 }
 
 func (r *ProviderAccountRepository) Delete(ctx context.Context, userID, provider string) error {

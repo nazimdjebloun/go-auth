@@ -12,8 +12,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/otp"
 	"github.com/nazimdjebloun/go-auth/port"
 )
+
+const deleteAccountCodeTTL = 10 * time.Minute
 
 type AuthService struct {
 	users      port.UserRepository
@@ -169,30 +172,47 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	}, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, *domain.AuthError) {
+// authenticate resolves and validates email/password credentials.
+// On success it returns the authenticated user. requiresVerification is true
+// when the user must verify their email before a session can be issued.
+func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*domain.User, bool, *domain.AuthError) {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
 	if err != nil || user == nil {
-		return nil, domain.ErrInvalidCredentials
+		// Constant-time: dummy bcrypt prevents timing-based email enumeration
+		_ = s.hasher.Compare(input.Password, "$2a$12$.....................................................................................................")
+		return nil, false, domain.ErrInvalidCredentials
 	}
 
 	if user.IsBanned {
-		return nil, domain.ErrUserBanned
+		return nil, false, domain.ErrUserBanned
 	}
 
 	if s.config.RequireEmailVerification && !user.IsVerified && user.Role != domain.RoleAdmin {
+		return user, true, nil
+	}
+
+	if !user.HasPassword() {
+		return nil, false, domain.ErrInvalidCredentials
+	}
+	if err := s.hasher.Compare(input.Password, *user.PasswordHash); err != nil {
+		return nil, false, domain.ErrInvalidCredentials
+	}
+
+	return user, false, nil
+}
+
+func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, *domain.AuthError) {
+	user, requiresVerification, aerr := s.authenticate(ctx, input)
+	if aerr != nil {
+		return nil, aerr
+	}
+	if requiresVerification {
 		return &LoginResult{
 			User:                 user,
 			RequiresVerification: true,
 		}, nil
-	}
-
-	if !user.HasPassword() {
-		return nil, domain.ErrInvalidCredentials
-	}
-	if err := s.hasher.Compare(input.Password, *user.PasswordHash); err != nil {
-		return nil, domain.ErrInvalidCredentials
 	}
 
 	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
@@ -209,6 +229,49 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 
 	if s.audit != nil {
 		s.audit.Publish(ctx, audit.NewLoginEvent(user.ID, session.ID, net.ParseIP(input.IP), input.UserAgent, true))
+	}
+
+	return &LoginResult{
+		User:         user,
+		Session:      session,
+		SessionToken: rawToken,
+		RefreshToken: refreshToken,
+	}, nil
+}
+
+// AdminLogin authenticates a user and requires the admin role.
+// Non-admin users are rejected with generic invalid_credentials so the
+// endpoint never reveals whether an account is an admin.
+func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginResult, *domain.AuthError) {
+	user, requiresVerification, aerr := s.authenticate(ctx, input)
+	if aerr != nil {
+		if s.audit != nil {
+			s.audit.Publish(ctx, audit.NewAdminLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent))
+		}
+		return nil, aerr
+	}
+
+	if requiresVerification || user.Role != domain.RoleAdmin {
+		if s.audit != nil {
+			s.audit.Publish(ctx, audit.NewAdminLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent))
+		}
+		return nil, domain.ErrInvalidCredentials
+	}
+
+	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	if err != nil {
+		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
+	}
+
+	if err := s.users.UpdateLastLoginAt(ctx, user.ID, time.Now().UTC()); err != nil {
+		s.log.Error("failed to update last login time", "err", err, "user_id", user.ID)
+	}
+
+	s.log.Info("admin logged in", "user_id", user.ID, "ip", input.IP)
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewAdminLoginSuccessEvent(user.ID, session.ID, net.ParseIP(input.IP), input.UserAgent))
 	}
 
 	return &LoginResult{
@@ -311,7 +374,11 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) *
 		return nil
 	}
 
-	raw := generateCode()
+	raw, err := otp.Generate(8)
+	if err != nil {
+		s.log.Error("failed to generate deletion code", "err", err, "user_id", userID)
+		return domain.NewError("internal_error", "Internal server error", 500)
+	}
 
 	now := time.Now().UTC()
 	token := &domain.VerificationToken{
@@ -320,7 +387,7 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) *
 		Email:     user.Email,
 		TokenHash: hashToken(raw),
 		Type:      domain.TokenDeleteAccount,
-		ExpiresAt: now.Add(10 * time.Minute),
+		ExpiresAt: now.Add(deleteAccountCodeTTL),
 	}
 
 	if err := s.tokens.Create(ctx, token); err != nil {
@@ -331,7 +398,7 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) *
 	result, err := s.templates.Render(port.DeleteAccountData{
 		AppName:   s.config.AppName,
 		Code:      raw,
-		ExpiresIn: 10 * time.Minute,
+		ExpiresIn: deleteAccountCodeTTL,
 	})
 	if err != nil {
 		s.log.Error("failed to render deletion email template", "err", err, "user_id", userID)

@@ -15,6 +15,8 @@ import (
 	"github.com/nazimdjebloun/go-auth/emailtemplate"
 	"github.com/nazimdjebloun/go-auth/handler"
 	"github.com/nazimdjebloun/go-auth/hasher"
+	"github.com/nazimdjebloun/go-auth/internal/crypto"
+	"github.com/nazimdjebloun/go-auth/internal/keyring"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
@@ -59,6 +61,7 @@ type Services struct {
 type HandlerGroup struct {
 	Register               http.HandlerFunc
 	Login                  http.HandlerFunc
+	AdminLogin             http.HandlerFunc
 	Logout                 http.HandlerFunc
 	ForgotPassword         http.HandlerFunc
 	ResetPassword          http.HandlerFunc
@@ -147,11 +150,20 @@ func New(config Config) (*Auth, error) {
 		config.sessionIdleTTL = 7 * 24 * time.Hour
 	}
 
-	// Auto-derive CSRF token CookieSecure from session cookie Secure flag
-	// (which is itself auto-derived from BaseURL in validate()).
+	// Derive all cryptographic keys from the single application secret.
+	keys := keyring.Derive([]byte(config.secret))
+
+	// Auto-enable CSRF double-submit when a secret is present.
+	if config.csrfToken == nil && len(config.secret) >= 32 {
+		config.csrfToken = &middleware.CSRFTokenConfig{
+			CookieName: "_csrf",
+			HeaderName: "X-CSRF-Token",
+			CookiePath: "/",
+		}
+	}
 	if config.csrfToken != nil {
 		config.csrfToken.CookieSecure = config.cookie.Secure
-		config.csrfToken.Secret = []byte(config.secret)
+		config.csrfToken.Secret = keys.CSRF
 		config.csrfToken.Logger = config.logger
 	}
 
@@ -219,6 +231,10 @@ func New(config Config) (*Auth, error) {
 	tokenRepo := sqlstore.NewTokenRepository(sqlDB)
 	inviteRepo := sqlstore.NewInviteRepository(sqlDB)
 	providerAccountRepo := sqlstore.NewProviderAccountRepository(sqlDB)
+	if keys.OAuthEnc != nil {
+		enc, _ := crypto.NewEncryptor(keys.OAuthEnc)
+		providerAccountRepo.WithDecryptor(enc.Decrypt)
+	}
 	auditLogRepo := sqlstore.NewAuditLogRepository(sqlDB)
 
 	hasherImpl := hasher.New(bcryptCost)
@@ -336,6 +352,10 @@ func New(config Config) (*Auth, error) {
 
 	var oauthSvc *service.OAuthService
 	if len(oauthProviders) > 0 {
+		var encryptor *crypto.Encryptor
+		if keys.OAuthEnc != nil {
+			encryptor, _ = crypto.NewEncryptor(keys.OAuthEnc)
+		}
 		oauthCfg := service.OAuthServiceConfig{
 			AppName:                  config.appName,
 			BaseURL:                  config.baseURL,
@@ -351,6 +371,7 @@ func New(config Config) (*Auth, error) {
 			InviteOnly:               !config.registration.AllowPublic,
 			Logger:                   config.logger,
 			Audit:                    auditPub,
+			Encryptor:                encryptor,
 		}
 		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, oauthCfg)
 	}
@@ -399,6 +420,10 @@ func New(config Config) (*Auth, error) {
 	if config.rateLimit != nil {
 		config.rateLimit.Logger = config.logger
 		trustedIPs = config.rateLimit.TrustedIPs
+		if !config.rateLimit.Enabled && config.logger != nil {
+			config.logger.Warn("goauth: rate limiting is disabled — this is insecure for production",
+				"fix", "re-enable with WithRateLimitEnabled(true) or use a trusted edge rate limiter")
+		}
 	}
 	rateLimitMW := middleware.RateLimit(config.rateLimit)
 	csrfMW := middleware.OriginCheck(config.allowedOrigins, config.allowMissingCSRFHeaders, trustedIPs, config.logger)
@@ -437,6 +462,7 @@ func New(config Config) (*Auth, error) {
 			// CORS is outermost so preflight OPTIONS short-circuits before rate-limit accounting.
 			Register:                 corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Register))))).ServeHTTP,
 			Login:                    corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Login))))).ServeHTTP,
+			AdminLogin:               corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.AdminLogin))))).ServeHTTP,
 			Logout:                   corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Logout))))).ServeHTTP,
 			ForgotPassword:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ForgotPassword))))).ServeHTTP,
 			ResetPassword:            corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResetPassword))))).ServeHTTP,
@@ -563,6 +589,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	}
 	handle("POST /auth/login", a.Handlers.Login)
 	handle("POST /auth/signin", a.Handlers.Login)
+	handle("POST /auth/admin/login", a.Handlers.AdminLogin)
 	handle("POST /auth/forgot-password", a.Handlers.ForgotPassword)
 	handle("POST /auth/reset-password", a.Handlers.ResetPassword)
 	handle("POST /auth/verify-email", a.Handlers.VerifyEmail)

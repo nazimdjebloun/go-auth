@@ -264,6 +264,7 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 		result, tplErr := s.templates.Render(port.InviteData{
 			AppName:   s.config.AppName,
 			InviteURL: url,
+			ExpiresIn: s.config.InviteTTL,
 		})
 		if tplErr != nil {
 			s.log.Error("failed to render invite email template", "err", tplErr, "invite_id", inviteID)

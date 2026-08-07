@@ -2,12 +2,36 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/nazimdjebloun/go-auth/domain"
 )
+
+func createAdminUser(t *testing.T, th *testHarness, email, password string) {
+	t.Helper()
+	sum := sha256.Sum256([]byte(password))
+	hash := hex.EncodeToString(sum[:])
+	user := &domain.User{
+		ID:           "admin-" + email,
+		Email:        email,
+		PasswordHash: &hash,
+		Name:         "Admin",
+		Role:         domain.RoleAdmin,
+		IsVerified:   true,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := th.users.Create(context.Background(), user); err != nil {
+		t.Fatalf("failed to create admin user: %v", err)
+	}
+}
 
 func TestRegisterSetsCookieAndHidesToken(t *testing.T) {
 	th := newTestHarness()
@@ -439,5 +463,118 @@ func TestRefreshToken_ExpiredRefreshCookie(t *testing.T) {
 		if c.MaxAge != -1 {
 			t.Errorf("expected cookie %s to be cleared, got max-age=%d", c.Name, c.MaxAge)
 		}
+	}
+}
+
+func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
+	th := newTestHarness()
+	createAdminUser(t, th, "admin@example.com", "Passw0rd!")
+
+	body := `{"email":"admin@example.com","password":"Passw0rd!"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/admin/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.AdminLogin(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+
+	var sessionCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == "goauth_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("expected goauth_session cookie after admin login")
+	}
+	if sessionCookie.Value == "" {
+		t.Error("expected non-empty cookie value")
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if tok, ok := resp["SessionToken"]; ok && tok != "" {
+		t.Errorf("SessionToken must not leak in JSON response body, got %v", tok)
+	}
+	user, ok := resp["User"].(map[string]any)
+	if !ok {
+		t.Fatal("expected user object in response")
+	}
+	if user["role"] != "admin" {
+		t.Errorf("expected admin role in response, got %v", user["role"])
+	}
+}
+
+func TestAdminLogin_NonAdmin_Rejected(t *testing.T) {
+	th := newTestHarness()
+	sum := sha256.Sum256([]byte("Passw0rd!"))
+	hash := hex.EncodeToString(sum[:])
+	user := &domain.User{
+		ID:           "user-id",
+		Email:        "user@example.com",
+		PasswordHash: &hash,
+		Name:         "User",
+		Role:         domain.RoleUser,
+		IsVerified:   true,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}
+	if err := th.users.Create(context.Background(), user); err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	body := `{"email":"user@example.com","password":"Passw0rd!"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/admin/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.AdminLogin(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", res.StatusCode)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["error"] != "invalid_credentials" {
+		t.Errorf("expected error invalid_credentials, got %v", resp["error"])
+	}
+
+	for _, c := range res.Cookies() {
+		if c.Name == "goauth_session" && c.Value != "" {
+			t.Error("must not set a session cookie for rejected admin login")
+		}
+	}
+}
+
+func TestAdminLogin_WrongPassword(t *testing.T) {
+	th := newTestHarness()
+	createAdminUser(t, th, "admin@example.com", "Passw0rd!")
+
+	body := `{"email":"admin@example.com","password":"wrongpassword"}`
+	req := httptest.NewRequest(http.MethodPost, "/auth/admin/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.AdminLogin(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", res.StatusCode)
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp["error"] != "invalid_credentials" {
+		t.Errorf("expected error invalid_credentials, got %v", resp["error"])
 	}
 }

@@ -271,7 +271,7 @@ func (s *OrgInviteService) sendOrgInviteEmail(ctx context.Context, invite *domai
 	if s.mailer == nil {
 		return nil
 	}
-	url := s.baseURL + "/invite?code=" + invite.RawCode
+	url := s.baseURL + "/invite?token=" + invite.RawCode
 	org, _ := s.orgs.GetByID(ctx, invite.OrgID)
 	orgName := "an organization"
 	if org != nil {
