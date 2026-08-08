@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -192,6 +193,13 @@ func New(config Config) (*Auth, error) {
 				"goauth: mysql driver not registered — add the following import to your main package:\n\n\t_ \"github.com/go-sql-driver/mysql\"",
 			)
 		}
+		// Only checkable when go-auth opens the connection itself — a
+		// consumer-provided *sql.DB is already open and its DSN is unknown.
+		if config.database.URL != "" {
+			if err := validateMySQLDSN(config.database.URL); err != nil {
+				return nil, err
+			}
+		}
 	default:
 		return nil, fmt.Errorf("go-auth: unsupported driver %q", config.database.Driver)
 	}
@@ -207,6 +215,13 @@ func New(config Config) (*Auth, error) {
 		sessRepo = sqlstore.NewSessionRepository(sqlDB)
 	case config.database.URL != "":
 		driverName := sqlDriverName(config.database.Driver)
+		if config.database.Driver == DriverSQLite {
+			// sqlDriverName assumes modernc.org/sqlite ("sqlite"), but the
+			// registration check above also accepts mattn/go-sqlite3
+			// ("sqlite3") — use whichever is actually registered so sql.Open
+			// doesn't fail with "unknown driver" after registration passed.
+			driverName = resolveSQLiteDriverName()
+		}
 		db, err := sql.Open(driverName, config.database.URL)
 		if err != nil {
 			return nil, fmt.Errorf("go-auth: open database: %w", err)
@@ -774,6 +789,53 @@ func isDriverRegistered(name string) bool {
 		}
 	}
 	return false
+}
+
+// resolveSQLiteDriverName returns whichever of "sqlite" (modernc.org/sqlite,
+// the documented driver) or "sqlite3" (mattn/go-sqlite3) is actually
+// registered. The registration check in New() accepts either name, so
+// sql.Open must use the one that's really there instead of assuming
+// "sqlite" — otherwise a consumer using mattn/go-sqlite3 passes validation
+// and then fails with "unknown driver \"sqlite\"".
+func resolveSQLiteDriverName() string {
+	if isDriverRegistered("sqlite") {
+		return "sqlite"
+	}
+	return "sqlite3"
+}
+
+// validateMySQLDSN rejects a MySQL DSN that's missing parseTime=true.
+// go-sql-driver/mysql returns DATETIME/TIMESTAMP columns as []byte unless
+// parseTime=true is set, and every sqlstore repository scans directly into
+// time.Time fields — without it, the first query touching any date column
+// fails with "unsupported Scan, storing driver.Value type []uint8 into type
+// *time.Time". loc=UTC is recommended too: every timestamp in go-auth is
+// computed via time.Now().UTC(), and without loc=UTC the driver parses
+// returned times in the local server timezone, skewing expiry/TTL checks.
+func validateMySQLDSN(dsn string) error {
+	_, params, _ := strings.Cut(dsn, "?")
+	values, err := url.ParseQuery(params)
+	if err != nil || !mysqlBoolParam(values.Get("parseTime")) {
+		return fmt.Errorf(
+			"goauth: mysql DSN is missing \"parseTime=true\" — go-sql-driver/mysql " +
+				"returns DATETIME/TIMESTAMP columns as []byte without it, which breaks " +
+				"every query that scans a time.Time field. Add \"?parseTime=true&loc=UTC\" " +
+				"to your DSN (loc=UTC is strongly recommended since go-auth computes all " +
+				"timestamps in UTC).",
+		)
+	}
+	return nil
+}
+
+// mysqlBoolParam mirrors go-sql-driver/mysql's own DSN boolean parsing
+// (readBool): "1"/"true" (case-insensitive) are true, everything else false.
+func mysqlBoolParam(v string) bool {
+	switch strings.ToLower(v) {
+	case "1", "true":
+		return true
+	default:
+		return false
+	}
 }
 
 func inviteTTLForOrgs(cfg Config) time.Duration {
