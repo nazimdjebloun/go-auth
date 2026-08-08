@@ -357,6 +357,22 @@ func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRol
 		return nil
 	}
 
+	// Granting or revoking the Owner role is the highest-privilege action in
+	// an org and must itself be performed by an Owner — an Admin (who can
+	// otherwise manage Member/Admin transitions per RequireOrgRole at the
+	// HTTP layer) must not be able to self-escalate or hand Owner to someone
+	// else.
+	if input.NewRole == domain.OrgRoleOwner || member.Role == domain.OrgRoleOwner {
+		actor, err := s.orgs.GetMembership(ctx, input.OrgID, input.ActorID)
+		if err != nil {
+			s.log.Error("failed to get actor membership for role update", "err", err, "org_id", input.OrgID, "actor_id", input.ActorID)
+			return err
+		}
+		if actor == nil || actor.Role != domain.OrgRoleOwner {
+			return domain.ErrOrgForbidden
+		}
+	}
+
 	oldRole := member.Role
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		if member.Role == domain.OrgRoleOwner {

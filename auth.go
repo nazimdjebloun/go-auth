@@ -382,8 +382,9 @@ func New(config Config) (*Auth, error) {
 
 	var orgSvc *service.OrgService
 	var orgInviteSvc *service.OrgInviteService
+	var orgRepo port.OrgRepository
 	if config.organizations.Enable {
-		orgRepo := sqlstore.NewOrgRepository(sqlDB)
+		orgRepo = sqlstore.NewOrgRepository(sqlDB)
 		orgInviteRepo := sqlstore.NewOrgInviteRepository(sqlDB)
 		orgSvc = service.NewOrgService(orgRepo, userRepo, sessRepo, sqlDB, service.OrgServiceConfig{
 			MaxOrgsPerUser: config.organizations.MaxOrgsPerUser,
@@ -433,6 +434,23 @@ func New(config Config) (*Auth, error) {
 	csrfMW := middleware.OriginCheck(config.allowedOrigins, config.allowMissingCSRFHeaders, trustedIPs, config.logger)
 	csrfTokenMW := middleware.CSRFToken(config.csrfToken)
 	corsMW := middleware.CORS(config.allowedOrigins)
+
+	// Org authorization: orgMemberMW verifies the authenticated user is a
+	// member of the {orgID} path segment; orgAdminMW/orgOwnerMW additionally
+	// require a minimum role. Must run after authMW (needs the user in
+	// context) and before the handler. Safe to construct even when
+	// organizations are disabled (orgRepo is nil) — the routes that use these
+	// are only registered by Mount when a.orgService != nil, so the
+	// underlying orgs.GetMembership call is never reached.
+	orgUserID := func(ctx context.Context) string {
+		if u := middleware.GetUserFromContext(ctx); u != nil {
+			return u.ID
+		}
+		return ""
+	}
+	orgMemberMW := middleware.RequireOrgMember(orgRepo, orgUserID)
+	orgAdminMW := middleware.RequireOrgRole(domain.OrgRoleAdmin)
+	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 
 	return &Auth{
 		Config:          config,
@@ -515,22 +533,29 @@ func New(config Config) (*Auth, error) {
 			OAuthUnlink:            corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.Unlink))))).ServeHTTP,
 			OAuthProviders:         corsMW(authMW(http.HandlerFunc(oauthHandlers.ListConnected))).ServeHTTP,
 			CSRFToken:              corsMW(csrfTokenMW(http.HandlerFunc(h.GetCSRFToken))).ServeHTTP,
+			// Org routes: authMW authenticates, then orgMemberMW/orgAdminMW/
+			// orgOwnerMW enforce membership and minimum role per the access
+			// levels documented in ORGS.md §6. CreateOrg/ListUserOrgs/
+			// AcceptOrgInvite/SetActiveOrg/ClearActiveOrg have no {orgID}
+			// path segment (self-service or org resolved from a code/body),
+			// so they stay authMW-only; SetActiveOrg/AcceptInvite already
+			// check membership inside the service layer.
 			CreateOrg:              corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrg)))))).ServeHTTP,
-			GetOrg:                 corsMW(authMW(http.HandlerFunc(h.GetOrg))).ServeHTTP,
-			UpdateOrg:              corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.UpdateOrg))))).ServeHTTP,
-			DeleteOrg:              corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteOrg))))).ServeHTTP,
+			GetOrg:                 corsMW(authMW(orgMemberMW(http.HandlerFunc(h.GetOrg)))).ServeHTTP,
+			UpdateOrg:              corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateOrg))))))).ServeHTTP,
+			DeleteOrg:              corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOwnerMW(http.HandlerFunc(h.DeleteOrg))))))).ServeHTTP,
 			ListUserOrgs:           corsMW(authMW(http.HandlerFunc(h.ListUserOrgs))).ServeHTTP,
-			ListOrgMembers:         corsMW(authMW(http.HandlerFunc(h.ListOrgMembers))).ServeHTTP,
-			RemoveOrgMember:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RemoveMember))))).ServeHTTP,
-			UpdateOrgMemberRole:    corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.UpdateMemberRole))))).ServeHTTP,
-			LeaveOrg:               corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.LeaveOrg))))).ServeHTTP,
+			ListOrgMembers:         corsMW(authMW(orgMemberMW(http.HandlerFunc(h.ListOrgMembers)))).ServeHTTP,
+			RemoveOrgMember:        corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.RemoveMember))))))).ServeHTTP,
+			UpdateOrgMemberRole:    corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateMemberRole))))))).ServeHTTP,
+			LeaveOrg:               corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.LeaveOrg)))))).ServeHTTP,
 			SetActiveOrg:           corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg))))).ServeHTTP,
 			ClearActiveOrg:         corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg))))).ServeHTTP,
-			CreateOrgInvite:        corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrgInvite)))))).ServeHTTP,
+			CreateOrgInvite:        corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CreateOrgInvite)))))))).ServeHTTP,
 			AcceptOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite))))).ServeHTTP,
-			ListOrgInvites:         corsMW(authMW(http.HandlerFunc(h.ListOrgInvites))).ServeHTTP,
-			ResendOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendOrgInvite))))).ServeHTTP,
-			DeleteOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteOrgInvite))))).ServeHTTP,
+			ListOrgInvites:         corsMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ListOrgInvites))))).ServeHTTP,
+			ResendOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite))))))).ServeHTTP,
+			DeleteOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite))))))).ServeHTTP,
 		},
 		Middleware: MiddlewareGroup{
 			Authenticate: authMW,

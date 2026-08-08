@@ -112,6 +112,21 @@ func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgI
 		return nil, domain.NewError("internal_error", "Organization invites are not configured", 500)
 	}
 
+	// Inviting someone directly as Owner grants the org's highest privilege
+	// level; only an existing Owner may do that. Admins (who can otherwise
+	// create Member/Admin invites per RequireOrgRole at the HTTP layer) must
+	// not be able to hand out ownership.
+	if input.Role == domain.OrgRoleOwner {
+		actor, err := s.orgs.GetMembership(ctx, input.OrgID, input.InvitedBy)
+		if err != nil {
+			s.log.Error("failed to get actor membership for owner invite", "err", err, "org_id", input.OrgID, "invited_by", input.InvitedBy)
+			return nil, err
+		}
+		if actor == nil || actor.Role != domain.OrgRoleOwner {
+			return nil, domain.ErrOrgForbidden
+		}
+	}
+
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate org invite code", "err", err)
