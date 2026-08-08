@@ -54,13 +54,13 @@ type DatabaseConfig struct {
 
 // EmailConfig configures SMTP email delivery (transport only).
 type EmailConfig struct {
-	From           string
-	Host           string
-	Port           int
-	User           string
-	Pass           string
-	TLSMode        TLSMode
-	AllowHTTPURLs  bool // allow http:// URLs in email templates (dev only, default false)
+	From          string
+	Host          string
+	Port          int
+	User          string
+	Pass          string
+	TLSMode       TLSMode
+	AllowHTTPURLs bool // allow http:// URLs in email templates (dev only, default false)
 }
 
 // CookieConfig configures the session cookie.
@@ -105,11 +105,11 @@ type OrganizationConfig struct {
 type AuditConfig struct {
 	Enabled       bool
 	FailureMode   audit.AuditFailureMode
-	RetentionDays int             // default 90, 0 = forever
-	QueueSize     int             // default 1000
-	Workers       int             // default 3
-	BatchSize     int             // default 50
-	FlushInterval time.Duration   // default 100ms
+	RetentionDays int           // default 90, 0 = forever
+	QueueSize     int           // default 1000
+	Workers       int           // default 3
+	BatchSize     int           // default 50
+	FlushInterval time.Duration // default 100ms
 	Sinks         []audit.EventSink
 }
 
@@ -134,11 +134,11 @@ func (e Environment) normalize() Environment {
 
 // AppConfig groups the three identity-level settings for the application instance.
 type AppConfig struct {
-	Name                     string         // app name displayed in emails
-	BaseURL                  string         // frontend base URL for email links
-	Database                 DatabaseConfig // database connection
-	Environment              Environment    // deployment environment (dev, staging, prod)
-	VerificationResendInterval time.Duration // minimum interval between verification resends (0 = no minimum)
+	Name                       string         // app name displayed in emails
+	BaseURL                    string         // frontend base URL for email links
+	Database                   DatabaseConfig // database connection
+	Environment                Environment    // deployment environment (dev, staging, prod)
+	VerificationResendInterval time.Duration  // minimum interval between verification resends (0 = no minimum)
 }
 
 // SecurityConfig groups security-related settings.
@@ -158,9 +158,9 @@ type SecurityConfig struct {
 // outside this package, which makes NewConfig the single supported way to
 // configure go-auth rather than merely the recommended one.
 type config struct {
-	appName      string
-	baseURL      string
-	environment  Environment
+	appName     string
+	baseURL     string
+	environment Environment
 
 	database DatabaseConfig
 
@@ -174,25 +174,25 @@ type config struct {
 
 	cookie CookieConfig
 
-	mailer         port.Mailer
-	email          *EmailConfig
+	mailer           port.Mailer
+	email            *EmailConfig
 	templateProvider port.TemplateProvider
 
 	registration RegistrationConfig
 
 	organizations OrganizationConfig
 
-	allowedOrigins          []string
-	allowMissingCSRFHeaders bool
-	secret                    string // app-wide HMAC signing key; signers MUST fail closed on empty (see csrf_token.go) - validate() only guards NewConfig
-	passwordPolicy            domain.PasswordPolicy
+	allowedOrigins             []string
+	allowMissingCSRFHeaders    bool
+	secret                     string // app-wide HMAC signing key; signers MUST fail closed on empty (see csrf_token.go) - validate() only guards NewConfig
+	passwordPolicy             domain.PasswordPolicy
 	verificationResendInterval time.Duration
-	rateLimit               *ratelimit.Config
-	csrfToken               *middleware.CSRFTokenConfig
+	rateLimit                  *ratelimit.Config
+	csrfToken                  *middleware.CSRFTokenConfig
 
 	providers []port.OAuthProvider
 
-	audit    AuditConfig
+	audit      AuditConfig
 	auditSinks []audit.EventSink
 
 	logger *slog.Logger

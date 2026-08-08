@@ -60,71 +60,71 @@ type Services struct {
 }
 
 type HandlerGroup struct {
-	Register               http.HandlerFunc
-	Login                  http.HandlerFunc
-	AdminLogin             http.HandlerFunc
-	Logout                 http.HandlerFunc
-	ForgotPassword         http.HandlerFunc
-	ResetPassword          http.HandlerFunc
-	ChangePassword         http.HandlerFunc
-	SetPasswordRequest     http.HandlerFunc
-	SetPasswordConfirm     http.HandlerFunc
-	VerifyEmail            http.HandlerFunc
-	ResendVerification     http.HandlerFunc
+	Register                 http.HandlerFunc
+	Login                    http.HandlerFunc
+	AdminLogin               http.HandlerFunc
+	Logout                   http.HandlerFunc
+	ForgotPassword           http.HandlerFunc
+	ResetPassword            http.HandlerFunc
+	ChangePassword           http.HandlerFunc
+	SetPasswordRequest       http.HandlerFunc
+	SetPasswordConfirm       http.HandlerFunc
+	VerifyEmail              http.HandlerFunc
+	ResendVerification       http.HandlerFunc
 	ResendVerificationPublic http.HandlerFunc
-	ListSessions           http.HandlerFunc
-	GetAllSessions         http.HandlerFunc
-	RevokeSession          http.HandlerFunc
-	RevokeManySessions     http.HandlerFunc
-	RevokeAllSessions      http.HandlerFunc
-	InviteRegister         http.HandlerFunc
-	CheckSession           http.HandlerFunc
-	RefreshToken           http.HandlerFunc
-	GetMe                  http.HandlerFunc
-	ChangeName             http.HandlerFunc
-	DeleteAccount          http.HandlerFunc
-	RequestDeleteAccount   http.HandlerFunc
-	ConfirmDeleteAccount   http.HandlerFunc
-	ListUsers              http.HandlerFunc
-	UpdateUserRole         http.HandlerFunc
-	BanUser                http.HandlerFunc
-	UnbanUser              http.HandlerFunc
-	DeleteUser             http.HandlerFunc
-	RevokeUserSessions     http.HandlerFunc
-	AdminCreateUser        http.HandlerFunc
-	AdminListUserSessions  http.HandlerFunc
-	AdminRevokeUserSession http.HandlerFunc
-	GetUserDetail          http.HandlerFunc
-	AdminListAuditLogs     http.HandlerFunc
-	AdminListUserAuditLogs http.HandlerFunc
-	GetInviteInfo          http.HandlerFunc
-	CreateInvite           http.HandlerFunc
-	ListInvites            http.HandlerFunc
-	RevokeInvite           http.HandlerFunc
-	ResendInvite           http.HandlerFunc
-	HardDeleteInvite       http.HandlerFunc
-	OAuthInitiate          http.HandlerFunc
-	OAuthCallback          http.HandlerFunc
-	OAuthLink              http.HandlerFunc
-	OAuthUnlink            http.HandlerFunc
-	OAuthProviders         http.HandlerFunc
-	CSRFToken              http.HandlerFunc
-	CreateOrg              http.HandlerFunc
-	GetOrg                 http.HandlerFunc
-	UpdateOrg              http.HandlerFunc
-	DeleteOrg              http.HandlerFunc
-	ListUserOrgs           http.HandlerFunc
-	ListOrgMembers         http.HandlerFunc
-	RemoveOrgMember        http.HandlerFunc
-	UpdateOrgMemberRole    http.HandlerFunc
-	LeaveOrg               http.HandlerFunc
-	SetActiveOrg           http.HandlerFunc
-	ClearActiveOrg         http.HandlerFunc
-	CreateOrgInvite        http.HandlerFunc
-	AcceptOrgInvite        http.HandlerFunc
-	ListOrgInvites         http.HandlerFunc
-	ResendOrgInvite        http.HandlerFunc
-	DeleteOrgInvite        http.HandlerFunc
+	ListSessions             http.HandlerFunc
+	GetAllSessions           http.HandlerFunc
+	RevokeSession            http.HandlerFunc
+	RevokeManySessions       http.HandlerFunc
+	RevokeAllSessions        http.HandlerFunc
+	InviteRegister           http.HandlerFunc
+	CheckSession             http.HandlerFunc
+	RefreshToken             http.HandlerFunc
+	GetMe                    http.HandlerFunc
+	ChangeName               http.HandlerFunc
+	DeleteAccount            http.HandlerFunc
+	RequestDeleteAccount     http.HandlerFunc
+	ConfirmDeleteAccount     http.HandlerFunc
+	ListUsers                http.HandlerFunc
+	UpdateUserRole           http.HandlerFunc
+	BanUser                  http.HandlerFunc
+	UnbanUser                http.HandlerFunc
+	DeleteUser               http.HandlerFunc
+	RevokeUserSessions       http.HandlerFunc
+	AdminCreateUser          http.HandlerFunc
+	AdminListUserSessions    http.HandlerFunc
+	AdminRevokeUserSession   http.HandlerFunc
+	GetUserDetail            http.HandlerFunc
+	AdminListAuditLogs       http.HandlerFunc
+	AdminListUserAuditLogs   http.HandlerFunc
+	GetInviteInfo            http.HandlerFunc
+	CreateInvite             http.HandlerFunc
+	ListInvites              http.HandlerFunc
+	RevokeInvite             http.HandlerFunc
+	ResendInvite             http.HandlerFunc
+	HardDeleteInvite         http.HandlerFunc
+	OAuthInitiate            http.HandlerFunc
+	OAuthCallback            http.HandlerFunc
+	OAuthLink                http.HandlerFunc
+	OAuthUnlink              http.HandlerFunc
+	OAuthProviders           http.HandlerFunc
+	CSRFToken                http.HandlerFunc
+	CreateOrg                http.HandlerFunc
+	GetOrg                   http.HandlerFunc
+	UpdateOrg                http.HandlerFunc
+	DeleteOrg                http.HandlerFunc
+	ListUserOrgs             http.HandlerFunc
+	ListOrgMembers           http.HandlerFunc
+	RemoveOrgMember          http.HandlerFunc
+	UpdateOrgMemberRole      http.HandlerFunc
+	LeaveOrg                 http.HandlerFunc
+	SetActiveOrg             http.HandlerFunc
+	ClearActiveOrg           http.HandlerFunc
+	CreateOrgInvite          http.HandlerFunc
+	AcceptOrgInvite          http.HandlerFunc
+	ListOrgInvites           http.HandlerFunc
+	ResendOrgInvite          http.HandlerFunc
+	DeleteOrgInvite          http.HandlerFunc
 }
 
 type MiddlewareGroup struct {
@@ -316,13 +316,13 @@ func New(config config) (*Auth, error) {
 		InviteTTL:                  config.registration.InviteTTL,
 		VerificationCodeTTL:        config.registration.VerificationCodeTTL,
 		VerificationResendInterval: config.verificationResendInterval,
-		SessionTTL:               config.sessionTTL,
-		TokenTTL:                 config.tokenTTL,
-		PasswordPolicy:           config.passwordPolicy,
-		TemplateProvider:         templateProvider,
-		URLValidator:             urlValidator,
-		Logger:                   config.logger,
-		Audit:                    auditPub,
+		SessionTTL:                 config.sessionTTL,
+		TokenTTL:                   config.tokenTTL,
+		PasswordPolicy:             config.passwordPolicy,
+		TemplateProvider:           templateProvider,
+		URLValidator:               urlValidator,
+		Logger:                     config.logger,
+		Audit:                      auditPub,
 	}
 
 	sessionCfg := service.DefaultSessionConfig()
@@ -407,14 +407,14 @@ func New(config config) (*Auth, error) {
 			Audit:          auditPub,
 		})
 		orgInviteSvc = service.NewOrgInviteService(orgInviteRepo, orgRepo, userRepo, sqlDB, genImpl, mailer, service.OrgInviteServiceConfig{
-			MaxOrgsPerUser:  config.organizations.MaxOrgsPerUser,
-			InviteTTL:       inviteTTLForOrgs(config),
-			BaseURL:         config.baseURL,
-			AppName:         config.appName,
+			MaxOrgsPerUser:   config.organizations.MaxOrgsPerUser,
+			InviteTTL:        inviteTTLForOrgs(config),
+			BaseURL:          config.baseURL,
+			AppName:          config.appName,
 			TemplateProvider: templateProvider,
 			URLValidator:     urlValidator,
-			Logger:          config.logger,
-			Audit:           auditPub,
+			Logger:           config.logger,
+			Audit:            auditPub,
 		})
 	}
 
@@ -468,16 +468,16 @@ func New(config config) (*Auth, error) {
 	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 
 	return &Auth{
-		Config:          config,
-		Pool:            pool,
-		DB:              sqlDB,
-		authService:     authSvc,
-		passwordService: passSvc,
-		sessionService:  sessSvc,
-		verifyService:   verifySvc,
-		inviteService:   inviteSvc,
-		adminService:    adminSvc,
-		oAuthService:    oauthSvc,
+		Config:           config,
+		Pool:             pool,
+		DB:               sqlDB,
+		authService:      authSvc,
+		passwordService:  passSvc,
+		sessionService:   sessSvc,
+		verifyService:    verifySvc,
+		inviteService:    inviteSvc,
+		adminService:     adminSvc,
+		oAuthService:     oauthSvc,
 		orgService:       orgSvc,
 		orgInviteService: orgInviteSvc,
 		auditService:     auditSvc,
@@ -555,22 +555,22 @@ func New(config config) (*Auth, error) {
 			// path segment (self-service or org resolved from a code/body),
 			// so they stay authMW-only; SetActiveOrg/AcceptInvite already
 			// check membership inside the service layer.
-			CreateOrg:              corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrg)))))).ServeHTTP,
-			GetOrg:                 corsMW(authMW(orgMemberMW(http.HandlerFunc(h.GetOrg)))).ServeHTTP,
-			UpdateOrg:              corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateOrg))))))).ServeHTTP,
-			DeleteOrg:              corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOwnerMW(http.HandlerFunc(h.DeleteOrg))))))).ServeHTTP,
-			ListUserOrgs:           corsMW(authMW(http.HandlerFunc(h.ListUserOrgs))).ServeHTTP,
-			ListOrgMembers:         corsMW(authMW(orgMemberMW(http.HandlerFunc(h.ListOrgMembers)))).ServeHTTP,
-			RemoveOrgMember:        corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.RemoveMember))))))).ServeHTTP,
-			UpdateOrgMemberRole:    corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateMemberRole))))))).ServeHTTP,
-			LeaveOrg:               corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.LeaveOrg)))))).ServeHTTP,
-			SetActiveOrg:           corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg))))).ServeHTTP,
-			ClearActiveOrg:         corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg))))).ServeHTTP,
-			CreateOrgInvite:        corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CreateOrgInvite)))))))).ServeHTTP,
-			AcceptOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite))))).ServeHTTP,
-			ListOrgInvites:         corsMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ListOrgInvites))))).ServeHTTP,
-			ResendOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite))))))).ServeHTTP,
-			DeleteOrgInvite:        corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite))))))).ServeHTTP,
+			CreateOrg:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrg)))))).ServeHTTP,
+			GetOrg:              corsMW(authMW(orgMemberMW(http.HandlerFunc(h.GetOrg)))).ServeHTTP,
+			UpdateOrg:           corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateOrg))))))).ServeHTTP,
+			DeleteOrg:           corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOwnerMW(http.HandlerFunc(h.DeleteOrg))))))).ServeHTTP,
+			ListUserOrgs:        corsMW(authMW(http.HandlerFunc(h.ListUserOrgs))).ServeHTTP,
+			ListOrgMembers:      corsMW(authMW(orgMemberMW(http.HandlerFunc(h.ListOrgMembers)))).ServeHTTP,
+			RemoveOrgMember:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.RemoveMember))))))).ServeHTTP,
+			UpdateOrgMemberRole: corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateMemberRole))))))).ServeHTTP,
+			LeaveOrg:            corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.LeaveOrg)))))).ServeHTTP,
+			SetActiveOrg:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg))))).ServeHTTP,
+			ClearActiveOrg:      corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg))))).ServeHTTP,
+			CreateOrgInvite:     corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CreateOrgInvite)))))))).ServeHTTP,
+			AcceptOrgInvite:     corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite))))).ServeHTTP,
+			ListOrgInvites:      corsMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ListOrgInvites))))).ServeHTTP,
+			ResendOrgInvite:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite))))))).ServeHTTP,
+			DeleteOrgInvite:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite))))))).ServeHTTP,
 		},
 		Middleware: MiddlewareGroup{
 			Authenticate: authMW,
