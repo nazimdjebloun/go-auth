@@ -12,12 +12,17 @@ type RegisterInput struct {
 	UserAgent string
 }
 
+// RegisterResult is serialized directly by the HTTP handler on the normal
+// success path. Tags keep it consistent with the hand-built map the handler
+// uses on the requires-verification path ({"user", "requiresVerification",
+// "message"}) — both used to produce the same field capitalized differently
+// depending on which branch ran.
 type RegisterResult struct {
-	User                 *domain.User
-	Session              *domain.Session
-	SessionToken         string
-	RefreshToken         string
-	RequiresVerification bool
+	User                 *domain.User    `json:"user"`
+	Session              *domain.Session `json:"session,omitempty"`
+	SessionToken         string          `json:"sessionToken,omitempty"`
+	RefreshToken         string          `json:"refreshToken,omitempty"`
+	RequiresVerification bool            `json:"requiresVerification,omitempty"`
 }
 
 type LoginInput struct {
@@ -27,12 +32,13 @@ type LoginInput struct {
 	UserAgent string
 }
 
+// LoginResult has the same dual-shape rationale as RegisterResult above.
 type LoginResult struct {
-	User                 *domain.User
-	Session              *domain.Session
-	SessionToken         string
-	RefreshToken         string
-	RequiresVerification bool
+	User                 *domain.User    `json:"user"`
+	Session              *domain.Session `json:"session,omitempty"`
+	SessionToken         string          `json:"sessionToken,omitempty"`
+	RefreshToken         string          `json:"refreshToken,omitempty"`
+	RequiresVerification bool            `json:"requiresVerification,omitempty"`
 }
 
 type CompleteInviteInput struct {
@@ -45,10 +51,10 @@ type CompleteInviteInput struct {
 }
 
 type CompleteInviteResult struct {
-	User         *domain.User
-	Session      *domain.Session
-	SessionToken string
-	RefreshToken string
+	User         *domain.User    `json:"user"`
+	Session      *domain.Session `json:"session,omitempty"`
+	SessionToken string          `json:"sessionToken,omitempty"`
+	RefreshToken string          `json:"refreshToken,omitempty"`
 }
 
 type ForgotPasswordInput struct {

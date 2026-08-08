@@ -499,10 +499,10 @@ func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if tok, ok := resp["SessionToken"]; ok && tok != "" {
-		t.Errorf("SessionToken must not leak in JSON response body, got %v", tok)
+	if tok, ok := resp["sessionToken"]; ok && tok != "" {
+		t.Errorf("sessionToken must not leak in JSON response body, got %v", tok)
 	}
-	user, ok := resp["User"].(map[string]any)
+	user, ok := resp["user"].(map[string]any)
 	if !ok {
 		t.Fatal("expected user object in response")
 	}
