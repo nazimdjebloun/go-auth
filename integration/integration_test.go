@@ -85,7 +85,11 @@ func newSQLiteDB(t *testing.T) (*sql.DB, func()) {
 	return db, cleanup
 }
 
-func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
+// newTestAuth builds a *goauth.Auth directly rather than returning an
+// intermediate goauth.Config — the config type is unexported (NewConfig is
+// the only supported way to build one), so external packages can't name it
+// as a variable/return type.
+func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 	cfg, err := goauth.NewConfig(
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
@@ -119,15 +123,15 @@ func testConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 		goauth.WithAudit(goauth.AuditConfig{Enabled: true}),
 	)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return cfg
+	return goauth.New(cfg)
 }
 
 func openAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 	t.Helper()
 	migrateDB(t, db, "sqlite")
-	a, err := goauth.New(testConfig(db, mailer))
+	a, err := newTestAuth(db, mailer)
 	if err != nil {
 		t.Fatal(err)
 	}

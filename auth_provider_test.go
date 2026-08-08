@@ -19,7 +19,7 @@ func (m *mockProvider) Exchange(_ context.Context, _ string, _ string) (*port.OA
 }
 
 func TestWithProvider_Nil(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := defaultConfig()
 	WithProvider(nil)(&cfg)
 	if len(cfg.providers) != 1 {
 		t.Fatal("expected 1 provider (nil) in slice")
@@ -30,7 +30,7 @@ func TestWithProvider_Nil(t *testing.T) {
 }
 
 func TestWithProvider_EmptyName(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := defaultConfig()
 	WithProvider(&mockProvider{name: ""})(&cfg)
 	if len(cfg.providers) != 1 {
 		t.Fatal("expected 1 provider in slice")
@@ -38,7 +38,7 @@ func TestWithProvider_EmptyName(t *testing.T) {
 }
 
 func TestWithProvider_Valid(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := defaultConfig()
 	WithProvider(&mockProvider{name: "test"})(&cfg)
 	if len(cfg.providers) != 1 {
 		t.Fatal("expected 1 provider")
@@ -49,7 +49,7 @@ func TestWithProvider_Valid(t *testing.T) {
 }
 
 func TestWithProvider_Multiple(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := defaultConfig()
 	WithProvider(&mockProvider{name: "a"})(&cfg)
 	WithProvider(&mockProvider{name: "b"})(&cfg)
 	WithProvider(&mockProvider{name: "c"})(&cfg)

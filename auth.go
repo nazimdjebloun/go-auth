@@ -26,7 +26,7 @@ import (
 )
 
 type Auth struct {
-	Config     Config
+	Config     config
 	Pool       *pgxpool.Pool
 	DB         *sqlstore.DB
 	Services   Services
@@ -134,21 +134,21 @@ type MiddlewareGroup struct {
 	CORS         func(http.Handler) http.Handler
 }
 
-func New(config Config) (*Auth, error) {
-	if config.appName == "" {
-		config.appName = "App"
-	}
-	if config.sessionTTL == 0 {
-		config.sessionTTL = 30 * 24 * time.Hour
-	}
-	if config.tokenTTL == 0 {
-		config.tokenTTL = 1 * time.Hour
-	}
-	if config.refreshTokenTTL == 0 {
-		config.refreshTokenTTL = 30 * 24 * time.Hour
-	}
-	if config.sessionIdleTTL == 0 {
-		config.sessionIdleTTL = 7 * 24 * time.Hour
+// New builds the Auth instance from a config produced by NewConfig(opts...)
+// — the only supported way to configure go-auth. NewConfig is what runs
+// validate() (required fields, secret length, origin policy, rate-limit
+// settings, and everything else in config.validate()); the config type
+// itself is unexported, so there is no way to construct one any other way.
+// The validated check below is belt-and-suspenders defense in depth against
+// silently proceeding with unvalidated — and in the case of an empty
+// secret, cryptographically unsafe — settings.
+func New(config config) (*Auth, error) {
+	if !config.validated {
+		return nil, fmt.Errorf(
+			"goauth: config was not built via NewConfig(opts...) — " +
+				"construct it with goauth.NewConfig(goauth.WithApp(...), ...) so " +
+				"required fields and security settings are validated",
+		)
 	}
 	if config.environment.normalize() == EnvironmentDev && config.logger != nil {
 		config.logger.Warn("goauth: running in dev environment — cookies are not Secure")
@@ -838,7 +838,7 @@ func mysqlBoolParam(v string) bool {
 	}
 }
 
-func inviteTTLForOrgs(cfg Config) time.Duration {
+func inviteTTLForOrgs(cfg config) time.Duration {
 	if cfg.organizations.InviteTTL > 0 {
 		return cfg.organizations.InviteTTL
 	}

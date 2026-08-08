@@ -17,7 +17,11 @@ import (
 
 const testDBName = "goauth_test"
 
-func postgresConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
+// newPostgresTestAuth builds a *goauth.Auth directly rather than returning
+// an intermediate goauth.Config — the config type is unexported (NewConfig
+// is the only supported way to build one), so external packages can't name
+// it as a variable/return type.
+func newPostgresTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 	cfg, err := goauth.NewConfig(
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestAppPG",
@@ -41,9 +45,9 @@ func postgresConfig(db *sql.DB, mailer port.Mailer) goauth.Config {
 		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return cfg
+	return goauth.New(cfg)
 }
 
 // postgresTestDB creates a dedicated goauth_test_db database (isolated from the
@@ -97,9 +101,7 @@ func TestPostgres_RegisterAndValidateSession(t *testing.T) {
 
 	mailer := &testMailer{}
 	migrateDB(t, db, "postgres")
-	cfg := postgresConfig(db, mailer)
-
-	a, err := goauth.New(cfg)
+	a, err := newPostgresTestAuth(db, mailer)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,9 +169,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 
 	mailer := &testMailer{}
 	migrateDB(t, db, "postgres")
-	cfg := postgresConfig(db, mailer)
-
-	a, err := goauth.New(cfg)
+	a, err := newPostgresTestAuth(db, mailer)
 	if err != nil {
 		t.Fatal(err)
 	}
