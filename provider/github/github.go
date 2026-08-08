@@ -83,12 +83,20 @@ func (g *GitHub) Exchange(ctx context.Context, code string, codeVerifier string)
 	email := user.Email
 	emailVerified := false
 	if email == "" {
+		// No public profile email — fall back to /user/emails (requires the
+		// user:email scope) and use its explicit per-address verified flag.
 		var err error
 		email, emailVerified, err = fetchGitHubPrimaryEmail(client)
 		if err != nil {
 			return nil, err
 		}
 	} else {
+		// GitHub only lets a user choose their public profile email from
+		// their set of *verified* addresses (Settings > Emails > Public
+		// email) — an unverified address cannot be selected. So a non-empty
+		// user.Email is verified by construction; there is no separate
+		// "verified" field on /user to check it against, unlike the
+		// per-address entries returned by /user/emails above.
 		emailVerified = true
 	}
 
