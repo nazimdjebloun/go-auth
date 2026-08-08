@@ -1,6 +1,14 @@
 package sqlstore
 
-import "testing"
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"os"
+	"testing"
+
+	_ "modernc.org/sqlite"
+)
 
 func TestRebindQuery_PostgresPassthrough(t *testing.T) {
 	// Rebind is called via DB — we test rebindQuery directly for MySQL/SQLite
@@ -99,5 +107,124 @@ func TestDriver_MysqlDriversMap(t *testing.T) {
 	}
 	if mysqlDrivers["postgres"] {
 		t.Error("expected postgres NOT in mysqlDrivers")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// WithTx: regression tests for actual transactional atomicity.
+//
+// A prior version of WithTx stored its *sql.Tx in context but ExecContext/
+// QueryContext/QueryRowContext never looked for it, so every "transactional"
+// statement silently autocommitted against the pool instead of running
+// inside the transaction. These tests exercise that behavior directly
+// against a real SQLite file (a shared in-memory DB isn't used because each
+// pooled connection to ":memory:" is its own separate database, which would
+// make the isolation check meaningless — see newSQLiteTestDB).
+// ---------------------------------------------------------------------------
+
+func newSQLiteTestDB(t *testing.T) *DB {
+	t.Helper()
+	f, err := os.CreateTemp("", "goauth-db-test-*.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawDB, err := sql.Open("sqlite", f.Name()+"?_pragma=busy_timeout(10000)")
+	if err != nil {
+		os.Remove(f.Name())
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		rawDB.Close()
+		os.Remove(f.Name())
+	})
+	if _, err := rawDB.Exec("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	return NewDB(rawDB, "sqlite")
+}
+
+func countKV(t *testing.T, db *DB) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM kv").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func TestWithTx_CommitsOnSuccess(t *testing.T) {
+	db := newSQLiteTestDB(t)
+
+	err := db.WithTx(context.Background(), func(ctx context.Context) error {
+		if _, err := db.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ($1, $2)", "a", "1"); err != nil {
+			return err
+		}
+		_, err := db.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ($1, $2)", "b", "2")
+		return err
+	})
+	if err != nil {
+		t.Fatalf("WithTx returned error: %v", err)
+	}
+	if n := countKV(t, db); n != 2 {
+		t.Errorf("expected 2 rows after commit, got %d", n)
+	}
+}
+
+func TestWithTx_RollsBackOnError(t *testing.T) {
+	db := newSQLiteTestDB(t)
+	sentinel := errors.New("boom")
+
+	err := db.WithTx(context.Background(), func(ctx context.Context) error {
+		if _, err := db.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ($1, $2)", "a", "1"); err != nil {
+			return err
+		}
+		return sentinel
+	})
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("expected sentinel error, got %v", err)
+	}
+	if n := countKV(t, db); n != 0 {
+		t.Errorf("expected rollback to leave 0 rows, got %d — WithTx is not providing real atomicity", n)
+	}
+}
+
+func TestWithTx_StatementsScopedToTransaction(t *testing.T) {
+	db := newSQLiteTestDB(t)
+
+	var countDuringTx int
+	err := db.WithTx(context.Background(), func(ctx context.Context) error {
+		if _, err := db.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ($1, $2)", "a", "1"); err != nil {
+			return err
+		}
+		// Read through the raw pool (a context with no tx), bypassing the
+		// active transaction — this proves the insert is actually scoped to
+		// the transaction rather than having already autocommitted.
+		return db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM kv").Scan(&countDuringTx)
+	})
+	if err != nil {
+		t.Fatalf("WithTx returned error: %v", err)
+	}
+	if countDuringTx != 0 {
+		t.Errorf("expected the insert to be invisible outside the transaction before commit, saw %d rows", countDuringTx)
+	}
+	if n := countKV(t, db); n != 1 {
+		t.Errorf("expected 1 row after commit, got %d", n)
+	}
+}
+
+func TestWithTx_NestedJoinsOuterTransaction(t *testing.T) {
+	db := newSQLiteTestDB(t)
+
+	err := db.WithTx(context.Background(), func(ctx context.Context) error {
+		return db.WithTx(ctx, func(ctx context.Context) error {
+			_, err := db.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ($1, $2)", "a", "1")
+			return err
+		})
+	})
+	if err != nil {
+		t.Fatalf("WithTx returned error: %v", err)
+	}
+	if n := countKV(t, db); n != 1 {
+		t.Errorf("expected 1 row after nested WithTx commits, got %d", n)
 	}
 }

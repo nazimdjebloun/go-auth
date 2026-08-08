@@ -75,27 +75,55 @@ func rebindQuery(query string) string {
 	return b.String()
 }
 
+type txKey struct{}
+
+// txFromContext returns the *sql.Tx started by WithTx, if ctx was derived
+// from its callback. Every repository call goes through ExecContext /
+// QueryContext / QueryRowContext below, so this is the single place that
+// decides whether a statement runs inside the active transaction or
+// autocommits directly against the pool.
+func txFromContext(ctx context.Context) (*sql.Tx, bool) {
+	tx, ok := ctx.Value(txKey{}).(*sql.Tx)
+	return tx, ok
+}
+
 func (d *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return d.DB.ExecContext(ctx, d.Rebind(query), args...)
+	query = d.Rebind(query)
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.ExecContext(ctx, query, args...)
+	}
+	return d.DB.ExecContext(ctx, query, args...)
 }
 
 func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return d.DB.QueryContext(ctx, d.Rebind(query), args...)
+	query = d.Rebind(query)
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.QueryContext(ctx, query, args...)
+	}
+	return d.DB.QueryContext(ctx, query, args...)
 }
 
 func (d *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
-	return d.DB.QueryRowContext(ctx, d.Rebind(query), args...)
+	query = d.Rebind(query)
+	if tx, ok := txFromContext(ctx); ok {
+		return tx.QueryRowContext(ctx, query, args...)
+	}
+	return d.DB.QueryRowContext(ctx, query, args...)
 }
 
-type txKey struct{}
-
-type executor interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
+// WithTx runs fn inside a single database transaction. Every repository
+// call made with the ctx passed to fn — via ExecContext/QueryContext/
+// QueryRowContext above — runs on that transaction, not the pool, so a
+// failure partway through fn rolls back everything fn already did.
 func (d *DB) WithTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	if _, ok := txFromContext(ctx); ok {
+		// Already inside a transaction — join it instead of starting a
+		// nested one, which would open a second connection and could
+		// deadlock against the still-open outer transaction on
+		// single-writer databases like SQLite.
+		return fn(ctx)
+	}
+
 	tx, err := d.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -107,11 +135,4 @@ func (d *DB) WithTx(ctx context.Context, fn func(ctx context.Context) error) err
 		return err
 	}
 	return tx.Commit()
-}
-
-func (d *DB) getExecutor(ctx context.Context) executor {
-	if tx, ok := ctx.Value(txKey{}).(executor); ok {
-		return tx
-	}
-	return d
 }
