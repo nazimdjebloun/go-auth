@@ -103,6 +103,9 @@ func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 			TTL:             1 * time.Hour,
 			IdleTTL:         1 * time.Hour,
 			RefreshTokenTTL: 1 * time.Hour,
+			// Off, so refresh-token reuse is detected immediately rather than
+			// tolerated for the default 5s — see TestRefreshToken_E2E.
+			GraceWindow: goauth.Disabled,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
 			AllowedOrigins: []string{"http://localhost:8080"},

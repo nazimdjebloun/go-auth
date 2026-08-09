@@ -11,10 +11,11 @@ import (
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
-func TestDefaultConfig_Valid(t *testing.T) {
-	cfg := defaultConfig()
+func TestApplyDefaults_Valid(t *testing.T) {
+	var cfg config
+	cfg.applyDefaults()
 	if cfg.appName != "" {
-		t.Error("expected empty appName in DefaultConfig")
+		t.Error("expected empty appName after applyDefaults")
 	}
 	if cfg.sessionTTL != 30*24*time.Hour {
 		t.Errorf("expected sessionTTL 30d, got %v", cfg.sessionTTL)
@@ -51,6 +52,7 @@ func TestValidate_NoDatabase(t *testing.T) {
 
 func TestValidate_WithDB(t *testing.T) {
 	cfg := config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
+	cfg.applyDefaults()
 	err := cfg.validate()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -109,6 +111,7 @@ func TestValidate_RequiresEmailWithMailer(t *testing.T) {
 	cfg := config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, mailer: &mockMailer{}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
 	cfg.registration.EnableEmailPassword = true
 	cfg.registration.RequireEmailVerification = true
+	cfg.applyDefaults()
 	err := cfg.validate()
 	if err != nil {
 		t.Fatalf("unexpected error when Mailer is set: %v", err)
@@ -589,9 +592,10 @@ func TestNew_RejectsZeroValueConfig(t *testing.T) {
 }
 
 func TestNew_RejectsDefaultConfigWithoutNewConfig(t *testing.T) {
-	// defaultConfig() alone — even with fields filled in by hand afterward —
+	// A defaulted config — even with fields filled in by hand afterward —
 	// must still be rejected, since it never went through validate().
-	cfg := defaultConfig()
+	var cfg config
+	cfg.applyDefaults()
 	cfg.appName = "Test"
 	cfg.baseURL = "http://localhost"
 	cfg.database.Driver = DriverSQLite
@@ -710,6 +714,7 @@ func TestValidate_SecretTooShort(t *testing.T) {
 
 func TestValidate_Secret32BytesOK(t *testing.T) {
 	cfg := config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
+	cfg.applyDefaults()
 	err := cfg.validate()
 	if err != nil {
 		t.Fatalf("unexpected error for 32-byte secret: %v", err)
@@ -717,7 +722,7 @@ func TestValidate_Secret32BytesOK(t *testing.T) {
 }
 
 func TestWithSecret_SetsSecret(t *testing.T) {
-	cfg := defaultConfig()
+	var cfg config
 	WithSecret("0123456789abcdef0123456789abcdef")(&cfg)
 	if cfg.secret != "0123456789abcdef0123456789abcdef" {
 		t.Fatal("expected secret to be set")

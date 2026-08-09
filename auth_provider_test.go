@@ -12,16 +12,14 @@ type mockProvider struct {
 	name string
 }
 
-func (m *mockProvider) Name() string { return m.name }
-func (m *mockProvider) AuthURL(state string, codeChallenge string) string {
-	return "https://auth.example.com/" + state
-}
+func (m *mockProvider) Name() string                                                  { return m.name }
+func (m *mockProvider) AuthURL(state string, codeChallenge string) string              { return "https://auth.example.com/" + state }
 func (m *mockProvider) Exchange(_ context.Context, _ string, _ string) (*port.OAuthProfile, error) {
 	return &port.OAuthProfile{Provider: m.name, ProviderUserID: "1", Email: "test@example.com", EmailVerified: true}, nil
 }
 
 func TestWithProvider_Nil(t *testing.T) {
-	cfg := defaultConfig()
+	var cfg config
 	WithProvider(nil)(&cfg)
 	if len(cfg.providers) != 1 {
 		t.Fatal("expected 1 provider (nil) in slice")
@@ -32,7 +30,7 @@ func TestWithProvider_Nil(t *testing.T) {
 }
 
 func TestWithProvider_EmptyName(t *testing.T) {
-	cfg := defaultConfig()
+	var cfg config
 	WithProvider(&mockProvider{name: ""})(&cfg)
 	if len(cfg.providers) != 1 {
 		t.Fatal("expected 1 provider in slice")
@@ -40,7 +38,7 @@ func TestWithProvider_EmptyName(t *testing.T) {
 }
 
 func TestWithProvider_Valid(t *testing.T) {
-	cfg := defaultConfig()
+	var cfg config
 	WithProvider(&mockProvider{name: "test"})(&cfg)
 	if len(cfg.providers) != 1 {
 		t.Fatal("expected 1 provider")
@@ -51,7 +49,7 @@ func TestWithProvider_Valid(t *testing.T) {
 }
 
 func TestWithProvider_Multiple(t *testing.T) {
-	cfg := defaultConfig()
+	var cfg config
 	WithProvider(&mockProvider{name: "a"})(&cfg)
 	WithProvider(&mockProvider{name: "b"})(&cfg)
 	WithProvider(&mockProvider{name: "c"})(&cfg)

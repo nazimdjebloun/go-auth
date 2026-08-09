@@ -151,7 +151,7 @@ func New(config config) (*Auth, error) {
 		)
 	}
 	if config.environment.normalize() == EnvironmentDev && config.logger != nil {
-		config.logger.Warn("goauth: running in dev environment — cookies are not Secure")
+		config.logger.Warn("goauth: running in dev environment", "cookie_secure", config.cookieSecure)
 	}
 
 	// Derive all cryptographic keys from the single application secret.
@@ -166,7 +166,7 @@ func New(config config) (*Auth, error) {
 		}
 	}
 	if config.csrfToken != nil {
-		config.csrfToken.CookieSecure = config.cookie.Secure
+		config.csrfToken.CookieSecure = config.cookieSecure
 		config.csrfToken.Secret = keys.CSRF
 		config.csrfToken.Logger = config.logger
 	}
@@ -335,7 +335,7 @@ func New(config config) (*Auth, error) {
 	sessionCfg.CookieName = config.cookie.Name
 	sessionCfg.Domain = config.cookie.Domain
 	sessionCfg.Path = config.cookie.Path
-	sessionCfg.Secure = config.cookie.Secure
+	sessionCfg.Secure = config.cookieSecure
 	sessionCfg.SameSite = int(config.cookie.SameSite)
 	sessionCfg.Logger = config.logger
 	sessionCfg.Audit = auditPub
@@ -383,7 +383,7 @@ func New(config config) (*Auth, error) {
 			CookieName:               config.cookie.Name,
 			CookieDomain:             config.cookie.Domain,
 			CookiePath:               config.cookie.Path,
-			CookieSecure:             config.cookie.Secure,
+			CookieSecure:             config.cookieSecure,
 			CookieSameSite:           config.cookie.SameSite,
 			RequireEmailVerification: config.registration.RequireEmailVerification,
 			EnableOAuth:              config.registration.EnableOAuth,
@@ -408,7 +408,7 @@ func New(config config) (*Auth, error) {
 		})
 		orgInviteSvc = service.NewOrgInviteService(orgInviteRepo, orgRepo, userRepo, sqlDB, genImpl, mailer, service.OrgInviteServiceConfig{
 			MaxOrgsPerUser:   config.organizations.MaxOrgsPerUser,
-			InviteTTL:        inviteTTLForOrgs(config),
+			InviteTTL:        config.organizations.InviteTTL,
 			BaseURL:          config.baseURL,
 			AppName:          config.appName,
 			TemplateProvider: templateProvider,
@@ -836,13 +836,6 @@ func mysqlBoolParam(v string) bool {
 	default:
 		return false
 	}
-}
-
-func inviteTTLForOrgs(cfg config) time.Duration {
-	if cfg.organizations.InviteTTL > 0 {
-		return cfg.organizations.InviteTTL
-	}
-	return 7 * 24 * time.Hour
 }
 
 func sqlDriverName(driver Driver) string {
