@@ -157,8 +157,18 @@ func New(config config) (*Auth, error) {
 	// Derive all cryptographic keys from the single application secret.
 	keys := keyring.Derive([]byte(config.secret))
 
-	// Auto-enable CSRF double-submit when a secret is present.
-	if config.csrfToken == nil && len(config.secret) >= 32 {
+	// The double-submit token layer is on unless explicitly disabled. A nil
+	// CSRFToken means "build one with defaults", not "off" — middleware.CSRFToken
+	// treats a nil config as a pass-through, so disabling is expressed by
+	// leaving csrfToken nil here.
+	if config.disableCSRFToken {
+		config.csrfToken = nil
+		if config.logger != nil {
+			config.logger.Warn("goauth: CSRF double-submit token disabled",
+				"note", "origin/referer checking still applies",
+				"fix", "re-enable by removing SecurityConfig.DisableCSRFToken")
+		}
+	} else if config.csrfToken == nil {
 		config.csrfToken = &middleware.CSRFTokenConfig{
 			CookieName: "_csrf",
 			HeaderName: "X-CSRF-Token",

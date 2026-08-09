@@ -10,6 +10,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
+	_ "modernc.org/sqlite"
 )
 
 // Regression tests for the config-defaults audit. Every case here failed
@@ -40,6 +41,38 @@ func minimalOpts(extra ...Option) []Option {
 		WithSecurity(SecurityConfig{AllowedOrigins: []string{"https://example.com"}}),
 	}
 	return append(base, extra...)
+}
+
+// buildAuth runs the full New() path (which is where CSRF wiring happens) on an
+// in-memory SQLite database.
+func buildAuth(t *testing.T, opts ...Option) *Auth {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := GetSchema("sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range SplitSQL(schema) {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("migrate: %v", err)
+		}
+	}
+	cfg, err := NewConfig(append(opts, WithApp(AppConfig{
+		Name:     "app",
+		BaseURL:  "https://example.com",
+		Database: DatabaseConfig{Driver: DriverSQLite, DB: db},
+	}))...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
 }
 
 func TestDefaults_MinimalConfigIsValid(t *testing.T) {
@@ -359,5 +392,48 @@ func TestWithAudit_DoesNotDuplicateSinksOnRepeat(t *testing.T) {
 	}
 	if len(cfg.audit.Sinks) != 1 {
 		t.Errorf("audit.Sinks = %d, want 1 after a repeated option", len(cfg.audit.Sinks))
+	}
+}
+
+func TestCSRFToken_OnByDefault(t *testing.T) {
+	// The layer is on unless explicitly disabled: a nil CSRFToken means
+	// "build one with defaults", not "off".
+	a := buildAuth(t, minimalOpts()...)
+	defer a.Close()
+	if a.Config.csrfToken == nil {
+		t.Fatal("double-submit token layer must be on by default")
+	}
+	if a.Config.csrfToken.CookieName != "_csrf" || a.Config.csrfToken.HeaderName != "X-CSRF-Token" {
+		t.Errorf("unexpected auto-created config: %+v", a.Config.csrfToken)
+	}
+	if len(a.Config.csrfToken.Secret) == 0 {
+		t.Error("signing secret was not derived into the token config")
+	}
+}
+
+func TestCSRFToken_Disable(t *testing.T) {
+	a := buildAuth(t, minimalOpts(WithSecurity(SecurityConfig{
+		AllowedOrigins:   []string{"https://example.com"},
+		DisableCSRFToken: true,
+	}))...)
+	defer a.Close()
+	if a.Config.csrfToken != nil {
+		t.Fatal("DisableCSRFToken must leave csrfToken nil so the middleware passes through")
+	}
+}
+
+func TestCSRFToken_DisableWithMissingHeadersIsRejected(t *testing.T) {
+	// Each is a defensible trade on its own; together they remove every CSRF
+	// defense, so the combination is a configuration error.
+	_, err := NewConfig(minimalOpts(WithSecurity(SecurityConfig{
+		AllowedOrigins:          []string{"https://example.com"},
+		DisableCSRFToken:        true,
+		AllowMissingCSRFHeaders: true,
+	}))...)
+	if err == nil {
+		t.Fatal("expected the combination to be rejected")
+	}
+	if !strings.Contains(err.Error(), "DisableCSRFToken and AllowMissingCSRFHeaders") {
+		t.Errorf("error should name both fields, got: %v", err)
 	}
 }

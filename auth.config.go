@@ -166,9 +166,18 @@ type AppConfig struct {
 type SecurityConfig struct {
 	AllowedOrigins          []string                    // allowed origins for CSRF Origin/Referer check
 	AllowMissingCSRFHeaders bool                        // allow requests without Origin/Referer headers (default false)
-	CSRFToken               *middleware.CSRFTokenConfig // double-submit cookie CSRF (optional, disabled by default)
+	CSRFToken               *middleware.CSRFTokenConfig // double-submit cookie CSRF (optional overrides; the layer is on by default)
 	PasswordPolicy          domain.PasswordPolicy       // password complexity (zero value = MinLength 8, RequireDigit)
 	TokenTTL                time.Duration               // how long verification/reset tokens live (default 1h)
+
+	// DisableCSRFToken turns off the double-submit cookie layer. Origin/Referer
+	// checking still applies and cannot be disabled. Intended for deployments
+	// with no browser clients — a CLI or a server-to-server API — where CSRF is
+	// not part of the threat model and the token round-trip is pure friction.
+	//
+	// The zero value keeps the layer on: this is spelled as "Disable" rather
+	// than "Enable" so that forgetting it is the secure outcome.
+	DisableCSRFToken bool
 
 	// AllowHTTPURLs permits http:// links in rendered emails. It governs
 	// template rendering, not transport, so it applies to every mailer.
@@ -217,6 +226,7 @@ type config struct {
 	secret                     string // app-wide HMAC signing key; signers MUST fail closed on empty (see csrf_token.go) - validate() only guards NewConfig
 	passwordPolicy             domain.PasswordPolicy
 	verificationResendInterval time.Duration
+	disableCSRFToken           bool
 	allowHTTPURLsOpt           *bool // consumer intent; nil = derive
 	allowHTTPURLs              bool  // resolved by applyDefaults — read this
 	rateLimit                  *ratelimit.Config
@@ -304,6 +314,11 @@ func (c *config) validate() error {
 		if o == "*" {
 			errs = append(errs, errors.New("allowed_origins must not contain \"*\" — this disables CSRF protection; list specific origins instead"))
 		}
+	}
+	if c.disableCSRFToken && c.allowMissingCSRFHeaders {
+		errs = append(errs, errors.New(
+			"security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set — "+
+				"a cross-site request with no Origin/Referer and no token would pass; keep one of the two layers"))
 	}
 	if c.tokenTTL <= 0 {
 		errs = append(errs, errors.New("token_ttl must be positive"))
@@ -665,6 +680,7 @@ func WithSecurity(cfg SecurityConfig) Option {
 		}
 		c.passwordPolicy = cfg.PasswordPolicy
 		c.tokenTTL = cfg.TokenTTL
+		c.disableCSRFToken = cfg.DisableCSRFToken
 		c.allowHTTPURLsOpt = cfg.AllowHTTPURLs
 	}
 }
