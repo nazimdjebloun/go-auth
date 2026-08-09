@@ -298,7 +298,7 @@ func New(config config) (*Auth, error) {
 		auditSvc = audit.NewAuditService(auditCfg, config.logger)
 		auditSvc.AddSink(audit.NewSQLAuditSink(sqlDB))
 		auditSvc.AddSink(audit.NewLoggerSink(config.logger))
-		for _, sink := range config.auditSinks {
+		for _, sink := range append(append([]audit.EventSink(nil), config.audit.Sinks...), config.auditSinks...) {
 			auditSvc.AddSink(sink)
 		}
 		auditSvc.Start(context.Background())

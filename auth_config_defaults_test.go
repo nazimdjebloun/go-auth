@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
@@ -16,6 +17,11 @@ import (
 // options that assign a struct wholesale cannot tell a zero field from an
 // omitted one, so any partially-filled option silently wiped the defaults for
 // the fields the consumer left alone.
+
+type recordingSink struct{}
+
+func (recordingSink) Handle(_ context.Context, _ audit.Event) error        { return nil }
+func (recordingSink) HandleBatch(_ context.Context, _ []audit.Event) error { return nil }
 
 type noopMailer struct{}
 
@@ -339,5 +345,19 @@ func TestWithRateLimit_DeepCopiesDisabledPaths(t *testing.T) {
 	cfg.rateLimit.DisabledPaths[0] = "/written-by-library"
 	if shared.DisabledPaths[0] != "/caller-owned" {
 		t.Errorf("caller's DisabledPaths slice was aliased: %v", shared.DisabledPaths)
+	}
+}
+
+func TestWithAudit_DoesNotDuplicateSinksOnRepeat(t *testing.T) {
+	var cfg config
+	sink := recordingSink{}
+	opt := WithAudit(AuditConfig{Enabled: true, Sinks: []audit.EventSink{sink}})
+	opt(&cfg)
+	opt(&cfg)
+	if len(cfg.auditSinks) != 0 {
+		t.Errorf("WithAudit must not accumulate into auditSinks, got %d", len(cfg.auditSinks))
+	}
+	if len(cfg.audit.Sinks) != 1 {
+		t.Errorf("audit.Sinks = %d, want 1 after a repeated option", len(cfg.audit.Sinks))
 	}
 }

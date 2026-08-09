@@ -791,11 +791,13 @@ func WithProvider(p port.OAuthProvider) Option {
 	}
 }
 
-// WithAudit configures audit logging.
+// WithAudit configures audit logging. Sinks listed in cfg are registered once
+// regardless of how many times this option is applied; appending them here
+// instead would duplicate every sink — and so every audit event — on a repeat
+// call. New() reads cfg.Sinks and the WithAuditSink list together.
 func WithAudit(cfg AuditConfig) Option {
 	return func(c *config) {
 		c.audit = cfg
-		c.auditSinks = append(c.auditSinks, cfg.Sinks...)
 	}
 }
 
