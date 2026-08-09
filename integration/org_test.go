@@ -30,6 +30,7 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 			RefreshTokenTTL: 1 * time.Hour,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs:  goauth.Bool(true),
 			AllowedOrigins: []string{"http://localhost:8080"},
 			TokenTTL:       1 * time.Hour,
 		}),
@@ -44,7 +45,6 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
-		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 		goauth.WithOrganizations(goauth.OrganizationConfig{
 			Enable: true,
 		}),

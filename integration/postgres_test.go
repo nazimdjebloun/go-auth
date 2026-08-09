@@ -36,13 +36,13 @@ func newPostgresTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 			IdleTTL: 1 * time.Hour,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs:  goauth.Bool(true),
 			AllowedOrigins: []string{"http://localhost:8080"},
 			TokenTTL:       1 * time.Hour,
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
-		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
 		return nil, err

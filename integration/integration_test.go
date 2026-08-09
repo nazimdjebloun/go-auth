@@ -108,6 +108,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 			GraceWindow: goauth.Disabled,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs:  goauth.Bool(true),
 			AllowedOrigins: []string{"http://localhost:8080"},
 			TokenTTL:       1 * time.Hour,
 		}),
@@ -122,7 +123,6 @@ func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
-		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 		goauth.WithAudit(goauth.AuditConfig{Enabled: true}),
 	)
 	if err != nil {
@@ -643,13 +643,13 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 			RefreshTokenTTL: 1 * time.Millisecond,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs:  goauth.Bool(true),
 			TokenTTL:       1 * time.Millisecond,
 			AllowedOrigins: []string{"http://localhost:8080"},
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(&testMailer{}),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
-		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -807,13 +807,13 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 			RefreshTokenTTL: 1 * time.Millisecond,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs:  goauth.Bool(true),
 			TokenTTL:       1 * time.Millisecond,
 			AllowedOrigins: []string{"http://localhost:8080"},
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(&testMailer{}),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
-		goauth.WithEmail(goauth.EmailConfig{AllowHTTPURLs: true}),
 	)
 	if err != nil {
 		t.Fatal(err)

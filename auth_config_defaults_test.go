@@ -242,3 +242,61 @@ func TestValidate_MaxLifetimeBelowSessionTTL(t *testing.T) {
 		t.Fatal("expected error when max_lifetime < session_ttl")
 	}
 }
+
+func TestAllowHTTPURLs_Resolution(t *testing.T) {
+	tests := []struct {
+		name string
+		env  Environment
+		set  *bool
+		want bool
+	}{
+		{"dev derives allow", EnvironmentDev, nil, true},
+		{"prod derives refuse", EnvironmentProd, nil, false},
+		{"staging derives refuse", EnvironmentStaging, nil, false},
+		{"explicit true outside dev", EnvironmentProd, Bool(true), true},
+		{"explicit false inside dev", EnvironmentDev, Bool(false), false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := NewConfig(
+				WithApp(AppConfig{
+					Name:        "app",
+					BaseURL:     "https://example.com",
+					Environment: tt.env,
+					Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
+				}),
+				WithSecret("0123456789abcdef0123456789abcdef"),
+				WithSecurity(SecurityConfig{
+					AllowedOrigins: []string{"https://example.com"},
+					AllowHTTPURLs:  tt.set,
+				}),
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.allowHTTPURLs != tt.want {
+				t.Errorf("allowHTTPURLs = %v, want %v", cfg.allowHTTPURLs, tt.want)
+			}
+		})
+	}
+}
+
+func TestDefaults_DevImpliesAllowHTTPURLs(t *testing.T) {
+	cfg, err := NewConfig(
+		WithApp(AppConfig{
+			Name:        "app",
+			BaseURL:     "http://localhost:8080",
+			Environment: EnvironmentDev,
+			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
+		}),
+		WithSecret("0123456789abcdef0123456789abcdef"),
+		WithSecurity(SecurityConfig{AllowedOrigins: []string{"http://localhost:8080"}}),
+		WithMailer(noopMailer{}), // custom mailer, no EmailConfig anywhere
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.allowHTTPURLs {
+		t.Error("dev environment must permit http:// links regardless of transport")
+	}
+}

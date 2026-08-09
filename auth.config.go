@@ -59,13 +59,12 @@ type DatabaseConfig struct {
 
 // EmailConfig configures SMTP email delivery (transport only).
 type EmailConfig struct {
-	From          string
-	Host          string
-	Port          int
-	User          string
-	Pass          string
-	TLSMode       TLSMode
-	AllowHTTPURLs bool // allow http:// URLs in email templates (dev only, default false)
+	From    string
+	Host    string
+	Port    int
+	User    string
+	Pass    string
+	TLSMode TLSMode
 }
 
 // CookieConfig configures the session and refresh cookies. Zero-valued fields
@@ -83,11 +82,16 @@ type CookieConfig struct {
 	Secure *bool
 }
 
-// SecureAlways and SecureNever produce explicit values for CookieConfig.Secure.
-// SecureNever is for local development over http:// only — browsers will send
-// the cookie over plaintext connections.
-func SecureAlways() *bool { v := true; return &v }
-func SecureNever() *bool  { v := false; return &v }
+// Bool returns a pointer to v, for the tri-state config fields where nil means
+// "derive from the environment": CookieConfig.Secure and
+// SecurityConfig.AllowHTTPURLs.
+func Bool(v bool) *bool { return &v }
+
+// SecureAlways and SecureNever are readable spellings of Bool for
+// CookieConfig.Secure. SecureNever is for local development over http:// only
+// — browsers will send the cookie over plaintext connections.
+func SecureAlways() *bool { return Bool(true) }
+func SecureNever() *bool  { return Bool(false) }
 
 // SessionConfig groups session lifetime settings.
 type SessionConfig struct {
@@ -165,6 +169,15 @@ type SecurityConfig struct {
 	CSRFToken               *middleware.CSRFTokenConfig // double-submit cookie CSRF (optional, disabled by default)
 	PasswordPolicy          domain.PasswordPolicy       // password complexity (zero value = MinLength 8, RequireDigit)
 	TokenTTL                time.Duration               // how long verification/reset tokens live (default 1h)
+
+	// AllowHTTPURLs permits http:// links in rendered emails. It governs
+	// template rendering, not transport, so it applies to every mailer.
+	//
+	// Tri-state: nil (the default) derives it — allowed in EnvironmentDev,
+	// refused everywhere else. Set it with Bool(true) to allow plaintext links
+	// outside a dev environment, or Bool(false) to enforce https:// even in
+	// development.
+	AllowHTTPURLs *bool
 }
 
 // ─── Top-level config ───────────────────────────────────────
@@ -204,6 +217,8 @@ type config struct {
 	secret                     string // app-wide HMAC signing key; signers MUST fail closed on empty (see csrf_token.go) - validate() only guards NewConfig
 	passwordPolicy             domain.PasswordPolicy
 	verificationResendInterval time.Duration
+	allowHTTPURLsOpt           *bool // consumer intent; nil = derive
+	allowHTTPURLs              bool  // resolved by applyDefaults — read this
 	rateLimit                  *ratelimit.Config
 	csrfToken                  *middleware.CSRFTokenConfig
 
@@ -504,6 +519,18 @@ func (c *config) applyDefaults() {
 	if c.rateLimit == nil {
 		c.rateLimit = ratelimit.DefaultRateLimitConfig()
 	}
+
+	c.allowHTTPURLs = c.resolveAllowHTTPURLs()
+}
+
+// resolveAllowHTTPURLs honours an explicit SecurityConfig.AllowHTTPURLs and
+// otherwise derives it: http:// links are acceptable in a dev environment and
+// refused everywhere else.
+func (c *config) resolveAllowHTTPURLs() bool {
+	if c.allowHTTPURLsOpt != nil {
+		return *c.allowHTTPURLsOpt
+	}
+	return c.environment.normalize() == EnvironmentDev
 }
 
 // resolveCookieSecure honours an explicit CookieConfig.Secure and otherwise
@@ -635,6 +662,7 @@ func WithSecurity(cfg SecurityConfig) Option {
 		c.csrfToken = cfg.CSRFToken
 		c.passwordPolicy = cfg.PasswordPolicy
 		c.tokenTTL = cfg.TokenTTL
+		c.allowHTTPURLsOpt = cfg.AllowHTTPURLs
 	}
 }
 

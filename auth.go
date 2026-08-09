@@ -274,7 +274,7 @@ func New(config config) (*Auth, error) {
 	if config.templateProvider != nil {
 		templateProvider = config.templateProvider
 	} else {
-		allowHTTP := config.email != nil && config.email.AllowHTTPURLs
+		allowHTTP := config.allowHTTPURLs
 		urlValidator = &port.URLValidator{AllowHTTP: allowHTTP}
 		p, err := emailtemplate.New(urlValidator)
 		if err != nil {
