@@ -1,47 +1,99 @@
 ---
-title: Google Provider
-description: Google OAuth provider setup and usage.
+title: "Google"
+description: "Google OAuth 2.0 provider — setup, configuration, scopes, email handling, and calling the sign-in flow."
+icon: "google"
 ---
 
-# Google Provider
+# Google
 
-`import "github.com/nazimdjebloun/go-auth/provider/google"`
+## Setup
 
-```go
-type Provider struct {
-    // unexported fields
-}
-
-func New(cfg Config) *Provider
-```
+1. Go to the [Google Cloud Console](https://console.cloud.google.com) and create an OAuth 2.0 client ID.
+2. Add an authorized redirect URI: `{BaseURL}/auth/oauth/google/callback`.
 
 ## Configuration
 
-| Param | Description |
-|---|---|
-| `ClientID` | Google OAuth 2.0 client ID |
-| `ClientSecret` | Google OAuth 2.0 client secret |
-| `RedirectURL` | Must match the authorized redirect URI in Google Cloud Console |
+```go
+import "github.com/nazimdjebloun/go-auth/provider/google"
 
-## Methods
+goauth.WithProvider(google.New(google.Config{
+    ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),     // required
+    ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"), // required
+    RedirectURL:  "https://myapp.com/auth/oauth/google/callback", // required
+    Scopes:       nil, // optional, default the two scopes below
+}))
+```
 
-| Method | Signature | Description |
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `ClientID` | `string` | Required | — | Ends in `.apps.googleusercontent.com`. |
+| `ClientSecret` | `string` | Required | — | From the same OAuth client. |
+| `RedirectURL` | `string` | Required | — | Must exactly match an authorized redirect URI in the Cloud Console. |
+| `Scopes` | `[]string` | Optional | `["https://www.googleapis.com/auth/userinfo.email", "https://www.googleapis.com/auth/userinfo.profile"]` | Override to request additional Google scopes. |
+
+The authorization request always includes `access_type=online` (no refresh token is requested from Google — go-auth's own refresh token is separate and unrelated) and `prompt=select_account`, so returning users always see the account chooser instead of silently re-authorizing whichever account is already signed in.
+
+## Email handling
+
+Google's userinfo endpoint returns `verified_email` directly, and the provider passes it through as-is — no fallback logic like GitHub's, since Google always reports verification status on the primary profile.
+
+## Frontend client setup
+
+The **Client** example below calls the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](../guides/client/index.mdx).
+
+## Signing in
+
+### Start the flow — `GET /auth/oauth/google`
+
+Public. Returns Google's authorization URL — PKCE (S256) is always included. Redirect the browser there; Google handles the rest until it redirects back to your callback URL.
+
+**Response** (`200 OK`): `{ "url": "https://accounts.google.com/o/oauth2/v2/auth?..." }`
+
+**Errors**
+
+| Code | Status | Cause |
 |---|---|---|
-| `Name()` | `string` | Returns `"google"` |
-| `AuthURL()` | `(state, codeChallenge string) string` | Google OAuth2 authorize URL |
-| `Exchange()` | `(ctx, code, codeVerifier string) (*port.OAuthProfile, error)` | Exchanges code for token and fetches user profile |
+| `provider_not_found` | 404 | `WithProvider(google.New(...))` was never called, or `EnableOAuth` is `false` |
 
-## Default Scopes
+#### curl
 
-`["openid", "profile", "email"]`
+```bash
+curl https://api.myapp.com/auth/oauth/google
+```
 
-## Registration
+No `Origin` header needed — this is a `GET` with no state-changing effect, so `OriginCheck` doesn't apply to it.
 
-1. Go to Google Cloud Console → APIs & Services → Credentials → Create Credentials → OAuth client ID
-2. Add authorized redirect URI: `https://yourdomain.com/auth/oauth/google/callback`
-3. Use Client ID and Client Secret in config
+---
 
-## Notes
+#### Programmatic (Go)
 
-- Google returns `expires_in` from the token endpoint; `TokenExpiresAt` is set accordingly.
-- The `code_verifier` / `code_challenge` for PKCE is passed as the client secret during token exchange (Google's OAuth 2.0 endpoint accepts it as `client_secret`).
+```go
+url, err := auth.Services.OAuth.Initiate(ctx, "google")
+if err != nil {
+    // *domain.AuthError — provider_not_found if the name is wrong
+}
+// redirect the browser to url
+```
+
+---
+
+#### Client
+
+```ts
+const { url } = await apiRequest(API_BASE, "GET", "/auth/oauth/google");
+window.location.href = url;
+```
+
+---
+
+### The callback — `GET`/`POST /auth/oauth/google/callback`
+
+Google redirects here itself — your frontend never calls this URL directly. On success it sets session cookies and redirects the browser to `{BaseURL}/auth/callback`; on failure, to `{BaseURL}/auth/callback?error={code}&provider=google`. Your frontend route at `{BaseURL}/auth/callback` reads that query string to know whether to show the app or an error.
+
+See [Routes](../routes.mdx#oauth--requires-enableoauth-and-at-least-one-registered-provider) for the full parameter reference, [Error Handling](../error-handling.mdx#oauth) for every error this can redirect back with, and [Guides → OAuth linking](../guides/oauth.mdx) for connecting Google to an account that's already logged in (a different flow from the sign-in one above).
+
+## Next
+
+- [GitHub](github.mdx) — the other built-in provider
+- [OAuth linking](../guides/oauth.mdx) — link/unlink/list connected providers on an existing account
+- [Authentication](../guides/authentication.mdx) — the response shape once a session exists, regardless of how it was created

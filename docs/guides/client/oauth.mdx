@@ -1,0 +1,55 @@
+---
+title: "OAuth linking"
+description: "oauthApi — link, unlink, and list connected OAuth providers on an existing account, built on the apiRequest helper."
+icon: "Cable"
+---
+
+# OAuth linking client
+
+Wraps every endpoint from the [OAuth linking](../oauth.mdx) guide into `oauthApi`, built on the [`apiRequest`](index.mdx) helper.
+
+```ts
+import { apiRequest } from "./client";
+
+const API_BASE = "https://api.myapp.com";
+
+export const oauthApi = {
+  link: async (provider: string) => {
+    const { url } = await apiRequest(API_BASE, "POST", `/auth/oauth/${provider}/link`);
+    window.location.href = url;
+  },
+
+  unlink: (provider: string) =>
+    apiRequest(API_BASE, "POST", `/auth/oauth/${provider}/unlink`),
+
+  listConnected: () => apiRequest(API_BASE, "GET", "/auth/oauth/providers"),
+};
+```
+
+## Using it
+
+```ts
+// Settings page — "Connect GitHub" button
+<button onClick={() => oauthApi.link("github")}>Connect GitHub</button>
+```
+
+```ts
+try {
+  await oauthApi.unlink("github");
+} catch (err) {
+  if (err.error === "cannot_unlink_last_provider") {
+    // prompt the user to set a password first — see the Security client
+  }
+}
+```
+
+```ts
+const { providers } = await oauthApi.listConnected();
+// providers.map(p => p.provider) — e.g. ["github", "google"]
+```
+
+## Next
+
+- [Setup](index.mdx) — the `apiRequest` helper this is built on
+- [OAuth linking](../oauth.mdx) — full request/response/error reference
+- [Security client](security.mdx) — setting a password before unlinking the last provider

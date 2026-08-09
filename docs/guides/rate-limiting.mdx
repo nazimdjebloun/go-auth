@@ -1,0 +1,163 @@
+---
+title: "Rate Limiting"
+description: "WithRateLimit and its narrower variants, the built-in per-route limit table, the 429 response shape, and how to handle one client-side."
+icon: "Gauge"
+---
+
+# Rate Limiting
+
+Rate limiting is **on by default** — an in-memory store plus a built-in table of per-route limits on the sensitive endpoints (login, register, password reset, invites, admin actions, ...). Unlike everything else in these guides, there's no single "endpoint" here: this is cross-cutting middleware sitting in front of every route, so this page is organized around configuring it and handling the response it produces, rather than curl/Go/client per endpoint.
+
+## Configuration
+
+```go
+// Replace the whole table:
+goauth.WithRateLimit(ratelimit.Config{
+    Enabled: true,                                            // optional, default true
+    Default: ratelimit.Rate{Requests: 60, Window: time.Minute}, // optional, default 60/min
+    Routes: map[string]ratelimit.Rate{ // optional, default: the built-in table below
+        "POST /auth/login": {Requests: 10, Window: time.Minute},
+    },
+    Store:           ratelimit.NewMemoryStore(), // required if Enabled; optional otherwise
+    DisabledPaths:   nil,                        // optional, default none
+    TrustedIPs:      []string{"10.0.0.0/8"},     // optional, default none — required if IPAddressHeader is set
+    IPv6Subnet:      64,                         // optional, default 64
+    IPAddressHeader: "CF-Connecting-IP",         // optional, default "" (trusts RemoteAddr only)
+})
+
+// Or adjust one piece without replacing the rest:
+goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 10, Window: time.Minute})
+```
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `Enabled` | `bool` | `true` | Disabling it logs a warning at startup — it's flagged as insecure for production. |
+| `Default` | `ratelimit.Rate` | `60/min` | Applied to any route not listed in `Routes` (and not matched by a prefix pattern — see below). |
+| `Routes` | `map[string]ratelimit.Rate` | the built-in table | Keyed by `"METHOD /path"`, or `"METHOD /path/*"` for a prefix. A `Rate{Requests: 0}` entry disables limiting for that specific route without touching `DisabledPaths`. |
+| `Store` | `ratelimit.Store` | in-memory | See [A note on the default store](#a-note-on-the-default-store) below. |
+| `DisabledPaths` | `[]string` | none | Exact path matches, exempted entirely — no counting, no headers. |
+| `TrustedIPs` | `[]string` | none | CIDR ranges. Required for `IPAddressHeader` to have any effect — see below. |
+| `IPv6Subnet` | `int` | `64` | IPv6 addresses are masked to this prefix length before being used as a rate-limit key, so a client rotating addresses within their own `/64` still shares one bucket. |
+| `IPAddressHeader` | `string` | `""` | e.g. `"CF-Connecting-IP"`, `"X-Forwarded-For"` — only ever read when the immediate peer's address is in `TrustedIPs`; otherwise ignored, so an untrusted client can't spoof it to pick its own rate-limit key. |
+
+**Narrower options** — each lazily starts from the same defaults if you haven't called `WithRateLimit` directly first:
+
+| Option | Adjusts |
+|---|---|
+| `WithRateLimitEnabled(bool)` | Just `Enabled`. |
+| `WithRateLimitDefault(ratelimit.Rate)` | Just the fallback rate. |
+| `WithRateLimitRoute(pattern, ratelimit.Rate)` | Adds or overrides one route's rate without replacing the table. |
+| `WithRateLimitStore(ratelimit.Store)` | Swaps the backing store without touching rates. |
+| `WithTrustedIPs([]string)` | Just `TrustedIPs`. |
+| `WithIPv6Subnet(int)` | Just `IPv6Subnet`. |
+| `WithIPAddressHeader(string)` | Just `IPAddressHeader`. |
+
+### A note on the default store
+
+`ratelimit.NewMemoryStore()` is a fixed-window counter held in a process-local map — it works out of the box with zero setup, but it's **per-instance**: run two copies of your app behind a load balancer and each one enforces the limit independently, so the effective limit is `N × instance count`. For a real multi-instance deployment, implement `ratelimit.Store` (two methods: `Increment(key, window)`, `Reset(key)`) against Redis or similar and pass it to `WithRateLimitStore` — see [Architecture → Extension points](../architecture.mdx#extension-points).
+
+## How a request is matched to a limit
+
+For each request, the key checked against `Routes` is `"METHOD /exact/path"` first; if nothing matches, every key ending in `/*` is tried as a prefix match (e.g. `"POST /auth/orgs/*"` matches `POST /auth/orgs/abc123/leave`); if still nothing matches, `Default` applies. The counter itself is keyed by `method + path + client IP`, so the same IP hitting two different routes (or two different IPs hitting the same route) never share a bucket.
+
+The client IP is `RemoteAddr` by default. If `IPAddressHeader` is set **and** the immediate connection is from an address in `TrustedIPs` (e.g. your own reverse proxy or CDN), the header value is used instead — otherwise it's ignored outright, specifically so a direct, untrusted client can't set `CF-Connecting-IP: 1.2.3.4` itself to dodge the limit.
+
+## The default rate table
+
+Every route below has a limit unless you override it; anything not listed falls back to `Default` (60/min).
+
+| Route | Limit |
+|---|---|
+| `POST /auth/register`, `POST /auth/signup` | 3/min |
+| `POST /auth/login`, `POST /auth/signin` | 5/min |
+| `POST /auth/admin/login` | 3/min |
+| `POST /auth/forgot-password` | 3/hour |
+| `POST /auth/reset-password` | 5/min |
+| `POST /auth/verify-email` | 10/min |
+| `POST /auth/verify-email/resend` | 3/min |
+| `POST /auth/resend-verification` | 3/min |
+| `POST /auth/set-password/request` | 3/15min |
+| `POST /auth/set-password/confirm` | 5/10min |
+| `POST /auth/account/delete/request` | 3/hour |
+| `POST /auth/account/delete/confirm` | 3/hour |
+| `POST /auth/invite/register` | 10/min |
+| `POST /auth/refresh` | 3/min |
+| `POST /auth/orgs` | 5/hour |
+| `POST /auth/orgs/*` | 30/min |
+| `GET /auth/orgs/*` | 60/min |
+| `PUT /auth/orgs/*` | 10/min |
+| `DELETE /auth/orgs/*` | 5/min |
+| `PATCH /auth/orgs/*` | 10/min |
+| `POST /auth/orgs/*/invites` | 20/hour |
+| `GET /auth/orgs/*/invites` | 30/min |
+| `DELETE /auth/orgs/*/invites/*` | 10/min |
+| `GET /admin/users` | 60/min |
+| `POST /admin/users` | 10/min |
+| `PATCH /admin/users/*` | 30/min |
+| `DELETE /admin/users/*` | 10/min |
+| `GET /admin/users/*/sessions` | 60/min |
+| `DELETE /admin/users/*/sessions`, `DELETE /admin/users/*/sessions/*` | 20/min |
+| `POST /admin/invites` | 10/min |
+| `GET /admin/invites` | 60/min |
+| `DELETE /admin/invites/*` | 10/min |
+| `POST /admin/invites/*/resend` | 5/min |
+
+## Hitting a limit
+
+Two distinct outcomes both return `429`, and it matters which one you're looking at:
+
+| Code | Cause |
+|---|---|
+| `rate_limit_exceeded` | Normal case — the caller genuinely exceeded their limit. |
+| `rate_limit_error` | The rate-limit **store itself** failed (e.g. Redis unreachable). This is fail-**closed**, not fail-open — a store outage rejects the request rather than letting it through, since the alternative is silently disabling rate limiting under exactly the conditions (infrastructure trouble) when abuse is most likely. |
+
+Both set a `Retry-After` header (seconds); the normal case additionally sets `X-RateLimit-Limit` and `X-RateLimit-Remaining: 0`.
+
+```json
+{ "error": "rate_limit_exceeded", "message": "Too many requests, please try again later" }
+```
+
+#### curl
+
+```bash
+# Fire past the 5/min login limit and inspect the headers on the response that trips it
+for i in $(seq 1 6); do
+  curl -s -o /dev/null -D - https://api.myapp.com/auth/login \
+    -H "Content-Type: application/json" \
+    -H "Origin: https://myapp.com" \
+    -d '{"email":"ada@example.com","password":"wrong"}' \
+    | grep -E "HTTP|Retry-After|X-RateLimit"
+done
+```
+
+The first five responses come back `401 invalid_credentials`; the sixth is `429` with `Retry-After` and `X-RateLimit-Remaining: 0`.
+
+---
+
+#### Programmatic (Go)
+
+Calling a service method directly (`auth.Services.Auth.Login(ctx, ...)`) skips the HTTP layer entirely — rate limiting is middleware wrapped around `Handlers`, not something the service layer enforces itself. If you're driving go-auth programmatically rather than over HTTP, you're responsible for your own throttling.
+
+---
+
+#### Client
+
+The shared `apiRequest` helper (see [Client → Setup](client/index.mdx)) attaches `retryAfter` (parsed from the `Retry-After` header, in seconds) onto the thrown error whenever the response is `429`, so you don't need to reach for headers yourself:
+
+```ts
+try {
+  await apiRequest(API_BASE, "POST", "/auth/login", { email, password });
+} catch (err) {
+  if (err.error === "rate_limit_exceeded" || err.error === "rate_limit_error") {
+    showError(`Too many attempts — try again in ${err.retryAfter ?? 60}s`);
+    return;
+  }
+  throw err;
+}
+```
+
+## Next
+
+- [Configuration](../configuration.mdx) — every other config block
+- [Architecture → Extension points](../architecture.mdx#extension-points) — implementing `ratelimit.Store` against Redis
+- [Error Handling](../error-handling.mdx) — the full error code list

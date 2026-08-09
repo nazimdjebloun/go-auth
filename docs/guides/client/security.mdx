@@ -1,0 +1,81 @@
+---
+title: "Security"
+description: "securityApi — name/password changes, verification resend, and account deletion, built on the apiRequest helper."
+icon: "ShieldHalf"
+---
+
+# Security client
+
+Wraps every endpoint from the [Security](../security.mdx) guide into `securityApi`, built on the [`apiRequest`](index.mdx) helper.
+
+```ts
+import { apiRequest } from "./client";
+
+const API_BASE = "https://api.myapp.com";
+
+export const securityApi = {
+  changeName: (name: string) => apiRequest(API_BASE, "PUT", "/auth/name", { name }),
+
+  changePassword: (oldPassword: string, newPassword: string) =>
+    apiRequest(API_BASE, "PUT", "/auth/password", { oldPassword, newPassword }),
+
+  requestSetPassword: () => apiRequest(API_BASE, "POST", "/auth/set-password/request"),
+
+  confirmSetPassword: (userId: string, code: string, newPassword: string) =>
+    apiRequest(API_BASE, "POST", "/auth/set-password/confirm", { userId, code, newPassword }),
+
+  forgotPassword: (email: string) =>
+    apiRequest(API_BASE, "POST", "/auth/forgot-password", { email }),
+
+  resetPassword: (code: string, newPassword: string) =>
+    apiRequest(API_BASE, "POST", "/auth/reset-password", { code, newPassword }),
+
+  resendVerification: () => apiRequest(API_BASE, "POST", "/auth/resend-verification"),
+
+  resendVerificationByEmail: (email: string) =>
+    apiRequest(API_BASE, "POST", "/auth/verify-email/resend", { email }),
+
+  deleteAccount: (password: string) =>
+    apiRequest(API_BASE, "DELETE", "/auth/account", { password }),
+
+  requestDeleteAccount: () => apiRequest(API_BASE, "POST", "/auth/account/delete/request"),
+
+  confirmDeleteAccount: (code: string) =>
+    apiRequest(API_BASE, "POST", "/auth/account/delete/confirm", { code }),
+};
+```
+
+## Using it
+
+```ts
+try {
+  await securityApi.changePassword(oldPassword, newPassword);
+} catch (err) {
+  // wrong_password / weak_password / no_password — see the Security guide
+  showError(err.message ?? err.error);
+}
+```
+
+```ts
+// OAuth-only account with no password yet
+await securityApi.requestSetPassword();
+// ...user clicks the emailed link, lands on a confirm page with the code...
+await securityApi.confirmSetPassword(userId, code, newPassword);
+```
+
+```ts
+// Account with a password
+await securityApi.deleteAccount(password);
+setUser(null);
+
+// OAuth-only account
+await securityApi.requestDeleteAccount();
+// ...user enters the emailed code...
+await securityApi.confirmDeleteAccount(code);
+setUser(null);
+```
+
+## Next
+
+- [Setup](index.mdx) — the `apiRequest` helper this is built on
+- [Security](../security.mdx) — full request/response/error reference and `SecurityConfig`

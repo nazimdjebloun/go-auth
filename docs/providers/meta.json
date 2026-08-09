@@ -1,12 +1,8 @@
 {
+  "title": "Providers",
   "pages": [
     "index",
-    "apple",
     "github",
-    "gitlab",
-    "google",
-    "microsoft",
-    "slack",
-    "custom"
+    "google"
   ]
 }

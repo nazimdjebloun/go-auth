@@ -1,0 +1,526 @@
+---
+title: "Security"
+description: "SecurityConfig — origin allow-list, CSRF, and password policy — plus every self-service account action: name, password, verification, and deletion."
+icon: "ShieldCheck"
+---
+
+# Security
+
+`SecurityConfig` is the one required-beyond-the-basics config block — it holds the origin allow-list, the optional CSRF double-submit cookie, and the password policy every new or changed password is checked against. This page covers that config, then every endpoint an authenticated user calls to manage their own account: changing their name or password, setting a password on an OAuth-only account, the public forgot/reset flow, re-sending email verification, and deleting the account.
+
+For the initial registration verification step (not the resend covered here), see [Authentication → Verifying the email](authentication.mdx#verifying-the-email). For why login timing is constant and how sessions are hashed, see [Security concepts](../security.mdx).
+
+## Configuration
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{
+    AllowedOrigins:          []string{"https://myapp.com"}, // required — at least one, never "*"
+    AllowMissingCSRFHeaders: false,                          // optional, default false
+    CSRFToken: &middleware.CSRFTokenConfig{ // optional, default nil (disabled)
+        TokenLength:    32,                       // optional, default 32
+        CookieName:     "_csrf",                  // optional, default "_csrf"
+        HeaderName:     "X-CSRF-Token",           // optional, default "X-CSRF-Token"
+        CookiePath:     "/",                      // optional, default "/"
+        CookieSameSite: http.SameSiteLaxMode,     // optional, default Lax
+        // CookieSecure and Secret are filled in automatically — do not set them.
+    },
+    PasswordPolicy: domain.PasswordPolicy{ // optional, default {MinLength: 8, RequireDigit: true}
+        MinLength:        12,
+        RequireUppercase: true,
+        RequireDigit:     true,
+        RequireSpecial:   false,
+    },
+    TokenTTL:      time.Hour,          // optional, default 1h
+    AllowHTTPURLs: goauth.Bool(false), // optional, default derived from Environment
+})
+```
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `AllowedOrigins` | `[]string` | Required | — | At least one entry. `"*"` is rejected outright — see [Authentication → Origin checking](authentication.mdx#origin-checking) for what this actually protects against. |
+| `AllowMissingCSRFHeaders` | `bool` | Optional | `false` | Allow requests with no `Origin`/`Referer` header at all — needed for some native/mobile clients. |
+| `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | `nil` (disabled) | Adds a double-submit cookie token on top of origin checking — this one *can't* be spoofed by just setting a header, since it requires a cookie value only the server issued. |
+| `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Checked on every path that sets a password: register, reset, set-password, and change-password below. |
+| `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
+| `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. |
+
+**`PasswordPolicy`** (`domain.PasswordPolicy`) — `MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`. All fields are individually optional, but the struct as a whole replaces the default: setting `RequireUppercase: true` without repeating `MinLength`/`RequireDigit` means those two are no longer enforced. Every violation comes back as the same error code:
+
+| Code | Status | Cause |
+|---|---|---|
+| `weak_password` | 400 | Too short, too long (over 128 chars), or missing a required character class — the message names exactly what's missing, e.g. `Password must be at least 12 characters with an uppercase letter` |
+
+**Expected `WithSecurity` errors**
+
+- `allowed_origins must include at least one origin`
+- `allowed_origins must not contain "*" — this disables CSRF protection; list specific origins instead`
+- `token_ttl must be positive` — only reachable if `TokenTTL` was explicitly set negative
+
+## Frontend client setup
+
+The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](client/index.mdx). The named-method wrapper for everything on this page lives on [Client → Security](client/security.mdx).
+
+## Change name
+
+### Change name — `PUT /auth/name`
+
+**Request body**: `{ "name": "..." }`
+
+**Response**: `{ "message": "Name updated" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `validation_error` | 400 | `name` was empty |
+| `user_not_found` | 404 | Session's user no longer exists |
+| `internal_error` | 500 | Database failure |
+
+#### curl
+
+```bash
+curl -X PUT https://api.myapp.com/auth/name \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt \
+  -d '{"name":"Ada Byron"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Auth.ChangeName(ctx, userID, "Ada Byron")
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "PUT", "/auth/name", { name: "Ada Byron" });
+```
+
+---
+
+## Change password
+
+### Change password — `PUT /auth/password`, `POST /auth/change-password`
+
+Requires the current password even though the caller is already authenticated — a stolen but still-valid session cookie shouldn't be enough on its own to take over the account's credentials. On success, every *other* session is revoked (the one making this request survives), and the CSRF cookie is rotated.
+
+**Request body**
+
+| Field | Type | Required |
+|---|---|---|
+| `oldPassword` | `string` | Required |
+| `newPassword` | `string` | Required — must pass `PasswordPolicy` |
+
+**Response**: `{ "message": "Password changed successfully" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `no_password` | 400 | Account has no password yet (OAuth-only) — use [Set a password](#set-a-password-oauth-only-accounts) instead |
+| `wrong_password` | 400 | `oldPassword` didn't match |
+| `weak_password` | 400 | `newPassword` fails `PasswordPolicy` |
+| `user_not_found` | 404 | Session's user no longer exists |
+| `internal_error` | 500 | Database failure |
+
+#### curl
+
+```bash
+curl -X PUT https://api.myapp.com/auth/password \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt \
+  -d '{"oldPassword":"correct horse battery staple 1","newPassword":"a new stronger passphrase 2"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Password.ChangePassword(ctx, service.ChangePasswordInput{
+    UserID:          userID,
+    OldPassword:     "correct horse battery staple 1",
+    NewPassword:     "a new stronger passphrase 2",
+    ExceptSessionID: currentSession.ID, // keep this session alive; omit to revoke every session including this one
+})
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "PUT", "/auth/password", {
+  oldPassword: "correct horse battery staple 1",
+  newPassword: "a new stronger passphrase 2",
+});
+```
+
+---
+
+## Set a password (OAuth-only accounts)
+
+Two-step, code-based flow for an account that signed up via OAuth and has no password yet — `ChangePassword` above doesn't apply since there's no *old* password to confirm.
+
+### Request a set-password code — `POST /auth/set-password/request`
+
+Auth required. Emails an 8-character code, valid for 10 minutes. Always returns the same generic success message.
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `already_set` | 400 | Account already has a password — use [Change password](#change-password) instead |
+| `user_not_found` | 404 | Session's user no longer exists |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/set-password/request \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Password.RequestSetPassword(ctx, userID)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/set-password/request");
+```
+
+---
+
+### Confirm a set-password code — `POST /auth/set-password/confirm`
+
+**Public by design** — `userId` comes from the request body, not a session, since the whole point is to let a user finish this from an email link without necessarily being logged in on that device.
+
+**Request body**: `{ "userId", "code", "newPassword" }`
+
+**Response**: `{ "message": "Password set successfully" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `already_set` | 400 | Account already has a password |
+| `invalid_code` | 400 | Code doesn't match, is the wrong type, or `userId` doesn't match the token's user |
+| `code_used` | 400 | Code was already redeemed |
+| `reset_token_expired` | 410 | Past the 10-minute window |
+| `weak_password` | 400 | Fails `PasswordPolicy` |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/set-password/confirm \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -d '{"userId":"b3f1...","code":"ABCD1234","newPassword":"a new strong passphrase 2"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Password.ConfirmSetPassword(ctx, service.ConfirmSetPasswordInput{
+    UserID:      "b3f1...",
+    Code:        "ABCD1234",
+    NewPassword: "a new strong passphrase 2",
+})
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/set-password/confirm", { userId, code, newPassword });
+```
+
+---
+
+## Forgot / reset password
+
+Public flow for a user who's locked out entirely — no session involved on either end.
+
+### Request a reset — `POST /auth/forgot-password`
+
+**Request body**: `{ "email": "..." }`. Always returns the same generic success message, whether or not the account exists.
+
+<Callout type="info" title="Timing-safe on purpose">
+  When the email doesn't match any account, the handler still runs two dummy token-generation calls before returning — so the response takes roughly the same time either way. Without that, an attacker could tell which emails are registered just by measuring response latency.
+</Callout>
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/forgot-password \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -d '{"email":"ada@example.com"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Password.ForgotPassword(ctx, service.ForgotPasswordInput{Email: "ada@example.com"})
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/forgot-password", { email });
+```
+
+---
+
+### Complete the reset — `POST /auth/reset-password`
+
+Requesting a new reset invalidates any earlier unused one for the same user — only the most recent link works. On success, **every** session for that user is revoked (there's no "except current" here, since there's no session to except), and the CSRF cookie is rotated.
+
+**Request body**: `{ "code", "newPassword" }`
+
+**Response**: `{ "message": "Password reset successfully" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `reset_token_invalid` | 400 | Code doesn't match, or matches a token of the wrong type |
+| `reset_token_already_used` | 410 | Already redeemed |
+| `reset_token_expired` | 410 | Past `TokenTTL` (default 1h) |
+| `weak_password` | 400 | Fails `PasswordPolicy` |
+| `user_not_found` | 404 | The user behind the token no longer exists |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/reset-password \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -d '{"code":"the-code-from-the-email","newPassword":"a new strong passphrase 2"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Password.ResetPassword(ctx, service.ResetPasswordInput{
+    Code:        "the-code-from-the-email",
+    NewPassword: "a new strong passphrase 2",
+})
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/reset-password", { code, newPassword });
+```
+
+---
+
+## Verify / resend verification
+
+Covers re-sending the verification email after the fact — for the initial code sent at registration, see [Authentication → Verifying the email](authentication.mdx#verifying-the-email). Both routes below hit the same underlying `SendVerification`, they just differ in how the target user is identified.
+
+### Resend while logged in — `POST /auth/resend-verification`
+
+Auth required, no body — resends to the authenticated user's own email.
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `user_not_found` | 404 | Session's user no longer exists |
+| `already_verified` | 400 | Email is already verified |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/resend-verification \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Verify.ResendVerification(ctx, userID)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/resend-verification");
+```
+
+---
+
+### Resend by email — `POST /auth/verify-email/resend`
+
+Public — for a user who isn't logged in on this device (e.g. finishing signup on a different browser). **Request body**: `{ "email": "..." }`. Always returns the same generic success message — an unknown email and an already-verified one look identical, to avoid leaking which addresses are registered.
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/verify-email/resend \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -d '{"email":"ada@example.com"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+auth.Services.Verify.SendVerificationByEmail(ctx, "ada@example.com") // *domain.AuthError, deliberately not surfaced to the caller by the handler
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/verify-email/resend", { email });
+```
+
+---
+
+## Delete account
+
+Two paths depending on whether the account has a password: immediate deletion with password confirmation, or an emailed code for OAuth-only accounts. Both revoke every session and clear cookies on success.
+
+### Delete immediately (has a password) — `DELETE /auth/account`
+
+**Request body**: `{ "password": "..." }`
+
+**Response**: `{ "message": "Account deleted successfully" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `password_required` | 400 | Account has no password — use the request/confirm flow below instead |
+| `wrong_password` | 400 | Password didn't match |
+| `user_not_found` | 404 | Session's user no longer exists |
+
+#### curl
+
+```bash
+curl -X DELETE https://api.myapp.com/auth/account \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt \
+  -d '{"password":"correct horse battery staple 1"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Auth.DeleteAccount(ctx, userID, "correct horse battery staple 1")
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "DELETE", "/auth/account", { password });
+setUser(null);
+```
+
+---
+
+### Delete via emailed code (OAuth-only accounts) — `POST /auth/account/delete/request`, `POST /auth/account/delete/confirm`
+
+Auth required for both. The request step emails an 8-character code (10-minute TTL); if a still-valid one already exists, it's silently reused instead of sending a second email. The confirm step always takes the user from the session, never from the body — you can't confirm a deletion for anyone but yourself.
+
+**Errors** — request step
+
+| Code | Status | Cause |
+|---|---|---|
+| `password_account` | 400 | Account has a password — use `DELETE /auth/account` instead |
+| `email_not_configured` | 500 | No mailer configured |
+
+**Errors** — confirm step
+
+| Code | Status | Cause |
+|---|---|---|
+| `delete_code_invalid` | 400 | Code doesn't match, wrong type, or belongs to a different user |
+| `delete_code_already_used` | 410 | Already redeemed |
+| `delete_code_expired` | 410 | Past the 10-minute window |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/account/delete/request \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt
+
+curl -X POST https://api.myapp.com/auth/account/delete/confirm \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt \
+  -d '{"code":"ABCD1234"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Auth.RequestDeleteAccount(ctx, userID)
+
+err = auth.Services.Auth.ConfirmDeleteAccount(ctx, service.ConfirmDeleteAccountInput{
+    UserID: userID, // always the session's own ID — never take this from client input yourself either
+    Code:   "ABCD1234",
+})
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/account/delete/request");
+await apiRequest(API_BASE, "POST", "/auth/account/delete/confirm", { code });
+setUser(null);
+```
+
+---
+
+## Next
+
+- [Authentication](authentication.mdx) — register, login, logout, and the initial verification step
+- [Admin](admin.mdx) — banning, role changes, and admin-initiated session revocation
+- [Configuration](../configuration.mdx) — every other config block

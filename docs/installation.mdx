@@ -1,38 +1,71 @@
 ---
-title: Installation
-description: Prerequisites, installation, and database setup instructions for go-auth.
+title: "Installation"
+description: "Prerequisites, what you need before configuring go-auth, and a map of the configuration pattern."
 ---
 
 # Installation
 
 ## Prerequisites
 
-- Go 1.19+ (tested through 1.26)
-- A database: PostgreSQL (recommended), SQLite, or MySQL
-- (Optional) SMTP server for email features
+- Go 1.26 or later
+- A database: PostgreSQL, MySQL, or SQLite
+- An SMTP server, or your own mailer implementation — only required if you enable invite-only signup or required email verification
 
 ## Install
 
-```sh
+```bash
 go get github.com/nazimdjebloun/go-auth
 ```
 
-Dependencies are pulled automatically:
+go-auth's own `go.mod` only depends on the PostgreSQL driver (`pgx/v5`). Whichever database you use, your program needs to blank-import that driver's package so it registers itself with `database/sql`:
 
-| Dependency | Purpose |
+| Database | Package |
 |---|---|
-| `github.com/jackc/pgx/v5` | PostgreSQL driver |
-| `modernc.org/sqlite` | SQLite driver (pure Go, no CGO) |
-| `github.com/go-sql-driver/mysql` | MySQL driver |
-| `golang.org/x/oauth2` | OAuth2 token exchange |
-| `golang.org/x/crypto` | bcrypt password hashing |
-| `github.com/wneessen/go-mail` | SMTP email delivery |
+| PostgreSQL | `github.com/jackc/pgx/v5/stdlib` |
+| SQLite | `modernc.org/sqlite` (pure Go, no CGO) |
+| MySQL | `github.com/go-sql-driver/mysql` |
 
-## Database Setup
+If the driver you configured isn't actually registered (the import is missing), `New()` fails fast at startup with a clear error naming the missing import — it doesn't fail later on the first query.
 
-Apply the schema before starting your app:
+## What you'll need before configuring
 
-```sh
+Gather these before writing your configuration:
+
+- **A base URL** for your frontend — used to build links in emails (verification, invites, password reset).
+- **A database connection** — either a connection string, or a database/pool you've already opened yourself.
+- **A signing secret** — at least 32 random bytes. This is the one piece of key material the library needs; source it from your environment, never commit it.
+- **The origins your frontend is served from** — used for CSRF origin checking. There's no wildcard option by design.
+- **A mailer, conditionally** — only if you plan to enable invite-only signup or required email verification. Either SMTP credentials or your own delivery implementation (Resend, Postmark, SES, etc.) work.
+- **OAuth credentials, conditionally** — a client ID, client secret, and redirect URL per provider, only if you want OAuth login.
+
+Nothing here is read from the environment by the library itself — go-auth has no notion of env vars. You decide how your program sources these values (environment variables are the usual choice) and pass them in as plain Go values.
+
+## The configuration pattern, at a glance
+
+Every aspect of the library is configured through its own option function, and all of them are passed to a single call: `NewConfig(opts ...Option)`. The next page covers each one field by field — this is just the map:
+
+| Option | Configures |
+|---|---|
+| `WithApp` | App name, base URL, database connection, deployment environment |
+| `WithSecret` | The signing secret |
+| `WithSecurity` | Allowed origins, password policy, CSRF token, token TTL |
+| `WithSession` | Session and refresh token lifetimes |
+| `WithCookie` | Cookie name, domain, path, `SameSite`, `Secure` |
+| `WithRegistration` | Which signup methods are available |
+| `WithOrganizations` | Multi-tenant organizations |
+| `WithMailer` | A custom mailer implementation |
+| `WithEmail` | The built-in SMTP mailer |
+| `WithTemplates` | Custom email templates |
+| `WithRateLimit` and its narrower variants | Per-route rate limiting |
+| `WithProvider` | Register an OAuth provider |
+| `WithLogger` | Structured logging |
+| `WithAudit` / `WithAuditSink` | Audit logging |
+
+## Database setup
+
+Apply the schema before starting your app for the first time:
+
+```bash
 # PostgreSQL
 psql "$DATABASE_URL" -f schema/postgres.sql
 
@@ -43,9 +76,6 @@ sqlite3 data.db < schema/sqlite.sql
 mysql "$DATABASE_URL" < schema/mysql.sql
 ```
 
-The library also supports auto-migration for PostgreSQL via `auth.schema.sql` in the testing template. See the [Database](database.md) guide for details.
+## Next
 
-## Next Steps
-
-- [Getting Started](getting-started.md) — run a minimal server in 5 minutes
-- [Configuration](configuration.md) — learn all available options
+- [Configuration](configuration.mdx) — every option, field by field

@@ -1,0 +1,440 @@
+---
+title: "Sessions"
+description: "Checking who's logged in, listing active sessions (paginated and not), and revoking them — one, several, or all. curl, Go, and a browser client."
+icon: "MonitorSmartphone"
+---
+
+# Sessions
+
+The self-service surface on top of the two-token session model: checking whether a request is authenticated, listing a user's own active sessions, and revoking them. For the token/cookie mechanics themselves (rotation, hashing, the grace window) see [Security concepts](../security.mdx) and the `sessions` table on [Schemas](../schemas.mdx#sessions). For an admin viewing or revoking *another* user's sessions, see [Admin](admin.mdx#managing-a-users-sessions) — that's a different, role-gated surface and isn't covered here.
+
+## Configuration
+
+Two options govern everything on this page: `SessionConfig` sets the lifetimes that decide when the endpoints below actually have something to show, and `CookieConfig` sets the cookie names every curl example on this page reads and writes.
+
+```go
+goauth.WithSession(goauth.SessionConfig{
+    TTL:             30 * 24 * time.Hour, // optional, default 30d
+    IdleTTL:         7 * 24 * time.Hour,  // optional, default 7d
+    RefreshTokenTTL: 30 * 24 * time.Hour, // optional, default 30d
+    MaxLifetime:     0,                   // optional, default 0 (no limit)
+    GraceWindow:     10 * time.Second,    // optional, default 5s — or goauth.Disabled
+    TouchDebounce:   goauth.Disabled,     // optional, default 5m — or goauth.Disabled
+})
+```
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `TTL` | `time.Duration` | Optional | `30d` | Absolute hard expiry — the `expires_at` on every session in the [list responses](#listing-sessions) above. |
+| `IdleTTL` | `time.Duration` | Optional | `7d` | Timeout since last activity. Must not exceed `TTL`. |
+| `RefreshTokenTTL` | `time.Duration` | Optional | `30d` | Must not be less than `TTL`. Governs how long the transparent refresh described in [the curl note above](#a-note-on-curl-and-sessions--read-this-if-something-isnt-working) keeps working after the session itself expires. |
+| `MaxLifetime` | `time.Duration` | Optional | `0` — no limit | If set, must be `>= TTL`. |
+| `GraceWindow` | `time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh don't log the user out. `goauth.Disabled` turns it off — a plain `0` means "use the default," not "off." |
+| `TouchDebounce` | `time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes — what makes `last_active_at` in the list responses a few minutes stale rather than exact. `goauth.Disabled` writes on every authenticated request. |
+
+**Expected errors**
+
+- `session_ttl must be positive`
+- `session_idle_ttl must be positive`
+- `session_idle_ttl must not exceed session_ttl`
+- `refresh_token_ttl must be positive`
+- `refresh_token_ttl must not be less than session_ttl`
+- `session grace_window must not be negative (use goauth.Disabled to turn it off)` — hint: you passed a negative duration that isn't the `Disabled` sentinel.
+- `session touch_debounce must not be negative (use goauth.Disabled to turn it off)` — same hint.
+- `session max_lifetime must not be negative (0 = no limit)`
+- `session max_lifetime must not be less than session_ttl` — hint: only checked when `MaxLifetime` is set above zero.
+
+```go
+goauth.WithCookie(goauth.CookieConfig{
+    Name:        "goauth_session",     // optional, default "goauth_session"
+    RefreshName: "goauth_refresh",     // optional, default "goauth_refresh"
+    Domain:      "",                    // optional, default "" (host-only cookie)
+    Path:        "/",                   // optional, default "/"
+    SameSite:    http.SameSiteLaxMode,  // optional, default Lax
+    Secure:      goauth.SecureAlways(), // optional, default derived from Environment/BaseURL
+})
+```
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `Name` | `string` | Optional | `goauth_session` | The cookie name every curl example on this page passes via `-b`/`-c`. Change it here and the examples change with it. |
+| `RefreshName` | `string` | Optional | `goauth_refresh` | The cookie `AuthMiddleware` reads for the transparent refresh. |
+| `Domain` | `string` | Optional | `""` — host-only cookie | |
+| `Path` | `string` | Optional | `/` | |
+| `SameSite` | `http.SameSite` | Optional | Lax | |
+| `Secure` | `*bool` | Optional | derived — `true` unless `Environment` is dev **and** `BaseURL` is `http://` | Tri-state: `nil` derives it correctly for dev and prod. Override with `goauth.SecureAlways()` or `goauth.SecureNever()` (local `http://` only). |
+
+No field on `CookieConfig` reaches validation as an error — every field is defaulted before the config is checked.
+
+Full reference for both, including how they interact with everything else: [Configuration → WithSession](../configuration.mdx#withsession--optional) and [Configuration → WithCookie](../configuration.mdx#withcookie--optional).
+
+## Frontend client setup
+
+The **Client** examples below call the same `apiRequest` helper defined on [Client → Setup](client/index.mdx) — see that page (or [Authentication](authentication.mdx)) if you haven't already.
+
+## A note on curl and sessions — read this if something isn't working
+
+Every endpoint on this page needs the actual session cookie, and curl doesn't manage cookies automatically the way a browser does. Two things cause almost all of the confusion:
+
+**1. `-b` and `-c` need to point at the same file, on every request — not just login.**
+
+```bash
+# Log in and create the jar
+curl -X POST https://api.myapp.com/auth/login \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -c cookies.txt \
+  -d '{"email":"ada@example.com","password":"..."}'
+
+# Every later request: read AND write the same file
+curl https://api.myapp.com/auth/sessions -b cookies.txt -c cookies.txt
+```
+
+`AuthMiddleware` transparently rotates your session when the session cookie has expired but the refresh cookie is still valid — it issues new `Set-Cookie` headers on that same response rather than erroring. If you only ever read from the jar (`-b`) and never let curl write back to it (`-c`), you keep replaying the old token, and once the refresh window closes too you'll get a `401 session_expired` that looks like it came from nowhere. Always pass both flags pointing at the same file.
+
+**2. The revoke endpoints also need the `Origin` header.** `DELETE /auth/sessions/{id}`, `POST /auth/sessions/revoke`, and `DELETE /auth/sessions` are state-changing, so they run through the same `OriginCheck` as register/login — see [Authentication → Origin checking](authentication.mdx#origin-checking). The two list endpoints and `GET /auth/check` are `GET` requests and don't need it; `OriginCheck` only inspects `POST`/`PUT`/`PATCH`/`DELETE`.
+
+<Callout type="info" title="Is this secure?">
+  Yes — curl isn't bypassing anything here, it's just making manual what a browser normally hides. The session cookie is the actual credential: it's a random token, stored server-side only as a SHA-256 hash (see [Schemas → sessions](../schemas.mdx#sessions)), never guessable from the session ID. Every revoke query is scoped with `WHERE user_id = ... AND id = ...`, so knowing or guessing another session's ID never lets you touch it — `RevokeSession` returns the same `404 session_not_found` whether the ID doesn't exist or just isn't yours. curl can do everything a browser can *because it has the same cookie*, not because any check was skipped.
+</Callout>
+
+## Checking who's logged in
+
+Two endpoints, for two different situations: one for a page that requires auth and should redirect if there isn't any, one for a page that renders differently either way without treating "not logged in" as an error.
+
+### `GET /auth/me` — Auth required
+
+Returns the authenticated user plus whether they have a password set (relevant for OAuth-only accounts, which can be `null`-password).
+
+```json
+{
+  "id": "b3f1...",
+  "email": "ada@example.com",
+  "name": "Ada Lovelace",
+  "role": "user",
+  "isVerified": true,
+  "isBanned": false,
+  "orgOwnerCount": 0,
+  "createdAt": "2026-08-09T12:00:00Z",
+  "updatedAt": "2026-08-09T12:00:00Z",
+  "hasPassword": true
+}
+```
+
+| Code | Status | Cause |
+|---|---|---|
+| `session_expired` | 401 | No session cookie, or one that expired with no usable refresh cookie |
+| `unauthorized` | 401 | Session cookie doesn't validate (bad signature, not found, user deleted) |
+| `user_banned` | 403 | Account is banned — surfaces here even mid-session, during the transparent-refresh path |
+
+---
+
+#### curl
+
+```bash
+curl https://api.myapp.com/auth/me -b cookies.txt -c cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+There's no dedicated "get me" service method — the HTTP layer reads the user already attached to the request context by `AuthMiddleware`. Calling this directly in Go means you already have the user from wherever you got it (e.g. `middleware.GetUserFromContext(ctx)` inside your own handler), so there's nothing extra to call.
+
+---
+
+#### Client
+
+```ts
+const me = await apiRequest(API_BASE, "GET", "/auth/me");
+```
+
+---
+
+### `GET /auth/check` — public, soft check
+
+Never errors — always `200`. Returns `{ "user": null }` instead of a `401` when there's no valid session, which is what makes it suitable for a layout component that renders a "log in" vs. "account" button without treating the anonymous case as an error.
+
+```json
+{ "user": { "...": "same shape as /auth/me, minus hasPassword" } }
+```
+
+or, with no valid session:
+
+```json
+{ "user": null }
+```
+
+---
+
+#### curl
+
+```bash
+curl https://api.myapp.com/auth/check -b cookies.txt -c cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+user, _, err := auth.Services.Auth.ValidateSession(ctx, sessionToken)
+if err != nil {
+    // treat as user == nil rather than propagating the error
+}
+```
+
+---
+
+#### Client
+
+```ts
+const { user } = await apiRequest(API_BASE, "GET", "/auth/check");
+// user is null when there's no valid session — never throws for that case
+```
+
+## Listing sessions
+
+Both endpoints return the caller's **own** sessions only, plus `current_session_id` so the UI can highlight the device in use and disable its own revoke button.
+
+### Paginated — `GET /auth/sessions`
+
+**Query params**
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `offset` | `int` | `0` | |
+| `limit` | `int` | `20` | Clamped to a max of `100` — a larger value is silently capped, not rejected |
+
+```json
+{
+  "sessions": [
+    {
+      "id": "9e2c...",
+      "user_id": "b3f1...",
+      "ip_address": "203.0.113.4",
+      "user_agent": "Mozilla/5.0 ...",
+      "parsed_ua": { "browser": "Chrome", "os": "Windows", "device_type": "desktop" },
+      "is_revoked": false,
+      "expires_at": "2026-09-08T12:00:00Z",
+      "last_active_at": "2026-08-09T11:55:00Z",
+      "created_at": "2026-08-01T09:00:00Z"
+    }
+  ],
+  "total": 3,
+  "limit": 20,
+  "offset": 0,
+  "current_session_id": "9e2c..."
+}
+```
+
+| Code | Status | Cause |
+|---|---|---|
+| `session_expired` / `unauthorized` | 401 | Same as [Checking who's logged in](#checking-whos-logged-in) above |
+| `internal_error` | 500 | Database failure |
+
+---
+
+#### curl
+
+```bash
+curl "https://api.myapp.com/auth/sessions?offset=0&limit=20" -b cookies.txt -c cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+sessions, total, err := auth.Services.Session.List(ctx, userID, 0, 20)
+```
+
+---
+
+#### Client
+
+```ts
+const { sessions, total, current_session_id } = await apiRequest(
+  API_BASE, "GET", "/auth/sessions?offset=0&limit=20"
+);
+```
+
+---
+
+### All at once — `GET /auth/sessions/all`
+
+No query params, no pagination — every active session in one response. Same per-session shape as above, just without `total`/`limit`/`offset`.
+
+```json
+{
+  "sessions": [ "...": "unpaginated array, same shape as above" ],
+  "current_session_id": "9e2c..."
+}
+```
+
+Errors are the same as the paginated endpoint.
+
+---
+
+#### curl
+
+```bash
+curl https://api.myapp.com/auth/sessions/all -b cookies.txt -c cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+sessions, err := auth.Services.Session.ListAll(ctx, userID)
+```
+
+---
+
+#### Client
+
+```ts
+const { sessions, current_session_id } = await apiRequest(API_BASE, "GET", "/auth/sessions/all");
+```
+
+## Revoking sessions
+
+All three endpoints are user-scoped — every query includes `WHERE user_id = ...`, so there's no way to revoke a session that isn't yours, even with a valid-looking ID.
+
+### Revoke one — `DELETE /auth/sessions/{id}`
+
+`id` is the session's own ID (the `id` field from the list responses above), not the raw session token.
+
+```json
+{ "message": "Session revoked" }
+```
+
+| Code | Status | Cause |
+|---|---|---|
+| `session_not_found` | 404 | ID doesn't exist, or exists but isn't yours — the two cases are indistinguishable on purpose |
+| `internal_error` | 500 | Database failure |
+
+---
+
+#### curl
+
+```bash
+curl -X DELETE https://api.myapp.com/auth/sessions/9e2c... \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt -c cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+revoked, err := auth.Services.Session.RevokeByIDForUser(ctx, sessionID, userID)
+if err == nil && !revoked {
+    // treat as session_not_found — it existed but wasn't this user's, or didn't exist at all
+}
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "DELETE", `/auth/sessions/${sessionId}`);
+```
+
+---
+
+### Revoke several — `POST /auth/sessions/revoke`
+
+Body: `{ "session_ids": ["...", "..."] }` — 1 to 100 IDs. IDs that don't exist or don't belong to the caller are silently skipped rather than erroring individually.
+
+```json
+{ "revoked": 2 }
+```
+
+`revoked` is the count actually deleted, which can be less than the number of IDs you sent — that's not an error, it just means some IDs didn't match.
+
+| Code | Status | Cause |
+|---|---|---|
+| `invalid_input` | 400 | `session_ids` empty, or more than 100 entries |
+| `invalid_json` | 400 | Malformed body |
+| `internal_error` | 500 | Database failure |
+
+---
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/sessions/revoke \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt -c cookies.txt \
+  -d '{"session_ids":["9e2c...","a71f..."]}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+revoked, err := auth.Services.Session.RevokeManyForUser(ctx, []string{"9e2c...", "a71f..."}, userID)
+```
+
+---
+
+#### Client
+
+```ts
+const { revoked } = await apiRequest(API_BASE, "POST", "/auth/sessions/revoke", {
+  session_ids: [id1, id2],
+});
+```
+
+---
+
+### Revoke all but current — `DELETE /auth/sessions`
+
+No body. Revokes every one of the caller's sessions **except** the one making the request — the classic "log out everywhere else" button. If the current session can't be resolved for some reason, it falls back to revoking all of them.
+
+```json
+{ "message": "Sessions revoked" }
+```
+
+There is no error response beyond the standard auth/internal ones — it always succeeds once you're authenticated at all.
+
+---
+
+#### curl
+
+```bash
+curl -X DELETE https://api.myapp.com/auth/sessions \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt -c cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Session.RevokeAllExcept(ctx, userID, currentSessionID)
+// or, if you don't have a "current" session to preserve:
+err := auth.Services.Session.RevokeAll(ctx, userID)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "DELETE", "/auth/sessions");
+```
+
+## Next
+
+- [Authentication](authentication.mdx) — register/login/logout, and the `Origin`-checking rules these endpoints share
+- [Routes](../routes.mdx) — the full path/param reference, including admin session management
+- [Security](../security.mdx) — session hashing, refresh rotation, and the reuse-detection grace window
+- [Schemas](../schemas.mdx#sessions) — the `sessions` table this page reads and writes

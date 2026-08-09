@@ -1,0 +1,79 @@
+---
+title: "Authentication"
+description: "authApi — a named-method wrapper around register/login/logout and session checks, built on the apiRequest helper."
+icon: "KeySquare"
+---
+
+# Authentication client
+
+Wraps every endpoint from the [Authentication](../authentication.mdx) guide into one object, `authApi`, built on the [`apiRequest`](index.mdx) helper. This is the form you'd actually keep in an app — the raw calls on the guide page are there to show you the wire format, not to be copy-pasted one at a time.
+
+```ts
+import { apiRequest } from "./client"; // wherever you put the Setup page's helper
+
+const API_BASE = "https://api.myapp.com";
+
+export const authApi = {
+  register: (input: { email: string; password: string; name: string }) =>
+    apiRequest(API_BASE, "POST", "/auth/register", input),
+
+  login: (input: { email: string; password: string }) =>
+    apiRequest(API_BASE, "POST", "/auth/login", input),
+
+  logout: () => apiRequest(API_BASE, "POST", "/auth/logout"),
+
+  me: () => apiRequest(API_BASE, "GET", "/auth/me"),
+
+  check: () => apiRequest(API_BASE, "GET", "/auth/check"),
+
+  verifyEmail: (code: string) =>
+    apiRequest(API_BASE, "POST", "/auth/verify-email", { code }),
+
+  resendVerification: (email: string) =>
+    apiRequest(API_BASE, "POST", "/auth/verify-email/resend", { email }),
+
+  getInviteInfo: (token: string) =>
+    apiRequest(API_BASE, "GET", `/auth/invite/info?token=${encodeURIComponent(token)}`),
+
+  completeInviteRegistration: (input: {
+    code: string;
+    name: string;
+    password: string;
+    confirmPassword: string;
+  }) => apiRequest(API_BASE, "POST", "/auth/invite/register", input),
+};
+```
+
+Every method returns exactly what the matching endpoint documents — `authApi` doesn't reshape responses or swallow errors, it only fills in the method/path/body so call sites don't have to repeat them. `register`/`login`/`logout`/`verifyEmail`/`resendVerification`/the invite methods are documented on the [Authentication](../authentication.mdx) guide; `me` and `check` are documented on [Sessions → Checking who's logged in](../sessions.mdx#checking-whos-logged-in) — they live on `authApi` rather than `sessionsApi` because that's where this codebase's own reference frontend keeps them.
+
+## Using it
+
+```ts
+const result = await authApi.login({ email, password });
+
+if (result.requiresVerification) {
+  // show a "verify your email" screen
+} else {
+  setUser(result.user); // cookies are already set by the browser
+}
+```
+
+```ts
+try {
+  await authApi.register({ email, password, name });
+} catch (err) {
+  // err is the parsed { error, message } body — see Error Handling
+  showError(err.message ?? err.error);
+}
+```
+
+```ts
+await authApi.logout();
+setUser(null);
+window.location.href = "/login";
+```
+
+## Next
+
+- [Setup](index.mdx) — the `apiRequest` helper this is built on
+- [Authentication](../authentication.mdx) — full request/response/error reference for each of these endpoints

@@ -1,48 +1,102 @@
 ---
-title: GitHub Provider
-description: GitHub OAuth provider setup and usage.
+title: "GitHub"
+description: "GitHub OAuth 2.0 provider — setup, configuration, scopes, email handling, and calling the sign-in flow."
+icon: "github"
 ---
 
-# GitHub Provider
+# GitHub
 
-`import "github.com/nazimdjebloun/go-auth/provider/github"`
+## Setup
 
-```go
-type Provider struct {
-    // unexported fields
-}
-
-func New(cfg Config) *Provider
-```
+1. Go to [GitHub Developer Settings](https://github.com/settings/developers).
+2. Create an OAuth App.
+3. Set the authorization callback URL to `{BaseURL}/auth/oauth/github/callback`.
 
 ## Configuration
 
-| Param | Description |
-|---|---|
-| `ClientID` | GitHub OAuth App client ID |
-| `ClientSecret` | GitHub OAuth App client secret |
-| `RedirectURL` | Must match the callback URL registered in GitHub |
+```go
+import "github.com/nazimdjebloun/go-auth/provider/github"
 
-## Methods
+goauth.WithProvider(github.New(github.Config{
+    ClientID:     os.Getenv("GITHUB_CLIENT_ID"),     // required
+    ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"), // required
+    RedirectURL:  "https://myapp.com/auth/oauth/github/callback", // required
+    Scopes:       nil, // optional, default []string{"user:email"}
+}))
+```
 
-| Method | Signature | Description |
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `ClientID` | `string` | Required | — | From your GitHub OAuth App. |
+| `ClientSecret` | `string` | Required | — | From your GitHub OAuth App. |
+| `RedirectURL` | `string` | Required | — | Must exactly match the callback URL configured in the GitHub App settings. |
+| `Scopes` | `[]string` | Optional | `["user:email"]` | Override to request additional GitHub scopes. |
+
+## Email handling
+
+GitHub's `/user` endpoint only returns an email when the user has set a **public** profile email. When it's empty, the provider falls back to `/user/emails` (which needs the `user:email` scope) and picks the address marked both `primary` and `verified` — if none qualifies, the exchange fails rather than silently using an unverified address.
+
+When the public profile email *is* present, it's treated as verified without a separate check: GitHub only allows a verified address to be set as the public one, so a non-empty `user.Email` is verified by construction.
+
+The display name falls back to the GitHub username (`login`) when the account has no display name set.
+
+## Frontend client setup
+
+The **Client** example below calls the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](../guides/client/index.mdx).
+
+## Signing in
+
+### Start the flow — `GET /auth/oauth/github`
+
+Public. Returns GitHub's authorization URL — PKCE (S256) is always included, whether or not GitHub strictly requires it for this app. Redirect the browser there; GitHub handles the rest until it redirects back to your callback URL.
+
+**Response** (`200 OK`): `{ "url": "https://github.com/login/oauth/authorize?..." }`
+
+**Errors**
+
+| Code | Status | Cause |
 |---|---|---|
-| `Name()` | `string` | Returns `"github"` |
-| `AuthURL()` | `(state, codeChallenge string) string` | GitHub OAuth authorize URL |
-| `Exchange()` | `(ctx, code, codeVerifier string) (*port.OAuthProfile, error)` | Exchanges code for token and fetches user profile |
+| `provider_not_found` | 404 | `WithProvider(github.New(...))` was never called, or `EnableOAuth` is `false` |
 
-## Default Scopes
+#### curl
 
-`["read:user", "user:email"]`
+```bash
+curl https://api.myapp.com/auth/oauth/github
+```
 
-## Registration
+No `Origin` header needed — this is a `GET` with no state-changing effect, so `OriginCheck` doesn't apply to it.
 
-1. Go to GitHub → Settings → Developer settings → OAuth Apps → New OAuth App
-2. Set Authorization callback URL to `https://yourdomain.com/auth/oauth/github/callback`
-3. Use Client ID and Client Secret in config
+---
 
-## Notes
+#### Programmatic (Go)
 
-- GitHub does not return an expiry time for access tokens; `TokenExpiresAt` is `nil`.
-- Email is fetched from `/user/emails` (primary, verified email) if not present in the `/user` response.
-- The display name falls back to the `login` field if `name` is not set in the GitHub profile.
+```go
+url, err := auth.Services.OAuth.Initiate(ctx, "github")
+if err != nil {
+    // *domain.AuthError — provider_not_found if the name is wrong
+}
+// redirect the browser to url
+```
+
+---
+
+#### Client
+
+```ts
+const { url } = await apiRequest(API_BASE, "GET", "/auth/oauth/github");
+window.location.href = url;
+```
+
+---
+
+### The callback — `GET`/`POST /auth/oauth/github/callback`
+
+GitHub redirects here itself — your frontend never calls this URL directly. On success it sets session cookies and redirects the browser to `{BaseURL}/auth/callback`; on failure, to `{BaseURL}/auth/callback?error={code}&provider=github`. Your frontend route at `{BaseURL}/auth/callback` reads that query string to know whether to show the app or an error.
+
+See [Routes](../routes.mdx#oauth--requires-enableoauth-and-at-least-one-registered-provider) for the full parameter reference, [Error Handling](../error-handling.mdx#oauth) for every error this can redirect back with, and [Guides → OAuth linking](../guides/oauth.mdx) for connecting GitHub to an account that's already logged in (a different flow from the sign-in one above).
+
+## Next
+
+- [Google](google.mdx) — the other built-in provider
+- [OAuth linking](../guides/oauth.mdx) — link/unlink/list connected providers on an existing account
+- [Authentication](../guides/authentication.mdx) — the response shape once a session exists, regardless of how it was created

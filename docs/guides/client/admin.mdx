@@ -1,0 +1,110 @@
+---
+title: "Admin"
+description: "adminApi — user management, audit-log queries, and platform invites for an admin dashboard, built on the apiRequest helper."
+icon: "UserCog"
+---
+
+# Admin client
+
+Wraps every endpoint from the [Admin](../admin.mdx) and [Audit Logs](../audit-logs.mdx) guides into `adminApi`, built on the [`apiRequest`](index.mdx) helper. Every call here 403s unless the logged-in user has `role: "admin"` — this is for an admin dashboard, not a regular app surface.
+
+```ts
+import { apiRequest } from "./client";
+
+const API_BASE = "https://api.myapp.com";
+
+export const adminApi = {
+  login: (email: string, password: string) =>
+    apiRequest(API_BASE, "POST", "/auth/admin/login", { email, password }),
+
+  listUsers: (params: Record<string, string | number> = {}) =>
+    apiRequest(API_BASE, "GET", `/admin/users?${new URLSearchParams(params as Record<string, string>)}`),
+
+  getUser: (userId: string) => apiRequest(API_BASE, "GET", `/admin/users/${userId}`),
+
+  createUser: (input: { email: string; password: string; name: string; role?: "user" | "admin" }) =>
+    apiRequest(API_BASE, "POST", "/admin/users", input),
+
+  updateRole: (userId: string, role: "user" | "admin") =>
+    apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/role`, { role }),
+
+  ban: (userId: string) => apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/ban`),
+
+  unban: (userId: string) => apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/unban`),
+
+  deleteUser: (userId: string) => apiRequest(API_BASE, "DELETE", `/admin/users/${userId}`),
+
+  listUserSessions: (userId: string, offset = 0, limit = 20) =>
+    apiRequest(API_BASE, "GET", `/admin/users/${userId}/sessions?offset=${offset}&limit=${limit}`),
+
+  revokeUserSession: (userId: string, sessionId: string) =>
+    apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions/${sessionId}`),
+
+  revokeUserSessions: (userId: string) =>
+    apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions`),
+
+  // --- Audit logs — requires WithAudit(AuditConfig{Enabled: true}) server-side ---
+
+  listAuditLogs: (params: Record<string, string | number> = {}) =>
+    apiRequest(API_BASE, "GET", `/admin/audit-logs?${new URLSearchParams(params as Record<string, string>)}`),
+
+  listUserAuditLogs: (userId: string, params: Record<string, string | number> = {}) =>
+    apiRequest(API_BASE, "GET", `/admin/users/${userId}/audit-logs?${new URLSearchParams(params as Record<string, string>)}`),
+
+  // --- Platform invites — requires RegistrationConfig.EnableInvite ---
+
+  createInvite: (email: string) => apiRequest(API_BASE, "POST", "/admin/invites", { email }),
+
+  listInvites: (params: Record<string, string | number> = {}) =>
+    apiRequest(API_BASE, "GET", `/admin/invites?${new URLSearchParams(params as Record<string, string>)}`),
+
+  revokeInvite: (inviteId: string) => apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}`),
+
+  resendInvite: (inviteId: string) => apiRequest(API_BASE, "POST", `/admin/invites/${inviteId}/resend`),
+
+  deleteInvite: (inviteId: string) => apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}/hard`),
+};
+```
+
+## Using it
+
+```ts
+const { users, total } = await adminApi.listUsers({ limit: 20, search: "ada" });
+```
+
+```ts
+try {
+  await adminApi.updateRole(userId, "user");
+} catch (err) {
+  // last_admin — see the Admin guide
+  showError(err.message ?? err.error);
+}
+```
+
+## Audit logs
+
+```ts
+const { events, total } = await adminApi.listAuditLogs({ event_type: "login.failed", limit: 50 });
+```
+
+```ts
+try {
+  await adminApi.listAuditLogs();
+} catch (err) {
+  // 404 audit_not_configured if WithAudit was never enabled server-side
+}
+```
+
+## Platform invites
+
+```ts
+const invite = await adminApi.createInvite("ada@example.com");
+const { invites, total } = await adminApi.listInvites({ status: "pending" });
+await adminApi.resendInvite(invite.id); // issues a fresh code, invalidates the old one
+```
+
+## Next
+
+- [Setup](index.mdx) — the `apiRequest` helper this is built on
+- [Admin](../admin.mdx) — full request/response/error reference
+- [Audit Logs](../audit-logs.mdx) — event types and filter params

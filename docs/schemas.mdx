@@ -1,0 +1,951 @@
+---
+title: "Schemas"
+description: "The tables go-auth creates, the differences between drivers, and the three ways to generate or apply the schema."
+---
+
+import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
+
+# Schemas
+
+go-auth ships one canonical schema per database driver, embedded into the
+library at build time. Nine tables and around twenty indexes, no ORM, no
+runtime `CREATE TABLE` — you apply the schema once, before your app starts.
+
+The column tables below describe the **PostgreSQL** schema. Table and column
+names are identical on SQLite and MySQL; types and constraints differ — see
+[Driver differences](#driver-differences).
+
+<Callout type="warn" title="There is no migration system yet">
+  go-auth ships a single canonical schema per driver, not versioned migrations.
+  There is no `schema_migrations` table, no up/down steps, and no diffing
+  against what you already have. Every `CREATE TABLE` is `IF NOT EXISTS`, which
+  means applying the schema over an existing database will **never alter a table
+  that already exists** in an older shape — it succeeds, changes nothing, and
+  leaves you on the old columns.
+
+  Until a migration system lands, treat schema changes between releases as
+  breaking: regenerate the schema file, diff it against the one you applied
+  last, and write the `ALTER TABLE` statements yourself.
+</Callout>
+
+## Applying the schema
+
+Three routes to the same SQL. Pick whichever fits how you deploy.
+
+<Tabs items={['CLI migrate', 'CLI generate', 'From Go']}>
+<Tab value="CLI migrate">
+
+Connects and applies the schema directly:
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
+  --driver postgres --dsn "$DATABASE_URL"
+```
+
+Both flags are required. It opens the connection, pings it, then executes each
+statement in order, printing `OK: <statement>` for each one.
+
+</Tab>
+<Tab value="CLI generate">
+
+Writes the schema to a file so you can check it in or feed it to your own
+migration tool:
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth generate \
+  --driver postgres --out auth.schema.sql
+```
+
+`--driver` is required; `--out` defaults to `auth.schema.sql` in the current
+directory. This is the route to use if you already run Atlas, golang-migrate,
+Flyway, or hand-written migrations — generate the file, diff it against your
+last version, and let your existing tool own the change.
+
+</Tab>
+<Tab value="From Go">
+
+The schema is reachable programmatically, which is what the library's own
+integration tests do:
+
+```go
+schema, err := goauth.GetSchema("postgres")
+if err != nil {
+    return err
+}
+for _, stmt := range goauth.SplitSQL(schema) {
+    if _, err := db.Exec(stmt); err != nil {
+        return fmt.Errorf("migrate: %w\nstatement: %s", err, stmt)
+    }
+}
+```
+
+`GetSchema` returns the embedded SQL for a driver. `SplitSQL` splits it on
+semicolons while respecting quoted strings, and drops comment-only fragments.
+
+</Tab>
+</Tabs>
+
+Installing the CLI properly, rather than `go run`:
+
+```bash
+go install github.com/nazimdjebloun/go-auth/cmd/goauth@latest
+```
+
+It's a separate module with its own `go.mod`, and it blank-imports all three
+database drivers, so it works against any of them without you wiring anything
+up.
+
+Driver names accept aliases in all three routes: `postgres` or `pg`, `sqlite`
+or `sqlite3`, and `mysql`.
+
+<Callout type="warn" title="migrate is not transactional, and is only re-runnable on PostgreSQL and SQLite">
+  Statements execute one at a time and the command exits on the first failure,
+  so a partial failure leaves the schema partly applied — whatever was created
+  before the failing statement stays.
+
+  On PostgreSQL and SQLite every statement is `IF NOT EXISTS`, so re-running
+  after you fix the cause picks up where it stopped. **MySQL is different:**
+  `CREATE INDEX` has no `IF NOT EXISTS` form there, so all 20 index statements
+  are unguarded and a second run fails with `Duplicate key name` on the first
+  index that already exists. The tables survive — the command just can't be used
+  as a no-op re-check on MySQL. Don't point it at a production database without
+  a backup.
+</Callout>
+
+## The tables
+
+Nine tables. Every foreign key to `users` is `ON DELETE CASCADE`, so deleting a
+user takes their sessions, tokens, linked OAuth accounts, and org memberships
+with it. The one exception is `sessions.active_org_id`, which is
+`ON DELETE SET NULL` — deleting an org clears it from any session pointing at
+it rather than destroying the session.
+
+No table stores a raw credential. Passwords are bcrypt hashes; session tokens,
+refresh tokens, verification tokens, and both kinds of invite code are stored as
+SHA-256 hashes, and the raw value exists only in the response to the client.
+
+Each table gives a column-by-column summary — the types shown are the
+PostgreSQL ones — followed by the exact DDL the library applies on each driver,
+indexes included.
+
+### `users`
+
+Accounts. One row per person.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key, defaults to `gen_random_uuid()` |
+| `email` | `TEXT` | Unique, not null |
+| `password_hash` | `TEXT` | **Nullable** — OAuth-only accounts have no password |
+| `name` | `TEXT` | Defaults to `''` |
+| `role` | `TEXT` | `CHECK (role IN ('user', 'admin'))`, defaults to `user` |
+| `is_verified` / `verified_at` | `BOOLEAN` / `TIMESTAMPTZ` | Email verification state |
+| `is_banned` / `banned_at` | `BOOLEAN` / `TIMESTAMPTZ` | Ban state |
+| `org_owner_count` | `INT` | Denormalized counter, kept in sync by the org service |
+| `last_login_at` | `TIMESTAMPTZ` | |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+- `role` is only constrained by a `CHECK` on PostgreSQL — see [Driver differences](#driver-differences).
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    is_verified BOOLEAN NOT NULL DEFAULT false,
+    verified_at TIMESTAMPTZ,
+    is_banned BOOLEAN NOT NULL DEFAULT false,
+    banned_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    org_owner_count INT NOT NULL DEFAULT 0,
+    last_login_at TIMESTAMPTZ
+);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    password_hash TEXT,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'user',
+    is_verified INTEGER NOT NULL DEFAULT 0,
+    verified_at DATETIME,
+    is_banned INTEGER NOT NULL DEFAULT 0,
+    banned_at DATETIME,
+    org_owner_count INTEGER NOT NULL DEFAULT 0,
+    last_login_at DATETIME,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(36) PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash TEXT,
+    name TEXT NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'user',
+    is_verified BOOLEAN NOT NULL DEFAULT false,
+    verified_at DATETIME,
+    is_banned BOOLEAN NOT NULL DEFAULT false,
+    banned_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    org_owner_count INT NOT NULL DEFAULT 0,
+    last_login_at DATETIME
+) ENGINE=InnoDB;
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `sessions`
+
+One row per active login: both tokens, the device fingerprint, and the active-org pointer.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
+| `token_hash` | `TEXT` | Unique. SHA-256 of the session token |
+| `refresh_token_hash` | `TEXT` | SHA-256 of the current refresh token |
+| `prev_refresh_token_hash` | `TEXT` | The previous one, kept so the grace window can accept it briefly after rotation |
+| `refresh_rotated_at` | `TIMESTAMPTZ` | When the last rotation happened — the grace window is measured from here |
+| `ip_address` / `user_agent` | `TEXT` | As seen at creation |
+| `parsed_ua` | `JSONB` | Browser/OS/device parsed from the user agent |
+| `is_revoked` / `revoked_at` | `BOOLEAN` / `TIMESTAMPTZ` | |
+| `expires_at` / `refresh_expires_at` | `TIMESTAMPTZ` | Absolute expiry for each token |
+| `last_active_at` | `TIMESTAMPTZ` | Updated on authenticated requests, subject to `TouchDebounce` |
+| `active_org_id` | `UUID` | → `organizations(id)` `ON DELETE SET NULL` |
+| `active_org_role` | `VARCHAR(50)` | |
+
+- On PostgreSQL a table-level `CHECK` forces `active_org_id` and `active_org_role` to be both set or both null — a session cannot be scoped to an org without a role in it.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT UNIQUE NOT NULL,
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    parsed_ua JSONB,
+    is_revoked BOOLEAN NOT NULL DEFAULT false,
+    expires_at TIMESTAMPTZ NOT NULL,
+    refresh_expires_at TIMESTAMPTZ,
+    refresh_rotated_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at TIMESTAMPTZ,
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    active_org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+    active_org_role VARCHAR(50),
+    CHECK ((active_org_id IS NULL AND active_org_role IS NULL) OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT UNIQUE NOT NULL,
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    parsed_ua TEXT,
+    is_revoked INTEGER NOT NULL DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    refresh_expires_at DATETIME,
+    refresh_rotated_at DATETIME,
+    created_at DATETIME NOT NULL,
+    revoked_at DATETIME,
+    last_active_at DATETIME NOT NULL,
+    active_org_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
+    active_org_role TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS sessions (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    parsed_ua TEXT,
+    is_revoked BOOLEAN NOT NULL DEFAULT false,
+    expires_at DATETIME NOT NULL,
+    refresh_expires_at DATETIME,
+    refresh_rotated_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at DATETIME,
+    last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    active_org_id VARCHAR(36),
+    active_org_role VARCHAR(50),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (active_org_id) REFERENCES organizations(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
+CREATE INDEX idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `verification_tokens`
+
+One table behind six short-lived token flows, discriminated by `type`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE`. Nullable — an invite-verify token can exist before the account does |
+| `email` | `TEXT` | |
+| `token_hash` | `TEXT` | Unique |
+| `type` | `TEXT` | `CHECK` on `verify_email`, `reset_password`, `set_password`, `invite_verify`, `oauth_state`, `delete_account` |
+| `expires_at` / `used_at` | `TIMESTAMPTZ` | `used_at` makes tokens single-use |
+| `code_verifier` | `TEXT` | The PKCE verifier, only populated for `oauth_state` rows |
+
+- The six `type` values are enforced by `CHECK` on PostgreSQL only; on SQLite and MySQL the column is unconstrained.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS verification_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account')),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    code_verifier TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS verification_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
+    type TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME,
+    code_verifier TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS verification_tokens (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36),
+    email TEXT NOT NULL,
+    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    type VARCHAR(30) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME,
+    code_verifier TEXT,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_verification_tokens_token_hash ON verification_tokens(token_hash);
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `provider_accounts`
+
+Linked OAuth identities. A user may have several.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
+| `provider` / `provider_user_id` | `TEXT` | `UNIQUE(provider, provider_user_id)` — one identity links to one account |
+| `provider_email` / `provider_name` / `avatar_url` | `TEXT` | Profile snapshot from the provider |
+| `access_token` / `refresh_token` | `TEXT` | Encrypted at rest; never returned by any endpoint |
+| `token_expires_at` | `TIMESTAMPTZ` | |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    provider_email TEXT NOT NULL DEFAULT '',
+    provider_name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(provider, provider_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    provider_email TEXT NOT NULL DEFAULT '',
+    provider_name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at DATETIME,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE(provider, provider_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    provider VARCHAR(50) NOT NULL,
+    provider_user_id VARCHAR(255) NOT NULL,
+    provider_email TEXT NOT NULL,
+    provider_name TEXT NOT NULL,
+    avatar_url TEXT NOT NULL,
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, provider_user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `invites`
+
+Signup invites, for invite-only registration.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `email` | `TEXT` | Who it was issued to |
+| `code` | `TEXT` | Unique. Holds the SHA-256 **hash** despite the name — the raw code only goes out by email |
+| `created_by` | `UUID` | → `users(id)` — the admin who issued it |
+| `status` | `TEXT` | `CHECK` on `pending`, `accepted`, `revoked`, `expired` |
+| `expires_at` / `accepted_at` / `created_at` | `TIMESTAMPTZ` | |
+
+- `status` is enforced by `CHECK` on PostgreSQL only.
+- Contrast `organization_invites.code_hash`, which names the same thing honestly.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS invites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL,
+    code TEXT UNIQUE NOT NULL,
+    created_by UUID NOT NULL REFERENCES users(id),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
+    expires_at TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
+CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS invites (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    code TEXT UNIQUE NOT NULL,
+    created_by TEXT NOT NULL REFERENCES users(id),
+    status TEXT NOT NULL DEFAULT 'pending',
+    expires_at DATETIME NOT NULL,
+    accepted_at DATETIME,
+    created_at DATETIME NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
+CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS invites (
+    id VARCHAR(36) PRIMARY KEY,
+    email TEXT NOT NULL,
+    code VARCHAR(255) UNIQUE NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    expires_at DATETIME NOT NULL,
+    accepted_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_invites_email ON invites(email(255));
+CREATE INDEX idx_invites_code ON invites(code(255));
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `organizations`
+
+Tenants.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `name` | `VARCHAR(255)` | |
+| `slug` | `VARCHAR(255)` | Unique |
+| `created_by` | `UUID` | → `users(id)` `ON DELETE SET NULL` — the org outlives its creator's account |
+| `owner_count` / `member_count` | `INT` | Denormalized counters |
+| `metadata` | `JSONB` | Free-form, defaults to `{}` |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS organizations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) NOT NULL UNIQUE,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    owner_count INT NOT NULL DEFAULT 0,
+    member_count INT NOT NULL DEFAULT 0,
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
+    created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+    owner_count INTEGER NOT NULL DEFAULT 0,
+    member_count INTEGER NOT NULL DEFAULT 0,
+    metadata TEXT DEFAULT '{}',
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL
+);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS organizations (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) NOT NULL UNIQUE,
+    created_by VARCHAR(36),
+    owner_count INT NOT NULL DEFAULT 0,
+    member_count INT NOT NULL DEFAULT 0,
+    metadata JSON NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_org_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `organization_members`
+
+The join table. Membership *is* the pair — there is no surrogate key.
+
+| Column | Type | Notes |
+|---|---|---|
+| `org_id` | `UUID` | → `organizations(id)` `ON DELETE CASCADE` |
+| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
+| `role` | `VARCHAR(50)` | `CHECK` on `owner`, `admin`, `member` |
+| `joined_at` | `TIMESTAMPTZ` | |
+
+- Composite primary key `(org_id, user_id)`, so a user holds exactly one role per org.
+- `role` is enforced by `CHECK` on PostgreSQL only.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS organization_members (
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(50) NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+    joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (org_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_org_members_user ON organization_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_org_members_org_role ON organization_members(org_id, role);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS organization_members (
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    joined_at DATETIME NOT NULL,
+    PRIMARY KEY (org_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_org_members_user ON organization_members(user_id);
+CREATE INDEX IF NOT EXISTS idx_org_members_org_role ON organization_members(org_id, role);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS organization_members (
+    org_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    joined_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (org_id, user_id),
+    CONSTRAINT fk_org_mem_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_org_mem_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_org_members_user ON organization_members(user_id);
+CREATE INDEX idx_org_members_org_role ON organization_members(org_id, role);
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `organization_invites`
+
+Pending invitations to join an org.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `org_id` | `UUID` | → `organizations(id)` `ON DELETE CASCADE` |
+| `email` | `TEXT` | |
+| `role` | `VARCHAR(50)` | The role they'll get — `CHECK` on `owner`, `admin`, `member` |
+| `code_hash` | `TEXT` | Unique. The raw code goes out by email only |
+| `invited_by` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
+| `expires_at` / `created_at` | `TIMESTAMPTZ` | |
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS organization_invites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role VARCHAR(50) NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+    code_hash TEXT UNIQUE NOT NULL,
+    invited_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_org_invites_org ON organization_invites(org_id);
+CREATE INDEX IF NOT EXISTS idx_org_invites_email ON organization_invites(email);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS organization_invites (
+    id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    role TEXT NOT NULL,
+    code_hash TEXT NOT NULL UNIQUE,
+    invited_by TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_org_invites_org ON organization_invites(org_id);
+CREATE INDEX IF NOT EXISTS idx_org_invites_email ON organization_invites(email);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS organization_invites (
+    id VARCHAR(36) PRIMARY KEY,
+    org_id VARCHAR(36) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    code_hash VARCHAR(64) NOT NULL UNIQUE,
+    invited_by VARCHAR(36) NOT NULL,
+    expires_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_org_inv_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_org_inv_user FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_org_invites_org ON organization_invites(org_id);
+CREATE INDEX idx_org_invites_email ON organization_invites(email);
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `audit_log`
+
+Written asynchronously by the audit pipeline when it is enabled. Singular `audit_log` — the admin route that reads it is `/admin/audit-logs`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `event_type` | `TEXT` | e.g. `user.login`, `admin.ban` |
+| `severity` | `TEXT` | Defaults to `info` |
+| `success` | `BOOLEAN` | Defaults to `true` |
+| `actor_id` / `target_id` / `session_id` / `org_id` | `UUID` | All nullable, and deliberately **not** foreign keys — audit rows must survive the deletion of what they describe |
+| `ip` / `user_agent` / `parsed_ua` | `TEXT` / `JSONB` | |
+| `request_id` / `correlation_id` | `TEXT` | For stitching events to your own request tracing |
+| `metadata` | `JSONB` | Event-specific payload |
+
+- PostgreSQL additionally indexes `metadata` with a GIN index for containment queries.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_log (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    success BOOLEAN NOT NULL DEFAULT true,
+    actor_id UUID,
+    target_id UUID,
+    session_id UUID,
+    org_id UUID,
+    ip TEXT,
+    user_agent TEXT NOT NULL DEFAULT '',
+    parsed_ua JSONB,
+    request_id TEXT NOT NULL DEFAULT '',
+    correlation_id TEXT NOT NULL DEFAULT '',
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor_id ON audit_log(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_target_id ON audit_log(target_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_session_id ON audit_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_metadata ON audit_log USING GIN (metadata jsonb_path_ops);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_log (
+    id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL DEFAULT 'info',
+    success INTEGER NOT NULL DEFAULT 1,
+    actor_id TEXT,
+    target_id TEXT,
+    session_id TEXT,
+    org_id TEXT,
+    ip TEXT,
+    user_agent TEXT NOT NULL DEFAULT '',
+    parsed_ua TEXT,
+    request_id TEXT NOT NULL DEFAULT '',
+    correlation_id TEXT NOT NULL DEFAULT '',
+    metadata TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor_id ON audit_log(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_target_id ON audit_log(target_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_session_id ON audit_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
+CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_log (
+    id VARCHAR(64) PRIMARY KEY,
+    event_type VARCHAR(128) NOT NULL,
+    severity VARCHAR(16) NOT NULL DEFAULT 'info',
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    actor_id VARCHAR(64),
+    target_id VARCHAR(64),
+    session_id VARCHAR(64),
+    org_id VARCHAR(64),
+    ip VARCHAR(45),
+    user_agent TEXT NOT NULL,
+    parsed_ua JSON,
+    request_id VARCHAR(64) NOT NULL DEFAULT '',
+    correlation_id VARCHAR(64) NOT NULL DEFAULT '',
+    metadata JSON,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE INDEX idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX idx_audit_log_actor_id ON audit_log(actor_id);
+CREATE INDEX idx_audit_log_target_id ON audit_log(target_id);
+CREATE INDEX idx_audit_log_session_id ON audit_log(session_id);
+CREATE INDEX idx_audit_log_org_id ON audit_log(org_id);
+CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
+```
+
+</Tab>
+</Tabs>
+
+## Driver differences
+
+Three files, roughly 150 lines each, living in `internal/schema/` and embedded
+by `//go:embed`. The table and column names are identical across all three —
+only types and defaults differ.
+
+| | PostgreSQL | SQLite | MySQL |
+|---|---|---|---|
+| IDs | `UUID`, defaulted by `gen_random_uuid()` | `TEXT`, generated by the application | `VARCHAR(36)`, generated by the application |
+| Timestamps | `TIMESTAMPTZ` | `DATETIME` | `DATETIME` |
+| Booleans | `BOOLEAN` | `INTEGER` (`0`/`1`) | `BOOLEAN` |
+| JSON columns | `JSONB` | `TEXT` | mixed — `JSON` for `metadata`, `TEXT` for `parsed_ua` |
+| `CHECK` constraints | 6 — role, status, token type, org role, and the session active-org pair | none | none |
+| Indexes | 21 | 20 | 20 |
+| Re-runnable | yes — every statement is `IF NOT EXISTS` | yes | **no** — `CREATE INDEX` is unguarded |
+| Foreign keys | inline `REFERENCES` | inline `REFERENCES` | named `CONSTRAINT ... FOREIGN KEY` |
+| Timestamp precision | `TIMESTAMPTZ` | `DATETIME` | `DATETIME(6)` — microseconds |
+| Placeholders | `$1, $2, …` — rewritten by `sqlstore.DB.Rebind` | `?` | `?` |
+
+Queries are written once with `?` placeholders and rewritten per driver at
+runtime, so none of this leaks into application code.
+
+<Callout type="warn" title="Constraints are not portable">
+  The `CHECK` constraints listed against each table above exist **only on
+  PostgreSQL**. On SQLite and MySQL the same columns are plain `TEXT`/`VARCHAR`
+  with no database-level restriction, so an invalid `role` or `status` written
+  by something other than this library will be accepted by the database. The
+  service layer validates these values regardless of driver — the constraints
+  are a second line of defence that only PostgreSQL gives you.
+</Callout>
+
+## Next
+
+- [Configuration](configuration.mdx) — every option, field by field
+- [Architecture](architecture.mdx) — how the storage layer fits together

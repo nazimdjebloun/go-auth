@@ -1,0 +1,170 @@
+---
+title: "Provider & Context"
+description: "A React context built on authApi that turns the raw client into app-wide user/loading state, with an auto-signout when a session dies elsewhere."
+icon: "Component"
+---
+
+# Provider & Context
+
+`authApi` and `sessionsApi` are just functions — every component that needs to know who's logged in would otherwise call `authApi.me()` itself and manage its own loading state. This wraps that in a React context instead: one `<AuthProvider>` near the root of the app, one `useAuth()` hook everywhere else.
+
+```tsx
+"use client";
+
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  type ReactNode,
+} from "react";
+import { authApi } from "./authApi";
+import { setUnauthorizedHandler } from "./client";
+
+interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  isVerified: boolean;
+  hasPassword: boolean;
+}
+
+interface AuthContextValue {
+  user: User | null;
+  loading: boolean;
+  error: string | null;
+  refresh: () => Promise<void>;
+  login: (input: { email: string; password: string }) => Promise<{ requiresVerification?: boolean }>;
+  register: (input: { email: string; password: string; name: string }) => Promise<{ requiresVerification?: boolean }>;
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      setUser(await authApi.me());
+      setError(null);
+    } catch {
+      setUser(null); // 401 here just means "not logged in", not a bug
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null));
+    refresh();
+  }, [refresh]);
+
+  const login = useCallback(async (input: { email: string; password: string }) => {
+    setError(null);
+    try {
+      const result = await authApi.login(input);
+      if (result.requiresVerification) return { requiresVerification: true };
+      await refresh();
+      return {};
+    } catch (err: any) {
+      setError(err.message ?? err.error);
+      throw err;
+    }
+  }, [refresh]);
+
+  const register = useCallback(async (input: { email: string; password: string; name: string }) => {
+    setError(null);
+    try {
+      const result = await authApi.register(input);
+      if (result.requiresVerification) return { requiresVerification: true };
+      await refresh();
+      return {};
+    } catch (err: any) {
+      setError(err.message ?? err.error);
+      throw err;
+    }
+  }, [refresh]);
+
+  const logout = useCallback(async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // already logged out server-side, or the request itself failed — either way, proceed
+    }
+    setUser(null);
+    if (typeof window !== "undefined") window.location.href = "/login";
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ user, loading, error, refresh, login, register, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error("useAuth must be used within an AuthProvider");
+  }
+  return ctx;
+}
+```
+
+## What each piece is actually doing
+
+**The mount-time `refresh()`.** The browser might already be holding a valid `goauth_session` cookie from a previous visit — React doesn't know that until it asks. `useEffect(() => { refresh() }, [])` calls `GET /auth/me` once on mount specifically to hydrate `user` from whatever cookie already exists, which is the whole reason `/auth/me` exists as a "check" endpoint rather than only being reachable as a side effect of login.
+
+**`loading`, and why it starts `true`.** Until that first `refresh()` resolves, you don't yet know if there's a user or not — `loading` distinguishes "haven't checked yet" from "checked, and there's no one." Skipping this is what causes the common flash of a logged-out UI for a split second before a valid session kicks in; gate your route rendering on `loading` being `false`, not just on `user` being non-null.
+
+**`setUnauthorizedHandler(() => setUser(null))`.** This is why [Setup](index.mdx) exports it. A session can die on the server — revoked, banned, or expired past its refresh window — while this tab still has `user` set in memory from the last successful call. The next request that happens to hit the API will get a `401` (or `403 user_banned`), and this wiring means *any* request discovering that clears `user` app-wide, not just the component that made the unlucky call.
+
+**Why `login`/`register` call `refresh()` again instead of using the response's own `user` field.** The login/register response already contains a full user object — you could use it directly and skip the extra round trip. Calling `refresh()` instead means there's exactly one code path that ever populates `user`, so it can't drift out of sync with what `/auth/me` would say. Either is correct; this trades a network call for not having two sources of truth.
+
+## Using it
+
+Mount once, near the root:
+
+```tsx
+// app/layout.tsx
+import { AuthProvider } from "./auth-provider";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+Then anywhere below it:
+
+```tsx
+function AccountMenu() {
+  const { user, loading, logout } = useAuth();
+
+  if (loading) return <Skeleton />;
+  if (!user) return <a href="/login">Log in</a>;
+
+  return (
+    <div>
+      {user.name}
+      <button onClick={logout}>Log out</button>
+    </div>
+  );
+}
+```
+
+## Next
+
+- [Setup](index.mdx) — the `apiRequest` helper and `setUnauthorizedHandler` this is built on
+- [Authentication client](authentication.mdx) — `authApi`, including `me`/`check`
+- [Middleware](middleware.mdx) — the server-side counterpart: redirecting unauthenticated requests before a page even renders

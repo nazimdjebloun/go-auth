@@ -1,0 +1,685 @@
+---
+title: "Admin"
+description: "Admin login, platform-wide user management, per-user session control, and admin-issued platform invites."
+icon: "ShieldUser"
+---
+
+# Admin
+
+Everything here requires `role: "admin"` on the calling user — routes are wrapped in `RequireRole(domain.RoleAdmin, nil)` on top of the normal `AuthMiddleware`, so an expired or missing session fails the same way it does everywhere else, and a valid session with `role: "user"` gets `403 forbidden`.
+
+For the full path/param reference see [Routes](../routes.mdx#admin--users). For viewing what admins (and everyone else) have done, see [Audit Logs](audit-logs.mdx).
+
+## Configuration
+
+There's no `WithAdmin` flag — these routes are always mounted. What gates them is purely the `role` column on `domain.User`, which is either `"user"` or `"admin"`.
+
+<Callout type="warn" title="Bootstrapping the first admin">
+  Every admin-management endpoint below requires an admin session to call — including `POST /admin/users`. That's a chicken-and-egg problem for the very first admin: there's no CLI command or API route that creates one from nothing. In practice you promote an existing user directly against the database once, e.g. `UPDATE users SET role = 'admin' WHERE email = '...'`, and use the API for every admin after that.
+</Callout>
+
+## Frontend client setup
+
+The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](client/index.mdx). The named-method wrapper for everything on this page lives on [Client → Admin](client/admin.mdx).
+
+## Admin login
+
+### Admin login — `POST /auth/admin/login`
+
+Same request shape as [Login](authentication.mdx#login), but only succeeds for users whose `role` is `"admin"` — a correct password for a non-admin account fails exactly like a wrong password, and both count as a failed admin-login attempt in the audit log.
+
+**Request body**
+
+| Field | Type | Required |
+|---|---|---|
+| `email` | `string` | Required |
+| `password` | `string` | Required |
+
+**Response** (`200 OK`) — identical shape to regular login's success response: `{ "user", "session" }`, cookies set the same way.
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `invalid_json` | 400 | Malformed body |
+| `invalid_credentials` | 401 | Wrong password, unknown email, an OAuth-only account with no password, **or** correct credentials for a non-admin user — all indistinguishable on purpose |
+| `user_banned` | 403 | Account is banned |
+| `internal_error` | 500 | Session creation failure |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/admin/login \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -c admin-cookies.txt \
+  -d '{"email":"root@myapp.com","password":"a very strong admin password 1"}'
+```
+
+Use a separate cookie jar from your regular user session while testing — this response sets the same cookie names (`goauth_session`, `goauth_refresh`), so reusing a jar overwrites whichever session you had.
+
+---
+
+#### Programmatic (Go)
+
+```go
+result, err := auth.Services.Auth.AdminLogin(ctx, service.LoginInput{
+    Email:     "root@myapp.com",
+    Password:  "a very strong admin password 1",
+    IP:        r.RemoteAddr,
+    UserAgent: r.UserAgent(),
+})
+if err != nil {
+    // *domain.AuthError — invalid_credentials covers "not an admin" too
+}
+```
+
+---
+
+#### Client
+
+```ts
+const result = await apiRequest(API_BASE, "POST", "/auth/admin/login", { email, password });
+setAdminUser(result.user);
+```
+
+---
+
+## Listing and inspecting users
+
+### List users — `GET /admin/users`
+
+**Query params**
+
+| Param | Type | Default | Notes |
+|---|---|---|---|
+| `offset` | int | `0` | |
+| `limit` | int | `20` | Max `100` |
+| `email` | string | — | Exact match |
+| `search` | string | — | Matches name or email |
+| `role` | string | — | `admin` or `user` only — any other value is silently ignored, not applied as a filter |
+| `orderBy` | string | `created_at` | Or `updated_at` — anything else falls back to the default |
+| `orderDirection` | string | `desc` | Or `asc` — anything else falls back to the default |
+
+**Response** (`200 OK`)
+
+```json
+{
+  "users": [
+    {
+      "id": "b3f1...",
+      "email": "ada@example.com",
+      "name": "Ada Lovelace",
+      "role": "user",
+      "isVerified": true,
+      "isBanned": false,
+      "orgOwnerCount": 0,
+      "createdAt": "2026-08-09T12:00:00Z",
+      "updatedAt": "2026-08-09T12:00:00Z"
+    }
+  ],
+  "total": 150,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+#### curl
+
+```bash
+curl "https://api.myapp.com/admin/users?limit=20&search=ada&role=user" \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+result, err := auth.Services.Admin.ListUsers(ctx, service.AdminListUsersInput{
+    Limit:  20,
+    Search: goauth.String("ada"),
+})
+// result.Users, result.Total
+```
+
+---
+
+#### Client
+
+```ts
+const { users, total } = await apiRequest(API_BASE, "GET", "/admin/users?limit=20&search=ada");
+```
+
+---
+
+### Get user detail — `GET /admin/users/{id}`
+
+Bundles the user record with their active session count and linked OAuth provider accounts — one call instead of three.
+
+**Response** (`200 OK`)
+
+```json
+{
+  "user": { "...": "same shape as list" },
+  "activeSessionCount": 2,
+  "providers": [{ "provider": "github", "providerUserID": "12345" }]
+}
+```
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `user_not_found` | 404 | No user with that ID |
+
+#### curl
+
+```bash
+curl https://api.myapp.com/admin/users/b3f1... \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+detail, err := auth.Services.Admin.GetUserDetail(ctx, userID)
+// detail.User, detail.ActiveSessionCount, detail.Providers
+```
+
+---
+
+#### Client
+
+```ts
+const detail = await apiRequest(API_BASE, "GET", `/admin/users/${userId}`);
+```
+
+---
+
+## Creating and managing users
+
+### Create a user — `POST /admin/users`
+
+Creates the user **pre-verified** — `isVerified: true` from the moment it's created, no email round-trip. There's no session issued; this is admin provisioning, not a login.
+
+**Request body**
+
+| Field | Type | Required |
+|---|---|---|
+| `email` | `string` | Required |
+| `password` | `string` | Required — must pass `SecurityConfig.PasswordPolicy` |
+| `name` | `string` | Required — rejected as `name_required` if blank after trimming |
+| `role` | `string` | Optional — anything other than `"admin"` becomes `"user"` |
+
+**Response** (`201 Created`) — the created user object, same shape as list.
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `invalid_json` | 400 | Malformed body |
+| `name_required` | 400 | Blank name |
+| `weak_password` | 400 | Fails `PasswordPolicy` |
+| `email_already_exists` | 409 | An account with that email already exists |
+| `internal_error` | 500 | Hashing or database failure |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/admin/users \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt \
+  -d '{"email":"newadmin@myapp.com","password":"a very strong password 1","name":"New Admin","role":"admin"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+user, err := auth.Services.Admin.CreateUser(ctx, service.CreateUserInput{
+    Email:    "newadmin@myapp.com",
+    Password: "a very strong password 1",
+    Name:     "New Admin",
+    Role:     "admin",
+})
+```
+
+---
+
+#### Client
+
+```ts
+const user = await apiRequest(API_BASE, "POST", "/admin/users", {
+  email: "newadmin@myapp.com",
+  password: "a very strong password 1",
+  name: "New Admin",
+  role: "admin",
+});
+```
+
+---
+
+### Change a user's role — `PATCH /admin/users/{id}/role`
+
+**Request body**: `{ "role": "admin" }` — must be exactly `"user"` or `"admin"`.
+
+**Response**: `{ "message": "Role updated" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `invalid_role` | 400 | `role` wasn't `"user"` or `"admin"` |
+| `user_not_found` | 404 | No user with that ID |
+| `last_admin` | 400 | Would demote the only remaining admin |
+
+<Callout type="info" title="The last-admin check only fires on demotion">
+  Promoting a user to admin is never blocked. The `last_admin` check only runs when the target is currently an admin and the new role is `"user"` — it exists purely to stop you from locking yourself (or everyone) out.
+</Callout>
+
+#### curl
+
+```bash
+curl -X PATCH https://api.myapp.com/admin/users/b3f1.../role \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt \
+  -d '{"role":"admin"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Admin.UpdateUserRole(ctx, userID, "admin")
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/role`, { role: "admin" });
+```
+
+---
+
+### Ban / unban a user — `PATCH /admin/users/{id}/ban`, `PATCH /admin/users/{id}/unban`
+
+Banning revokes every one of that user's sessions immediately, in the same request — a banned user can't keep using an already-open tab. `AuthService.ValidateSession` also checks `IsBanned` on every request going forward, so even a session created *after* the ban (there isn't one, since sessions are revoked) or a stale in-memory session on the client would still be rejected server-side.
+
+**Response**: `{ "message": "User banned successfully" }` / `{ "message": "User unbanned successfully" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `user_not_found` | 404 | No user with that ID |
+| `already_banned` | 400 | Ban called on an already-banned user |
+| `not_banned` | 400 | Unban called on a user who isn't banned |
+| `last_admin` | 400 | Ban would target the only remaining admin |
+
+#### curl
+
+```bash
+curl -X PATCH https://api.myapp.com/admin/users/b3f1.../ban \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Admin.BanUser(ctx, userID)
+err  = auth.Services.Admin.UnbanUser(ctx, userID)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/ban`);
+```
+
+---
+
+### Delete a user — `DELETE /admin/users/{id}`
+
+Revokes all their sessions, then deletes the row. Irreversible.
+
+**Response**: `{ "message": "User deleted successfully" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `user_not_found` | 404 | No user with that ID |
+| `last_admin` | 400 | Would delete the only remaining admin |
+
+#### curl
+
+```bash
+curl -X DELETE https://api.myapp.com/admin/users/b3f1... \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Admin.DeleteUser(ctx, userID)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "DELETE", `/admin/users/${userId}`);
+```
+
+---
+
+## Managing a user's sessions
+
+Same session shape and semantics as [Sessions](sessions.mdx), just scoped to any user by ID instead of "yourself."
+
+### List a user's sessions — `GET /admin/users/{id}/sessions`
+
+Query: `offset`, `limit` (default `20`, max `100`).
+
+**Response**: `{ "sessions": [...], "total": 5 }`
+
+#### curl
+
+```bash
+curl "https://api.myapp.com/admin/users/b3f1.../sessions?limit=20" \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+sessions, total, err := auth.Services.Admin.ListUserSessions(ctx, service.AdminListUserSessionsInput{
+    UserID: userID,
+    Limit:  20,
+})
+```
+
+---
+
+#### Client
+
+```ts
+const { sessions, total } = await apiRequest(API_BASE, "GET", `/admin/users/${userId}/sessions`);
+```
+
+---
+
+### Revoke one / all of a user's sessions — `DELETE /admin/users/{id}/sessions/{sessionId}`, `DELETE /admin/users/{id}/sessions`
+
+**Errors** (single-session route)
+
+| Code | Status | Cause |
+|---|---|---|
+| `user_not_found` | 404 | No user with that ID |
+| `session_not_found` | 404 | Session doesn't exist or doesn't belong to that user |
+
+#### curl
+
+```bash
+curl -X DELETE https://api.myapp.com/admin/users/b3f1.../sessions/9e2c... \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+
+curl -X DELETE https://api.myapp.com/admin/users/b3f1.../sessions \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Admin.RevokeUserSession(ctx, userID, sessionID)
+err  = auth.Services.Admin.RevokeUserSessions(ctx, userID) // all of them
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions/${sessionId}`);
+await apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions`);
+```
+
+---
+
+## Platform invites — requires `EnableInvite`
+
+Admin-issued, invite-only signup: an admin creates an invite for an email address, and the recipient completes registration with it via `POST /auth/invite/register` — covered in [Authentication → Register via invite](authentication.mdx#register-via-invite--requires-enableinvite-true). This is a different feature from organization invites — see [Organizations → Invites](organizations.mdx#invites) for those. These routes only exist when `RegistrationConfig.EnableInvite: true`; otherwise they 404.
+
+An invite's `status` is one of `pending`, `accepted`, `revoked`, or `expired` (the last one is set lazily — a pending invite past its `expiresAt` reports `invite_expired` the next time something reads it, rather than a background job flipping the status).
+
+### Create an invite — `POST /admin/invites`
+
+The inviting admin comes from the session (`AdminID`), never from the request body.
+
+**Request body**: `{ "email": "..." }`
+
+**Response** (`201 Created`)
+
+```json
+{
+  "id": "...",
+  "email": "ada@example.com",
+  "createdBy": "b3f1...",
+  "status": "pending",
+  "expiresAt": "2026-08-16T12:00:00Z",
+  "createdAt": "2026-08-09T12:00:00Z"
+}
+```
+
+The raw invite code is emailed directly to `email` — it's never included in this response (`rawCode` is only populated internally at creation time, before the mailer sends it).
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `method_disabled` | 405 | `EnableInvite` is `false` |
+| `invalid_json` | 400 | Malformed body or invalid email |
+| `email_failed` | 500 | No mailer configured, or send failure |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/admin/invites \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt \
+  -d '{"email":"ada@example.com"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+invite, err := auth.Services.Invite.CreateInvite(ctx, service.CreateInviteInput{
+    Email:   "ada@example.com",
+    AdminID: adminUserID,
+})
+```
+
+---
+
+#### Client
+
+```ts
+const invite = await apiRequest(API_BASE, "POST", "/admin/invites", { email: "ada@example.com" });
+```
+
+---
+
+### List invites — `GET /admin/invites`
+
+**Query params**: `offset`, `limit` (default `20`, max `100`); `search`, `status` (optional).
+
+**Response** (`200 OK`): `{ "invites": [...], "total": 42 }`
+
+#### curl
+
+```bash
+curl "https://api.myapp.com/admin/invites?status=pending&limit=20" \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+invites, total, err := auth.Services.Invite.ListInvites(ctx, service.ListInvitesInput{
+    Status: "pending",
+    Limit:  20,
+})
+```
+
+---
+
+#### Client
+
+```ts
+const { invites, total } = await apiRequest(API_BASE, "GET", "/admin/invites?status=pending");
+```
+
+---
+
+### Revoke an invite — `DELETE /admin/invites/{id}`
+
+Soft-cancels it — sets `status: "revoked"`. The row still exists, so it still shows up in [List invites](#list-invites--get-admininvites); an attempt to redeem it fails with `invite_revoked` instead of `invite_not_found`.
+
+**Response**: `{ "message": "Invite revoked" }`
+
+#### curl
+
+```bash
+curl -X DELETE https://api.myapp.com/admin/invites/9e2c... \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Invite.RevokeInvite(ctx, inviteID)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}`);
+```
+
+---
+
+### Resend an invite — `POST /admin/invites/{id}/resend`
+
+Generates a **new** code and pushes `expiresAt` out by another `InviteTTL` — the previously emailed code stops working once this succeeds, so this is "issue a fresh one," not "re-send the same email."
+
+**Response**: `{ "message": "Invite resent" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `invite_not_found` | 404 | No invite with that ID |
+| `email_failed` | 500 | Send failure |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/admin/invites/9e2c.../resend \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Invite.ResendInviteEmail(ctx, inviteID)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", `/admin/invites/${inviteId}/resend`);
+```
+
+---
+
+### Permanently delete an invite — `DELETE /admin/invites/{id}/hard`
+
+Unlike revoke, this removes the row entirely — no trace left in [List invites](#list-invites--get-admininvites). Use revoke for the normal "this invite is no longer valid" case; reach for this only when the record itself shouldn't exist anymore (e.g. it was created for the wrong email).
+
+**Response**: `{ "message": "Invite deleted" }`
+
+#### curl
+
+```bash
+curl -X DELETE https://api.myapp.com/admin/invites/9e2c.../hard \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Invite.HardDeleteInvite(ctx, inviteID)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}/hard`);
+```
+
+---
+
+## Next
+
+- [Audit Logs](audit-logs.mdx) — every admin action above (and everything else) shows up here
+- [Sessions](sessions.mdx) — the self-service version of session listing/revocation
+- [Organizations → Invites](organizations.mdx#invites) — the other kind of invite, scoped to one org
+- [Routes](../routes.mdx#admin--users) — full param reference

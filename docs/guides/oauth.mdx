@@ -1,0 +1,179 @@
+---
+title: "OAuth linking"
+description: "Connecting and disconnecting an OAuth provider on an already-logged-in account, and listing which ones are connected."
+icon: "Link2"
+---
+
+# OAuth linking
+
+The initial sign-up/sign-in redirect flow (`GET /auth/oauth/{provider}` → provider approval → callback) is covered per-provider on the [Providers](../providers/index.mdx) pages — it's identical regardless of which provider you use. This page covers the three endpoints that only matter for an **already-authenticated** user: linking an additional provider to their account, unlinking one, and listing what's currently connected.
+
+Requires `RegistrationConfig.EnableOAuth: true` and at least one `WithProvider(...)` call — see [Authentication → Configuration](authentication.mdx#configuration). All three routes below are otherwise unmounted (404).
+
+## Frontend client setup
+
+The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](client/index.mdx). The named-method wrapper for everything on this page lives on [Client → OAuth](client/oauth.mdx).
+
+## Linking a provider
+
+### Start a link — `POST /auth/oauth/{provider}/link`
+
+Auth required. Returns the provider's authorization URL, same shape as the login-initiate endpoint — redirect the browser to it. The difference is entirely server-side: the state token stores the *current user's ID*, so when the callback fires, `OAuthService.Callback` links to that user instead of creating or logging into a different account.
+
+**Response** (`200 OK`): `{ "url": "https://github.com/login/oauth/authorize?..." }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `provider_not_found` | 404 | `{provider}` doesn't match any registered `WithProvider` name |
+| `internal_error` | 500 | Failed to generate or store the PKCE state |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/oauth/github/link \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt
+```
+
+The response is JSON, not a redirect — your frontend reads `url` and navigates the browser there itself (`window.location.href = url`), the same way the login-initiate flow works.
+
+---
+
+#### Programmatic (Go)
+
+```go
+url, err := auth.Services.OAuth.InitiateLink(ctx, "github", userID)
+if err != nil {
+    // *domain.AuthError — provider_not_found if the name is wrong
+}
+// redirect the browser to url
+```
+
+---
+
+#### Client
+
+```ts
+const { url } = await apiRequest(API_BASE, "POST", "/auth/oauth/github/link");
+window.location.href = url;
+```
+
+---
+
+### The callback — same route as login, different outcome
+
+`GET/POST /auth/oauth/{provider}/callback` is the same route used for login (see [Providers](../providers/index.mdx)) — the handler tells link and login apart by whether the OAuth state token has a `userID` attached, not by a different URL. On success it redirects to `{BaseURL}/auth/callback` same as always; on failure, `{BaseURL}/auth/callback?error={code}&provider={provider}`.
+
+**Errors** (link-specific — on top of the general OAuth callback errors in [Error Handling](../error-handling.mdx#oauth))
+
+| Code | Status | Cause |
+|---|---|---|
+| `already_linked` | 409 | This exact provider account is already linked to *your* account |
+| `provider_already_linked` | 409 | This provider account belongs to a **different** user already — can't be linked to two accounts |
+
+There's no separate curl/Go/Client section for the callback itself — it's a browser redirect the provider calls, not something your frontend calls directly. Read `error`/`provider` off `{BaseURL}/auth/callback`'s query string to show a message.
+
+## Unlinking a provider
+
+### Unlink — `POST /auth/oauth/{provider}/unlink`
+
+Auth required. Blocked if this is the account's *only* way to log in — unlinking must never leave an account with no password and no remaining provider.
+
+**Response**: `{ "message": "Provider unlinked" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `cannot_unlink_last_provider` | 400 | Account has no password and this is the only linked provider — set a password first ([Security → Set a password](security.mdx#set-a-password-oauth-only-accounts)) |
+| `user_not_found` | 404 | Session's user no longer exists |
+| `internal_error` | 500 | Database failure |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/oauth/github/unlink \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.OAuth.Unlink(ctx, userID, "github")
+```
+
+---
+
+#### Client
+
+```ts
+try {
+  await apiRequest(API_BASE, "POST", "/auth/oauth/github/unlink");
+} catch (err) {
+  // cannot_unlink_last_provider — prompt to set a password first
+}
+```
+
+---
+
+## Listing connected providers
+
+### List connected — `GET /auth/oauth/providers`
+
+Auth required. Only ever returns the safe, display-oriented fields — access and refresh tokens are never serialized here, regardless of whether `Encryptor` is configured.
+
+**Response** (`200 OK`)
+
+```json
+{
+  "providers": [
+    {
+      "provider": "github",
+      "email": "ada@example.com",
+      "name": "Ada Lovelace",
+      "avatar_url": "https://avatars.githubusercontent.com/...",
+      "created_at": "2026-08-09T12:00:00Z"
+    }
+  ]
+}
+```
+
+#### curl
+
+```bash
+curl https://api.myapp.com/auth/oauth/providers \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+accounts, err := auth.Services.OAuth.ListConnected(ctx, userID)
+// accounts[i].AccessToken / RefreshToken ARE populated here — this is the
+// internal domain type, not the handler's filtered response shape above.
+// Never send this straight back to a client.
+```
+
+---
+
+#### Client
+
+```ts
+const { providers } = await apiRequest(API_BASE, "GET", "/auth/oauth/providers");
+```
+
+---
+
+## Next
+
+- [Providers](../providers/index.mdx) — registering GitHub/Google and the initial sign-in flow
+- [Security](security.mdx#set-a-password-oauth-only-accounts) — setting a password so a provider can be safely unlinked
+- [Routes](../routes.mdx#oauth--requires-enableoauth-and-at-least-one-registered-provider) — full param reference

@@ -1,0 +1,84 @@
+---
+title: "Organizations"
+description: "orgApi — a named-method wrapper around org CRUD, membership, active-org, and invites, built on the apiRequest helper."
+icon: "Blocks"
+---
+
+# Organizations client
+
+Wraps every endpoint from the [Organizations](../organizations.mdx) guide into `orgApi`, built on the [`apiRequest`](index.mdx) helper.
+
+```ts
+import { apiRequest } from "./client";
+
+const API_BASE = "https://api.myapp.com";
+
+export const orgApi = {
+  create: (input: { name: string; slug: string }) =>
+    apiRequest(API_BASE, "POST", "/auth/orgs", input),
+
+  listMine: () => apiRequest(API_BASE, "GET", "/auth/orgs"),
+
+  get: (orgId: string) => apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}`),
+
+  update: (orgId: string, input: { name?: string; slug?: string }) =>
+    apiRequest(API_BASE, "PUT", `/auth/orgs/${orgId}`, input),
+
+  delete: (orgId: string) => apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}`),
+
+  listMembers: (orgId: string, offset = 0, limit = 20) =>
+    apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/members?offset=${offset}&limit=${limit}`),
+
+  removeMember: (orgId: string, userId: string) =>
+    apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}/members/${userId}`),
+
+  updateMemberRole: (orgId: string, userId: string, role: "owner" | "admin" | "member") =>
+    apiRequest(API_BASE, "PATCH", `/auth/orgs/${orgId}/members/${userId}/role`, { role }),
+
+  leave: (orgId: string) => apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/leave`),
+
+  setActive: (orgId: string) => apiRequest(API_BASE, "PUT", "/auth/orgs/active", { orgId }),
+
+  clearActive: () => apiRequest(API_BASE, "DELETE", "/auth/orgs/active"),
+
+  createInvite: (orgId: string, input: { email: string; role: "owner" | "admin" | "member" }) =>
+    apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/invites`, input),
+
+  acceptInvite: (code: string) =>
+    apiRequest(API_BASE, "POST", "/auth/orgs/invites/accept", { code }),
+
+  listInvites: (orgId: string) => apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/invites`),
+
+  resendInvite: (orgId: string, inviteId: string) =>
+    apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/invites/${inviteId}/resend`),
+
+  deleteInvite: (orgId: string, inviteId: string) =>
+    apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}/invites/${inviteId}`),
+};
+```
+
+## Using it
+
+```ts
+const org = await orgApi.create({ name: "Acme Inc", slug: "acme" });
+await orgApi.setActive(org.id);
+```
+
+```ts
+const { members, total } = await orgApi.listMembers(orgId);
+await orgApi.updateMemberRole(orgId, userId, "admin");
+```
+
+```ts
+try {
+  await orgApi.acceptInvite(code);
+} catch (err) {
+  // org_invite_expired / org_invite_email_mismatch — see the Organizations guide
+  showError(err.message ?? err.error);
+}
+```
+
+## Next
+
+- [Setup](index.mdx) — the `apiRequest` helper this is built on
+- [Organizations](../organizations.mdx) — full request/response/error reference, roles, and the Owner-escalation rule

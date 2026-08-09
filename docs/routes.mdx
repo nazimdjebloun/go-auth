@@ -1,0 +1,137 @@
+---
+title: "Routes"
+description: "Every HTTP route go-auth mounts, grouped by area, with path params, query params, and request body fields."
+---
+
+# Routes
+
+This page covers every route `Auth.Mount(mux)` registers. Paths in the tables use `{name}` for a path parameter read via `r.PathValue("name")`. "Auth" is the minimum session/role required — see [Architecture](architecture.mdx#the-middleware-chain) for the full middleware chain each route runs through, and [Error Handling](error-handling.mdx) for what each one returns on failure.
+
+A few routes are conditionally mounted and simply don't exist on the mux otherwise:
+
+- Everything under **Invites** requires `RegistrationConfig.EnableInvite: true`.
+- Everything under **OAuth** requires `RegistrationConfig.EnableOAuth: true` and at least one `WithProvider` call.
+- Everything under **Organizations** requires `WithOrganizations(OrganizationConfig{Enable: true})`.
+- `POST /auth/register` / `POST /auth/signup` require `RegistrationConfig.EnableEmailPassword: true`.
+
+Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `OPTIONS` twin for every distinct path (deduplicated across methods sharing one), short-circuited to `204` by the CORS middleware before reaching any handler — these aren't listed separately below.
+
+## Authentication
+
+| Method & Path | Auth | Body | Description |
+|---|---|---|---|
+| `POST /auth/register`, `POST /auth/signup` | Public | `` `{email, password, name}` `` | Register with email/password. Returns a session unless verification is required. |
+| `POST /auth/login`, `POST /auth/signin` | Public | `` `{email, password}` `` | Log in. May return `requiresVerification: true` instead of a session. |
+| `POST /auth/admin/login` | Public | `` `{email, password}` `` | Same as login, but only succeeds for `role: admin` users. |
+| `POST /auth/logout`, `POST /auth/signout` | Public (session cookie optional) | none | Revokes the current session if the cookie is present; clears cookies either way. |
+| `GET /auth/me` | Auth | none | Returns the authenticated user plus `hasPassword`. |
+| `GET /auth/check` | Public (session cookie optional) | none | Soft check — always `200`, returns `{"user": null}` instead of erroring when there's no valid session. |
+| `GET /auth/csrf-token` | Public | none | No-op handler (`204`) — the CSRF cookie/header is actually issued by the CSRF middleware wrapping this route. Call it to prime the cookie before your first mutating request. |
+| `PUT /auth/name` | Auth | `` `{name}` `` | Updates the authenticated user's display name. |
+
+## Sessions
+
+| Method & Path | Auth | Params | Description |
+|---|---|---|---|
+| `GET /auth/sessions` | Auth | Query: `offset` (int, default `0`), `limit` (int, default `20`, max `100`) | Paginated list of your own sessions, plus `current_session_id`. |
+| `GET /auth/sessions/all` | Auth | none | All of your sessions, unpaginated, plus `current_session_id`. |
+| `DELETE /auth/sessions/{id}` | Auth | Path: `id` | Revokes one of your own sessions. `404 session_not_found` if it doesn't exist or isn't yours — the two cases are indistinguishable on purpose. |
+| `POST /auth/sessions/revoke` | Auth | Body: `` `{session_ids: []string}` `` | Bulk-revokes up to 100 of your own session IDs at once; unrecognized/foreign IDs are silently skipped. Returns `revoked` count. |
+| `DELETE /auth/sessions` | Auth | none | Revokes all your sessions **except** the one making the request (or all of them if the current one can't be resolved). |
+| `POST /auth/refresh` | Public (refresh cookie required) | Cookie: refresh token cookie | Rotates the session using the refresh cookie. Sets new session+refresh cookies on success; clears both on failure. |
+
+## Password
+
+| Method & Path | Auth | Body | Description |
+|---|---|---|---|
+| `POST /auth/forgot-password` | Public | `` `{email}` `` | Always returns a generic success message, whether or not the account exists. |
+| `POST /auth/reset-password` | Public | `` `{code, newPassword}` `` | Completes a password reset using the emailed code. |
+| `PUT /auth/password`, `POST /auth/change-password` | Auth | `` `{oldPassword, newPassword}` `` | Changes the authenticated user's password; revokes every other session. |
+| `POST /auth/set-password/request` | Auth | none | Sends a set-password email link — for OAuth-only accounts with no password yet. |
+| `POST /auth/set-password/confirm` | Public | `` `{userId, code, newPassword}` `` | Confirms a set-password request. Unauthenticated by design — `userId` comes from the body, not a session. |
+
+## Account
+
+| Method & Path | Auth | Body | Description |
+|---|---|---|---|
+| `DELETE /auth/account` | Auth | `` `{password}` `` | Deletes the account immediately after password confirmation. |
+| `POST /auth/account/delete/request` | Auth | none | Emails a deletion confirmation code. For OAuth-only accounts (no password) instead of the immediate-delete route above. |
+| `POST /auth/account/delete/confirm` | Auth | `` `{code}` `` | Confirms deletion with the emailed code. The user is always the authenticated session, never taken from the body. |
+
+## Email verification
+
+| Method & Path | Auth | Body | Description |
+|---|---|---|---|
+| `POST /auth/verify-email` | Public | `` `{code}` `` | Verifies the email and immediately creates a session for the now-verified user. |
+| `POST /auth/resend-verification` | Auth | none | Resends the verification email to the authenticated (unverified) user. |
+| `POST /auth/verify-email/resend` | Public | `` `{email}` `` | Unauthenticated resend by email address. Always returns a generic success message — no enumeration. |
+
+## Invites (self-service signup) — requires `EnableInvite`
+
+| Method & Path | Auth | Params | Description |
+|---|---|---|---|
+| `GET /auth/invite/info` | Public | Query: `token` (required) | Looks up an invite by token — used to pre-fill a registration form. `400 missing_token` if omitted. |
+| `POST /auth/invite/register` | Public | Body: `` `{code, name, password, confirmPassword}` `` | Completes registration from an invite code, creating the account and a session in one step. |
+
+## OAuth — requires `EnableOAuth` and at least one registered provider
+
+| Method & Path | Auth | Params | Description |
+|---|---|---|---|
+| `GET /auth/oauth/{provider}` | Public | Path: `provider` | Starts the OAuth flow. Returns `` `{url}` `` to redirect the browser to. |
+| `GET /auth/oauth/{provider}/callback`, `POST /auth/oauth/{provider}/callback` | Public | Path: `provider`; form values `code`, `state` (from query on `GET`, parsed form body on `POST`) | Completes the code exchange. On success, sets cookies and redirects to `{BaseURL}/auth/callback`; on error, redirects to `{BaseURL}/auth/callback?error={code}&provider={provider}` — see [Error Handling](error-handling.mdx#oauth). |
+| `POST /auth/oauth/{provider}/link` | Auth | Path: `provider` | Links a provider to the already-authenticated account. Returns `` `{url}` ``. |
+| `POST /auth/oauth/{provider}/unlink` | Auth | Path: `provider` | Unlinks a provider. Blocked if it would leave the account with no way to log in. |
+| `GET /auth/oauth/providers` | Auth | none | Lists connected providers — `provider`, `email`, `name`, `avatar_url`, `created_at` only. Access/refresh tokens are never returned. |
+
+## Organizations — requires `WithOrganizations(Enable: true)`
+
+| Method & Path | Auth | Params | Description |
+|---|---|---|---|
+| `POST /auth/orgs` | Auth | Body: `` `{name, slug}` `` | Creates an org owned by the caller. |
+| `GET /auth/orgs` | Auth | none | Lists the orgs the caller belongs to. |
+| `GET /auth/orgs/{orgID}` | Org member | Path: `orgID` | Fetches one org. |
+| `PUT /auth/orgs/{orgID}` | Org admin | Path: `orgID`; body: `` `{name?, slug?}` `` (both pointers — omit a field to leave it unchanged) | Partial update of org name/slug. |
+| `DELETE /auth/orgs/{orgID}` | Org owner | Path: `orgID` | Deletes the org. |
+| `GET /auth/orgs/{orgID}/members` | Org member | Path: `orgID`; query: `offset`, `limit` (default `20`, max `100`, same clamping as other list endpoints — applied in `OrgService.ListMembers`, not the handler) | Lists org members. |
+| `DELETE /auth/orgs/{orgID}/members/{userID}` | Org admin | Path: `orgID`, `userID` | Removes a member. |
+| `PATCH /auth/orgs/{orgID}/members/{userID}/role` | Org admin | Path: `orgID`, `userID`; body: `` `{role}` `` | Changes a member's role. |
+| `POST /auth/orgs/{orgID}/leave` | Org member | Path: `orgID` | The caller leaves the org. |
+| `PUT /auth/orgs/active` | Auth | Body: `` `{orgId}` `` | Sets the caller's active org for the current session. No `{orgID}` path segment — membership is checked inside the service, not by middleware. |
+| `DELETE /auth/orgs/active` | Auth | none | Clears the active-org setting for the current session. |
+| `POST /auth/orgs/{orgID}/invites` | Org admin | Path: `orgID`; body: `` `{email, role}` `` | Creates an invite to join the org. |
+| `POST /auth/orgs/invites/accept` | Auth | Body: `` `{code}` `` | Accepts an org invite by code. No path segment — the invite is resolved from the code. |
+| `GET /auth/orgs/{orgID}/invites` | Org admin | Path: `orgID` | Lists an org's invites. |
+| `POST /auth/orgs/{orgID}/invites/{inviteID}/resend` | Org admin | Path: `orgID`, `inviteID` (`orgID` is only used for the authorization check, not read again inside the handler) | Resends an org invite email. |
+| `DELETE /auth/orgs/{orgID}/invites/{inviteID}` | Org admin | Path: `orgID`, `inviteID` (same note as above) | Deletes an org invite. |
+
+## Admin — users
+
+| Method & Path | Auth | Params | Description |
+|---|---|---|---|
+| `GET /admin/users` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `email`, `search` (optional filters); `role` (`admin` or `user` only — any other value is ignored, not applied); `orderBy` (`created_at` \| `updated_at`, default `created_at`); `orderDirection` (`asc` \| `desc`, default `desc`) | Paginated, filterable, sortable user listing. |
+| `GET /admin/users/{id}` | Admin | Path: `id` | Full detail for one user. |
+| `POST /admin/users` | Admin | Body: `` `{email, password, name, role}` `` | Admin-creates a user with a specified role. |
+| `PATCH /admin/users/{id}/role` | Admin | Path: `id`; body: `` `{role}` `` | Sets a user's role. Blocked if it would demote the last admin. |
+| `PATCH /admin/users/{id}/ban` | Admin | Path: `id` | Bans a user. Blocked for the last admin. |
+| `PATCH /admin/users/{id}/unban` | Admin | Path: `id` | Unbans a user. |
+| `DELETE /admin/users/{id}` | Admin | Path: `id` | Deletes a user. Blocked for the last admin. |
+| `GET /admin/users/{id}/sessions` | Admin | Path: `id`; query: `offset`, `limit` (default `20`, max `100`) | Paginated sessions for a specific user. |
+| `DELETE /admin/users/{id}/sessions/{sessionId}` | Admin | Path: `id`, `sessionId` | Revokes one specific session belonging to a specific user. |
+| `DELETE /admin/users/{id}/sessions` | Admin | Path: `id` | Revokes all of a user's sessions. |
+
+## Admin — audit logs
+
+| Method & Path | Auth | Params | Description |
+|---|---|---|---|
+| `GET /admin/audit-logs` | Admin | Query (all optional): `offset`, `limit` (default `50`, max `200`); `event_type`, `actor_id`, `target_user_id`, `session_id`, `org_id`, `search`; `from`, `to` (RFC3339 timestamps — silently ignored if unparsable); `success` (`true` \| `false`) | Filtered, paginated audit events. `404 audit_not_configured` if audit logging isn't enabled. |
+| `GET /admin/users/{id}/audit-logs` | Admin | Path: `id`; same query params as above | Same as above, pre-filtered to that user. |
+
+## Admin — invites (`EnableInvite` required)
+
+| Method & Path | Auth | Params | Description |
+|---|---|---|---|
+| `POST /admin/invites` | Admin | Body: `` `{email}` `` | Creates an invite. The inviting admin is taken from the session, not the body. |
+| `GET /admin/invites` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `search`, `status` (optional) | Lists invites. |
+| `DELETE /admin/invites/{id}` | Admin | Path: `id` | Revokes (soft-cancels) an invite. |
+| `POST /admin/invites/{id}/resend` | Admin | Path: `id` | Resends the invite email. |
+| `DELETE /admin/invites/{id}/hard` | Admin | Path: `id` | Permanently deletes the invite record. |

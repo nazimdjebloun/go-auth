@@ -1,0 +1,14 @@
+{
+  "title": "Client",
+  "pages": [
+    "index",
+    "authentication",
+    "sessions",
+    "organizations",
+    "security",
+    "oauth",
+    "admin",
+    "provider",
+    "middleware"
+  ]
+}

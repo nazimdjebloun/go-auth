@@ -1,0 +1,106 @@
+---
+title: "Middleware"
+description: "Redirecting unauthenticated requests away from protected pages before they render — and exactly what this check does and doesn't prove."
+icon: "SignpostBig"
+---
+
+# Middleware
+
+Everything else in this folder runs in the browser, after a page has already loaded. This runs on the server, before that — a Next.js middleware that inspects the request and can redirect it away from a protected route without ever rendering the page.
+
+There are two honest versions of this, trading latency for correctness. Pick one on purpose rather than assuming the cheap one does more than it does.
+
+## Option 1: cookie presence only
+
+```ts
+// middleware.ts (or proxy.ts, per Next.js's own naming)
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+const protectedRoutes = ["/dashboard"];
+const adminRoutes = ["/admin"];
+
+export function middleware(request: NextRequest) {
+  const sessionToken = request.cookies.get("goauth_session")?.value; // match CookieConfig.Name
+  const { pathname } = request.nextUrl;
+
+  const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
+  const isAdmin = adminRoutes.some((route) => pathname.startsWith(route));
+
+  if ((isProtected || isAdmin) && !sessionToken) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/dashboard/:path*", "/admin/:path*"],
+};
+```
+
+`goauth_session` is the default cookie name from `CookieConfig` (see [Configuration](../../configuration.mdx)) — if you renamed it there, rename it here too.
+
+<Callout type="warn" title="This checks that a cookie exists, not that it's valid — and it doesn't check role at all">
+  Two things this version cannot do, both by construction, not by bug:
+
+  1. **It never validates the token.** Middleware runs on the edge runtime, without a database connection, so it can't call `ValidateSession` — it can only check whether a cookie with the right *name* is present. An expired, revoked, or entirely forged cookie value still passes this check and reaches the page.
+
+  2. **`isAdmin` doesn't check the user's role — only that *some* session cookie exists.** A logged-in non-admin who navigates to `/admin` sails past this exactly like an admin would.
+
+  Either way, the page's own API calls still go through the real `AuthMiddleware`/`adminMW` server-side and enforce both properly — this redirect is purely a UX convenience (skip rendering a page you're obviously not logged in for), not a security boundary. See Option 2 below if you want the middleware itself to actually know.
+</Callout>
+
+## Option 2: validated via `/auth/me`
+
+Edge middleware can run `fetch`, so it can ask the API instead of guessing from the cookie's presence. This costs one extra request per matched navigation, but it closes both gaps above: `/auth/me` runs through the real `AuthMiddleware`, and its response includes `role`.
+
+```ts
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+
+const API_BASE = "https://api.myapp.com";
+const protectedRoutes = ["/dashboard"];
+const adminRoutes = ["/admin"];
+
+export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const isProtected = protectedRoutes.some((route) => pathname.startsWith(route));
+  const isAdmin = adminRoutes.some((route) => pathname.startsWith(route));
+
+  if (!isProtected && !isAdmin) return NextResponse.next();
+
+  // Forward the incoming cookies as-is — this is a server-to-server call,
+  // so `credentials: "include"` (browser-only) doesn't apply here.
+  const res = await fetch(`${API_BASE}/auth/me`, {
+    headers: { cookie: request.headers.get("cookie") ?? "" },
+  });
+
+  if (!res.ok) {
+    return NextResponse.redirect(new URL("/login", request.url));
+  }
+
+  if (isAdmin) {
+    const user = await res.json();
+    if (user.role !== "admin") {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+  }
+
+  return NextResponse.next();
+}
+
+export const config = {
+  matcher: ["/dashboard/:path*", "/admin/:path*"],
+};
+```
+
+<Callout type="info" title="What this trades away">
+  Every matched navigation now waits on a round trip to the API before the page starts rendering — noticeable if that API is slow or briefly unreachable, in which case this fails closed (redirects to `/login`) rather than letting the request through. It also doesn't get you the transparent refresh-token rotation that `AuthMiddleware` does for a browser's own `fetch` calls — a session that's expired-but-refreshable will read as invalid here and bounce to `/login`, even though the same request from the page itself would have silently renewed. Option 1 has neither cost; Option 2 has neither gap. Most apps are fine mixing them — Option 1 for most protected routes, Option 2 (or a role check via [`useAuth()`](provider.mdx) inside the page) specifically for `/admin`.
+</Callout>
+
+## Next
+
+- [Provider](provider.mdx) — the client-side counterpart; use `user.role` from `useAuth()` for checks this middleware can't do
+- [Routes](../../routes.mdx) — which endpoints require `Auth` vs. admin role, enforced server-side regardless of this middleware
+- [Security](../../security.mdx) — how session validation actually works, and why it can't happen at this layer

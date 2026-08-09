@@ -1,43 +1,14 @@
 ---
-title: Providers
-description: OAuth provider overview, interface, and configuration.
+title: "Providers"
+description: "OAuth providers built into go-auth, and how registering one works."
 ---
 
 # Providers
 
-`import "github.com/nazimdjebloun/go-auth/port"`
+An OAuth provider is anything implementing `port.OAuthProvider` — three methods: `Name() string`, `AuthURL(state, codeChallenge string) string`, and `Exchange(ctx, code, codeVerifier string) (*port.OAuthProfile, error)`. Register one with `WithProvider`, and its routes (`/auth/oauth/{provider}`, `/auth/oauth/{provider}/callback`, `/auth/oauth/{provider}/link`, `/auth/oauth/{provider}/unlink`) are mounted automatically — see [Routes](../routes.mdx#oauth--requires-enableoauth-and-at-least-one-registered-provider). You can register more than one provider at once; each needs a unique `Name()`.
 
-go-auth supports OAuth 2.0 authentication via pluggable providers. Each provider implements the `port.OAuthProvider` interface:
+For linking/unlinking a provider on an already-logged-in account and listing what's connected — rather than the initial sign-up/sign-in flow covered below — see [Guides → OAuth linking](../guides/oauth.mdx).
 
-```go
-type OAuthProvider interface {
-    Name() string
-    AuthURL(state, codeChallenge string) string
-    Exchange(ctx, code, codeVerifier string) (*OAuthProfile, error)
-}
-```
+Every built-in provider uses PKCE (S256) regardless of whether the provider strictly requires it — see [Security](../security.mdx#oauth) for why that matters.
 
-## Registering Providers
-
-Use `goauth.WithProvider` in `NewConfig`:
-
-```go
-goauth.WithProvider(google.New(google.Config{...}))
-goauth.WithProvider(github.New(github.Config{...}))
-goauth.WithProvider(microsoft.New(microsoft.Config{...}))
-goauth.WithProvider(gitlab.New(gitlab.Config{...}))
-goauth.WithProvider(apple.New(apple.Config{...}))
-goauth.WithProvider(slack.New(slack.Config{...}))
-```
-
-### Import Paths
-
-| Provider | Import Path |
-|---|---|
-| Apple | `"github.com/nazimdjebloun/go-auth/provider/apple"` |
-| GitHub | `"github.com/nazimdjebloun/go-auth/provider/github"` |
-| GitLab | `"github.com/nazimdjebloun/go-auth/provider/gitlab"` |
-| Google | `"github.com/nazimdjebloun/go-auth/provider/google"` |
-| Microsoft / Azure | `"github.com/nazimdjebloun/go-auth/provider/microsoft"` |
-| Slack | `"github.com/nazimdjebloun/go-auth/provider/slack"` |
-| Custom | `"github.com/nazimdjebloun/go-auth/port"` (interface) |
+Currently built in: **GitHub** and **Google**. More can be added the same way `provider/github` and `provider/google` are built — implementing `port.OAuthProvider` against any OAuth2 provider's token and userinfo endpoints.

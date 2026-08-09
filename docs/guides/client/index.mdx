@@ -1,0 +1,83 @@
+---
+title: "Setup"
+description: "The fetch wrapper every client-side example in these guides is built on: cookies, CSRF, and error handling."
+icon: "Plug"
+---
+
+# Client
+
+Every **Client** section across the guides — and every named method on the wrapped clients in this folder (`authApi`, and whatever gets added alongside future guides) — is built on one small `fetch` wrapper. It's defined once here rather than repeated in every guide.
+
+It has to do two things a plain `fetch` call doesn't: send cookies on every request, and attach the CSRF header if CSRF protection (`SecurityConfig.CSRFToken`) is turned on.
+
+```ts
+function getCookie(name: string): string | null {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+async function ensureCSRFCookie(baseUrl: string) {
+  if (getCookie("_csrf")) return; // already have one
+  await fetch(`${baseUrl}/auth/csrf-token`, { method: "GET", credentials: "include" });
+}
+
+let onUnauthorized: (() => void) | null = null;
+
+// Called from the Provider guide: lets the rest of the app react the moment
+// any request comes back 401 or banned, instead of only the one call that hit it.
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler;
+}
+
+export async function apiRequest(baseUrl: string, method: string, path: string, body?: unknown) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  if (method !== "GET") {
+    await ensureCSRFCookie(baseUrl);          // no-op once the cookie exists — the endpoint is a 204 either way
+    const csrf = getCookie("_csrf");
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
+
+  const res = await fetch(`${baseUrl}${path}`, {
+    method,
+    credentials: "include",                  // required — this is how the session cookie gets sent and stored
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    if (res.status === 401 || (res.status === 403 && err.error === "user_banned")) {
+      onUnauthorized?.();
+    }
+    if (res.status === 429) {
+      err.retryAfter = Number(res.headers.get("Retry-After")) || undefined;
+    }
+    throw err;
+  }
+
+  return res.status === 204 ? undefined : res.json();
+}
+```
+
+`credentials: "include"` is the load-bearing line — without it, the browser never sends or stores the `HttpOnly` session/refresh cookies, and every request looks unauthenticated regardless of what the server sets. `_csrf` and `X-CSRF-Token` are the defaults; both are configurable on `CSRFTokenConfig` (see [Configuration → WithSecurity](../../configuration.mdx)) — match whatever you actually set there. If `CSRFToken` is left `nil` (the default), the CSRF cookie never gets set and `getCookie("_csrf")` just stays `null` forever — the header is simply never attached, which is correct.
+
+`setUnauthorizedHandler` exists for one reason: a session can die on the server (revoked, banned, expired past its refresh window) while a tab is sitting open with stale `user` state in memory. The next request that tab makes will fail — `401`, or `403 user_banned` — and without this hook, only that one call would know. Wiring it up (done in the [Provider](provider.mdx) guide) means the whole app's state clears the moment any request discovers the session is gone, not just the one that happened to ask first.
+
+On a `429`, the thrown error additionally carries `retryAfter` — the `Retry-After` header value in seconds, parsed for you — since [rate limiting](../rate-limiting.mdx) can hit any endpoint and there's no single place that otherwise expects to read response headers.
+
+## What lives where
+
+- The individual feature guides (e.g. [Authentication](../authentication.mdx)) show the **raw** call — `apiRequest(API_BASE, "POST", "/auth/login", ...)` — right next to the curl and Go examples for that same endpoint, so you can see the request/response map 1:1 to what's documented above it.
+- [Authentication](authentication.mdx), [Sessions](sessions.mdx), [Organizations](organizations.mdx), [Security](security.mdx), [OAuth linking](oauth.mdx), and [Admin](admin.mdx) wrap those same calls into named methods — `authApi.login(...)`, `sessionsApi.list(...)`, `orgApi.create(...)`, `securityApi.changePassword(...)`, `oauthApi.link(...)`, `adminApi.listUsers(...)` — the form you'd actually want in an app.
+- [Provider](provider.mdx) wraps *those* in a React context, so components read `user`/`loading` from one hook instead of calling the API directly.
+- [Middleware](middleware.mdx) is a different layer entirely — it runs on the server, before any of the above, to redirect unauthenticated requests away from protected pages.
+
+## Next
+
+- [Authentication client](authentication.mdx) — `authApi`, covering register, login, logout, and session checks
+- [Sessions client](sessions.mdx) — `sessionsApi`, covering listing and revoking
+- [Organizations client](organizations.mdx) — `orgApi`, covering org CRUD, membership, and invites
+- [Security client](security.mdx) — `securityApi`, covering name/password changes, verification resend, and deletion
+- [OAuth linking client](oauth.mdx) — `oauthApi`, covering link/unlink/list connected providers
+- [Admin client](admin.mdx) — `adminApi`, covering user management and audit-log queries

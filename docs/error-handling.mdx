@@ -1,0 +1,176 @@
+---
+title: "Error Handling"
+description: "Every error the HTTP API returns, grouped by area, with its code, HTTP status, and message."
+---
+
+# Error Handling
+
+Most endpoints return errors as JSON with the same shape:
+
+```json
+{
+  "error": "invalid_credentials",
+  "message": "Invalid email or password"
+}
+```
+
+`error` is a stable machine-readable code — match on this, not on `message`, which is meant for humans and can change wording without notice. The HTTP status carries the same information a REST client expects (`404` not found, `409` conflict, `429` rate limited, and so on).
+
+This page covers **runtime** errors returned by the mounted HTTP handlers. Configuration-time errors — the ones `NewConfig` returns before your server ever starts — are documented on the [Configuration](configuration.mdx) page instead.
+
+## Not every layer uses this shape
+
+Two places in the library don't go through the JSON envelope above:
+
+- **CSRF origin/token middleware** (`middleware.OriginCheck`, `middleware.CSRFToken`) responds with a plain-text body via `http.Error` — e.g. `Forbidden - CSRF headers missing` (403) — not JSON. It runs ahead of your handlers and has no domain error to format.
+- **Organization membership middleware** (`middleware.RequireOrgMember`, `RequireOrgRole`) writes JSON, but a narrower one — only `{"error": "..."}`, no `message` key.
+- **OAuth callback errors** are never returned as a JSON body at all — the browser is mid-redirect at that point. They come back as a redirect to `{BaseURL}/auth/callback?error={code}&provider={provider}`, and your frontend reads `error` from the query string.
+
+Everything else below — every service-layer and handler-layer error — uses the `{"error", "message"}` envelope.
+
+## General
+
+| Code | Status | Message |
+|---|---|---|
+| `internal_error` | 500 | Internal server error |
+| `invalid_json` | 400 | Invalid request body — malformed JSON on any endpoint that decodes one |
+| `invalid_input` | 400 | Generic input validation failure (exact message varies, e.g. `session_ids must not be empty`) |
+| `forbidden` | 403 | You do not have permission / Insufficient permissions |
+| `rate_limit_exceeded` | 429 | Too many requests, please try again later |
+| `method_disabled` | 405 | This registration method is not available |
+
+`internal_error` always means: something failed that the caller can't fix by changing their request (a database error, a failed hash, etc.). It's logged server-side with detail; the client only ever sees the generic message.
+
+## Authentication (register, login, session cookie)
+
+| Code | Status | Message | Hint |
+|---|---|---|---|
+| `email_already_exists` / `account_already_exists` | 409 | An account with this email already exists | Both codes mean the same thing; register uses the first. |
+| `invalid_credentials` | 401 | Invalid email or password | Deliberately the same message whether the email doesn't exist or the password is wrong — no account enumeration. |
+| `user_banned` | 403 | This account has been banned | Returned on login and on every authenticated request once a session resolves to a banned user. |
+| `email_not_verified` | 403 | Please verify your email first | Only when `RequireEmailVerification` is on. |
+| `weak_password` | 400 | Password must be at least 8 characters (or the specific policy rule that failed) | From your configured `PasswordPolicy`. |
+| `invalid_email` | 400 | Invalid email format | |
+| `name_required` | 400 | Name is required | |
+| `unauthorized` | 401 | Invalid session / User not found | From the auth middleware, not a specific service call. |
+| `session_expired` | 401 | Missing session cookie / Session has expired | Also from the auth middleware — see [Sessions](#sessions) below for the token-level version. |
+
+## Sessions
+
+| Code | Status | Message | Hint |
+|---|---|---|---|
+| `session_not_found` | 404 | Session not found | Returned by revoke-by-ID when the session doesn't exist *or* belongs to someone else — the two cases are indistinguishable on purpose, so one user can't probe another's session IDs. |
+| `session_expired` | 401 | Session has expired | |
+| `session_revoked` | 401 | Session has been revoked | |
+| `invalid_refresh_token` | 401 | Refresh token is invalid | |
+| `refresh_expired` | 401 | Refresh token has expired | |
+| `token_already_rotated` | 409 | This refresh token has already been rotated — use the new one | Expected under concurrent refresh requests; the grace window (`SessionConfig.GraceWindow`) exists to absorb the common case before this fires. |
+| `max_lifetime_exceeded` | 401 | Session lifetime exceeded, please re-authenticate | Only reachable when `SessionConfig.MaxLifetime` is set. |
+| `invalid_refresh` | 401 | No refresh token provided | |
+| `missing_token` | 400 | Token is required | |
+| `invalid_input` | 400 | `session_ids must not be empty` / `cannot revoke more than 100 sessions at once` | From bulk session revoke. |
+
+## Password
+
+| Code | Status | Message | Hint |
+|---|---|---|---|
+| `reset_token_invalid` | 400 | Invalid password reset token | |
+| `reset_token_expired` | 410 | Password reset token has expired | |
+| `reset_token_already_used` | 410 | Password reset token has already been used | |
+| `wrong_password` | 400 | Password is incorrect / Current password is incorrect | Used both by delete-account and change-password. |
+| `no_password` | 400 | No password set. Use set-password instead. | For OAuth-only accounts calling change-password instead of set-password. |
+| `already_set` | 400 | User already has a password | The reverse case — calling set-password when one already exists. |
+| `invalid_code` | 400 | Invalid set password code | |
+| `code_used` | 400 | Set password code has already been used | |
+| `email_not_configured` | 500 | Email sender is not configured | Only reachable on the confirm-delete-account flow, which requires a mailer explicitly. |
+| `email_failed` | 500 | Failed to send reset email / Failed to send email | The token was created but delivery failed at the transport level (SMTP error, provider API error). |
+
+## Account (name, deletion, email verification)
+
+| Code | Status | Message | Hint |
+|---|---|---|---|
+| `password_required` | 400 | Password is required to delete account | |
+| `password_account` | 400 | Use DELETE /auth/account with password to delete your account | An OAuth-only account tried the code-confirmation delete flow instead. |
+| `delete_code_invalid` | 400 | Invalid deletion code | |
+| `delete_code_expired` | 410 | Deletion code has expired | |
+| `delete_code_already_used` | 410 | Deletion code has already been used | |
+| `validation_error` | 400 | Name cannot be empty | |
+| `code_invalid` | 400 | Invalid verification code | |
+| `code_already_used` | 410 | This code has already been used | |
+| `code_expired` | 410 | Verification code has expired | |
+| `already_verified` | 400 | Email is already verified | |
+| `email_not_found` | 200 | If an account exists, a verification email has been sent | Yes, HTTP 200 — resend-verification never reveals whether the email exists, so a non-existent address gets the same success response as a real one. |
+
+## Invites (self-service, invite-only signup)
+
+| Code | Status | Message |
+|---|---|---|
+| `invite_not_found` | 404 | Invite not found |
+| `invite_expired` | 410 | This invite has expired |
+| `invite_already_used` | 410 | This invite has already been used |
+| `invite_revoked` | 403 | This invite has been revoked |
+| `password_mismatch` | 400 | Passwords do not match |
+| `name_required` | 400 | Name is required |
+
+## OAuth
+
+| Code | Status | Message | Hint |
+|---|---|---|---|
+| `provider_not_found` | 404 | Unrecognized provider | The `{provider}` path segment doesn't match any registered `WithProvider`. |
+| `provider_email_unverified` | 403 | Provider email is not verified | The provider returned an email the library doesn't trust as verified. |
+| `provider_already_linked` / `already_linked` | 409 | This provider is already linked to another account | Two codes for the same condition at different call sites — treat them the same. |
+| `provider_not_linked` | 404 | This provider is not linked to your account | |
+| `cannot_unlink_last_provider` | 400 | Cannot unlink last login method — set a password first | Prevents locking yourself out of an OAuth-only account. |
+| `invalid_state` | 400 | Invalid or expired OAuth state | The anti-CSRF state token on the callback didn't match. |
+| `state_used` | 400 | OAuth state token already used | State tokens are single-use. |
+| `state_expired` | 400 | OAuth state token has expired | |
+| `provider_error` | 502 | Failed to authenticate with provider | The provider's own API rejected the exchange — not something the caller can fix. |
+| `unauthorized` | 401 | Authentication required | Link/unlink require an existing session. |
+
+Callback errors don't arrive as JSON — see [Not every layer uses this shape](#not-every-layer-uses-this-shape) above.
+
+## Organizations
+
+| Code | Status | Message | Hint |
+|---|---|---|---|
+| `org_not_found` | 404 | Organization not found | |
+| `org_slug_exists` | 409 | Organization slug already in use | |
+| `org_slug_reserved` | 400 | Organization slug is reserved | |
+| `org_member_not_found` | 404 | User is not a member of this organization | |
+| `org_member_exists` | 409 | User is already a member of this organization | |
+| `cannot_remove_last_owner` | 400 | Cannot remove or demote the last owner of an organization | |
+| `org_limit_reached` | 400 | Maximum organization limit reached for user | `OrganizationConfig.MaxOrgsPerUser`. |
+| `org_member_limit_reached` | 400 | Organization member limit reached | |
+| `org_forbidden` | 403 | Insufficient organization permissions | Returned by role-gated actions — e.g. a member trying to change another member's role. |
+| `org_invite_expired` | 400 | Organization invite link has expired | |
+| `org_invite_email_mismatch` | 400 | Authenticated email does not match invite recipient | The invite was sent to a specific address; whoever accepts it must be logged in as that address. |
+| `org_metadata_too_large` | 400 | Organization metadata exceeds 16KB limit | |
+| `invalid_slug` | 400 | Slug must be 255 characters or less | |
+| `invalid_name` | 400 | Organization name is required | |
+| `invalid_role` | 400 | Invalid organization role | |
+| `invite_not_found` | 404 | Invite not found | Same code as the self-service invite system above — org invites reuse it. |
+
+The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) returns its own narrower JSON — see [Not every layer uses this shape](#not-every-layer-uses-this-shape).
+
+## Admin
+
+| Code | Status | Message | Hint |
+|---|---|---|---|
+| `already_banned` | 400 | User is already banned | |
+| `not_banned` | 400 | User is not banned | |
+| `last_admin` | 400 | Cannot ban / demote / delete the last admin | The library refuses to leave zero admins standing. |
+| `invalid_role` | 400 | Role must be 'user' or 'admin' | |
+| `name_required` | 400 | Name is required | |
+| `session_not_found` | 404 | Session not found | Admin revoking a specific user session that doesn't exist. |
+| `forbidden` | 403 | Insufficient permissions | From `RequireRole(domain.RoleAdmin)` — a non-admin hit an admin-only route. |
+
+## CSRF and rate limiting
+
+These respond outside the JSON envelope or with a narrower one — see [Not every layer uses this shape](#not-every-layer-uses-this-shape) for the CSRF middleware specifics.
+
+| Where | Status | Body |
+|---|---|---|
+| Missing Origin and Referer, `AllowMissingCSRFHeaders: false` | 403 | `Forbidden - CSRF headers missing` (plain text) |
+| Origin/Referer present but not allowed | 403 | `Forbidden` (plain text) |
+| Double-submit cookie missing, invalid, or mismatched | 403 | `Forbidden - CSRF token missing` / `invalid` / `mismatch` (plain text) |
+| Rate limit exceeded | 429 | `{"error": "rate_limit_exceeded", "message": "Too many requests, please try again later"}` (JSON, uses the normal envelope) |

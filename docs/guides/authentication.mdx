@@ -1,0 +1,459 @@
+---
+title: "Authentication"
+description: "Registering, logging in, and logging out — configuration, request/response shapes, and every way to call it: curl, Go, and a browser client."
+icon: "KeyRound"
+---
+
+# Authentication
+
+This page walks through the three entry points to a session — register, login, logout — end to end: which config flags turn each path on, exactly what each endpoint takes and returns, every error it can produce, and three ways to call it: `curl`, directly in Go via `Auth.Services`, and from a browser client.
+
+For the full path/param reference across every route (not just these three), see [Routes](../routes.mdx). For the error envelope shape and codes shared across the whole API, see [Error Handling](../error-handling.mdx).
+
+## Configuration
+
+Three flags on `RegistrationConfig` decide which of the flows below are reachable. Login itself is never gated by any of them — they only govern how an account gets created, not whether an existing one can sign in.
+
+```go
+goauth.WithRegistration(goauth.RegistrationConfig{
+    EnableEmailPassword:      true,               // optional, default true — turns on POST /auth/register
+    EnableOAuth:              true,               // optional, default true — see the Callout below
+    EnableInvite:             false,              // optional, default false — turns on the invite endpoints; requires a mailer
+    AllowPublic:              true,               // optional, default true — false makes email/password registration invite-only (403 forbidden)
+    RequireEmailVerification: false,              // optional, default false — register/login return requiresVerification instead of a session
+    InviteTTL:                7 * 24 * time.Hour, // optional, default 7d
+    VerificationCodeTTL:      15 * time.Minute,   // optional, default 15m
+})
+```
+
+<Callout type="info" title="EnableOAuth only turns on the routes">
+  Setting `EnableOAuth: true` mounts `/auth/oauth/{provider}` and its callback — it doesn't configure a provider by itself. You still need at least one `WithProvider(...)` call, or the OAuth routes 404 regardless of this flag. See [GitHub](../providers/github.mdx) and [Google](../providers/google.mdx) for the provider-specific setup.
+</Callout>
+
+Full field reference, defaults, and validation errors live on [Configuration](../configuration.mdx) — this page only recaps the fields that change how register/login/logout behave.
+
+## Frontend client setup
+
+The **Client** examples below call a small `apiRequest(baseUrl, method, path, body)` helper — cookies-included `fetch` plus CSRF header handling. It's defined once on the [Client → Setup](client/index.mdx) page rather than repeated in every section here; see that page for what it does and why. A named-method wrapper built on top of it (`authApi.login(...)`, etc.) lives on [Client → Authentication](client/authentication.mdx).
+
+## Origin checking
+
+Every state-changing route (`POST`/`PUT`/`PATCH`/`DELETE`) runs through `middleware.OriginCheck` before it reaches a handler. By default (`AllowMissingCSRFHeaders: false`), a request with **neither** an `Origin` nor a `Referer` header gets a flat `403 Forbidden - CSRF headers missing` — which is why every `curl` example on this page below sets `-H "Origin: https://myapp.com"`. Without it, they 403 against any real deployment.
+
+<Callout type="warn" title="This is a plausibility check, not proof the request came from a browser">
+  The server only compares the header's *value* against `AllowedOrigins` — nothing cryptographically ties it to an actual browser tab on that origin. `curl -H "Origin: https://myapp.com"` satisfies it exactly as well as a real browser request does. That's normal and expected: this check exists to stop a victim's browser from being tricked into submitting a cross-site request (the classic CSRF scenario) and to block casual scripted abuse that doesn't bother setting headers — not to gate who is "allowed" to call the API directly. Anyone with the endpoint, the request shape, and a plausible `Origin` value can call it, exactly as they could fill out your real signup form. What actually can't be bypassed by spoofing a header is the CSRF token check (if you've turned on `SecurityConfig.CSRFToken` — it requires a cookie value only the server issued), rate limiting, and every application-level rule (password policy, email uniqueness, `RequireEmailVerification`, `EnableInvite`).
+</Callout>
+
+## Register
+
+Three ways to create an account, gated by the flags above:
+
+- **Email/password** (`EnableEmailPassword`) — immediate session, or a verification step first if `RequireEmailVerification` is on.
+- **Invite** (`EnableInvite`) — the account is created pre-verified; there's no separate verification step.
+- **OAuth** — covered on the [Providers](../providers/index.mdx) pages, not here, since the flow is a browser redirect rather than a JSON request/response.
+
+### Register with email/password — `POST /auth/register`, `POST /auth/signup`
+
+Both paths run the same handler; `/auth/signup` is just an alias. Requires `EnableEmailPassword: true` and `AllowPublic: true`.
+
+**Request body**
+
+| Field | Type | Required |
+|---|---|---|
+| `email` | `string` | Required |
+| `password` | `string` | Required — must pass `SecurityConfig.PasswordPolicy` |
+| `name` | `string` | Required — rejected as `name_required` if blank after trimming |
+
+**Response — `RequireEmailVerification: false`** (`201 Created`) — a session is issued immediately:
+
+```json
+{
+  "user": {
+    "id": "b3f1...",
+    "email": "ada@example.com",
+    "name": "Ada Lovelace",
+    "role": "user",
+    "isVerified": false,
+    "isBanned": false,
+    "orgOwnerCount": 0,
+    "createdAt": "2026-08-09T12:00:00Z",
+    "updatedAt": "2026-08-09T12:00:00Z"
+  },
+  "session": {
+    "id": "9e2c...",
+    "user_id": "b3f1...",
+    "ip_address": "203.0.113.4",
+    "user_agent": "Mozilla/5.0 ...",
+    "is_revoked": false,
+    "expires_at": "2026-09-08T12:00:00Z",
+    "refresh_expires_at": "2026-09-08T12:00:00Z",
+    "created_at": "2026-08-09T12:00:00Z"
+  }
+}
+```
+
+The raw session and refresh tokens are never in this body — they're set as `HttpOnly` cookies (`goauth_session`, `goauth_refresh` by default) on the same response, and the CSRF cookie is rotated at the same time. `isVerified` is `false` here even though no verification was required — that flag only ever flips to `true` through the verification flow itself.
+
+**Response — `RequireEmailVerification: true`** (`201 Created`) — no session yet:
+
+```json
+{
+  "user": { "...": "same shape as above, isVerified: false" },
+  "requiresVerification": true,
+  "message": "Verification email sent. Please verify your email to continue."
+}
+```
+
+No cookies are set on this response. The account exists in the database, but there's nothing to authenticate with yet — the client has to go through [Verifying the email](#verifying-the-email) below.
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `invalid_json` | 400 | Malformed request body |
+| `name_required` | 400 | `name` was empty after trimming |
+| `weak_password` | 400 | Fails `PasswordPolicy` — the message names exactly what's missing, e.g. `Password must be at least 8 characters with an uppercase letter` |
+| `email_already_exists` | 409 | An account with that email already exists |
+| `method_disabled` | 405 | `EnableEmailPassword` is `false` |
+| `forbidden` | 403 | `AllowPublic` is `false` — registration is invite-only |
+| `internal_error` | 500 | Hashing or database failure |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/register \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -c cookies.txt \
+  -d '{"email":"ada@example.com","password":"correct horse battery staple 1","name":"Ada Lovelace"}'
+```
+
+`-c cookies.txt` saves the `Set-Cookie` headers so later requests (curl's `-b cookies.txt`) reuse the session — curl doesn't do this automatically the way a browser does. The `Origin` header is required too — see [Origin checking](#origin-checking) above.
+
+---
+
+#### Programmatic (Go)
+
+Calling the service directly skips HTTP entirely — no cookies get set for you, so you own the raw tokens from here.
+
+```go
+import "github.com/nazimdjebloun/go-auth/service"
+
+result, err := auth.Services.Auth.Register(ctx, service.RegisterInput{
+    Email:     "ada@example.com",
+    Password:  "correct horse battery staple 1",
+    Name:      "Ada Lovelace",
+    IP:        r.RemoteAddr,  // optional — only used for the audit event and session device metadata
+    UserAgent: r.UserAgent(), // optional — same
+})
+if err != nil {
+    // err is *domain.AuthError — err.Code, err.Message, err.Status
+}
+
+if result.RequiresVerification {
+    // result.Session, result.SessionToken, result.RefreshToken are all zero-valued here
+} else {
+    // result.SessionToken / result.RefreshToken are the raw values —
+    // set them as cookies yourself, or hand them to your own token transport
+}
+```
+
+---
+
+#### Client
+
+```ts
+const result = await apiRequest(API_BASE, "POST", "/auth/register", {
+  email: "ada@example.com",
+  password: "correct horse battery staple 1",
+  name: "Ada Lovelace",
+});
+
+if (result.requiresVerification) {
+  // show "check your email" — no session exists yet
+} else {
+  setUser(result.user); // cookies are already set by the browser
+}
+```
+
+---
+
+### Verifying the email
+
+Only relevant when `RequireEmailVerification: true`. Two ways in: a link with a code (`POST /auth/verify-email`), or a resend if the email never arrived.
+
+<Callout type="warn" title="Requires a mailer">
+  `RequireEmailVerification: true` is only useful if something actually delivers the verification email — set `WithMailer` or `WithEmail` too, or the code is generated and stored but never sent anywhere. This isn't just a suggestion: `NewConfig` rejects `RequireEmailVerification: true` outright with `email: Mailer or Email config required when RequireEmailVerification or EnableInvite is enabled` if neither is set. See [Configuration → WithMailer / WithEmail / WithTemplates](../configuration.mdx#withmailer--withemail--withtemplates--conditionally-required) for both options, plus how to replace the email content itself with `WithTemplates`.
+</Callout>
+
+**`POST /auth/verify-email`** — body `{ "code": "..." }`. On success, the handler verifies the user **and** immediately creates a session in the same request — this is the only place verification and login happen in one step.
+
+```json
+{
+  "user": { "...": "isVerified is now true" },
+  "session": { "...": "same shape as register" }
+}
+```
+
+| Code | Status | Cause |
+|---|---|---|
+| `code_invalid` | 400 | Code doesn't match any token, or matches one of the wrong type |
+| `code_already_used` | 410 | Code was already redeemed |
+| `code_expired` | 410 | Past `VerificationCodeTTL` |
+| `user_not_found` | 404 | The user behind the token no longer exists |
+| `internal_error` | 500 | Database failure while marking the user verified or the token used |
+
+**`POST /auth/verify-email/resend`** — body `{ "email": "..." }`. Always returns a generic success message whether or not the account exists, to avoid leaking which emails are registered.
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/verify-email \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -c cookies.txt \
+  -d '{"code":"the-code-from-the-email"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+The service call only verifies the user — it doesn't create a session by itself. Mirror what the HTTP handler does and create one explicitly right after:
+
+```go
+user, err := auth.Services.Verify.VerifyEmail(ctx, code)
+if err != nil {
+    // *domain.AuthError
+}
+
+session, rawToken, refreshToken, err := auth.Services.Session.Create(ctx, user.ID, r.RemoteAddr, r.UserAgent())
+```
+
+---
+
+#### Client
+
+```ts
+const result = await apiRequest(API_BASE, "POST", "/auth/verify-email", { code });
+// result.user.isVerified is now true, session cookies are set
+```
+
+---
+
+### Register via invite — requires `EnableInvite: true`
+
+Two-step: look up the invite to pre-fill the form, then complete registration with it. Invite accounts are created **pre-verified** — there's no separate email-verification step.
+
+**`GET /auth/invite/info?token=...`** — public lookup, used to show "you're signing up as `ada@example.com`" before the user types a password.
+
+```json
+{ "email": "ada@example.com" }
+```
+
+| Code | Status | Cause |
+|---|---|---|
+| `missing_token` | 400 | `token` query param omitted |
+| `invite_not_found` | 404 | Token doesn't match any invite |
+| `invite_already_used` | 410 | Invite was already accepted |
+| `invite_revoked` | 410 | Invite was revoked by an admin |
+
+**`POST /auth/invite/register`** — body `{ "code", "name", "password", "confirmPassword" }`. `code` is the same raw token as `token` above, just renamed in the body.
+
+```json
+{
+  "user": { "...": "isVerified: true" },
+  "session": { "...": "same shape as register" }
+}
+```
+
+| Code | Status | Cause |
+|---|---|---|
+| `method_disabled` | 405 | `EnableInvite` is `false` |
+| `invite_not_found` | 404 | Bad code |
+| `invite_already_used` / `invite_expired` / `invite_revoked` | 410 | Invite no longer usable |
+| `name_required` | 400 | Blank name |
+| `password_mismatch` | 400 | `password` doesn't match `confirmPassword` |
+| `weak_password` | 400 | Fails `PasswordPolicy` |
+
+#### curl
+
+```bash
+# 1. Look up the invite
+curl "https://api.myapp.com/auth/invite/info?token=THE_RAW_CODE"
+
+# 2. Complete registration
+curl -X POST https://api.myapp.com/auth/invite/register \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -c cookies.txt \
+  -d '{"code":"THE_RAW_CODE","name":"Ada Lovelace","password":"correct horse battery staple 1","confirmPassword":"correct horse battery staple 1"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+invite, err := auth.Services.Invite.GetInviteByToken(ctx, rawToken)
+// invite.Email — pre-fill the form with this
+
+result, err := auth.Services.Invite.CompleteInviteRegistration(ctx, service.CompleteInviteInput{
+    Code:            rawToken,
+    Name:            "Ada Lovelace",
+    Password:        "correct horse battery staple 1",
+    ConfirmPassword: "correct horse battery staple 1",
+    IP:              r.RemoteAddr,
+    UserAgent:       r.UserAgent(),
+})
+```
+
+---
+
+#### Client
+
+```ts
+const { email } = await apiRequest(
+  API_BASE, "GET", `/auth/invite/info?token=${encodeURIComponent(token)}`
+);
+
+const result = await apiRequest(API_BASE, "POST", "/auth/invite/register", {
+  code: token,
+  name: "Ada Lovelace",
+  password,
+  confirmPassword,
+});
+```
+
+## Login
+
+### Login — `POST /auth/login`, `POST /auth/signin`
+
+`/auth/signin` is an alias for the same handler. Login is never disabled by `RegistrationConfig` — those flags only gate how an account gets created, not whether an existing one can sign in.
+
+**Request body**
+
+| Field | Type | Required |
+|---|---|---|
+| `email` | `string` | Required |
+| `password` | `string` | Required |
+
+**Response — normal success** (`200 OK`) — identical shape to register's success response: `{ "user", "session" }`, cookies set the same way.
+
+**Response — verification pending** (`200 OK`) — if `RequireEmailVerification: true` and the account hasn't verified yet:
+
+```json
+{
+  "user": { "...": "isVerified: false" },
+  "requiresVerification": true,
+  "message": "Please verify your email to continue."
+}
+```
+
+No session is issued — the credentials were correct, but that's not enough on its own.
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `invalid_json` | 400 | Malformed body |
+| `invalid_credentials` | 401 | Wrong email/password, unknown email, or an account with no password (OAuth-only) — all three look identical on purpose |
+| `user_banned` | 403 | Account is banned |
+| `internal_error` | 500 | Session creation failure |
+
+`invalid_credentials` for an email that doesn't exist at all runs a dummy bcrypt comparison against a fixed hash first, so that request takes the same time as a wrong-password one — see [Security](../security.mdx) for why that matters.
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/login \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -c cookies.txt \
+  -d '{"email":"ada@example.com","password":"correct horse battery staple 1"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+result, err := auth.Services.Auth.Login(ctx, service.LoginInput{
+    Email:     "ada@example.com",
+    Password:  "correct horse battery staple 1",
+    IP:        r.RemoteAddr,
+    UserAgent: r.UserAgent(),
+})
+if err != nil {
+    // *domain.AuthError
+}
+if result.RequiresVerification {
+    // no session issued
+}
+```
+
+---
+
+#### Client
+
+```ts
+const result = await apiRequest(API_BASE, "POST", "/auth/login", { email, password });
+
+if (result.requiresVerification) {
+  // route to a "verify your email" screen
+} else {
+  setUser(result.user); // cookies are already set
+}
+```
+
+<Callout type="info" title="Admin login has its own page">
+  `POST /auth/admin/login` gets its own guide alongside the rest of the admin panel rather than living here — see [Admin → Admin login](admin.mdx#admin-login). It's a login variant, but everything else about it (who can use it, what it manages) belongs with Admin, not Authentication.
+</Callout>
+
+## Logout
+
+### Logout — `POST /auth/logout`, `POST /auth/signout`
+
+Takes no body. Works whether or not a session cookie is present — if one is, the session is revoked server-side; either way, both cookies are cleared and the CSRF cookie is rotated. There is no error response; it always returns `200`.
+
+```json
+{ "message": "Logged out" }
+```
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/logout \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt -c cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+The HTTP handler revokes by the raw session token — the same value stored in the cookie — not by session ID:
+
+```go
+err := auth.Services.Session.Revoke(ctx, sessionToken) // sessionToken is the raw value from the cookie, not the session's ID
+```
+
+If you only have the session ID instead (e.g. an admin ending one specific session — see [Routes → Sessions](../routes.mdx)), use `auth.Services.Auth.Logout(ctx, sessionID)` instead — same effect, looked up differently.
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/logout");
+setUser(null);
+window.location.href = "/login";
+```
+
+## Next
+
+- [Security](security.mdx) — password/name changes, verification resend, and account deletion
+- [Admin](admin.mdx) — admin login and platform-wide user management
+- [Routes](../routes.mdx) — every other endpoint, including sessions, password, and account management
+- [Error Handling](../error-handling.mdx) — the full error code list
+- [Providers](../providers/index.mdx) — OAuth setup for GitHub and Google

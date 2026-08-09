@@ -1,0 +1,14 @@
+{
+  "title": "Guides",
+  "pages": [
+    "authentication",
+    "sessions",
+    "organizations",
+    "security",
+    "rate-limiting",
+    "oauth",
+    "admin",
+    "audit-logs",
+    "client"
+  ]
+}

@@ -1,16 +1,16 @@
 {
+  "title": "go-auth",
+  "description": "Authentication Go library with session management, email verification, password reset, invite-only signup, admin user management, and rate limiting.",
   "pages": [
     "index",
-    "getting-started",
     "installation",
+    "schemas",
     "configuration",
-    "concepts",
     "providers",
-    "database",
-    "drivers",
-    "examples",
-    "frontend",
-    "migration-guide",
-    "api-reference"
+    "guides",
+    "routes",
+    "error-handling",
+    "architecture",
+    "security"
   ]
 }

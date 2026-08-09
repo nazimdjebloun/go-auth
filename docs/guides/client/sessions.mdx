@@ -1,0 +1,57 @@
+---
+title: "Sessions"
+description: "sessionsApi — a named-method wrapper around the list/revoke session endpoints, built on the apiRequest helper."
+icon: "MonitorCog"
+---
+
+# Sessions client
+
+Wraps the list/revoke endpoints from the [Sessions](../sessions.mdx) guide into `sessionsApi`, built on the [`apiRequest`](index.mdx) helper — same relationship as [`authApi`](authentication.mdx) has to the Authentication guide.
+
+<Callout type="info" title="Looking for me()/check()?">
+  `GET /auth/me` and `GET /auth/check` are documented on this guide's [Checking who's logged in](../sessions.mdx#checking-whos-logged-in) section, but the wrapped methods live on `authApi.me()` / `authApi.check()` on the [Authentication client](authentication.mdx) — that's where this codebase's reference frontend keeps them, and there's no reason for the two client objects to disagree with the app you're actually copying this pattern from.
+</Callout>
+
+```ts
+import { apiRequest } from "./client";
+
+const API_BASE = "https://api.myapp.com";
+
+export const sessionsApi = {
+  list: (offset = 0, limit = 20) =>
+    apiRequest(API_BASE, "GET", `/auth/sessions?offset=${offset}&limit=${limit}`),
+
+  listAll: () => apiRequest(API_BASE, "GET", "/auth/sessions/all"),
+
+  revoke: (sessionId: string) =>
+    apiRequest(API_BASE, "DELETE", `/auth/sessions/${sessionId}`),
+
+  revokeMany: (sessionIds: string[]) =>
+    apiRequest(API_BASE, "POST", "/auth/sessions/revoke", { session_ids: sessionIds }),
+
+  revokeAllExceptCurrent: () => apiRequest(API_BASE, "DELETE", "/auth/sessions"),
+};
+```
+
+## Using it
+
+```ts
+const { sessions, current_session_id } = await sessionsApi.list();
+
+const otherDevices = sessions.filter((s) => s.id !== current_session_id);
+```
+
+```ts
+await sessionsApi.revoke(sessionId);
+// refresh the list afterward — this doesn't remove it from `sessions` for you
+```
+
+```ts
+await sessionsApi.revokeAllExceptCurrent();
+// every other device is signed out; the current tab keeps working
+```
+
+## Next
+
+- [Setup](index.mdx) — the `apiRequest` helper this is built on
+- [Sessions](../sessions.mdx) — full request/response/error reference, and the curl cookie-jar gotcha worth reading if something isn't working

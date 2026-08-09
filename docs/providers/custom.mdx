@@ -1,43 +1,88 @@
 ---
-title: Custom Provider
-description: Implementing a custom OAuth provider via the OAuthProvider interface.
+title: "Custom Provider"
+description: "Implement the `OAuthProvider` interface to support any OAuth 2.0 provider."
 ---
 
-# Custom OAuth Provider
+# Custom Provider
 
-`import "github.com/nazimdjebloun/go-auth/port"`
+Implement the `OAuthProvider` interface to support any OAuth 2.0 provider.
 
-Implement the `port.OAuthProvider` interface:
+## Interface
 
 ```go
-type CustomProvider struct {}
-
-func (p *CustomProvider) Name() string { return "facebook" }
-
-func (p *CustomProvider) DefaultScopes() []string {
-    return []string{"email", "public_profile"}
+type OAuthProfile struct {
+    Provider       string  // Provider name (e.g., "apple")
+    ProviderUserID string  // Provider's unique user ID
+    Email          string  // User email
+    Name           string  // Display name
+    AvatarURL      string  // Profile picture URL
+    EmailVerified  bool    // Whether provider verified the email
+    AccessToken    string  // OAuth access token
+    RefreshToken   string  // OAuth refresh token (if available)
+    TokenExpiresAt *time.Time  // Token expiry (if available)
+    Raw            map[string]any  // Raw provider response
 }
 
-func (p *CustomProvider) AuthURL(state, codeChallenge string, scopes []string) string {
-    return "https://facebook.com/dialog/oauth?..." // build URL manually
-}
-
-func (p *CustomProvider) Exchange(ctx context.Context, code, codeVerifier string) (string, *time.Time, error) {
-    // POST to https://graph.facebook.com/v12.0/oauth/access_token
-    // Return accessToken, expiresAt, err
-}
-
-func (p *CustomProvider) UserInfo(ctx context.Context, accessToken string) (string, string, error) {
-    // GET https://graph.facebook.com/me?fields=email,name
-    // Return email, name, err
+type OAuthProvider interface {
+    Name() string
+    AuthURL(state string, codeChallenge string) string
+    Exchange(ctx context.Context, code string, codeVerifier string) (*OAuthProfile, error)
 }
 ```
 
-Register via `NewConfig(WithProvider(customProvider))`:
+## Implementation Example
 
 ```go
-cfg, _ := goauth.NewConfig(
-    goauth.WithProvider(&CustomProvider{}),
-    goauth.WithProvider(google.New(id, secret, url)),
-)
+type AppleProvider struct {
+    clientID     string
+    clientSecret string
+    redirectURL  string
+}
+
+func New(cfg Config) *AppleProvider {
+    return &AppleProvider{
+        clientID:     cfg.ClientID,
+        clientSecret: cfg.ClientSecret,
+        redirectURL:  cfg.RedirectURL,
+    }
+}
+
+func (p *AppleProvider) Name() string {
+    return "apple"
+}
+
+func (p *AppleProvider) AuthURL(state, codeChallenge string) string {
+    v := url.Values{}
+    v.Set("client_id", p.clientID)
+    v.Set("redirect_uri", p.redirectURL)
+    v.Set("response_type", "code")
+    v.Set("scope", "name email")
+    v.Set("state", state)
+    v.Set("response_mode", "form_post")
+    return "https://appleid.apple.com/auth/authorize?" + v.Encode()
+}
+
+func (p *AppleProvider) Exchange(ctx context.Context, code, codeVerifier string) (*OAuthProfile, error) {
+    // Exchange code for tokens...
+    return &OAuthProfile{
+        Provider:       "apple",
+        ProviderUserID: "apple-user-id",
+        Email:          "user@example.com",
+        Name:           "Jane Doe",
+        EmailVerified:  true,
+        AccessToken:    "...",
+    }, nil
+}
 ```
+
+## Registration
+
+```go
+goauth.WithProvider(New(appleCfg)),
+```
+
+## Notes
+
+- PKCE is supported via `codeChallenge` parameter in `AuthURL` and `codeVerifier` in `Exchange`
+- If `EmailVerified` is true, the user is created as verified
+- The `Raw` field can store provider-specific data for later use

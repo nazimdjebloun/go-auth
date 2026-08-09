@@ -1,0 +1,68 @@
+---
+title: "Security"
+description: "The library's overall security approach — passwords, sessions, CSRF, OAuth, rate limiting, access control, and what stays your responsibility."
+---
+
+# Security
+
+go-auth is self-hosted: there's no vendor patching a shared multi-tenant system on your behalf. The library's job is to get the auth-specific details right by default — password storage, token handling, CSRF, timing safety — so the parts most homegrown implementations get wrong don't become your problem. This page describes those mechanisms directly, and is explicit about what's still on you.
+
+## Passwords
+
+Passwords are hashed with **bcrypt**, cost 12, via `golang.org/x/crypto/bcrypt` — never stored or logged in plaintext. The configurable `PasswordPolicy` (`MinLength`, `RequireUppercase`, `RequireDigit`, `RequireSpecial`) is enforced at registration and password-change time, defaulting to `MinLength: 8, RequireDigit: true`.
+
+Login is timing-safe against email enumeration: when the email doesn't exist, the service still runs a dummy bcrypt comparison against a fixed hash before returning `invalid_credentials` — so a non-existent email and a wrong password take roughly the same time and return the identical error, code, and status. Whether it's the email or the password that's wrong is never revealed.
+
+## Sessions and tokens
+
+Every session issues two opaque tokens — a session token and a refresh token — each 32 cryptographically random bytes (`crypto/rand`), hex-encoded. Only their SHA-256 hash is ever written to the database; the raw token exists solely in the `Set-Cookie` header sent to the client. A leaked database dump doesn't hand over live sessions.
+
+Refresh tokens rotate on every use: presenting one invalidates it and issues a new one. A short **grace window** (default 5s) tolerates two requests racing to refresh the same token — the previous token is still honored briefly — while any refresh attempt outside that window with an already-rotated token is treated as `token_already_rotated`, a signal worth monitoring for token replay. Sessions additionally support an idle timeout (default 7d), an absolute hard expiry (default 30d), and an optional absolute maximum lifetime from creation regardless of activity.
+
+Cookies default to `HttpOnly` (never exposed to JavaScript) and `Secure` — the `Secure` flag is tri-state: left unset it derives to `true` everywhere except a `http://` `BaseURL` in `EnvironmentDev`, so the same code is safe in production without extra configuration, and you have to opt out explicitly (`goauth.SecureNever()`) to weaken it. `SameSite` defaults to `Lax`.
+
+## CSRF
+
+Two independent layers, applied to every state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`):
+
+1. **Origin/Referer checking** (`middleware.OriginCheck`), always on. The request's `Origin` (falling back to `Referer`) must match one of your configured `AllowedOrigins`, or be same-origin with the request itself. `Forwarded-*` headers are only trusted from IPs in your rate-limit `TrustedIPs` list, so a client can't spoof its way into a same-origin match by forging a forwarded header. `AllowedOrigins` rejects `"*"` outright — there is no way to disable this check short of listing every origin explicitly.
+2. **Double-submit cookie token** (`middleware.CSRFToken`), opt-in via `WithSecurity.CSRFToken`. The cookie value is `base64url(nonce).base64url(HMAC-SHA256(secret, nonce))`, generated with `crypto/rand` and signed with your `WithSecret` key — a forged cookie fails the signature check regardless of nonce guessing, and the comparison itself runs in constant time (`crypto/subtle.ConstantTimeCompare`) to avoid a signature side-channel. The client must echo the cookie value back in a header (default `X-CSRF-Token`); since cross-origin requests can't read cookies from your domain via JavaScript, only same-origin code can construct a matching request.
+
+Origin checking alone stops the vast majority of CSRF attacks and needs no configuration. The token layer is defense in depth for cases where you don't fully trust origin/referer headers to be present or accurate.
+
+## OAuth
+
+OAuth uses **PKCE** (S256) on every provider, including ones that don't strictly require it: a random 64-byte code verifier is generated per flow, its SHA-256-derived challenge is sent in the authorization request, and the verifier is only revealed at the token exchange — an intercepted authorization code is useless without it. Separately, a signed, single-use **state token** guards against CSRF on the callback and replay: reusing a state token returns `state_used`, and an expired one returns `state_expired`.
+
+An OAuth-provided email is only treated as verified when the provider guarantees it — for GitHub, a non-empty public profile email specifically, since GitHub only allows verified addresses to be set as public. Linking a new provider to an existing account requires that account to already be authenticated (`unauthorized` otherwise), and unlinking is blocked (`cannot_unlink_last_provider`) if it would leave the account with no way to log in at all — no password and no remaining linked provider.
+
+## Rate limiting
+
+On by default, with an in-memory store and a built-in table of tighter limits on the highest-value targets — login, admin login, registration, password reset, verification resend — beyond a looser default for everything else. Client IP resolution only trusts a forwarded-for header (`IPAddressHeader`) when the immediate connecting peer is in your configured `TrustedIPs`; otherwise it falls back to the raw connection address, so a client behind no trusted proxy can't spoof the header to reset its own limit or attribute its traffic to someone else's bucket. Disabling rate limiting logs an explicit startup warning — it's meant to be a visible, intentional choice, typically only made because you're rate limiting at the edge (a CDN, API gateway) instead.
+
+## Access control
+
+Every endpoint that reads or mutates a specific resource by ID checks ownership, not just authentication:
+
+- **Sessions** — revoking a session by ID returns the same `session_not_found` whether it doesn't exist or belongs to someone else, so one user can't distinguish "no such session" from "that's not yours" by probing IDs.
+- **Organizations** — every `/auth/orgs/{orgID}/*` route requires membership in that specific org, and mutating routes additionally require a minimum role (`admin` to manage members/invites/settings, `owner` to delete the org or touch another owner). Demoting or removing the last owner is blocked outright (`cannot_remove_last_owner`), the same way admin management blocks removing the last admin (`last_admin`).
+- **Admin** — every `/admin/*` route requires `role: admin`, checked after authentication, not instead of it.
+
+## Audit logging
+
+When enabled, security-relevant events (login, logout, registration, password changes, session revocation, admin actions, OAuth linking, org changes) are queued and flushed asynchronously to the database and any configured sinks. Publishing an event never blocks or fails the request that triggered it — a full queue drops the event with a logged warning rather than propagating back to the caller. `FailureMode` only governs what happens when a *sink* itself errors during a flush: fail-open logs and continues to the next sink; fail-closed logs and stops that batch early. Either way, the original HTTP request has already completed by the time this runs.
+
+## Secrets
+
+`WithSecret` supplies the one signing key the library needs — currently used for CSRF tokens, and reserved for future HMAC-based tokens — and must be at least 32 bytes (`NewConfig` rejects anything shorter, since HMAC-SHA256 wants a full-strength key). Nothing about the secret is logged or exposed via any endpoint. Rotating it invalidates every outstanding CSRF token immediately; there's no dual-key rotation window today, so plan a rotation for a moment where forcing every open tab to re-fetch a CSRF token is acceptable.
+
+## What's not covered
+
+This library handles auth-specific correctness. It does not, and cannot, cover:
+
+- **Transport security** — TLS termination is your responsibility (a reverse proxy, load balancer, or the Go server itself); the library only *reacts* to whether the connection looks secure (via `BaseURL`'s scheme and `Environment`).
+- **Database security** — encryption at rest, network access control to your database, and backup handling are your infrastructure's job.
+- **Secret storage** — where `AUTH_SECRET`, SMTP credentials, and OAuth client secrets live (a secrets manager vs. a plain environment variable) is a deployment decision the library doesn't make for you.
+- **DDoS/edge protection** — the built-in rate limiter protects application-level endpoints from abuse; it is not a substitute for a CDN or WAF against volumetric attacks.
+- **Dependency and Go-version hygiene** — keeping the module and its transitive dependencies patched is an ordinary maintenance task like any other Go project.
+- **Multi-instance rate-limit consistency** — the default in-memory `Store` is per-process; running multiple instances behind a load balancer needs `WithRateLimitStore` pointed at a shared store (Redis, etc.) for limits to apply globally rather than per-instance.
