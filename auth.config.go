@@ -657,9 +657,12 @@ func WithOrganizations(cfg OrganizationConfig) Option {
 // or TokenTTL keeps its default — see applyDefaults.
 func WithSecurity(cfg SecurityConfig) Option {
 	return func(c *config) {
-		c.allowedOrigins = cfg.AllowedOrigins
+		c.allowedOrigins = append([]string(nil), cfg.AllowedOrigins...)
 		c.allowMissingCSRFHeaders = cfg.AllowMissingCSRFHeaders
-		c.csrfToken = cfg.CSRFToken
+		if cfg.CSRFToken != nil {
+			tok := *cfg.CSRFToken // copy: do not alias the consumer's struct
+			c.csrfToken = &tok
+		}
 		c.passwordPolicy = cfg.PasswordPolicy
 		c.tokenTTL = cfg.TokenTTL
 		c.allowHTTPURLsOpt = cfg.AllowHTTPURLs
@@ -677,12 +680,24 @@ func WithSecret(secret string) Option {
 	}
 }
 
-// WithRateLimit configures rate limiting.
-// Takes a value to force a copy at the call site, preventing shared mutation
-// across separate NewConfig calls.
+// WithRateLimit configures rate limiting. The Routes map and TrustedIPs slice
+// are deep-copied: a value parameter alone only copies the map header, so
+// later WithRateLimitRoute calls would otherwise write through to the
+// consumer's own map and leak across separate NewConfig calls.
 func WithRateLimit(cfg ratelimit.Config) Option {
 	return func(c *config) {
-		c.rateLimit = &cfg
+		clone := cfg
+		if cfg.Routes != nil {
+			clone.Routes = make(map[string]ratelimit.Rate, len(cfg.Routes))
+			for k, v := range cfg.Routes {
+				clone.Routes[k] = v
+			}
+		}
+		clone.TrustedIPs = append([]string(nil), cfg.TrustedIPs...)
+		clone.DisabledPaths = append([]string(nil), cfg.DisabledPaths...)
+		// Store and Logger are deliberately shared: they are live objects the
+		// consumer owns, not data to be snapshotted.
+		c.rateLimit = &clone
 	}
 }
 
@@ -735,7 +750,7 @@ func WithTrustedIPs(ips []string) Option {
 		if c.rateLimit == nil {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
 		}
-		c.rateLimit.TrustedIPs = ips
+		c.rateLimit.TrustedIPs = append([]string(nil), ips...)
 	}
 }
 

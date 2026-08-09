@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
 // Regression tests for the config-defaults audit. Every case here failed
@@ -298,5 +299,42 @@ func TestDefaults_DevImpliesAllowHTTPURLs(t *testing.T) {
 	}
 	if !cfg.allowHTTPURLs {
 		t.Error("dev environment must permit http:// links regardless of transport")
+	}
+}
+
+func TestWithRateLimit_DeepCopiesRoutes(t *testing.T) {
+	// A value parameter copies the map header, not the map: without an explicit
+	// clone, WithRateLimitRoute wrote through to the consumer's own map.
+	shared := *ratelimit.DefaultRateLimitConfig()
+	shared.TrustedIPs = []string{"10.0.0.1"}
+	before := shared.Routes["POST /auth/login"]
+
+	if _, err := NewConfig(minimalOpts(
+		WithRateLimit(shared),
+		WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 999, Window: time.Minute}),
+		WithTrustedIPs([]string{"10.0.0.2"}),
+	)...); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := shared.Routes["POST /auth/login"]; got != before {
+		t.Errorf("caller's Routes map was mutated: %+v (was %+v)", got, before)
+	}
+	if shared.TrustedIPs[0] != "10.0.0.1" {
+		t.Errorf("caller's TrustedIPs slice was mutated: %v", shared.TrustedIPs)
+	}
+}
+
+func TestWithRateLimit_DeepCopiesDisabledPaths(t *testing.T) {
+	shared := *ratelimit.DefaultRateLimitConfig()
+	shared.DisabledPaths = []string{"/health"}
+
+	cfg, err := NewConfig(minimalOpts(WithRateLimit(shared))...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.rateLimit.DisabledPaths[0] = "/mutated"
+	if shared.DisabledPaths[0] != "/health" {
+		t.Errorf("caller's DisabledPaths slice was aliased: %v", shared.DisabledPaths)
 	}
 }
