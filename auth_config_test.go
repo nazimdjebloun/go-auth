@@ -524,8 +524,8 @@ func TestNewConfig_RateLimitGranularOptions(t *testing.T) {
 	})
 }
 
-func validConfigOpts() []func(*config) {
-	return []func(*config){
+func validConfigOpts() []Option {
+	return []Option{
 		func(c *config) {
 			c.appName = "Test"
 			c.baseURL = "http://localhost"

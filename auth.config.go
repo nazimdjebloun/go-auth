@@ -402,11 +402,19 @@ func defaultConfig() config {
 
 // ─── Constructor ────────────────────────────────────────────
 
+// Option configures a config. It is an alias rather than a defined type so
+// that the With* functions keep returning the same underlying signature, and
+// consumers can name it — `[]goauth.Option{...}` — to build option sets
+// conditionally. Naming the option type does not weaken the guarantee above:
+// config itself stays unexported, so NewConfig remains the only way to
+// produce a value New() accepts.
+type Option = func(*config)
+
 // NewConfig applies the given option functions to a default config and
 // validates the result. If validation fails, the returned error includes
 // all invalid fields. This is the only way to produce a config that New()
 // will accept — see the config type's doc comment.
-func NewConfig(opts ...func(*config)) (config, error) {
+func NewConfig(opts ...Option) (config, error) {
 	cfg := defaultConfig()
 	defaultSecure := cfg.cookie.Secure
 	for _, opt := range opts {
@@ -427,7 +435,7 @@ func NewConfig(opts ...func(*config)) (config, error) {
 // ─── With* options ──────────────────────────────────────────
 
 // WithApp configures app-level identity settings.
-func WithApp(cfg AppConfig) func(*config) {
+func WithApp(cfg AppConfig) Option {
 	return func(c *config) {
 		c.appName = cfg.Name
 		c.baseURL = cfg.BaseURL
@@ -442,7 +450,7 @@ func WithApp(cfg AppConfig) func(*config) {
 // WithCookie sets the session cookie configuration. Fields left at their zero
 // value keep their defaults: an empty Name keeps "goauth_session", an empty
 // Path keeps "/", and an unset SameSite keeps SameSiteLaxMode.
-func WithCookie(cfg CookieConfig) func(*config) {
+func WithCookie(cfg CookieConfig) Option {
 	return func(c *config) {
 		if cfg.Name != "" {
 			c.cookie.Name = cfg.Name
@@ -459,14 +467,14 @@ func WithCookie(cfg CookieConfig) func(*config) {
 }
 
 // WithEmail configures SMTP email delivery (transport only).
-func WithEmail(cfg EmailConfig) func(*config) {
+func WithEmail(cfg EmailConfig) Option {
 	return func(c *config) {
 		c.email = &cfg
 	}
 }
 
 // WithMailer provides a custom mailer implementation.
-func WithMailer(m port.Mailer) func(*config) {
+func WithMailer(m port.Mailer) Option {
 	return func(c *config) {
 		c.mailer = m
 	}
@@ -475,14 +483,14 @@ func WithMailer(m port.Mailer) func(*config) {
 // WithTemplates provides a custom email template provider.
 // When set, the provider's Render method is called for every email instead of
 // the built-in default templates.
-func WithTemplates(p port.TemplateProvider) func(*config) {
+func WithTemplates(p port.TemplateProvider) Option {
 	return func(c *config) {
 		c.templateProvider = p
 	}
 }
 
 // WithSession groups session lifetime settings.
-func WithSession(cfg SessionConfig) func(*config) {
+func WithSession(cfg SessionConfig) Option {
 	return func(c *config) {
 		c.sessionTTL = cfg.TTL
 		c.sessionIdleTTL = cfg.IdleTTL
@@ -495,21 +503,21 @@ func WithSession(cfg SessionConfig) func(*config) {
 
 // WithRegistration configures which registration methods are available.
 // Login is ALWAYS unconditional regardless of these settings.
-func WithRegistration(cfg RegistrationConfig) func(*config) {
+func WithRegistration(cfg RegistrationConfig) Option {
 	return func(c *config) {
 		c.registration = cfg
 	}
 }
 
 // WithOrganizations configures the organizations feature.
-func WithOrganizations(cfg OrganizationConfig) func(*config) {
+func WithOrganizations(cfg OrganizationConfig) Option {
 	return func(c *config) {
 		c.organizations = cfg
 	}
 }
 
 // WithSecurity groups security-related settings.
-func WithSecurity(cfg SecurityConfig) func(*config) {
+func WithSecurity(cfg SecurityConfig) Option {
 	return func(c *config) {
 		c.allowedOrigins = cfg.AllowedOrigins
 		c.allowMissingCSRFHeaders = cfg.AllowMissingCSRFHeaders
@@ -524,7 +532,7 @@ func WithSecurity(cfg SecurityConfig) func(*config) {
 // used to sign CSRF tokens today and any future HMAC-based tokens this library
 // adds. It is required and must be at least 32 bytes for HMAC-SHA256. Do not
 // commit secrets to source control; supply it from the environment.
-func WithSecret(secret string) func(*config) {
+func WithSecret(secret string) Option {
 	return func(c *config) {
 		c.secret = secret
 	}
@@ -533,14 +541,14 @@ func WithSecret(secret string) func(*config) {
 // WithRateLimit configures rate limiting.
 // Takes a value to force a copy at the call site, preventing shared mutation
 // across separate NewConfig calls.
-func WithRateLimit(cfg ratelimit.Config) func(*config) {
+func WithRateLimit(cfg ratelimit.Config) Option {
 	return func(c *config) {
 		c.rateLimit = &cfg
 	}
 }
 
 // WithRateLimitEnabled toggles rate limiting on/off without touching Routes, Default, or Store.
-func WithRateLimitEnabled(enabled bool) func(*config) {
+func WithRateLimitEnabled(enabled bool) Option {
 	return func(c *config) {
 		if c.rateLimit == nil {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
@@ -550,7 +558,7 @@ func WithRateLimitEnabled(enabled bool) func(*config) {
 }
 
 // WithRateLimitDefault overrides only the fallback rate applied to routes not present in Routes.
-func WithRateLimitDefault(r ratelimit.Rate) func(*config) {
+func WithRateLimitDefault(r ratelimit.Rate) Option {
 	return func(c *config) {
 		if c.rateLimit == nil {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
@@ -560,7 +568,7 @@ func WithRateLimitDefault(r ratelimit.Rate) func(*config) {
 }
 
 // WithRateLimitRoute overrides or adds a single route's rate without replacing the rest of the Routes table.
-func WithRateLimitRoute(pattern string, r ratelimit.Rate) func(*config) {
+func WithRateLimitRoute(pattern string, r ratelimit.Rate) Option {
 	return func(c *config) {
 		if c.rateLimit == nil {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
@@ -573,7 +581,7 @@ func WithRateLimitRoute(pattern string, r ratelimit.Rate) func(*config) {
 }
 
 // WithRateLimitStore swaps the backing store (e.g. a Redis-backed Store) without touching Routes or Default.
-func WithRateLimitStore(s ratelimit.Store) func(*config) {
+func WithRateLimitStore(s ratelimit.Store) Option {
 	return func(c *config) {
 		if c.rateLimit == nil {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
@@ -583,7 +591,7 @@ func WithRateLimitStore(s ratelimit.Store) func(*config) {
 }
 
 // WithTrustedIPs sets the list of IPs/CIDRs trusted to supply IPAddressHeader.
-func WithTrustedIPs(ips []string) func(*config) {
+func WithTrustedIPs(ips []string) Option {
 	return func(c *config) {
 		if c.rateLimit == nil {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
@@ -593,7 +601,7 @@ func WithTrustedIPs(ips []string) func(*config) {
 }
 
 // WithIPv6Subnet sets the subnet prefix length used to bucket IPv6 clients for rate limiting.
-func WithIPv6Subnet(prefixLen int) func(*config) {
+func WithIPv6Subnet(prefixLen int) Option {
 	return func(c *config) {
 		if c.rateLimit == nil {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
@@ -604,7 +612,7 @@ func WithIPv6Subnet(prefixLen int) func(*config) {
 
 // WithIPAddressHeader sets which header to trust for client IP (e.g. "CF-Connecting-IP").
 // Requires TrustedIPs to be set - validated in config.validate().
-func WithIPAddressHeader(header string) func(*config) {
+func WithIPAddressHeader(header string) Option {
 	return func(c *config) {
 		if c.rateLimit == nil {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
@@ -614,7 +622,7 @@ func WithIPAddressHeader(header string) func(*config) {
 }
 
 // WithLogger sets the structured logger.
-func WithLogger(logger *slog.Logger) func(*config) {
+func WithLogger(logger *slog.Logger) Option {
 	return func(c *config) {
 		c.logger = logger
 	}
@@ -623,14 +631,14 @@ func WithLogger(logger *slog.Logger) func(*config) {
 // WithProvider registers an OAuth provider.
 // The provider's Name() must be non-empty and unique across all registered providers.
 // Nil providers are rejected.
-func WithProvider(p port.OAuthProvider) func(*config) {
+func WithProvider(p port.OAuthProvider) Option {
 	return func(c *config) {
 		c.providers = append(c.providers, p)
 	}
 }
 
 // WithAudit configures audit logging.
-func WithAudit(cfg AuditConfig) func(*config) {
+func WithAudit(cfg AuditConfig) Option {
 	return func(c *config) {
 		c.audit = cfg
 		c.auditSinks = append(c.auditSinks, cfg.Sinks...)
@@ -639,7 +647,7 @@ func WithAudit(cfg AuditConfig) func(*config) {
 
 // WithAuditSink adds a custom audit event sink (e.g. Kafka, NATS, webhook).
 // Only takes effect when audit is enabled via WithAudit.
-func WithAuditSink(sink audit.EventSink) func(*config) {
+func WithAuditSink(sink audit.EventSink) Option {
 	return func(c *config) {
 		c.auditSinks = append(c.auditSinks, sink)
 	}
