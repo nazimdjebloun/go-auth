@@ -333,6 +333,7 @@ func New(config config) (*Auth, error) {
 	sessionCfg.GraceWindow = config.graceWindow
 	sessionCfg.TouchDebounce = config.touchDebounce
 	sessionCfg.CookieName = config.cookie.Name
+	sessionCfg.RefreshCookieName = config.cookie.RefreshName
 	sessionCfg.Domain = config.cookie.Domain
 	sessionCfg.Path = config.cookie.Path
 	sessionCfg.Secure = config.cookieSecure

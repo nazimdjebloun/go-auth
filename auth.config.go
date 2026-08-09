@@ -68,13 +68,14 @@ type EmailConfig struct {
 	AllowHTTPURLs bool // allow http:// URLs in email templates (dev only, default false)
 }
 
-// CookieConfig configures the session cookie. Zero-valued fields keep their
-// defaults — see applyDefaults.
+// CookieConfig configures the session and refresh cookies. Zero-valued fields
+// keep their defaults — see applyDefaults.
 type CookieConfig struct {
-	Name     string // session cookie name (default "goauth_session")
-	Domain   string
-	Path     string // default "/"
-	SameSite http.SameSite
+	Name        string // session cookie name (default "goauth_session")
+	RefreshName string // refresh cookie name (default "goauth_refresh")
+	Domain      string
+	Path        string // default "/"
+	SameSite    http.SameSite
 
 	// Secure is tri-state. nil (the default) derives it from BaseURL and
 	// Environment: true unless the app is on http:// in a dev environment.
@@ -488,6 +489,9 @@ func (c *config) applyDefaults() {
 
 	if c.cookie.Name == "" {
 		c.cookie.Name = "goauth_session"
+	}
+	if c.cookie.RefreshName == "" {
+		c.cookie.RefreshName = "goauth_refresh"
 	}
 	if c.cookie.Path == "" {
 		c.cookie.Path = "/"

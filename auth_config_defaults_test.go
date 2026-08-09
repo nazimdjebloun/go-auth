@@ -145,6 +145,22 @@ func TestDefaults_OrganizationsInviteTTL(t *testing.T) {
 	}
 }
 
+func TestDefaults_CookieNamesAndPath(t *testing.T) {
+	cfg, err := NewConfig(minimalOpts(WithCookie(CookieConfig{Name: "app_session"}))...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.cookie.Name != "app_session" {
+		t.Errorf("cookie name = %q", cfg.cookie.Name)
+	}
+	if cfg.cookie.RefreshName != "goauth_refresh" {
+		t.Errorf("refresh cookie name = %q, want goauth_refresh", cfg.cookie.RefreshName)
+	}
+	if cfg.cookie.Path != "/" {
+		t.Errorf("cookie path = %q, want /", cfg.cookie.Path)
+	}
+}
+
 func TestCookieSecure_Resolution(t *testing.T) {
 	tests := []struct {
 		name string
