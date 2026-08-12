@@ -33,7 +33,7 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 10, Windo
 |---|---|---|---|
 | `Enabled` | `bool` | `true` | Disabling it logs a warning at startup — it's flagged as insecure for production. |
 | `Default` | `ratelimit.Rate` | `60/min` | Applied to any route not listed in `Routes` (and not matched by a prefix pattern — see below). |
-| `Routes` | `map[string]ratelimit.Rate` | the built-in table | Keyed by `"METHOD /path"`, or `"METHOD /path/*"` for a prefix. A `Rate{Requests: 0}` entry disables limiting for that specific route without touching `DisabledPaths`. |
+| `Routes` | `map[string]ratelimit.Rate` | the built-in table | Keyed by `"METHOD /path"`, or `"METHOD /path/*"` with a `*` standing in for one path segment (see [How a request is matched to a limit](#how-a-request-is-matched-to-a-limit)). A `Rate{Requests: 0}` entry disables limiting for that specific route without touching `DisabledPaths`. |
 | `Store` | `ratelimit.Store` | in-memory | See [A note on the default store](#a-note-on-the-default-store) below. |
 | `DisabledPaths` | `[]string` | none | Exact path matches, exempted entirely — no counting, no headers. |
 | `TrustedIPs` | `[]string` | none | CIDR ranges. Required for `IPAddressHeader` to have any effect — see below. |
@@ -58,7 +58,9 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 10, Windo
 
 ## How a request is matched to a limit
 
-For each request, the key checked against `Routes` is `"METHOD /exact/path"` first; if nothing matches, every key ending in `/*` is tried as a prefix match (e.g. `"POST /auth/orgs/*"` matches `POST /auth/orgs/abc123/leave`); if still nothing matches, `Default` applies. The counter itself is keyed by `method + path + client IP`, so the same IP hitting two different routes (or two different IPs hitting the same route) never share a bucket.
+For each request, the key checked against `Routes` is `"METHOD /exact/path"` first. If nothing matches, every key containing a `*` is tried as a **segment-wildcard match**: the key and the request path are split on `/`, and it's a match only when both have the same number of segments and every non-`*` segment is equal (e.g. `"POST /auth/orgs/*/invites"` matches `POST /auth/orgs/abc123/invites` but not `POST /auth/orgs/abc123/invites/xyz/resend` — that's a different, deeper route with its own key). If more than one wildcard key matches — not the case in the built-in table, which has one key per route, but possible in a replacement `Routes` map — the one with the fewest `*` segments wins. If still nothing matches, `Default` applies. The counter itself is keyed by `method + path + client IP`, so the same IP hitting two different routes (or two different IPs hitting the same route) never share a bucket.
+
+`*` always stands for exactly one path segment — never "the rest of the path" — so a wildcard entry only ever covers the one route it's shaped for, not an entire subtree beneath it. Each route that needs its own limit gets its own key.
 
 The client IP is `RemoteAddr` by default. If `IPAddressHeader` is set **and** the immediate connection is from an address in `TrustedIPs` (e.g. your own reverse proxy or CDN), the header value is used instead — otherwise it's ignored outright, specifically so a direct, untrusted client can't set `CF-Connecting-IP: 1.2.3.4` itself to dodge the limit.
 
@@ -68,8 +70,8 @@ Every route below has a limit unless you override it; anything not listed falls 
 
 | Route | Limit |
 |---|---|
-| `POST /auth/register`, `POST /auth/signup` | 3/min |
-| `POST /auth/login`, `POST /auth/signin` | 5/min |
+| `POST /auth/register` | 3/min |
+| `POST /auth/login` | 5/min |
 | `POST /auth/admin/login` | 3/min |
 | `POST /auth/forgot-password` | 3/hour |
 | `POST /auth/reset-password` | 5/min |
@@ -82,25 +84,38 @@ Every route below has a limit unless you override it; anything not listed falls 
 | `POST /auth/account/delete/confirm` | 3/hour |
 | `POST /auth/invite/register` | 10/min |
 | `POST /auth/refresh` | 3/min |
+| `POST /auth/2fa/verify` | 5/min |
+| `POST /auth/2fa/resend` | 3/min |
+| `POST /auth/2fa/enable` | 5/min |
+| `POST /auth/2fa/disable` | 5/min |
 | `POST /auth/orgs` | 5/hour |
-| `POST /auth/orgs/*` | 30/min |
 | `GET /auth/orgs/*` | 60/min |
 | `PUT /auth/orgs/*` | 10/min |
 | `DELETE /auth/orgs/*` | 5/min |
-| `PATCH /auth/orgs/*` | 10/min |
+| `GET /auth/orgs/*/members` | 60/min |
+| `DELETE /auth/orgs/*/members/*` | 5/min |
+| `PATCH /auth/orgs/*/members/*/role` | 10/min |
+| `POST /auth/orgs/*/leave` | 30/min |
+| `PUT /auth/orgs/active` | 10/min |
+| `DELETE /auth/orgs/active` | 5/min |
 | `POST /auth/orgs/*/invites` | 20/hour |
+| `POST /auth/orgs/invites/accept` | 30/min |
 | `GET /auth/orgs/*/invites` | 30/min |
+| `POST /auth/orgs/*/invites/*/resend` | 30/min |
 | `DELETE /auth/orgs/*/invites/*` | 10/min |
 | `GET /admin/users` | 60/min |
 | `POST /admin/users` | 10/min |
-| `PATCH /admin/users/*` | 30/min |
+| `PATCH /admin/users/*/role`, `PATCH /admin/users/*/ban`, `PATCH /admin/users/*/unban` | 30/min |
 | `DELETE /admin/users/*` | 10/min |
 | `GET /admin/users/*/sessions` | 60/min |
 | `DELETE /admin/users/*/sessions`, `DELETE /admin/users/*/sessions/*` | 20/min |
 | `POST /admin/invites` | 10/min |
 | `GET /admin/invites` | 60/min |
 | `DELETE /admin/invites/*` | 10/min |
+| `DELETE /admin/invites/*/hard` | 10/min |
 | `POST /admin/invites/*/resend` | 5/min |
+
+The full table is generated from the library's internal route list via a helper that turns each `{param}` path segment into `*`, so it can never drift from the routes `Auth.Mount` actually registers.
 
 ## Hitting a limit
 

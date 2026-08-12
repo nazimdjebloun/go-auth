@@ -18,6 +18,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/internal/crypto"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
+	"github.com/nazimdjebloun/go-auth/internal/routes"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
@@ -638,6 +639,13 @@ func (a *Auth) Close() {
 	}
 }
 
+// routeEntry pairs a canonical route pattern (from internal/routes) with
+// the already-middleware-wrapped handler that serves it.
+type routeEntry struct {
+	pattern string
+	handler http.Handler
+}
+
 func (a *Auth) Mount(mux *http.ServeMux) {
 	// All middleware (CORS, rate limit, csrf token, origin check, auth, admin)
 	// is already baked into a.Handlers — CORS outermost so preflight OPTIONS
@@ -669,89 +677,96 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		}
 	}
 
+	entries := []routeEntry{
+		{routes.Login, a.Handlers.Login},
+		{routes.AdminLogin, a.Handlers.AdminLogin},
+		{routes.ForgotPassword, a.Handlers.ForgotPassword},
+		{routes.ResetPassword, a.Handlers.ResetPassword},
+		{routes.VerifyEmail, a.Handlers.VerifyEmail},
+		{routes.TwoFactorVerify, a.Handlers.VerifyTwoFactor},
+		{routes.TwoFactorResend, a.Handlers.ResendTwoFactor},
+		{routes.TwoFactorEnable, a.Handlers.Enable2FA},
+		{routes.TwoFactorDisable, a.Handlers.Disable2FA},
+		{routes.Logout, a.Handlers.Logout},
+		{routes.Me, a.Handlers.GetMe},
+		{routes.CheckSession, a.Handlers.CheckSession},
+		{routes.CSRFToken, a.Handlers.CSRFToken},
+		{routes.ChangeName, a.Handlers.ChangeName},
+		{routes.ListSessions, a.Handlers.ListSessions},
+		{routes.AllSessions, a.Handlers.GetAllSessions},
+		{routes.RevokeSession, a.Handlers.RevokeSession},
+		{routes.RevokeManySessions, a.Handlers.RevokeManySessions},
+		{routes.RevokeAllSessions, a.Handlers.RevokeAllSessions},
+		{routes.ChangePassword, a.Handlers.ChangePassword},
+		{routes.SetPasswordRequest, a.Handlers.SetPasswordRequest},
+		{routes.SetPasswordConfirm, a.Handlers.SetPasswordConfirm},
+		{routes.DeleteAccount, a.Handlers.DeleteAccount},
+		{routes.RequestDeleteAccount, a.Handlers.RequestDeleteAccount},
+		{routes.ConfirmDeleteAccount, a.Handlers.ConfirmDeleteAccount},
+		{routes.ResendVerification, a.Handlers.ResendVerification},
+		{routes.ResendVerificationPublic, a.Handlers.ResendVerificationPublic},
+		{routes.RefreshToken, a.Handlers.RefreshToken},
+		{routes.ListUsers, a.Handlers.ListUsers},
+		{routes.GetUserDetail, a.Handlers.GetUserDetail},
+		{routes.UpdateUserRole, a.Handlers.UpdateUserRole},
+		{routes.BanUser, a.Handlers.BanUser},
+		{routes.UnbanUser, a.Handlers.UnbanUser},
+		{routes.DeleteUser, a.Handlers.DeleteUser},
+		{routes.AdminCreateUser, a.Handlers.AdminCreateUser},
+		{routes.AdminListUserSessions, a.Handlers.AdminListUserSessions},
+		{routes.AdminRevokeUserSession, a.Handlers.AdminRevokeUserSession},
+		{routes.RevokeUserSessions, a.Handlers.RevokeUserSessions},
+		{routes.AdminListAuditLogs, a.Handlers.AdminListAuditLogs},
+		{routes.AdminListUserAuditLogs, a.Handlers.AdminListUserAuditLogs},
+	}
+
 	if a.cfg.registration.EnableEmailPassword {
-		handle("POST /auth/register", a.Handlers.Register)
-		handle("POST /auth/signup", a.Handlers.Register)
+		entries = append(entries, routeEntry{routes.Register, a.Handlers.Register})
 	}
-	handle("POST /auth/login", a.Handlers.Login)
-	handle("POST /auth/signin", a.Handlers.Login)
-	handle("POST /auth/admin/login", a.Handlers.AdminLogin)
-	handle("POST /auth/forgot-password", a.Handlers.ForgotPassword)
-	handle("POST /auth/reset-password", a.Handlers.ResetPassword)
-	handle("POST /auth/verify-email", a.Handlers.VerifyEmail)
 	if a.cfg.registration.EnableInvite {
-		handle("GET /auth/invite/info", a.Handlers.GetInviteInfo)
-		handle("POST /auth/invite/register", a.Handlers.InviteRegister)
-	}
-	handle("POST /auth/2fa/verify", a.Handlers.VerifyTwoFactor)
-	handle("POST /auth/2fa/resend", a.Handlers.ResendTwoFactor)
-	handle("POST /auth/2fa/enable", a.Handlers.Enable2FA)
-	handle("POST /auth/2fa/disable", a.Handlers.Disable2FA)
-	handle("POST /auth/logout", a.Handlers.Logout)
-	handle("POST /auth/signout", a.Handlers.Logout)
-	handle("GET /auth/me", a.Handlers.GetMe)
-	handle("GET /auth/check", a.Handlers.CheckSession)
-	handle("GET /auth/csrf-token", a.Handlers.CSRFToken)
-	handle("PUT /auth/name", a.Handlers.ChangeName)
-	handle("GET /auth/sessions", a.Handlers.ListSessions)
-	handle("GET /auth/sessions/all", a.Handlers.GetAllSessions)
-	handle("DELETE /auth/sessions/{id}", a.Handlers.RevokeSession)
-	handle("POST /auth/sessions/revoke", a.Handlers.RevokeManySessions)
-	handle("DELETE /auth/sessions", a.Handlers.RevokeAllSessions)
-	handle("PUT /auth/password", a.Handlers.ChangePassword)
-	handle("POST /auth/change-password", a.Handlers.ChangePassword)
-	handle("POST /auth/set-password/request", a.Handlers.SetPasswordRequest)
-	handle("POST /auth/set-password/confirm", a.Handlers.SetPasswordConfirm)
-	handle("DELETE /auth/account", a.Handlers.DeleteAccount)
-	handle("POST /auth/account/delete/request", a.Handlers.RequestDeleteAccount)
-	handle("POST /auth/account/delete/confirm", a.Handlers.ConfirmDeleteAccount)
-	handle("POST /auth/resend-verification", a.Handlers.ResendVerification)
-	handle("POST /auth/verify-email/resend", a.Handlers.ResendVerificationPublic)
-	handle("POST /auth/refresh", a.Handlers.RefreshToken)
-	handle("GET /admin/users", a.Handlers.ListUsers)
-	handle("GET /admin/users/{id}", a.Handlers.GetUserDetail)
-	handle("PATCH /admin/users/{id}/role", a.Handlers.UpdateUserRole)
-	handle("PATCH /admin/users/{id}/ban", a.Handlers.BanUser)
-	handle("PATCH /admin/users/{id}/unban", a.Handlers.UnbanUser)
-	handle("DELETE /admin/users/{id}", a.Handlers.DeleteUser)
-	handle("POST /admin/users", a.Handlers.AdminCreateUser)
-	handle("GET /admin/users/{id}/sessions", a.Handlers.AdminListUserSessions)
-	handle("DELETE /admin/users/{id}/sessions/{sessionId}", a.Handlers.AdminRevokeUserSession)
-	handle("DELETE /admin/users/{id}/sessions", a.Handlers.RevokeUserSessions)
-	handle("GET /admin/audit-logs", a.Handlers.AdminListAuditLogs)
-	handle("GET /admin/users/{id}/audit-logs", a.Handlers.AdminListUserAuditLogs)
-	if a.cfg.registration.EnableInvite {
-		handle("POST /admin/invites", a.Handlers.CreateInvite)
-		handle("GET /admin/invites", a.Handlers.ListInvites)
-		handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
-		handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
-		handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
+		entries = append(entries,
+			routeEntry{routes.InviteInfo, a.Handlers.GetInviteInfo},
+			routeEntry{routes.InviteRegister, a.Handlers.InviteRegister},
+			routeEntry{routes.CreateInvite, a.Handlers.CreateInvite},
+			routeEntry{routes.ListInvites, a.Handlers.ListInvites},
+			routeEntry{routes.RevokeInvite, a.Handlers.RevokeInvite},
+			routeEntry{routes.ResendInvite, a.Handlers.ResendInvite},
+			routeEntry{routes.HardDeleteInvite, a.Handlers.HardDeleteInvite},
+		)
 	}
 	if a.cfg.registration.EnableOAuth && a.oAuthService != nil {
-		handle("GET /auth/oauth/{provider}", a.Handlers.OAuthInitiate)
-		handle("GET /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
-		handle("POST /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
-		handle("POST /auth/oauth/{provider}/link", a.Handlers.OAuthLink)
-		handle("POST /auth/oauth/{provider}/unlink", a.Handlers.OAuthUnlink)
-		handle("GET /auth/oauth/providers", a.Handlers.OAuthProviders)
+		entries = append(entries,
+			routeEntry{routes.OAuthInitiate, a.Handlers.OAuthInitiate},
+			routeEntry{routes.OAuthCallbackGet, a.Handlers.OAuthCallback},
+			routeEntry{routes.OAuthCallbackPost, a.Handlers.OAuthCallback},
+			routeEntry{routes.OAuthLink, a.Handlers.OAuthLink},
+			routeEntry{routes.OAuthUnlink, a.Handlers.OAuthUnlink},
+			routeEntry{routes.OAuthProviders, a.Handlers.OAuthProviders},
+		)
 	}
 	if a.orgService != nil {
-		handle("POST /auth/orgs", a.Handlers.CreateOrg)
-		handle("GET /auth/orgs", a.Handlers.ListUserOrgs)
-		handle("GET /auth/orgs/{orgID}", a.Handlers.GetOrg)
-		handle("PUT /auth/orgs/{orgID}", a.Handlers.UpdateOrg)
-		handle("DELETE /auth/orgs/{orgID}", a.Handlers.DeleteOrg)
-		handle("GET /auth/orgs/{orgID}/members", a.Handlers.ListOrgMembers)
-		handle("DELETE /auth/orgs/{orgID}/members/{userID}", a.Handlers.RemoveOrgMember)
-		handle("PATCH /auth/orgs/{orgID}/members/{userID}/role", a.Handlers.UpdateOrgMemberRole)
-		handle("POST /auth/orgs/{orgID}/leave", a.Handlers.LeaveOrg)
-		handle("PUT /auth/orgs/active", a.Handlers.SetActiveOrg)
-		handle("DELETE /auth/orgs/active", a.Handlers.ClearActiveOrg)
-		handle("POST /auth/orgs/{orgID}/invites", a.Handlers.CreateOrgInvite)
-		handle("POST /auth/orgs/invites/accept", a.Handlers.AcceptOrgInvite)
-		handle("GET /auth/orgs/{orgID}/invites", a.Handlers.ListOrgInvites)
-		handle("POST /auth/orgs/{orgID}/invites/{inviteID}/resend", a.Handlers.ResendOrgInvite)
-		handle("DELETE /auth/orgs/{orgID}/invites/{inviteID}", a.Handlers.DeleteOrgInvite)
+		entries = append(entries,
+			routeEntry{routes.CreateOrg, a.Handlers.CreateOrg},
+			routeEntry{routes.ListUserOrgs, a.Handlers.ListUserOrgs},
+			routeEntry{routes.GetOrg, a.Handlers.GetOrg},
+			routeEntry{routes.UpdateOrg, a.Handlers.UpdateOrg},
+			routeEntry{routes.DeleteOrg, a.Handlers.DeleteOrg},
+			routeEntry{routes.ListOrgMembers, a.Handlers.ListOrgMembers},
+			routeEntry{routes.RemoveOrgMember, a.Handlers.RemoveOrgMember},
+			routeEntry{routes.UpdateOrgMemberRole, a.Handlers.UpdateOrgMemberRole},
+			routeEntry{routes.LeaveOrg, a.Handlers.LeaveOrg},
+			routeEntry{routes.SetActiveOrg, a.Handlers.SetActiveOrg},
+			routeEntry{routes.ClearActiveOrg, a.Handlers.ClearActiveOrg},
+			routeEntry{routes.CreateOrgInvite, a.Handlers.CreateOrgInvite},
+			routeEntry{routes.AcceptOrgInvite, a.Handlers.AcceptOrgInvite},
+			routeEntry{routes.ListOrgInvites, a.Handlers.ListOrgInvites},
+			routeEntry{routes.ResendOrgInvite, a.Handlers.ResendOrgInvite},
+			routeEntry{routes.DeleteOrgInvite, a.Handlers.DeleteOrgInvite},
+		)
+	}
+
+	for _, e := range entries {
+		handle(e.pattern, e.handler)
 	}
 }
 

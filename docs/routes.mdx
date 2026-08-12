@@ -13,7 +13,7 @@ A few routes are conditionally mounted and simply don't exist on the mux otherwi
 - Everything under **Invites** requires `RegistrationConfig.EnableInvite: true`.
 - Everything under **OAuth** requires `RegistrationConfig.EnableOAuth: true` and at least one `WithProvider` call.
 - Everything under **Organizations** requires `WithOrganizations(OrganizationConfig{Enable: true})`.
-- `POST /auth/register` / `POST /auth/signup` require `RegistrationConfig.EnableEmailPassword: true`.
+- `POST /auth/register` requires `RegistrationConfig.EnableEmailPassword: true`.
 
 Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `OPTIONS` twin for every distinct path (deduplicated across methods sharing one), short-circuited to `204` by the CORS middleware before reaching any handler — these aren't listed separately below.
 
@@ -21,10 +21,10 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 | Method & Path | Auth | Body | Description |
 |---|---|---|---|
-| `POST /auth/register`, `POST /auth/signup` | Public | `` `{email, password, name}` `` | Register with email/password. Returns a session unless verification is required, or `RequireEmail2FA` is on (see [Two-factor authentication](#two-factor-authentication)). |
-| `POST /auth/login`, `POST /auth/signin` | Public | `` `{email, password}` `` | Log in. May return `requiresVerification: true` instead of a session, or `requiresTwoFactor: true` if the account has 2FA on. |
+| `POST /auth/register` | Public | `` `{email, password, name}` `` | Register with email/password. Returns a session unless verification is required, or `RequireEmail2FA` is on (see [Two-factor authentication](#two-factor-authentication)). |
+| `POST /auth/login` | Public | `` `{email, password}` `` | Log in. May return `requiresVerification: true` instead of a session, or `requiresTwoFactor: true` if the account has 2FA on. |
 | `POST /auth/admin/login` | Public | `` `{email, password}` `` | Same as login, but only succeeds for `role: admin` users. Always requires a second factor — see [Two-factor authentication](#two-factor-authentication). |
-| `POST /auth/logout`, `POST /auth/signout` | Public (session cookie optional) | none | Revokes the current session if the cookie is present; clears cookies either way. |
+| `POST /auth/logout` | Public (session cookie optional) | none | Revokes the current session if the cookie is present; clears cookies either way. |
 | `GET /auth/me` | Auth | none | Returns the authenticated user plus `hasPassword`. |
 | `GET /auth/check` | Public (session cookie optional) | none | Soft check — always `200`, returns `{"user": null}` instead of erroring when there's no valid session. |
 | `GET /auth/csrf-token` | Public | none | No-op handler (`204`) — the CSRF cookie/header is actually issued by the CSRF middleware wrapping this route. Call it to prime the cookie before your first mutating request. |
@@ -47,7 +47,7 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 |---|---|---|---|
 | `POST /auth/forgot-password` | Public | `` `{email}` `` | Always returns a generic success message, whether or not the account exists. |
 | `POST /auth/reset-password` | Public | `` `{code, newPassword}` `` | Completes a password reset using the emailed code. |
-| `PUT /auth/password`, `POST /auth/change-password` | Auth | `` `{oldPassword, newPassword}` `` | Changes the authenticated user's password; revokes every other session. |
+| `POST /auth/change-password` | Auth | `` `{oldPassword, newPassword}` `` | Changes the authenticated user's password; revokes every other session. |
 | `POST /auth/set-password/request` | Auth | none | Sends a set-password email link — for OAuth-only accounts with no password yet. |
 | `POST /auth/set-password/confirm` | Public | `` `{userId, code, newPassword}` `` | Confirms a set-password request. Unauthenticated by design — `userId` comes from the body, not a session. |
 

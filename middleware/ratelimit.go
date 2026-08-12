@@ -49,6 +49,54 @@ func rateLimitKey(r *http.Request, ip string) string {
 	return fmt.Sprintf("%s %s:%s", r.Method, r.URL.Path, ip)
 }
 
+// matchWildcardRoute finds the Routes entry matching routeKey ("METHOD
+// /path") where the pattern has "*" wildcard segments (from
+// routes.Glob — one wildcard per ServeMux path parameter). A pattern
+// matches only when it has the same number of segments as routeKey, with
+// each non-"*" segment equal. When more than one pattern matches — not
+// expected of the built-in table, since it has one entry per route, but
+// possible in a caller-supplied Routes map — the one with the fewest
+// wildcard segments (the most specific) wins.
+func matchWildcardRoute(routesMap map[string]ratelimit.Rate, routeKey string) (ratelimit.Rate, bool) {
+	reqSegs := strings.Split(routeKey, "/")
+
+	var best ratelimit.Rate
+	found := false
+	bestWildcards := -1
+
+	for pattern, rate := range routesMap {
+		if !strings.Contains(pattern, "*") {
+			continue
+		}
+		patSegs := strings.Split(pattern, "/")
+		if len(patSegs) != len(reqSegs) {
+			continue
+		}
+		wildcards := 0
+		matched := true
+		for i, seg := range patSegs {
+			if seg == "*" {
+				wildcards++
+				continue
+			}
+			if seg != reqSegs[i] {
+				matched = false
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		if !found || wildcards < bestWildcards {
+			best = rate
+			bestWildcards = wildcards
+			found = true
+		}
+	}
+
+	return best, found
+}
+
 func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 	if cfg == nil || !cfg.Enabled {
 		return func(next http.Handler) http.Handler { return next }
@@ -81,15 +129,7 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 			routeKey := r.Method + " " + r.URL.Path
 			rate, ok := cfg.Routes[routeKey]
 			if !ok {
-				// Try prefix patterns (keys ending in /*)
-				prefix := r.Method + " " + r.URL.Path
-				for k, v := range cfg.Routes {
-					if strings.HasSuffix(k, "/*") && strings.HasPrefix(prefix, k[:len(k)-1]) {
-						rate = v
-						ok = true
-						break
-					}
-				}
+				rate, ok = matchWildcardRoute(cfg.Routes, routeKey)
 			}
 			if !ok {
 				rate = cfg.Default

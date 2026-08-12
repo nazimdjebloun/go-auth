@@ -52,9 +52,9 @@ Three ways to create an account, gated by the flags above:
 - **Invite** (`EnableInvite`) — the account is created pre-verified; there's no separate verification step.
 - **OAuth** — covered on the [Providers](../providers/index.mdx) pages, not here, since the flow is a browser redirect rather than a JSON request/response.
 
-### Register with email/password — `POST /auth/register`, `POST /auth/signup`
+### Register with email/password — `POST /auth/register`
 
-Both paths run the same handler; `/auth/signup` is just an alias. Requires `EnableEmailPassword: true` and `AllowPublic: true`.
+Requires `EnableEmailPassword: true` and `AllowPublic: true`.
 
 **Request body**
 
@@ -342,9 +342,9 @@ const result = await apiRequest(API_BASE, "POST", "/auth/invite/register", {
 
 ## Login
 
-### Login — `POST /auth/login`, `POST /auth/signin`
+### Login — `POST /auth/login`
 
-`/auth/signin` is an alias for the same handler. Login is never disabled by `RegistrationConfig` — those flags only gate how an account gets created, not whether an existing one can sign in.
+Login is never disabled by `RegistrationConfig` — those flags only gate how an account gets created, not whether an existing one can sign in.
 
 **Request body**
 
@@ -588,7 +588,7 @@ await apiRequest(API_BASE, "POST", "/auth/2fa/disable", { password: currentPassw
 
 ## Logout
 
-### Logout — `POST /auth/logout`, `POST /auth/signout`
+### Logout — `POST /auth/logout`
 
 Takes no body. Works whether or not a session cookie is present — if one is, the session is revoked server-side; either way, both cookies are cleared and the CSRF cookie is rotated. There is no error response; it always returns `200`.
 

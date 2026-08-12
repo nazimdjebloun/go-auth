@@ -111,7 +111,7 @@ await apiRequest(API_BASE, "PUT", "/auth/name", { name: "Ada Byron" });
 
 ## Change password
 
-### Change password — `PUT /auth/password`, `POST /auth/change-password`
+### Change password — `POST /auth/change-password`
 
 Requires the current password even though the caller is already authenticated — a stolen but still-valid session cookie shouldn't be enough on its own to take over the account's credentials. On success, every *other* session is revoked (the one making this request survives), and the CSRF cookie is rotated.
 
