@@ -546,6 +546,75 @@ func TestCreateOrgInvite_InvalidRole(t *testing.T) {
 	}
 }
 
+func newTestOrgInviteServiceNoMailer() (*OrgService, *OrgInviteService, *testutil.MockOrgInviteRepo) {
+	orgs := testutil.NewMockOrgRepo()
+	invites := testutil.NewMockOrgInviteRepo()
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tx := &testutil.MockTxManager{}
+	gen := &testutil.MockTokenGen{}
+
+	orgSvc := NewOrgService(orgs, users, sessions, tx, OrgServiceConfig{
+		MaxOrgsPerUser: 3,
+		Logger:         nil,
+	})
+	inviteSvc := NewOrgInviteService(invites, orgs, users, tx, gen, nil, OrgInviteServiceConfig{
+		MaxOrgsPerUser: 3,
+		InviteTTL:      7 * 24 * time.Hour,
+		BaseURL:        "http://localhost:3000",
+		AppName:        "TestApp",
+		URLValidator:   &port.URLValidator{AllowHTTP: true},
+		Logger:         nil,
+	})
+	return orgSvc, inviteSvc, invites
+}
+
+func TestCreateOrgInvite_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
+	orgSvc, inviteSvc, _ := newTestOrgInviteServiceNoMailer()
+	ctx := context.Background()
+
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+
+	_, err := inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{
+		OrgID: org.ID, Email: "test@example.com", Role: domain.OrgRoleMember, InvitedBy: "owner-1",
+	})
+	if err == nil {
+		t.Fatal("expected an error with no mailer configured, got nil")
+	}
+	if ae, ok := err.(*domain.AuthError); !ok || ae.Code != "email_not_configured" {
+		t.Fatalf("err = %v, want email_not_configured", err)
+	}
+}
+
+func TestResendOrgInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
+	orgSvc, inviteSvc, invites := newTestOrgInviteServiceNoMailer()
+	ctx := context.Background()
+
+	// Seed the invite directly (bypassing CreateOrgInvite, which itself now
+	// requires a mailer) so Resend is exercised in isolation.
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	invite := &domain.OrgInvite{
+		ID:        "invite-1",
+		OrgID:     org.ID,
+		Email:     "test@example.com",
+		Role:      domain.OrgRoleMember,
+		InvitedBy: "owner-1",
+		ExpiresAt: time.Now().UTC().Add(7 * 24 * time.Hour),
+		CreatedAt: time.Now().UTC(),
+	}
+	if err := invites.Create(ctx, invite); err != nil {
+		t.Fatalf("seed invite: %v", err)
+	}
+
+	err := inviteSvc.ResendOrgInviteEmail(ctx, invite.ID)
+	if err == nil {
+		t.Fatal("expected an error with no mailer configured, got nil")
+	}
+	if ae, ok := err.(*domain.AuthError); !ok || ae.Code != "email_not_configured" {
+		t.Fatalf("err = %v, want email_not_configured", err)
+	}
+}
+
 func TestDeleteOrgInvite_Success(t *testing.T) {
 	orgSvc, inviteSvc := newTestOrgInviteService()
 	ctx := context.Background()

@@ -10,7 +10,7 @@ icon: "Download"
 
 - Go 1.26 or later
 - A database: PostgreSQL, MySQL, or SQLite
-- An SMTP server, or your own mailer implementation — required in every deployment, since admin login always delivers a second factor by email. `EnvironmentDev` is the one exception: with neither `WithMailer` nor `WithEmail` set, it falls back to a log-only driver. See [Configuration](configuration.mdx#withmailer--withemail--withtemplates--required).
+- An SMTP server, or your own mailer implementation — required unless every email-sending feature is off (invites, email verification, 2FA, and admin login's two-factor challenge, the last of which is on by default and needs `SecurityConfig.DisableAdminTwoFactor` to turn off). `EnvironmentDev` is the one exception when a mailer is otherwise needed: with neither `WithMailer` nor `WithEmail` set, it falls back to a log-only driver. See [Configuration](configuration.mdx#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off).
 
 ## Install
 
@@ -64,7 +64,7 @@ Gather these before writing your configuration:
 - **A database connection** — either a connection string, or a database/pool you've already opened yourself.
 - **A signing secret** — at least 32 random bytes. This is the one piece of key material the library needs; source it from your environment, never commit it.
 - **The origins your frontend is served from** — used for CSRF origin checking. There's no wildcard option by design.
-- **A mailer** — required in every deployment, not just when you enable invite-only signup or email verification: admin login always sends a second factor by email. Either SMTP credentials or your own delivery implementation (Resend, Postmark, SES, etc.) work. `EnvironmentDev` alone falls back to a log-only driver when neither is configured.
+- **A mailer, conditionally** — required if you enable invite-only signup, email verification, or 2FA, or leave admin login's two-factor challenge on (the default — turn it off with `SecurityConfig.DisableAdminTwoFactor` for a mailer-free, API-only deployment). Either SMTP credentials or your own delivery implementation (Resend, Postmark, SES, etc.) work. `EnvironmentDev` alone falls back to a log-only driver when a mailer is needed but neither is configured.
 - **OAuth credentials, conditionally** — a client ID, client secret, and redirect URL per provider, only if you want OAuth login.
 
 Nothing here is read from the environment by the library itself — go-auth has no notion of env vars. You decide how your program sources these values (environment variables are the usual choice) and pass them in as plain Go values.

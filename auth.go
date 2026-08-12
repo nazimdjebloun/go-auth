@@ -345,6 +345,7 @@ func New(config config) (*Auth, error) {
 		TwoFactorBindingKey:              keys.TwoFactor,
 		DisableTwoFactorChallengeBinding: config.disableTwoFactorChallengeBinding,
 		TwoFactorChallengeCookieName:     config.twoFactorChallengeCookieName,
+		DisableAdminTwoFactor:            config.disableAdminTwoFactor,
 	}
 
 	sessionCfg := service.DefaultSessionConfig()

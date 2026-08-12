@@ -90,6 +90,10 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 		return nil, err
 	}
 
+	if s.mailer == nil {
+		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
+	}
+
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate invite code", "err", err, "email", input.Email)
@@ -113,21 +117,19 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	if s.mailer != nil {
 	inviteURL := s.config.BaseURL + "/invite?token=" + raw
-		result, tplErr := s.templates.Render(port.InviteData{
-			AppName:   s.config.AppName,
-			InviteURL: inviteURL,
-			ExpiresIn: s.config.InviteTTL,
-		})
-		if tplErr != nil {
-			s.log.Error("failed to render invite email template", "err", tplErr, "email", input.Email)
-			return nil, domain.NewError("internal_error", "Internal server error", 500)
-		}
-		if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
-			s.log.Error("failed to send invite email", "err", err, "email", input.Email)
-			return nil, domain.NewError("email_failed", "Failed to send invite email", 500)
-		}
+	result, tplErr := s.templates.Render(port.InviteData{
+		AppName:   s.config.AppName,
+		InviteURL: inviteURL,
+		ExpiresIn: s.config.InviteTTL,
+	})
+	if tplErr != nil {
+		s.log.Error("failed to render invite email template", "err", tplErr, "email", input.Email)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
+	}
+	if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
+		s.log.Error("failed to send invite email", "err", err, "email", input.Email)
+		return nil, domain.NewError("email_failed", "Failed to send invite email", 500)
 	}
 
 	invite.RawCode = ""
@@ -294,6 +296,10 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 		return domain.ErrInviteNotFound
 	}
 
+	if s.mailer == nil {
+		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+	}
+
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate invite code", "err", err, "invite_id", inviteID)
@@ -308,21 +314,19 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	if s.mailer != nil {
-		url := s.config.BaseURL + "/invite?token=" + raw
-		result, tplErr := s.templates.Render(port.InviteData{
-			AppName:   s.config.AppName,
-			InviteURL: url,
-			ExpiresIn: s.config.InviteTTL,
-		})
-		if tplErr != nil {
-			s.log.Error("failed to render invite email template", "err", tplErr, "invite_id", inviteID)
-			return domain.NewError("internal_error", "Internal server error", 500)
-		}
-		if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
-			s.log.Error("failed to send invite email", "err", err, "invite_id", inviteID)
-			return domain.NewError("email_failed", "Failed to send invite email", 500)
-		}
+	url := s.config.BaseURL + "/invite?token=" + raw
+	result, tplErr := s.templates.Render(port.InviteData{
+		AppName:   s.config.AppName,
+		InviteURL: url,
+		ExpiresIn: s.config.InviteTTL,
+	})
+	if tplErr != nil {
+		s.log.Error("failed to render invite email template", "err", tplErr, "invite_id", inviteID)
+		return domain.NewError("internal_error", "Internal server error", 500)
+	}
+	if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
+		s.log.Error("failed to send invite email", "err", err, "invite_id", inviteID)
+		return domain.NewError("email_failed", "Failed to send invite email", 500)
 	}
 
 	s.log.Info("invite resent", "invite_id", inviteID, "email", invite.Email)

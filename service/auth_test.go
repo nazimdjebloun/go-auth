@@ -702,6 +702,38 @@ func TestAdminLogin_Success(t *testing.T) {
 	}
 }
 
+func TestAdminLogin_DisableAdminTwoFactor_SkipsChallengeWithNoMailer(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+
+	cfg := defaultTestConfig()
+	cfg.DisableAdminTwoFactor = true
+	// twoFactorSvc is real (not nil) so the test actually exercises the flag
+	// rather than the already-skipped "no twoFactorSvc at all" path.
+	twoFactorSvc := NewTwoFactorService(users, sessions, tokens, hasher, nil, nil, cfg, sessSvc)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, twoFactorSvc)
+	createAdminUser(t, svc, "admin@example.com", "Passw0rd!", false)
+
+	result, err := svc.AdminLogin(context.Background(), LoginInput{
+		Email:    "admin@example.com",
+		Password: "Passw0rd!",
+		IP:       "127.0.0.1",
+	})
+	if err != nil {
+		t.Fatalf("AdminLogin failed with no mailer configured: %v", err)
+	}
+	if result.RequiresTwoFactor {
+		t.Fatal("DisableAdminTwoFactor should skip the challenge, but RequiresTwoFactor was true")
+	}
+	if result.SessionToken == "" {
+		t.Fatal("expected a session token since the challenge was skipped")
+	}
+}
+
 func TestAdminLogin_NonAdmin_GenericError(t *testing.T) {
 	svc := newAdminLoginService(t)
 	hash, _ := svc.hasher.Hash("Passw0rd!")

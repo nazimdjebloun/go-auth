@@ -445,8 +445,8 @@ if (result.requiresVerification) {
 }
 ```
 
-<Callout type="warn" title="Admin login has its own page — and always requires a second factor">
-  `POST /auth/admin/login` gets its own guide alongside the rest of the admin panel rather than living here — see [Admin → Admin login](admin.mdx#admin-login). It's a login variant, but everything else about it (who can use it, what it manages) belongs with Admin, not Authentication. One thing worth knowing before you get there: admin login **always** requires a second factor in every real deployment — this is unconditional, not gated by `RequireEmail2FA` or any other flag, and there is no supported way to turn it off. See [Admin → Admin login](admin.mdx#admin-login) for what that means in practice (a mailer becomes effectively mandatory) and [Security](../security.mdx#two-factor-authentication) for the reasoning.
+<Callout type="warn" title="Admin login has its own page — and requires a second factor by default">
+  `POST /auth/admin/login` gets its own guide alongside the rest of the admin panel rather than living here — see [Admin → Admin login](admin.mdx#admin-login). It's a login variant, but everything else about it (who can use it, what it manages) belongs with Admin, not Authentication. One thing worth knowing before you get there: admin login requires a second factor **by default** in every real deployment — independent of `RequireEmail2FA` or any other flag, and on unless explicitly turned off via `SecurityConfig.DisableAdminTwoFactor`. See [Admin → Admin login](admin.mdx#admin-login) for what that means in practice (a mailer becomes effectively mandatory unless disabled) and [Security](../security.mdx#two-factor-authentication) for the reasoning.
 </Callout>
 
 ## Two-factor authentication

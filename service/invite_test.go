@@ -130,3 +130,60 @@ func TestInviteRegisterPasswordMismatch(t *testing.T) {
 		t.Fatalf("Expected password_mismatch, got %s", err.Code)
 	}
 }
+
+func TestCreateInvite_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	invites := testutil.NewMockInviteRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
+
+	_, err := svc.CreateInvite(context.Background(), CreateInviteInput{
+		Email:   "invited@example.com",
+		AdminID: "admin-id",
+	})
+	if err == nil {
+		t.Fatal("expected an error with no mailer configured, got nil")
+	}
+	if err.Code != "email_not_configured" {
+		t.Fatalf("Code = %q, want email_not_configured", err.Code)
+	}
+	if got, _ := invites.GetByEmail(context.Background(), "invited@example.com"); got != nil {
+		t.Fatal("no invite row should be left behind when the mailer is nil")
+	}
+}
+
+func TestResendInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	invites := testutil.NewMockInviteRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
+
+	raw, _ := gen.Generate()
+	now := time.Now().UTC()
+	invite := &domain.Invite{
+		ID:        raw,
+		Email:     "invited@example.com",
+		Code:      hashToken(raw),
+		CreatedBy: "admin-id",
+		Status:    domain.InvitePending,
+		ExpiresAt: now.Add(defaultTestConfig().InviteTTL),
+		CreatedAt: now,
+	}
+	invites.Create(context.Background(), invite)
+
+	err := svc.ResendInviteEmail(context.Background(), invite.ID)
+	if err == nil {
+		t.Fatal("expected an error with no mailer configured, got nil")
+	}
+	if err.Code != "email_not_configured" {
+		t.Fatalf("Code = %q, want email_not_configured", err.Code)
+	}
+}

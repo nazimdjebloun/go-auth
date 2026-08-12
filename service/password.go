@@ -65,6 +65,10 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 		return nil
 	}
 
+	if s.mailer == nil {
+		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+	}
+
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate token", "err", err, "user_id", user.ID)
@@ -199,6 +203,10 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 		return domain.NewError("already_set", "User already has a password", 400)
 	}
 
+	if s.mailer == nil {
+		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+	}
+
 	raw, err := otp.Generate(8)
 	if err != nil {
 		s.log.Error("failed to generate OTP", "err", err, "user_id", userID)
@@ -226,20 +234,18 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	if s.mailer != nil {
-		result, tplErr := s.templates.Render(port.SetPasswordData{
-			AppName:   s.config.AppName,
-			Code:      raw,
-			ExpiresIn: setPasswordCodeTTL,
-		})
-		if tplErr != nil {
-			s.log.Error("failed to render set-password email template", "err", tplErr, "user_id", userID)
-			return domain.NewError("internal_error", "Internal server error", 500)
-		}
-		if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
-			s.log.Error("failed to send set-password email", "err", err, "user_id", userID)
-			return domain.NewError("email_failed", "Failed to send email", 500)
-		}
+	result, tplErr := s.templates.Render(port.SetPasswordData{
+		AppName:   s.config.AppName,
+		Code:      raw,
+		ExpiresIn: setPasswordCodeTTL,
+	})
+	if tplErr != nil {
+		s.log.Error("failed to render set-password email template", "err", tplErr, "user_id", userID)
+		return domain.NewError("internal_error", "Internal server error", 500)
+	}
+	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
+		s.log.Error("failed to send set-password email", "err", err, "user_id", userID)
+		return domain.NewError("email_failed", "Failed to send email", 500)
 	}
 
 	return nil

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -226,6 +227,17 @@ type SecurityConfig struct {
 	// TwoFactorChallengeCookieName overrides the binding cookie name
 	// (default "_2fa_challenge").
 	TwoFactorChallengeCookieName string
+
+	// DisableAdminTwoFactor turns off the unconditional email two-factor
+	// challenge on POST /auth/admin/login. Intended for API-only deployments
+	// with no email delivery at all — every other email-gated feature
+	// (RequireEmailVerification, EnableInvite, RequireEmail2FA,
+	// DefaultTwoFactorEnabled) must also be off before a mailer becomes
+	// optional; see NewConfig's validation error if one still needs it.
+	//
+	// The zero value keeps AdminLogin's 2FA on: this is spelled as "Disable"
+	// so that forgetting it is the secure outcome.
+	DisableAdminTwoFactor bool
 }
 
 // ─── Top-level config ───────────────────────────────────────
@@ -276,6 +288,7 @@ type config struct {
 	twoFactorCodeTTL                 time.Duration
 	disableTwoFactorChallengeBinding bool
 	twoFactorChallengeCookieName     string
+	disableAdminTwoFactor            bool
 
 	providers []port.OAuthProvider
 
@@ -300,6 +313,29 @@ type config struct {
 }
 
 // ─── Validation ──────────────────────────────────────────────
+
+// mailerReasons lists which enabled features require a Mailer or Email
+// config, by the exported field name a consumer would recognize. Empty means
+// no configured feature sends email, so the mailer is genuinely optional.
+func (c *config) mailerReasons() []string {
+	var reasons []string
+	if c.registration.EnableInvite {
+		reasons = append(reasons, "EnableInvite")
+	}
+	if c.registration.RequireEmailVerification {
+		reasons = append(reasons, "RequireEmailVerification")
+	}
+	if c.requireEmail2FA {
+		reasons = append(reasons, "RequireEmail2FA")
+	}
+	if c.defaultTwoFactorEnabled {
+		reasons = append(reasons, "DefaultTwoFactorEnabled")
+	}
+	if !c.disableAdminTwoFactor {
+		reasons = append(reasons, "AdminLogin two-factor (set DisableAdminTwoFactor to opt out)")
+	}
+	return reasons
+}
 
 func (c *config) validate() error {
 	var errs []error
@@ -405,12 +441,15 @@ func (c *config) validate() error {
 			)
 		}
 	}
-	// AdminLogin always requires two-factor email delivery, unconditionally,
-	// independent of RequireEmailVerification/EnableInvite/RequireEmail2FA/
-	// DefaultTwoFactorEnabled — see docs/security.mdx. A mailer is therefore
-	// always required, not just when one of those four is on.
+	// A mailer is required only if some configured feature actually sends
+	// email — see requiresMailer. AdminLogin's two-factor challenge is on by
+	// default (see docs/security.mdx), so it's the common reason; set
+	// DisableAdminTwoFactor to drop it for an API-only deployment with every
+	// other email feature also off.
 	if c.mailer == nil && c.email == nil {
-		errs = append(errs, errors.New("email: Mailer or Email config required — AdminLogin always requires two-factor email delivery, and RequireEmailVerification/EnableInvite/RequireEmail2FA/DefaultTwoFactorEnabled each also need it when enabled"))
+		if reasons := c.mailerReasons(); len(reasons) > 0 {
+			errs = append(errs, fmt.Errorf("email: Mailer or Email config required — enabled features need it: %s", strings.Join(reasons, ", ")))
+		}
 	}
 	if c.registration.InviteTTL <= 0 {
 		errs = append(errs, errors.New("registration: invite_ttl must be positive"))
@@ -759,6 +798,7 @@ func WithSecurity(cfg SecurityConfig) Option {
 		c.twoFactorCodeTTL = cfg.TwoFactorCodeTTL
 		c.disableTwoFactorChallengeBinding = cfg.DisableTwoFactorChallengeBinding
 		c.twoFactorChallengeCookieName = cfg.TwoFactorChallengeCookieName
+		c.disableAdminTwoFactor = cfg.DisableAdminTwoFactor
 	}
 }
 

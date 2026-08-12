@@ -58,6 +58,10 @@ type Config struct {
 	DefaultTwoFactorEnabled bool
 	TwoFactorCodeTTL        time.Duration
 
+	// DisableAdminTwoFactor turns off AdminLogin's unconditional email
+	// two-factor challenge. See the scope note on AdminLogin.
+	DisableAdminTwoFactor bool
+
 	// TwoFactorBindingKey signs 2FA challenge binding tokens. It is a
 	// purpose-derived subkey from internal/keyring, never the raw app secret:
 	// the keyring exists so each consumer of the secret gets its own key under
@@ -321,11 +325,10 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	// /auth/admin/login always requires a second factor. Not
-	// s.enforceTwoFactor: this is unconditional, independent of
-	// RequireEmail2FA and of the user's own TwoFactorEnabled flag, and there is
-	// deliberately no config switch to turn it off. Applied after the role
-	// rejection above so the admin-vs-not distinction still leaks nothing.
+	// /auth/admin/login requires a second factor by default. Not
+	// s.enforceTwoFactor: this is independent of RequireEmail2FA and of the
+	// user's own TwoFactorEnabled flag. Applied after the role rejection above
+	// so the admin-vs-not distinction still leaks nothing.
 	//
 	// Scope note: this gates the endpoint, not the account. An admin signing in
 	// through /auth/login gets the ordinary check, and the session issued there
@@ -333,7 +336,11 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 	// route specifically rather than guaranteeing every admin session cleared a
 	// second factor. Pair it with RequireEmail2FA, or with the admin enabling
 	// 2FA on their own account, if you want that stronger property.
-	if s.twoFactorSvc != nil {
+	//
+	// DisableAdminTwoFactor opts out entirely, for API-only deployments with
+	// no mailer configured — NewConfig refuses that combination unless every
+	// other email-sending feature is also off.
+	if !s.config.DisableAdminTwoFactor && s.twoFactorSvc != nil {
 		challenge, aerr := s.twoFactorSvc.Challenge(ctx, user.ID)
 		if aerr != nil {
 			return nil, aerr

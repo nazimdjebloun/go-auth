@@ -127,6 +127,10 @@ func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgI
 		}
 	}
 
+	if s.mailer == nil {
+		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
+	}
+
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate org invite code", "err", err)
@@ -254,6 +258,10 @@ func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, inviteID st
 	}
 	if invite == nil {
 		return domain.NewError("invite_not_found", "Invite not found", 404)
+	}
+
+	if s.mailer == nil {
+		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
 
 	raw, err := s.gen.Generate()

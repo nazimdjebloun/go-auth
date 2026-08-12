@@ -106,9 +106,56 @@ func TestForgotPassword_NilMailer(t *testing.T) {
 		UpdatedAt:    time.Now().UTC(),
 	})
 
+	// A misconfigured mailer must be visible, not indistinguishable from a
+	// working one that quietly sent nothing — same reasoning as every other
+	// email-sending flow in this package.
 	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	if err == nil {
+		t.Fatal("expected an error with no mailer configured, got nil")
+	}
+	if err.Code != "email_not_configured" {
+		t.Fatalf("Code = %q, want email_not_configured", err.Code)
+	}
+}
+
+func TestForgotPassword_NilMailer_NonexistentUserStillSilent(t *testing.T) {
+	// The enumeration-resistant branch (user not found) must keep returning
+	// nil regardless of mailer state — it never reaches the mailer check.
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessions := testutil.NewMockSessionRepo()
+	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, defaultTestConfig())
+
+	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "nobody@example.com"})
 	if err != nil {
-		t.Fatalf("should succeed without mailer, got error: %v", err)
+		t.Fatalf("should not reveal email existence even with no mailer, got error: %v", err)
+	}
+}
+
+func TestRequestSetPassword_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessions := testutil.NewMockSessionRepo()
+	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, defaultTestConfig())
+
+	users.Create(context.Background(), &domain.User{
+		ID:        "user-1",
+		Email:     "test@example.com",
+		Name:      "Test",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+
+	err := svc.RequestSetPassword(context.Background(), "user-1")
+	if err == nil {
+		t.Fatal("expected an error with no mailer configured, got nil")
+	}
+	if err.Code != "email_not_configured" {
+		t.Fatalf("Code = %q, want email_not_configured", err.Code)
 	}
 }
 

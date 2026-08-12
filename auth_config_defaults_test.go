@@ -345,6 +345,70 @@ func TestDefaults_DevImpliesAllowHTTPURLs(t *testing.T) {
 	}
 }
 
+func TestDefaults_NoMailerOK_WhenNoEmailFeatureNeedsOne(t *testing.T) {
+	_, err := NewConfig(
+		WithApp(AppConfig{
+			Name:        "app",
+			BaseURL:     "https://example.com",
+			Environment: EnvironmentProd,
+			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
+		}),
+		WithSecret("0123456789abcdef0123456789abcdef"),
+		WithSecurity(SecurityConfig{
+			AllowedOrigins:        []string{"https://example.com"},
+			DisableAdminTwoFactor: true,
+		}),
+		// No WithMailer/WithEmail, no RequireEmailVerification/EnableInvite/
+		// RequireEmail2FA/DefaultTwoFactorEnabled — an API-only deployment.
+	)
+	if err != nil {
+		t.Fatalf("expected no mailer to be valid with every email feature off, got: %v", err)
+	}
+}
+
+func TestDefaults_NoMailerFails_WhenAdminTwoFactorStillOn(t *testing.T) {
+	_, err := NewConfig(
+		WithApp(AppConfig{
+			Name:        "app",
+			BaseURL:     "https://example.com",
+			Environment: EnvironmentProd,
+			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
+		}),
+		WithSecret("0123456789abcdef0123456789abcdef"),
+		WithSecurity(SecurityConfig{AllowedOrigins: []string{"https://example.com"}}),
+		// DisableAdminTwoFactor left at its secure zero value (false).
+	)
+	if err == nil {
+		t.Fatal("expected an error: AdminLogin's two-factor challenge still needs a mailer")
+	}
+	if !strings.Contains(err.Error(), "AdminLogin two-factor") {
+		t.Errorf("error = %v, want it to name AdminLogin two-factor as the reason", err)
+	}
+}
+
+func TestDefaults_NoMailerFails_WhenEnableInviteOn(t *testing.T) {
+	_, err := NewConfig(
+		WithApp(AppConfig{
+			Name:        "app",
+			BaseURL:     "https://example.com",
+			Environment: EnvironmentProd,
+			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
+		}),
+		WithSecret("0123456789abcdef0123456789abcdef"),
+		WithSecurity(SecurityConfig{
+			AllowedOrigins:        []string{"https://example.com"},
+			DisableAdminTwoFactor: true,
+		}),
+		WithRegistration(RegistrationConfig{EnableEmailPassword: true, EnableInvite: true}),
+	)
+	if err == nil {
+		t.Fatal("expected an error: EnableInvite needs a mailer even with AdminLogin two-factor disabled")
+	}
+	if !strings.Contains(err.Error(), "EnableInvite") {
+		t.Errorf("error = %v, want it to name EnableInvite as the reason", err)
+	}
+}
+
 func TestWithRateLimit_DeepCopiesRoutes(t *testing.T) {
 	// A value parameter copies the map header, not the map: without an explicit
 	// clone, WithRateLimitRoute wrote through to the consumer's own map.

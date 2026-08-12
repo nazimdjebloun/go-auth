@@ -254,7 +254,7 @@ A `bool` has no "unset" state — an omitted `false` looks identical to a delibe
 
 **Expected errors**
 
-- `email: Mailer or Email config required — AdminLogin always requires two-factor email delivery, and RequireEmailVerification/EnableInvite/RequireEmail2FA/DefaultTwoFactorEnabled each also need it when enabled` — hint: call `WithMailer` or `WithEmail`; see [`WithMailer` / `WithEmail` / `WithTemplates`](#withmailer--withemail--withtemplates--required) below for the `EnvironmentDev` exception.
+- `email: Mailer or Email config required — enabled features need it: <reasons>` — the `<reasons>` list names exactly which of `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultTwoFactorEnabled`, or AdminLogin two-factor is still requiring one; hint: call `WithMailer`/`WithEmail`, or turn off every reason listed (`SecurityConfig.DisableAdminTwoFactor` for the last one) — see [`WithMailer` / `WithEmail` / `WithTemplates`](#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off) below for the `EnvironmentDev` exception.
 - `registration: invite_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `7d`.
 - `registration: verification_code_ttl must be positive` — same hint, defaults to `15m`.
 - `registration: RequireEmailVerification has no effect when both EnableEmailPassword and EnableOAuth are disabled`.
@@ -283,9 +283,9 @@ goauth.WithOrganizations(goauth.OrganizationConfig{
 - `organizations.max_orgs_per_user must be between 0 and 100 (0 = default 100)`.
 - `organizations.invite_ttl must be positive` — hint: only reachable via an explicit negative value.
 
-## `WithMailer` / `WithEmail` / `WithTemplates` — required
+## `WithMailer` / `WithEmail` / `WithTemplates` — required unless every email feature is off
 
-A mailer is **always required** by validation, in every environment — not just when `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, or `DefaultTwoFactorEnabled` is on. This is because `POST /auth/admin/login` requires two-factor email delivery unconditionally, independent of all four of those flags (see [Admin login](guides/admin.mdx#admin-login) and [Security](security.mdx#two-factor-authentication)) — so every deployment needs a working mailer whether or not it opts into any of the optional email-gated features.
+A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultTwoFactorEnabled`, or `POST /auth/admin/login`'s two-factor challenge (on by default — see [Admin login](guides/admin.mdx#admin-login) and [Security](security.mdx#two-factor-authentication)). Set `SecurityConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
 
 **Exception: `EnvironmentDev`.** If neither `WithMailer` nor `WithEmail` is set and `Environment` is `EnvironmentDev`, `NewConfig` automatically defaults to a log-only mailer (`goauth.LogMailer`) instead of erroring — emails are logged (`slog`) rather than delivered, so local development works with zero mailer setup. This default only fills in when *nothing* was configured; an explicit `WithMailer`/`WithEmail` call is never overridden. Outside `EnvironmentDev`, no default is applied — a still-unconfigured mailer is a validation error.
 
@@ -314,9 +314,10 @@ goauth.WithTemplates(myTemplateProvider)
 
 | Option | Purpose | Required | Notes |
 |---|---|---|---|
-| `WithMailer(port.Mailer)` | Your own delivery implementation | Required (auto-defaulted to `LogMailer` in `EnvironmentDev` — see above) | Takes precedence over `WithEmail` if both are set. |
-| `WithEmail(EmailConfig)` | Built-in SMTP delivery | Required (auto-defaulted to `LogMailer` in `EnvironmentDev` — see above) | Ignored if `WithMailer` is also set — its fields aren't even validated in that case. |
+| `WithMailer(port.Mailer)` | Your own delivery implementation | Required unless every email-sending feature is off (auto-defaulted to `LogMailer` in `EnvironmentDev` — see above) | Takes precedence over `WithEmail` if both are set. |
+| `WithEmail(EmailConfig)` | Built-in SMTP delivery | Required unless every email-sending feature is off (auto-defaulted to `LogMailer` in `EnvironmentDev` — see above) | Ignored if `WithMailer` is also set — its fields aren't even validated in that case. |
 | `WithTemplates(port.TemplateProvider)` | Replace the built-in email templates | Optional | The library still renders subject/HTML/text and hands finished strings to the mailer either way — this replaces content, `WithMailer` replaces delivery. |
+| `SecurityConfig.DisableAdminTwoFactor` | Turn off `POST /auth/admin/login`'s unconditional two-factor challenge | Optional, default off (challenge stays on) | Set via `WithSecurity`. The last of the five mailer-requiring features to disable for a mailer-free, API-only deployment. |
 
 **`EmailConfig`** (only validated when `WithEmail` is set and `WithMailer` is not)
 
@@ -331,7 +332,7 @@ goauth.WithTemplates(myTemplateProvider)
 
 **Expected errors**
 
-- `email: Mailer or Email config required — AdminLogin always requires two-factor email delivery, and RequireEmailVerification/EnableInvite/RequireEmail2FA/DefaultTwoFactorEnabled each also need it when enabled` — reachable in any environment except `EnvironmentDev`, where the log-mailer default fills this in automatically.
+- `email: Mailer or Email config required — enabled features need it: <reasons>` — reachable in any environment except `EnvironmentDev`, where the log-mailer default fills this in automatically; empty only when no configured feature actually sends email, in which case there's no error at all.
 - `email: host is required`
 - `email: port must be between 1 and 65535, got N`
 - `email: from address is required`

@@ -209,6 +209,9 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 }
 
 func (s *TwoFactorService) send(ctx context.Context, user *domain.User, code string) *domain.AuthError {
+	if s.mailer == nil {
+		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+	}
 	result, err := s.templates.Render(port.TwoFactorData{
 		AppName:   s.config.AppName,
 		Code:      code,
