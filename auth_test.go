@@ -93,3 +93,68 @@ func TestSetSessionCookies(t *testing.T) {
 		}
 	}
 }
+
+// TestRegister_PersistsIPAndUserAgent guards against RegisterInput and
+// LoginInput drifting apart again: before RegisterInput was aliased to
+// service.RegisterInput, it had no IP/UserAgent fields at all, so a
+// programmatic (non-HTTP) Register call silently produced a session with an
+// empty IP and user agent, regardless of what the caller passed.
+func TestRegister_PersistsIPAndUserAgent(t *testing.T) {
+	a := buildAuth(t, minimalOpts()...)
+	defer a.Close()
+
+	res, aerr := a.Register(context.Background(), RegisterInput{
+		Email:     "ada@example.com",
+		Password:  "V@lidPswd1",
+		Name:      "Ada",
+		IP:        "203.0.113.7",
+		UserAgent: "test-agent/1.0",
+	})
+	if aerr != nil {
+		t.Fatalf("Register: %v", aerr)
+	}
+	if res.Session == nil {
+		t.Fatal("expected a session on the normal Register success path")
+	}
+	if res.Session.IP != "203.0.113.7" {
+		t.Errorf("session.IP = %q, want %q", res.Session.IP, "203.0.113.7")
+	}
+	if res.Session.UserAgent != "test-agent/1.0" {
+		t.Errorf("session.UserAgent = %q, want %q", res.Session.UserAgent, "test-agent/1.0")
+	}
+}
+
+// TestLogin_PersistsIPAndUserAgent is the Login counterpart — LoginInput
+// already carried IP/UserAgent before the aliasing change, so this locks in
+// behavior that already worked rather than guarding a regression.
+func TestLogin_PersistsIPAndUserAgent(t *testing.T) {
+	a := buildAuth(t, minimalOpts()...)
+	defer a.Close()
+
+	if _, aerr := a.Register(context.Background(), RegisterInput{
+		Email:    "bob@example.com",
+		Password: "V@lidPswd1",
+		Name:     "Bob",
+	}); aerr != nil {
+		t.Fatalf("Register: %v", aerr)
+	}
+
+	res, aerr := a.Login(context.Background(), LoginInput{
+		Email:     "bob@example.com",
+		Password:  "V@lidPswd1",
+		IP:        "198.51.100.9",
+		UserAgent: "test-agent/2.0",
+	})
+	if aerr != nil {
+		t.Fatalf("Login: %v", aerr)
+	}
+	if res.Session == nil {
+		t.Fatal("expected a session on the normal Login success path")
+	}
+	if res.Session.IP != "198.51.100.9" {
+		t.Errorf("session.IP = %q, want %q", res.Session.IP, "198.51.100.9")
+	}
+	if res.Session.UserAgent != "test-agent/2.0" {
+		t.Errorf("session.UserAgent = %q, want %q", res.Session.UserAgent, "test-agent/2.0")
+	}
+}

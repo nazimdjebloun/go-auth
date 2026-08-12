@@ -867,59 +867,27 @@ func (a *Auth) RotateCSRFToken(w http.ResponseWriter) {
 	middleware.RotateCSRFToken(w, a.cfg.csrfToken)
 }
 
+// Register creates a new email/password account. input.IP and
+// input.UserAgent, when set, are recorded on the resulting session and any
+// audit event this produces — pass the caller's real values for a
+// programmatic (non-HTTP) integration; the built-in HTTP handler already
+// does this for you.
 func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {
-	result, err := a.authService.Register(ctx, service.RegisterInput{
-		Email:    input.Email,
-		Password: input.Password,
-		Name:     input.Name,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &RegisterResult{
-		User:                 result.User,
-		Session:              result.Session,
-		SessionToken:         result.SessionToken,
-		RefreshToken:         result.RefreshToken,
-		RequiresVerification: result.RequiresVerification,
-	}, nil
+	return a.authService.Register(ctx, input)
 }
 
+// Login authenticates an email/password account. input.IP and
+// input.UserAgent, when set, are recorded on the resulting session and any
+// audit event this produces.
 func (a *Auth) Login(ctx context.Context, input LoginInput) (*LoginResult, *domain.AuthError) {
-	result, err := a.authService.Login(ctx, service.LoginInput{
-		Email:     input.Email,
-		Password:  input.Password,
-		IP:        input.IP,
-		UserAgent: input.UserAgent,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &LoginResult{
-		User:                 result.User,
-		Session:              result.Session,
-		SessionToken:         result.SessionToken,
-		RefreshToken:         result.RefreshToken,
-		RequiresVerification: result.RequiresVerification,
-	}, nil
+	return a.authService.Login(ctx, input)
 }
 
+// CompleteInviteRegistration finishes registration from an invite code.
+// input.IP and input.UserAgent, when set, are recorded the same way as
+// Register.
 func (a *Auth) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, *domain.AuthError) {
-	result, err := a.inviteService.CompleteInviteRegistration(ctx, service.CompleteInviteInput{
-		Code:            input.Code,
-		Name:            input.Name,
-		Password:        input.Password,
-		ConfirmPassword: input.ConfirmPassword,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &CompleteInviteResult{
-		User:         result.User,
-		Session:      result.Session,
-		SessionToken: result.SessionToken,
-		RefreshToken: result.RefreshToken,
-	}, nil
+	return a.inviteService.CompleteInviteRegistration(ctx, input)
 }
 
 // CheckSession validates a raw session token and returns whether it is valid.

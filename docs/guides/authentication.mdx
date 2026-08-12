@@ -167,6 +167,10 @@ if err != nil {
 
 if result.RequiresVerification {
     // result.Session, result.SessionToken, result.RefreshToken are all zero-valued here
+} else if result.RequiresTwoFactor {
+    // no session issued yet — result.TwoFactorChallenge is the challenge id,
+    // result.BindingToken() is what the handler would set as a cookie —
+    // same shape as the Login gated response below
 } else {
     // result.SessionToken / result.RefreshToken are the raw values —
     // set them as cookies yourself, or hand them to your own token transport
