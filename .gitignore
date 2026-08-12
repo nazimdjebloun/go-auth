@@ -5,6 +5,7 @@
 *.so
 *.dylib
 /go-auth
+/cmd/goauth/goauth
 
 # Test binary
 *.test
@@ -28,3 +29,4 @@ Thumbs.db
 
 # Dependencies
 vendor/
+.empryo
