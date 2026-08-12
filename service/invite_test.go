@@ -90,8 +90,8 @@ func TestInviteRegisterExpired(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for expired invite, got nil")
 	}
-	if err.Code != "invite_expired" {
-		t.Fatalf("Expected invite_expired, got %s", err.Code)
+	if authErrCode(err) != "invite_expired" {
+		t.Fatalf("Expected invite_expired, got %s", authErrCode(err))
 	}
 }
 
@@ -126,8 +126,8 @@ func TestInviteRegisterPasswordMismatch(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for password mismatch, got nil")
 	}
-	if err.Code != "password_mismatch" {
-		t.Fatalf("Expected password_mismatch, got %s", err.Code)
+	if authErrCode(err) != "password_mismatch" {
+		t.Fatalf("Expected password_mismatch, got %s", authErrCode(err))
 	}
 }
 
@@ -148,8 +148,8 @@ func TestCreateInvite_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
-	if err.Code != "email_not_configured" {
-		t.Fatalf("Code = %q, want email_not_configured", err.Code)
+	if authErrCode(err) != "email_not_configured" {
+		t.Fatalf("Code = %q, want email_not_configured", authErrCode(err))
 	}
 	if got, _ := invites.GetByEmail(context.Background(), "invited@example.com"); got != nil {
 		t.Fatal("no invite row should be left behind when the mailer is nil")
@@ -183,7 +183,7 @@ func TestResendInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
-	if err.Code != "email_not_configured" {
-		t.Fatalf("Code = %q, want email_not_configured", err.Code)
+	if authErrCode(err) != "email_not_configured" {
+		t.Fatalf("Code = %q, want email_not_configured", authErrCode(err))
 	}
 }

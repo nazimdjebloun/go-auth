@@ -12,13 +12,13 @@ import (
 )
 
 type InviteService struct {
-	users      port.UserRepository
-	sessions   port.SessionRepository
-	invites    port.InviteRepository
-	hasher     port.Hasher
-	gen        port.TokenGenerator
-	mailer     port.Mailer
-	templates  port.TemplateProvider
+	users        port.UserRepository
+	sessions     port.SessionRepository
+	invites      port.InviteRepository
+	hasher       port.Hasher
+	gen          port.TokenGenerator
+	mailer       port.Mailer
+	templates    port.TemplateProvider
 	config       Config
 	sessionSvc   *SessionService
 	twoFactorSvc *TwoFactorService
@@ -41,22 +41,22 @@ func NewInviteService(
 		config.Logger = slog.Default()
 	}
 	return &InviteService{
-		users:      users,
-		sessions:   sessions,
-		invites:    invites,
-		hasher:     hasher,
-		gen:        gen,
-		mailer:     mailer,
-		templates:  resolveTemplates(config.TemplateProvider, config.URLValidator),
+		users:        users,
+		sessions:     sessions,
+		invites:      invites,
+		hasher:       hasher,
+		gen:          gen,
+		mailer:       mailer,
+		templates:    resolveTemplates(config.TemplateProvider, config.URLValidator),
 		config:       config,
 		sessionSvc:   sessionSvc,
 		twoFactorSvc: twoFactorSvc,
-		log:        config.Logger,
-		audit:      config.Audit,
+		log:          config.Logger,
+		audit:        config.Audit,
 	}
 }
 
-func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (*domain.Invite, *domain.AuthError) {
+func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (*domain.Invite, error) {
 	invite, err := s.invites.GetByCode(ctx, hashToken(rawToken))
 	if err != nil || invite == nil {
 		return nil, domain.ErrInviteNotFound
@@ -81,7 +81,7 @@ func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (
 	return invite, nil
 }
 
-func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInput) (*domain.Invite, *domain.AuthError) {
+func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInput) (*domain.Invite, error) {
 	if !s.config.EnableInvite {
 		return nil, domain.ErrMethodDisabled
 	}
@@ -138,7 +138,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	return invite, nil
 }
 
-func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, *domain.AuthError) {
+func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, error) {
 	if !s.config.EnableInvite {
 		return nil, domain.ErrMethodDisabled
 	}
@@ -243,7 +243,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}, nil
 }
 
-func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput) ([]domain.Invite, int, *domain.AuthError) {
+func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput) ([]domain.Invite, int, error) {
 	var search *string
 	if input.Search != "" {
 		search = &input.Search
@@ -266,7 +266,7 @@ func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput)
 	return invites, total, nil
 }
 
-func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID string) *domain.AuthError {
+func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID string) error {
 	if err := s.invites.Delete(ctx, inviteID); err != nil {
 		s.log.Error("failed to delete invite", "err", err, "invite_id", inviteID)
 		return domain.NewError("internal_error", "Internal server error", 500)
@@ -275,7 +275,7 @@ func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID string) *
 	return nil
 }
 
-func (s *InviteService) RevokeInvite(ctx context.Context, inviteID string) *domain.AuthError {
+func (s *InviteService) RevokeInvite(ctx context.Context, inviteID string) error {
 	invite, err := s.invites.GetByID(ctx, inviteID)
 	if err != nil || invite == nil {
 		return domain.ErrInviteNotFound
@@ -290,7 +290,7 @@ func (s *InviteService) RevokeInvite(ctx context.Context, inviteID string) *doma
 	return nil
 }
 
-func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) *domain.AuthError {
+func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) error {
 	invite, err := s.invites.GetByID(ctx, inviteID)
 	if err != nil || invite == nil {
 		return domain.ErrInviteNotFound

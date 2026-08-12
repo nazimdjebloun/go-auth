@@ -15,16 +15,16 @@ import (
 const setPasswordCodeTTL = 10 * time.Minute
 
 type PasswordService struct {
-	users      port.UserRepository
-	tokens     port.TokenRepository
-	hasher     port.Hasher
-	gen        port.TokenGenerator
-	mailer     port.Mailer
-	templates  port.TemplateProvider
-	sessions   port.SessionRepository
-	config     Config
-	log        *slog.Logger
-	audit      AuditPublisher
+	users     port.UserRepository
+	tokens    port.TokenRepository
+	hasher    port.Hasher
+	gen       port.TokenGenerator
+	mailer    port.Mailer
+	templates port.TemplateProvider
+	sessions  port.SessionRepository
+	config    Config
+	log       *slog.Logger
+	audit     AuditPublisher
 }
 
 func NewPasswordService(
@@ -54,7 +54,7 @@ func NewPasswordService(
 	}
 }
 
-func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswordInput) *domain.AuthError {
+func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswordInput) error {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
@@ -127,7 +127,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	return nil
 }
 
-func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPasswordInput) *domain.AuthError {
+func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPasswordInput) error {
 	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
 		return err
 	}
@@ -193,7 +193,7 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 	return nil
 }
 
-func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string) *domain.AuthError {
+func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -251,7 +251,7 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 	return nil
 }
 
-func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmSetPasswordInput) *domain.AuthError {
+func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmSetPasswordInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -301,7 +301,7 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 	return nil
 }
 
-func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswordInput) *domain.AuthError {
+func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswordInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound

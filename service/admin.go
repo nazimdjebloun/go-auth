@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"time"
@@ -46,7 +47,7 @@ func NewAdminService(
 	}
 }
 
-func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput) (*AdminListUsersResult, *domain.AuthError) {
+func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput) (*AdminListUsersResult, error) {
 	filter := port.UserFilter{
 		Email:          input.Email,
 		Role:           input.Role,
@@ -75,7 +76,7 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 	}, nil
 }
 
-func (s *AdminService) BanUser(ctx context.Context, userID string) *domain.AuthError {
+func (s *AdminService) BanUser(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -119,7 +120,7 @@ func (s *AdminService) BanUser(ctx context.Context, userID string) *domain.AuthE
 	return nil
 }
 
-func (s *AdminService) UnbanUser(ctx context.Context, userID string) *domain.AuthError {
+func (s *AdminService) UnbanUser(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -144,7 +145,7 @@ func (s *AdminService) UnbanUser(ctx context.Context, userID string) *domain.Aut
 	return nil
 }
 
-func (s *AdminService) UpdateUserRole(ctx context.Context, userID string, role string) *domain.AuthError {
+func (s *AdminService) UpdateUserRole(ctx context.Context, userID string, role string) error {
 	if role != "user" && role != "admin" {
 		return domain.NewError("invalid_role", "Role must be 'user' or 'admin'", 400)
 	}
@@ -185,7 +186,7 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, userID string, role s
 	return nil
 }
 
-func (s *AdminService) DeleteUser(ctx context.Context, userID string) *domain.AuthError {
+func (s *AdminService) DeleteUser(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -224,7 +225,7 @@ func (s *AdminService) DeleteUser(ctx context.Context, userID string) *domain.Au
 	return nil
 }
 
-func (s *AdminService) RevokeUserSessions(ctx context.Context, userID string) *domain.AuthError {
+func (s *AdminService) RevokeUserSessions(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -239,7 +240,7 @@ func (s *AdminService) RevokeUserSessions(ctx context.Context, userID string) *d
 	return nil
 }
 
-func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*domain.User, *domain.AuthError) {
+func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*domain.User, error) {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	if err := validateEmail(input.Email); err != nil {
 		return nil, err
@@ -277,7 +278,8 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
-		if authErr, ok := err.(*domain.AuthError); ok && authErr.Code == "email_already_exists" {
+		var authErr *domain.AuthError
+		if errors.As(err, &authErr) && authErr.Code == "email_already_exists" {
 			return nil, authErr
 		}
 		s.log.Error("failed to create user", "err", err, "email", input.Email)
@@ -293,7 +295,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	return user, nil
 }
 
-func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUserSessionsInput) ([]domain.Session, int, *domain.AuthError) {
+func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUserSessionsInput) ([]domain.Session, int, error) {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return nil, 0, domain.ErrUserNotFound
@@ -308,7 +310,7 @@ func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUser
 	return sessions, total, nil
 }
 
-func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID string) *domain.AuthError {
+func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -330,10 +332,10 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID 
 type AdminUserDetail struct {
 	User               domain.User              `json:"user"`
 	ActiveSessionCount int                      `json:"activeSessionCount"`
-	Providers          []domain.ProviderAccount  `json:"providers"`
+	Providers          []domain.ProviderAccount `json:"providers"`
 }
 
-func (s *AdminService) GetUserDetail(ctx context.Context, userID string) (*AdminUserDetail, *domain.AuthError) {
+func (s *AdminService) GetUserDetail(ctx context.Context, userID string) (*AdminUserDetail, error) {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return nil, domain.ErrUserNotFound

@@ -872,21 +872,21 @@ func (a *Auth) RotateCSRFToken(w http.ResponseWriter) {
 // audit event this produces — pass the caller's real values for a
 // programmatic (non-HTTP) integration; the built-in HTTP handler already
 // does this for you.
-func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {
+func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResult, error) {
 	return a.authService.Register(ctx, input)
 }
 
 // Login authenticates an email/password account. input.IP and
 // input.UserAgent, when set, are recorded on the resulting session and any
 // audit event this produces.
-func (a *Auth) Login(ctx context.Context, input LoginInput) (*LoginResult, *domain.AuthError) {
+func (a *Auth) Login(ctx context.Context, input LoginInput) (*LoginResult, error) {
 	return a.authService.Login(ctx, input)
 }
 
 // CompleteInviteRegistration finishes registration from an invite code.
 // input.IP and input.UserAgent, when set, are recorded the same way as
 // Register.
-func (a *Auth) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, *domain.AuthError) {
+func (a *Auth) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, error) {
 	return a.inviteService.CompleteInviteRegistration(ctx, input)
 }
 

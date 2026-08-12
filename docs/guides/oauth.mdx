@@ -46,7 +46,7 @@ The response is JSON, not a redirect — your frontend reads `url` and navigates
 ```go
 url, err := auth.Services.OAuth.InitiateLink(ctx, "github", userID)
 if err != nil {
-    // *domain.AuthError — provider_not_found if the name is wrong
+    // wraps a *domain.AuthError — provider_not_found if the name is wrong
 }
 // redirect the browser to url
 ```

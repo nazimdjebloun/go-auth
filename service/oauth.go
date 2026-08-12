@@ -105,7 +105,7 @@ func codeChallengeS256(verifier string) string {
 	return base64.RawURLEncoding.EncodeToString(h[:])
 }
 
-func (s *OAuthService) getProvider(name string) (port.OAuthProvider, *domain.AuthError) {
+func (s *OAuthService) getProvider(name string) (port.OAuthProvider, error) {
 	p, ok := s.providers[name]
 	if !ok {
 		return nil, domain.ErrProviderNotFound
@@ -115,7 +115,7 @@ func (s *OAuthService) getProvider(name string) (port.OAuthProvider, *domain.Aut
 
 // Initiate starts an OAuth login flow.
 // Returns the provider's authorize URL for frontend redirect.
-func (s *OAuthService) Initiate(ctx context.Context, providerName string) (string, *domain.AuthError) {
+func (s *OAuthService) Initiate(ctx context.Context, providerName string) (string, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
 		return "", err
@@ -149,7 +149,7 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (strin
 
 // InitiateLink starts an OAuth link flow for an authenticated user.
 // Stores the userID in the state token to distinguish from login flow.
-func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID string) (string, *domain.AuthError) {
+func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID string) (string, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
 		return "", err
@@ -183,7 +183,7 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 }
 
 // Callback handles the OAuth callback for both login and link flows.
-func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, ip, userAgent string) (string, string, bool, bool, string, *domain.AuthError) {
+func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, ip, userAgent string) (string, string, bool, bool, string, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
 		return "", "", false, false, "", err
@@ -348,12 +348,12 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 }
 
 // Link connects a provider to an existing user.
-func (s *OAuthService) Link(ctx context.Context, userID, providerName, code, rawState string) *domain.AuthError {
+func (s *OAuthService) Link(ctx context.Context, userID, providerName, code, rawState string) error {
 	_, _, _, _, _, err := s.Callback(ctx, providerName, code, rawState, "", "")
 	return err
 }
 
-func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) *domain.AuthError {
+func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) error {
 	accounts, err := s.providerRepo.ListByUserID(ctx, userID)
 	if err != nil {
 		s.log.Error("failed to list provider accounts", "err", err, "user_id", userID)
@@ -384,7 +384,7 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 	return nil
 }
 
-func (s *OAuthService) ListConnected(ctx context.Context, userID string) ([]domain.ProviderAccount, *domain.AuthError) {
+func (s *OAuthService) ListConnected(ctx context.Context, userID string) ([]domain.ProviderAccount, error) {
 	accounts, err := s.providerRepo.ListByUserID(ctx, userID)
 	if err != nil {
 		s.log.Error("failed to list provider accounts", "err", err, "user_id", userID)
@@ -393,7 +393,7 @@ func (s *OAuthService) ListConnected(ctx context.Context, userID string) ([]doma
 	return accounts, nil
 }
 
-func (s *OAuthService) createProviderAccount(ctx context.Context, userID string, info *port.OAuthProfile) (*domain.ProviderAccount, *domain.AuthError) {
+func (s *OAuthService) createProviderAccount(ctx context.Context, userID string, info *port.OAuthProfile) (*domain.ProviderAccount, error) {
 	accessToken := info.AccessToken
 	refreshToken := info.RefreshToken
 	if s.encryptor != nil {

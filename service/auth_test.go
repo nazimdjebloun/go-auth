@@ -68,8 +68,8 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for duplicate email, got nil")
 	}
-	if err.Code != "email_already_exists" {
-		t.Fatalf("Expected email_already_exists, got %s", err.Code)
+	if authErrCode(err) != "email_already_exists" {
+		t.Fatalf("Expected email_already_exists, got %s", authErrCode(err))
 	}
 }
 
@@ -373,8 +373,8 @@ func TestDeleteAccount_PasswordRequired(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for OAuth-only user, got nil")
 	}
-	if err.Code != "password_required" {
-		t.Fatalf("Expected password_required, got %s", err.Code)
+	if authErrCode(err) != "password_required" {
+		t.Fatalf("Expected password_required, got %s", authErrCode(err))
 	}
 }
 
@@ -439,8 +439,8 @@ func TestRequestDeleteAccount_PasswordUser(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for password user, got nil")
 	}
-	if err.Code != "password_account" {
-		t.Fatalf("Expected password_account, got %s", err.Code)
+	if authErrCode(err) != "password_account" {
+		t.Fatalf("Expected password_account, got %s", authErrCode(err))
 	}
 }
 
@@ -459,8 +459,8 @@ func TestRequestDeleteAccount_NonexistentUser(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for nonexistent user, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("Expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("Expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -534,8 +534,8 @@ func TestConfirmDeleteAccount_InvalidCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for invalid code, got nil")
 	}
-	if err.Code != "delete_code_invalid" {
-		t.Fatalf("Expected delete_code_invalid, got %s", err.Code)
+	if authErrCode(err) != "delete_code_invalid" {
+		t.Fatalf("Expected delete_code_invalid, got %s", authErrCode(err))
 	}
 }
 
@@ -578,8 +578,8 @@ func TestConfirmDeleteAccount_ExpiredCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for expired code, got nil")
 	}
-	if err.Code != "delete_code_expired" {
-		t.Fatalf("Expected delete_code_expired, got %s", err.Code)
+	if authErrCode(err) != "delete_code_expired" {
+		t.Fatalf("Expected delete_code_expired, got %s", authErrCode(err))
 	}
 }
 
@@ -641,8 +641,8 @@ func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
 	if err2 == nil {
 		t.Fatal("Expected error for reused code, got nil")
 	}
-	if err2.Code != "delete_code_already_used" {
-		t.Fatalf("Expected delete_code_already_used, got %s", err2.Code)
+	if authErrCode(err2) != "delete_code_already_used" {
+		t.Fatalf("Expected delete_code_already_used, got %s", authErrCode(err2))
 	}
 }
 
@@ -758,8 +758,8 @@ func TestAdminLogin_NonAdmin_GenericError(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for non-admin user, got nil")
 	}
-	if err.Code != "invalid_credentials" {
-		t.Fatalf("Expected invalid_credentials, got %s", err.Code)
+	if authErrCode(err) != "invalid_credentials" {
+		t.Fatalf("Expected invalid_credentials, got %s", authErrCode(err))
 	}
 	if result != nil {
 		t.Fatal("Expected nil result for non-admin user")
@@ -777,8 +777,8 @@ func TestAdminLogin_WrongPassword(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for wrong password, got nil")
 	}
-	if err.Code != "invalid_credentials" {
-		t.Fatalf("Expected invalid_credentials, got %s", err.Code)
+	if authErrCode(err) != "invalid_credentials" {
+		t.Fatalf("Expected invalid_credentials, got %s", authErrCode(err))
 	}
 }
 
@@ -793,8 +793,8 @@ func TestAdminLogin_BannedAdmin(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for banned admin, got nil")
 	}
-	if err.Code != "user_banned" {
-		t.Fatalf("Expected user_banned, got %s", err.Code)
+	if authErrCode(err) != "user_banned" {
+		t.Fatalf("Expected user_banned, got %s", authErrCode(err))
 	}
 }
 
@@ -808,8 +808,8 @@ func TestAdminLogin_NonexistentUser(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for nonexistent user, got nil")
 	}
-	if err.Code != "invalid_credentials" {
-		t.Fatalf("Expected invalid_credentials, got %s", err.Code)
+	if authErrCode(err) != "invalid_credentials" {
+		t.Fatalf("Expected invalid_credentials, got %s", authErrCode(err))
 	}
 }
 

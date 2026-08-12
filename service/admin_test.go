@@ -100,8 +100,8 @@ func TestAdminBanUser_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -117,8 +117,8 @@ func TestAdminBanUser_AlreadyBanned(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "already_banned" {
-		t.Fatalf("expected already_banned, got %s", err.Code)
+	if authErrCode(err) != "already_banned" {
+		t.Fatalf("expected already_banned, got %s", authErrCode(err))
 	}
 }
 
@@ -178,8 +178,8 @@ func TestAdminUnbanUser_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -195,8 +195,8 @@ func TestAdminUnbanUser_NotBanned(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "not_banned" {
-		t.Fatalf("expected not_banned, got %s", err.Code)
+	if authErrCode(err) != "not_banned" {
+		t.Fatalf("expected not_banned, got %s", authErrCode(err))
 	}
 }
 
@@ -230,8 +230,8 @@ func TestAdminUpdateUserRole_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -247,8 +247,8 @@ func TestAdminUpdateUserRole_InvalidRole(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "invalid_role" {
-		t.Fatalf("expected invalid_role, got %s", err.Code)
+	if authErrCode(err) != "invalid_role" {
+		t.Fatalf("expected invalid_role, got %s", authErrCode(err))
 	}
 }
 
@@ -293,8 +293,8 @@ func TestAdminDeleteUser_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -366,8 +366,8 @@ func TestAdminCreateUser_DuplicateEmail(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "email_already_exists" {
-		t.Fatalf("expected email_already_exists, got %s", err.Code)
+	if authErrCode(err) != "email_already_exists" {
+		t.Fatalf("expected email_already_exists, got %s", authErrCode(err))
 	}
 }
 
@@ -399,8 +399,8 @@ func TestAdminCreateUser_EmptyName(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "name_required" {
-		t.Fatalf("expected name_required, got %s", err.Code)
+	if authErrCode(err) != "name_required" {
+		t.Fatalf("expected name_required, got %s", authErrCode(err))
 	}
 }
 
@@ -472,8 +472,8 @@ func TestAdminListUserSessions_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -559,8 +559,8 @@ func TestAdminRevokeUserSession_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "session_not_found" {
-		t.Fatalf("expected session_not_found, got %s", err.Code)
+	if authErrCode(err) != "session_not_found" {
+		t.Fatalf("expected session_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -573,8 +573,8 @@ func TestAdminRevokeUserSession_UserNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -611,7 +611,7 @@ func TestAdminRevokeUserSessions_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }

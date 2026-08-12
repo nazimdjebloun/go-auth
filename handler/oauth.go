@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -11,10 +12,10 @@ import (
 )
 
 type OAuthHandlers struct {
-	oauth         *service.OAuthService
-	session       *service.SessionService
-	baseURL       string
-	csrfTokenCfg  *middleware.CSRFTokenConfig
+	oauth        *service.OAuthService
+	session      *service.SessionService
+	baseURL      string
+	csrfTokenCfg *middleware.CSRFTokenConfig
 }
 
 func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig) *OAuthHandlers {
@@ -83,7 +84,12 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 
 	sessionToken, refreshToken, _, requiresVerification, _, err := h.oauth.Callback(r.Context(), provider, code, state, extractIP(r.RemoteAddr), r.UserAgent())
 	if err != nil {
-		http.Redirect(w, r, h.baseURL+"/auth/callback?error="+url.QueryEscape(err.Code)+"&provider="+url.QueryEscape(provider), http.StatusFound)
+		errCode := "internal_error"
+		var authErr *domain.AuthError
+		if errors.As(err, &authErr) {
+			errCode = authErr.Code
+		}
+		http.Redirect(w, r, h.baseURL+"/auth/callback?error="+url.QueryEscape(errCode)+"&provider="+url.QueryEscape(provider), http.StatusFound)
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"testing"
 	"time"
 
@@ -16,6 +17,18 @@ import (
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// authErrCode extracts the Code of a *domain.AuthError for test assertions.
+// Service methods return error, not *domain.AuthError directly, so tests
+// that used to read err.Code need errors.As to get there.
+func authErrCode(err error) string {
+	var ae *domain.AuthError
+	errors.As(err, &ae)
+	if ae == nil {
+		return ""
+	}
+	return ae.Code
 }
 
 func newVerificationConfig() service.Config {
@@ -102,8 +115,8 @@ func TestSendVerification_NilMailer(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "email_not_configured" {
-		t.Fatalf("expected email_not_configured, got %s", err.Code)
+	if authErrCode(err) != "email_not_configured" {
+		t.Fatalf("expected email_not_configured, got %s", authErrCode(err))
 	}
 }
 
@@ -125,8 +138,8 @@ func TestSendVerification_MailerError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "email_failed" {
-		t.Fatalf("expected email_failed, got %s", err.Code)
+	if authErrCode(err) != "email_failed" {
+		t.Fatalf("expected email_failed, got %s", authErrCode(err))
 	}
 }
 
@@ -342,8 +355,8 @@ func TestVerifyEmail_InvalidCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "code_invalid" {
-		t.Fatalf("expected code_invalid, got %s", err.Code)
+	if authErrCode(err) != "code_invalid" {
+		t.Fatalf("expected code_invalid, got %s", authErrCode(err))
 	}
 }
 
@@ -375,8 +388,8 @@ func TestVerifyEmail_AlreadyUsed(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "code_already_used" && err.Code != "code_expired" {
-		t.Fatalf("expected code_already_used or code_expired, got %s", err.Code)
+	if authErrCode(err) != "code_already_used" && authErrCode(err) != "code_expired" {
+		t.Fatalf("expected code_already_used or code_expired, got %s", authErrCode(err))
 	}
 }
 
@@ -406,8 +419,8 @@ func TestVerifyEmail_Expired(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "code_expired" {
-		t.Fatalf("expected code_expired, got %s", err.Code)
+	if authErrCode(err) != "code_expired" {
+		t.Fatalf("expected code_expired, got %s", authErrCode(err))
 	}
 }
 
@@ -451,8 +464,8 @@ func TestResendVerification_UserNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -470,7 +483,7 @@ func TestResendVerification_AlreadyVerified(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "already_verified" {
-		t.Fatalf("expected already_verified, got %s", err.Code)
+	if authErrCode(err) != "already_verified" {
+		t.Fatalf("expected already_verified, got %s", authErrCode(err))
 	}
 }

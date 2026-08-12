@@ -505,7 +505,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 	ctx := context.Background()
 
 	// Register with an admin email so Login skips the email-verified check.
-	var aerr *domain.AuthError
+	var aerr error
 	if _, aerr = a.Register(ctx, goauth.RegisterInput{
 		Email:    "admin@test.com",
 		Password: "V@lidPswd1",

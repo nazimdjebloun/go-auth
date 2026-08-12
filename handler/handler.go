@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net"
 	"net/http"
@@ -487,12 +488,7 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		middleware.ClearSessionCookie(w, h.services.Session.Config())
 		middleware.ClearRefreshCookie(w, h.services.Session.Config())
-		if authErr, ok := err.(*domain.AuthError); ok {
-			writeError(w, authErr)
-		} else {
-			h.log.Error("refresh token error", "err", err)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
-		}
+		writeError(w, err)
 		return
 	}
 
@@ -1214,14 +1210,29 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	}
 }
 
-func writeError(w http.ResponseWriter, err *domain.AuthError) {
-	status := err.HTTPStatus
-	if status == 0 {
-		status = http.StatusInternalServerError
+// writeError writes err as the HTTP response. When err is (or wraps) a
+// *domain.AuthError, its Code/Message/HTTPStatus drive the response —
+// every service method's error return is expected to be one. Anything
+// else reaching here is a bug in the service layer's error contract, not
+// a normal failure mode: it's logged and answered as a generic 500 rather
+// than leaking an unexpected error's text to the client.
+func writeError(w http.ResponseWriter, err error) {
+	var authErr *domain.AuthError
+	if errors.As(err, &authErr) {
+		status := authErr.HTTPStatus
+		if status == 0 {
+			status = http.StatusInternalServerError
+		}
+		writeJSON(w, status, map[string]string{
+			"error":   authErr.Code,
+			"message": authErr.Message,
+		})
+		return
 	}
-	writeJSON(w, status, map[string]string{
-		"error":   err.Code,
-		"message": err.Message,
+	slog.Error("writeError: non-AuthError reached the HTTP layer", "err", err)
+	writeJSON(w, http.StatusInternalServerError, map[string]string{
+		"error":   "internal_error",
+		"message": "Internal server error",
 	})
 }
 

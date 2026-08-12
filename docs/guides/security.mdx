@@ -424,7 +424,7 @@ curl -X POST https://api.myapp.com/auth/verify-email/resend \
 #### Programmatic (Go)
 
 ```go
-auth.Services.Verify.SendVerificationByEmail(ctx, "ada@example.com") // *domain.AuthError, deliberately not surfaced to the caller by the handler
+auth.Services.Verify.SendVerificationByEmail(ctx, "ada@example.com") // error wraps a *domain.AuthError, deliberately not surfaced to the caller by the handler
 ```
 
 ---

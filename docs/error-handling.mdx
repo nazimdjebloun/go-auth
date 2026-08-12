@@ -19,6 +19,30 @@ Most endpoints return errors as JSON with the same shape:
 
 This page covers **runtime** errors returned by the mounted HTTP handlers. Configuration-time errors — the ones `NewConfig` returns before your server ever starts — are documented on the [Configuration](configuration.mdx) page instead.
 
+## Handling errors programmatically
+
+Calling the library directly — `auth.Register(...)`, `auth.Services.Auth.Login(...)`, `auth.Services.Admin.BanUser(...)`, and so on — skips the JSON envelope above entirely: you get back a plain Go `error`. Every error the library returns is a `*domain.AuthError` under the hood (the same `Code`/`Message`/HTTP-status triple the JSON envelope serializes), so the two idiomatic `errors` package patterns both work as expected:
+
+```go
+result, err := auth.Services.Auth.Login(ctx, service.LoginInput{Email: email, Password: password})
+if err != nil {
+    if errors.Is(err, domain.ErrInvalidCredentials) {
+        // matches by sentinel identity — works for every fixed, code-carrying
+        // error the library exports (domain.ErrX), since none of them are
+        // ever wrapped
+    }
+
+    var authErr *domain.AuthError
+    if errors.As(err, &authErr) {
+        // authErr.Code, authErr.Message, authErr.HTTPStatus — the same
+        // triple you'd get from the JSON envelope's "error"/"message"
+        // fields plus the response status
+    }
+}
+```
+
+Reach for `errors.Is` when you only care about one specific outcome (`domain.ErrInvalidCredentials`, `domain.ErrUserNotFound`, ...) and `errors.As` when you want the code/message/status generically — the same way the HTTP handlers themselves turn an `error` into a response (see `writeError` in the `handler` package, `errors.As` with a 500 `internal_error` fallback for anything that isn't a `*domain.AuthError`). A bare `err.(*domain.AuthError)` type assertion still works too, but `errors.As` is preferred: it also matches an `*AuthError` reached through a wrapped error, which a direct assertion would miss.
+
 ## Not every layer uses this shape
 
 Two places in the library don't go through the JSON envelope above:

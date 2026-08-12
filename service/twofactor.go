@@ -117,7 +117,7 @@ func (s *TwoFactorService) Enforce(u *domain.User) bool {
 // /auth/2fa/verify's own rate limit binds first, so single-IP throughput is
 // 5 guesses/min either way, and the refusal only added an account-level denial
 // vector. Do not reintroduce it.
-func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*ChallengeResult, *domain.AuthError) {
+func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*ChallengeResult, error) {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return nil, domain.ErrUserNotFound
@@ -151,7 +151,7 @@ func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*Chall
 }
 
 // issue mints a fresh challenge row and mails the code.
-func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*ChallengeResult, *domain.AuthError) {
+func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*ChallengeResult, error) {
 	if s.mailer == nil {
 		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
@@ -208,7 +208,7 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 	}, nil
 }
 
-func (s *TwoFactorService) send(ctx context.Context, user *domain.User, code string) *domain.AuthError {
+func (s *TwoFactorService) send(ctx context.Context, user *domain.User, code string) error {
 	if s.mailer == nil {
 		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
@@ -269,7 +269,7 @@ func (s *TwoFactorService) checkBinding(challengeID, supplied string) bool {
 // branch would let a concurrent burst all observe the same pre-increment count
 // and all pass the check before any write landed. One consequence is that a
 // correct code arriving on an already-capped lineage is rejected too.
-func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken, code, ip, userAgent string) (*domain.User, *domain.Session, string, string, *domain.AuthError) {
+func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken, code, ip, userAgent string) (*domain.User, *domain.Session, string, string, error) {
 	if !s.checkBinding(challengeID, bindingToken) {
 		return nil, nil, "", "", domain.ErrTwoFactorCodeInvalid
 	}
@@ -390,7 +390,7 @@ func (s *TwoFactorService) notifySuspicious(ctx context.Context, email string, c
 // is reached the same guard that blocks Verify also blocks further resends.
 // The separate resend ceiling bounds how many times one lineage's code can be
 // refreshed, which also stops this being an email-bombing amplifier.
-func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken string) (*ChallengeResult, *domain.AuthError) {
+func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken string) (*ChallengeResult, error) {
 	vague := domain.NewError("challenge_not_found", "If the challenge is valid, a new code has been sent", 200)
 
 	if !s.checkBinding(challengeID, bindingToken) {
@@ -458,7 +458,7 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 // JSON bool decodes to false, so "revokeOtherSessions" documented as defaulting
 // to true would in fact default to false and silently skip revocation for every
 // client that didn't send it. Same reasoning as SecurityConfig.DisableCSRFToken.
-func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, keepOtherSessions bool, callerSessionID string) *domain.AuthError {
+func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, keepOtherSessions bool, callerSessionID string) error {
 	user, aerr := s.authorizeChange(ctx, userID, password)
 	if aerr != nil {
 		return aerr
@@ -491,7 +491,7 @@ func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, 
 
 // Disable turns off per-user 2FA. No session revocation: turning 2FA off is not
 // the "someone may be in my account" signal that turning it on is.
-func (s *TwoFactorService) Disable(ctx context.Context, userID, password string) *domain.AuthError {
+func (s *TwoFactorService) Disable(ctx context.Context, userID, password string) error {
 	user, aerr := s.authorizeChange(ctx, userID, password)
 	if aerr != nil {
 		return aerr
@@ -515,7 +515,7 @@ func (s *TwoFactorService) Disable(ctx context.Context, userID, password string)
 // toggled at all, and either direction needs the password re-checked. The
 // password check is what stops an OAuth-authenticated session — which never
 // passed a second factor — from switching 2FA off.
-func (s *TwoFactorService) authorizeChange(ctx context.Context, userID, password string) (*domain.User, *domain.AuthError) {
+func (s *TwoFactorService) authorizeChange(ctx context.Context, userID, password string) (*domain.User, error) {
 	if s.config.RequireEmail2FA {
 		return nil, domain.ErrTwoFactorAlreadyEnforced
 	}

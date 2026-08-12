@@ -73,7 +73,7 @@ No `Origin` header needed — this is a `GET` with no state-changing effect, so 
 ```go
 url, err := auth.Services.OAuth.Initiate(ctx, "github")
 if err != nil {
-    // *domain.AuthError — provider_not_found if the name is wrong
+    // wraps a *domain.AuthError — provider_not_found if the name is wrong
 }
 // redirect the browser to url
 ```

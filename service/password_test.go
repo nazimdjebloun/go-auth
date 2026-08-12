@@ -113,8 +113,8 @@ func TestForgotPassword_NilMailer(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
-	if err.Code != "email_not_configured" {
-		t.Fatalf("Code = %q, want email_not_configured", err.Code)
+	if authErrCode(err) != "email_not_configured" {
+		t.Fatalf("Code = %q, want email_not_configured", authErrCode(err))
 	}
 }
 
@@ -154,8 +154,8 @@ func TestRequestSetPassword_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
-	if err.Code != "email_not_configured" {
-		t.Fatalf("Code = %q, want email_not_configured", err.Code)
+	if authErrCode(err) != "email_not_configured" {
+		t.Fatalf("Code = %q, want email_not_configured", authErrCode(err))
 	}
 }
 
@@ -211,8 +211,8 @@ func TestResetPassword_InvalidCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "reset_token_invalid" {
-		t.Fatalf("expected reset_token_invalid, got %s", err.Code)
+	if authErrCode(err) != "reset_token_invalid" {
+		t.Fatalf("expected reset_token_invalid, got %s", authErrCode(err))
 	}
 }
 
@@ -248,8 +248,8 @@ func TestResetPassword_ExpiredCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "reset_token_expired" {
-		t.Fatalf("expected reset_token_expired, got %s", err.Code)
+	if authErrCode(err) != "reset_token_expired" {
+		t.Fatalf("expected reset_token_expired, got %s", authErrCode(err))
 	}
 }
 
@@ -290,8 +290,8 @@ func TestResetPassword_AlreadyUsedCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for reused code")
 	}
-	if err.Code != "reset_token_already_used" {
-		t.Fatalf("expected reset_token_already_used, got %s", err.Code)
+	if authErrCode(err) != "reset_token_already_used" {
+		t.Fatalf("expected reset_token_already_used, got %s", authErrCode(err))
 	}
 }
 
@@ -376,8 +376,8 @@ func TestChangePassword_WrongOldPassword(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "wrong_password" {
-		t.Fatalf("expected wrong_password, got %s", err.Code)
+	if authErrCode(err) != "wrong_password" {
+		t.Fatalf("expected wrong_password, got %s", authErrCode(err))
 	}
 }
 
@@ -404,8 +404,8 @@ func TestChangePassword_NoPasswordSet(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "no_password" {
-		t.Fatalf("expected no_password, got %s", err.Code)
+	if authErrCode(err) != "no_password" {
+		t.Fatalf("expected no_password, got %s", authErrCode(err))
 	}
 }
 
@@ -451,8 +451,8 @@ func TestChangePassword_NonexistentUser(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -583,8 +583,8 @@ func TestRequestSetPassword_AlreadyHasPassword(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "already_set" {
-		t.Fatalf("expected already_set, got %s", err.Code)
+	if authErrCode(err) != "already_set" {
+		t.Fatalf("expected already_set, got %s", authErrCode(err))
 	}
 }
 
@@ -599,8 +599,8 @@ func TestRequestSetPassword_UserNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "user_not_found" {
-		t.Fatalf("expected user_not_found, got %s", err.Code)
+	if authErrCode(err) != "user_not_found" {
+		t.Fatalf("expected user_not_found, got %s", authErrCode(err))
 	}
 }
 
@@ -666,8 +666,8 @@ func TestConfirmSetPassword_InvalidCode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "invalid_code" {
-		t.Fatalf("expected invalid_code, got %s", err.Code)
+	if authErrCode(err) != "invalid_code" {
+		t.Fatalf("expected invalid_code, got %s", authErrCode(err))
 	}
 }
 
@@ -696,8 +696,8 @@ func TestConfirmSetPassword_AlreadyHasPassword(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if err.Code != "already_set" {
-		t.Fatalf("expected already_set, got %s", err.Code)
+	if authErrCode(err) != "already_set" {
+		t.Fatalf("expected already_set, got %s", authErrCode(err))
 	}
 }
 
@@ -851,8 +851,8 @@ func TestPasswordPolicyErrorMessages(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Code != "weak_password" {
-		t.Fatalf("expected weak_password code, got %s", err.Code)
+	if authErrCode(err) != "weak_password" {
+		t.Fatalf("expected weak_password code, got %s", authErrCode(err))
 	}
 	if err.Message != "Password must be at least 8 characters" {
 		t.Fatalf("unexpected message: %s", err.Message)

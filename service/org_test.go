@@ -35,12 +35,12 @@ func newTestOrgInviteService() (*OrgService, *OrgInviteService) {
 		Logger:         nil,
 	})
 	inviteSvc := NewOrgInviteService(invites, orgs, users, tx, gen, &testutil.MockMailer{}, OrgInviteServiceConfig{
-		MaxOrgsPerUser:  3,
-		InviteTTL:       7 * 24 * time.Hour,
-		BaseURL:         "http://localhost:3000",
-		AppName:         "TestApp",
-		URLValidator:    &port.URLValidator{AllowHTTP: true},
-		Logger:          nil,
+		MaxOrgsPerUser: 3,
+		InviteTTL:      7 * 24 * time.Hour,
+		BaseURL:        "http://localhost:3000",
+		AppName:        "TestApp",
+		URLValidator:   &port.URLValidator{AllowHTTP: true},
+		Logger:         nil,
 	})
 	return orgSvc, inviteSvc
 }
@@ -581,7 +581,7 @@ func TestCreateOrgInvite_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
-	if ae, ok := err.(*domain.AuthError); !ok || ae.Code != "email_not_configured" {
+	if ae, ok := err.(*domain.AuthError); !ok || authErrCode(ae) != "email_not_configured" {
 		t.Fatalf("err = %v, want email_not_configured", err)
 	}
 }
@@ -610,7 +610,7 @@ func TestResendOrgInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
-	if ae, ok := err.(*domain.AuthError); !ok || ae.Code != "email_not_configured" {
+	if ae, ok := err.(*domain.AuthError); !ok || authErrCode(ae) != "email_not_configured" {
 		t.Fatalf("err = %v, want email_not_configured", err)
 	}
 }
@@ -638,8 +638,8 @@ func TestDeleteOrgInvite_NotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nonexistent invite")
 	}
-	if ae, ok := err.(*domain.AuthError); ok && ae.Code != "invite_not_found" {
-		t.Errorf("expected invite_not_found, got %s", ae.Code)
+	if ae, ok := err.(*domain.AuthError); ok && authErrCode(ae) != "invite_not_found" {
+		t.Errorf("expected invite_not_found, got %s", authErrCode(ae))
 	}
 }
 
@@ -663,8 +663,6 @@ func TestListOrgInvites(t *testing.T) {
 		t.Errorf("expected 2 invites, got %d", len(invites))
 	}
 }
-
-
 
 func TestUpdateMemberRole_SameRole(t *testing.T) {
 	svc := newTestOrgService()

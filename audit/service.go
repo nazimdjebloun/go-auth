@@ -14,7 +14,7 @@ import (
 type AuditFailureMode int
 
 const (
-	AuditFailureOpen  AuditFailureMode = iota
+	AuditFailureOpen AuditFailureMode = iota
 	AuditFailureClosed
 )
 
@@ -178,6 +178,25 @@ func (s *AuditService) worker(ctx context.Context, id int) {
 			}
 			timer.Reset(s.flushInterval)
 		case <-ctx.Done():
+			// Stop() cancels ctx and closes the queue at roughly the same
+			// time, so this case and the queue-read case above can both be
+			// ready together: an event already sitting in the queue's
+			// buffer hasn't necessarily been read into batch yet. Drain
+			// whatever's left, non-blocking, before flushing — otherwise a
+			// published-then-immediately-stopped event is silently lost
+			// depending on which ready case the scheduler happens to pick.
+		drain:
+			for {
+				select {
+				case event, ok := <-s.queue:
+					if !ok {
+						break drain
+					}
+					batch = append(batch, event)
+				default:
+					break drain
+				}
+			}
 			if len(batch) > 0 {
 				s.flushBatch(ctx, batch)
 			}

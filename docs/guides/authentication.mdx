@@ -162,7 +162,10 @@ result, err := auth.Services.Auth.Register(ctx, service.RegisterInput{
     UserAgent: r.UserAgent(), // optional — same
 })
 if err != nil {
-    // err is *domain.AuthError — err.Code, err.Message, err.Status
+    // err is always a *domain.AuthError under the hood — extract it with
+    // errors.As(err, &authErr) for authErr.Code/.Message/.HTTPStatus, or
+    // match a specific one with errors.Is(err, domain.ErrEmailAlreadyExists)
+    // — see Error Handling → Handling errors programmatically.
 }
 
 if result.RequiresVerification {
@@ -243,7 +246,7 @@ The service call only verifies the user — it doesn't create a session by itsel
 ```go
 user, err := auth.Services.Verify.VerifyEmail(ctx, code)
 if err != nil {
-    // *domain.AuthError
+    // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
 }
 
 session, rawToken, refreshToken, err := auth.Services.Session.Create(ctx, user.ID, r.RemoteAddr, r.UserAgent())
@@ -421,7 +424,7 @@ result, err := auth.Services.Auth.Login(ctx, service.LoginInput{
     UserAgent: r.UserAgent(),
 })
 if err != nil {
-    // *domain.AuthError
+    // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
 }
 if result.RequiresVerification {
     // no session issued
@@ -501,7 +504,7 @@ user, session, rawToken, refreshToken, err := auth.Services.TwoFactor.Verify(
     ctx, challengeID, bindingToken, code, r.RemoteAddr, r.UserAgent(),
 )
 if err != nil {
-    // *domain.AuthError
+    // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
 }
 // rawToken / refreshToken are the raw values — set them as cookies yourself
 ```

@@ -19,16 +19,16 @@ import (
 const deleteAccountCodeTTL = 10 * time.Minute
 
 type AuthService struct {
-	users      port.UserRepository
-	sessions   port.SessionRepository
-	tokens     port.TokenRepository
-	hasher     port.Hasher
-	gen        port.TokenGenerator
-	mailer     port.Mailer
-	templates  port.TemplateProvider
-	config     Config
-	log        *slog.Logger
-	audit      AuditPublisher
+	users     port.UserRepository
+	sessions  port.SessionRepository
+	tokens    port.TokenRepository
+	hasher    port.Hasher
+	gen       port.TokenGenerator
+	mailer    port.Mailer
+	templates port.TemplateProvider
+	config    Config
+	log       *slog.Logger
+	audit     AuditPublisher
 
 	sessionSvc   *SessionService
 	verifySvc    *VerificationService
@@ -100,16 +100,16 @@ func NewAuthService(
 		config.Logger = slog.Default()
 	}
 	return &AuthService{
-		users:      users,
-		sessions:   sessions,
-		tokens:     tokens,
-		hasher:     hasher,
-		gen:        gen,
-		mailer:     mailer,
-		templates:  resolveTemplates(config.TemplateProvider, config.URLValidator),
-		config:     config,
-		log:        config.Logger,
-		audit:      config.Audit,
+		users:        users,
+		sessions:     sessions,
+		tokens:       tokens,
+		hasher:       hasher,
+		gen:          gen,
+		mailer:       mailer,
+		templates:    resolveTemplates(config.TemplateProvider, config.URLValidator),
+		config:       config,
+		log:          config.Logger,
+		audit:        config.Audit,
 		sessionSvc:   sessionSvc,
 		verifySvc:    verifySvc,
 		twoFactorSvc: twoFactorSvc,
@@ -123,7 +123,7 @@ func (s *AuthService) enforceTwoFactor(user *domain.User) bool {
 	return s.twoFactorSvc != nil && s.twoFactorSvc.Enforce(user)
 }
 
-func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {
+func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*RegisterResult, error) {
 	if !s.config.EnableEmailPassword {
 		return nil, domain.ErrMethodDisabled
 	}
@@ -226,7 +226,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 // authenticate resolves and validates email/password credentials.
 // On success it returns the authenticated user. requiresVerification is true
 // when the user must verify their email before a session can be issued.
-func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*domain.User, bool, *domain.AuthError) {
+func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*domain.User, bool, error) {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
@@ -254,7 +254,7 @@ func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*doma
 	return user, false, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, *domain.AuthError) {
+func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, error) {
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
 		return nil, aerr
@@ -309,7 +309,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 // AdminLogin authenticates a user and requires the admin role.
 // Non-admin users are rejected with generic invalid_credentials so the
 // endpoint never reveals whether an account is an admin.
-func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginResult, *domain.AuthError) {
+func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginResult, error) {
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
 		if s.audit != nil {
@@ -379,7 +379,7 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 	}, nil
 }
 
-func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*domain.User, *domain.Session, *domain.AuthError) {
+func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*domain.User, *domain.Session, error) {
 	session, err := s.sessionSvc.Validate(ctx, tokenRaw)
 	if err != nil {
 		return nil, nil, domain.ErrSessionExpired
@@ -396,7 +396,7 @@ func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*do
 	return user, session, nil
 }
 
-func (s *AuthService) Logout(ctx context.Context, sessionID string) *domain.AuthError {
+func (s *AuthService) Logout(ctx context.Context, sessionID string) error {
 	if err := s.sessionSvc.RevokeByID(ctx, sessionID); err != nil {
 		s.log.Error("failed to revoke session", "err", err, "session_id", sessionID)
 		return domain.NewError("internal_error", "Internal server error", 500)
@@ -407,7 +407,7 @@ func (s *AuthService) Logout(ctx context.Context, sessionID string) *domain.Auth
 	return nil
 }
 
-func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) *domain.AuthError {
+func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -425,7 +425,7 @@ func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) *d
 	return nil
 }
 
-func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password string) *domain.AuthError {
+func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -452,7 +452,7 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 	return nil
 }
 
-func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) *domain.AuthError {
+func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -510,7 +510,7 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) *
 	return nil
 }
 
-func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDeleteAccountInput) *domain.AuthError {
+func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDeleteAccountInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -556,7 +556,7 @@ func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDel
 	return nil
 }
 
-func validateEmail(email string) *domain.AuthError {
+func validateEmail(email string) error {
 	_, err := mail.ParseAddress(email)
 	if err != nil {
 		return domain.ErrInvalidEmail

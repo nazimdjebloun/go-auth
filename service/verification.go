@@ -45,7 +45,7 @@ func NewVerificationService(
 	}
 }
 
-func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*domain.User, *domain.AuthError) {
+func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*domain.User, error) {
 	token, err := s.tokens.GetByHash(ctx, hashToken(code))
 	if err != nil || token == nil {
 		return nil, domain.NewError("code_invalid", "Invalid verification code", 400)
@@ -105,7 +105,7 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 // SendVerification mails a verification code, skipping the send when one is
 // already outstanding. The returned VerificationResult says which happened;
 // a nil error alone does not mean an email left the building.
-func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) (*VerificationResult, *domain.AuthError) {
+func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) (*VerificationResult, error) {
 	if s.mailer == nil {
 		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
@@ -187,7 +187,7 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	return &VerificationResult{Sent: true, ExpiresAt: token.ExpiresAt}, nil
 }
 
-func (s *VerificationService) ResendVerification(ctx context.Context, userID string) (*VerificationResult, *domain.AuthError) {
+func (s *VerificationService) ResendVerification(ctx context.Context, userID string) (*VerificationResult, error) {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return nil, domain.ErrUserNotFound
@@ -204,7 +204,7 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 // unauthenticated. Its result must not reach the caller — Sent would report
 // whether an unverified account exists for that address, which is exactly what
 // the flat "if an account exists" reply is there to withhold. See the handler.
-func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) (*VerificationResult, *domain.AuthError) {
+func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) (*VerificationResult, error) {
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil || user == nil {
 		return nil, domain.NewError("email_not_found", "If an account exists, a verification email has been sent", 200)

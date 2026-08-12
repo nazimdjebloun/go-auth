@@ -128,7 +128,7 @@ result, err := auth.Services.Auth.AdminLogin(ctx, service.LoginInput{
     UserAgent: r.UserAgent(),
 })
 if err != nil {
-    // *domain.AuthError — invalid_credentials covers "not an admin" too
+    // wraps a *domain.AuthError — invalid_credentials covers "not an admin" too
 }
 // result.RequiresTwoFactor is always true here — result.TwoFactorChallenge is
 // the challenge id, result.BindingToken() is what the handler sets as a cookie.
