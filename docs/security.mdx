@@ -1,6 +1,7 @@
 ---
 title: "Security"
 description: "The library's overall security approach — passwords, sessions, CSRF, OAuth, rate limiting, access control, and what stays your responsibility."
+icon: "Lock"
 ---
 
 # Security
@@ -26,9 +27,11 @@ Cookies default to `HttpOnly` (never exposed to JavaScript) and `Secure` — the
 Two independent layers, applied to every state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`):
 
 1. **Origin/Referer checking** (`middleware.OriginCheck`), always on. The request's `Origin` (falling back to `Referer`) must match one of your configured `AllowedOrigins`, or be same-origin with the request itself. `Forwarded-*` headers are only trusted from IPs in your rate-limit `TrustedIPs` list, so a client can't spoof its way into a same-origin match by forging a forwarded header. `AllowedOrigins` rejects `"*"` outright — there is no way to disable this check short of listing every origin explicitly.
-2. **Double-submit cookie token** (`middleware.CSRFToken`), opt-in via `WithSecurity.CSRFToken`. The cookie value is `base64url(nonce).base64url(HMAC-SHA256(secret, nonce))`, generated with `crypto/rand` and signed with your `WithSecret` key — a forged cookie fails the signature check regardless of nonce guessing, and the comparison itself runs in constant time (`crypto/subtle.ConstantTimeCompare`) to avoid a signature side-channel. The client must echo the cookie value back in a header (default `X-CSRF-Token`); since cross-origin requests can't read cookies from your domain via JavaScript, only same-origin code can construct a matching request.
+2. **Double-submit cookie token** (`middleware.CSRFToken`), on by default in every deployment — a token config is created automatically, since `WithSecret` is mandatory. The cookie value is `base64url(nonce).base64url(HMAC-SHA256(secret, nonce))`, generated with `crypto/rand` and signed with your `WithSecret` key — a forged cookie fails the signature check regardless of nonce guessing, and the comparison itself runs in constant time (`crypto/subtle.ConstantTimeCompare`) to avoid a signature side-channel. The client must echo the cookie value back in a header (default `X-CSRF-Token`); since cross-origin requests can't read cookies from your domain via JavaScript, only same-origin code can construct a matching request.
 
-Origin checking alone stops the vast majority of CSRF attacks and needs no configuration. The token layer is defense in depth for cases where you don't fully trust origin/referer headers to be present or accurate.
+Origin checking alone stops the vast majority of CSRF attacks and needs no configuration. The token layer sits behind it for the cases origin checking can't cover — a request arriving with no `Origin` or `Referer` at all, or headers you don't fully trust.
+
+Only the second layer can be turned off, via `SecurityConfig.DisableCSRFToken`, and it's meant for deployments with no browser clients at all — a CLI or a server-to-server API, where CSRF isn't in the threat model. Turning it off logs a startup warning, and combining it with `AllowMissingCSRFHeaders: true` is rejected at configuration time: together they would let a cross-site request through with neither a trusted origin nor a token.
 
 ## OAuth
 

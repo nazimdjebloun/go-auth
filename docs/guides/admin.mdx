@@ -23,7 +23,7 @@ There's no `WithAdmin` flag — these routes are always mounted. What gates them
 `goauth seed-admin` writes an admin user directly to the database, bypassing the API entirely — it's the supported answer to the chicken-and-egg problem above, so you don't have to hand-write an `UPDATE users SET role = 'admin' WHERE email = '...'` against production.
 
 ```bash
-go run github.com/nazimdjebloun/go-auth/cmd/goauth seed-admin \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest seed-admin \
   --driver postgres --dsn "$DATABASE_URL" --env prod \
   --smtp-host smtp.example.com --smtp-from auth@example.com
 ```
@@ -44,7 +44,7 @@ That email is fixed HTML-and-text content with no app name, links, or configurab
 **`--env dev` with no SMTP flags/env set** uses a log-only mailer instead of real SMTP — the same [`LogMailer`](../configuration.mdx#withmailer--withemail--withtemplates--required) `NewConfig` defaults to automatically in `EnvironmentDev`. The "verification email" is written to the command's log output instead of actually sent, so local bootstrapping needs no SMTP setup at all:
 
 ```bash
-go run github.com/nazimdjebloun/go-auth/cmd/goauth seed-admin \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest seed-admin \
   --driver sqlite --dsn ./dev.db --env dev
 ```
 

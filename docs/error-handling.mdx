@@ -1,6 +1,7 @@
 ---
 title: "Error Handling"
 description: "Every error the HTTP API returns, grouped by area, with its code, HTTP status, and message."
+icon: "TriangleAlert"
 ---
 
 # Error Handling
@@ -174,6 +175,7 @@ The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) returns its
 | `invalid_role` | 400 | Role must be 'user' or 'admin' | |
 | `name_required` | 400 | Name is required | |
 | `session_not_found` | 404 | Session not found | Admin revoking a specific user session that doesn't exist. |
+| `user_not_found` | 404 | User not found | No user with that `{id}` — returned by detail, ban/unban, role change, delete, and the per-user session and audit-log routes. |
 | `forbidden` | 403 | Insufficient permissions | From `RequireRole(domain.RoleAdmin)` — a non-admin hit an admin-only route. |
 
 ## CSRF and rate limiting

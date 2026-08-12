@@ -6,7 +6,7 @@ icon: "ShieldCheck"
 
 # Security
 
-`SecurityConfig` is the one required-beyond-the-basics config block — it holds the origin allow-list, the optional CSRF double-submit cookie, and the password policy every new or changed password is checked against. This page covers that config, then every endpoint an authenticated user calls to manage their own account: changing their name or password, setting a password on an OAuth-only account, the public forgot/reset flow, re-sending email verification, and deleting the account.
+`SecurityConfig` is the one required-beyond-the-basics config block — it holds the origin allow-list, the CSRF double-submit cookie, and the password policy every new or changed password is checked against. This page covers that config, then every endpoint an authenticated user calls to manage their own account: changing their name or password, setting a password on an OAuth-only account, the public forgot/reset flow, re-sending email verification, and deleting the account.
 
 For the initial registration verification step (not the resend covered here), see [Authentication → Verifying the email](authentication.mdx#verifying-the-email). For why login timing is constant and how sessions are hashed, see [Security concepts](../security.mdx).
 
@@ -16,7 +16,8 @@ For the initial registration verification step (not the resend covered here), se
 goauth.WithSecurity(goauth.SecurityConfig{
     AllowedOrigins:          []string{"https://myapp.com"}, // required — at least one, never "*"
     AllowMissingCSRFHeaders: false,                          // optional, default false
-    CSRFToken: &middleware.CSRFTokenConfig{ // optional, default nil (disabled)
+    DisableCSRFToken:        false,                          // optional, default false — the token layer is ON
+    CSRFToken: &middleware.CSRFTokenConfig{ // optional — overrides only; a config is created for you
         TokenLength:    32,                       // optional, default 32
         CookieName:     "_csrf",                  // optional, default "_csrf"
         HeaderName:     "X-CSRF-Token",           // optional, default "X-CSRF-Token"
@@ -39,10 +40,13 @@ goauth.WithSecurity(goauth.SecurityConfig{
 |---|---|---|---|---|
 | `AllowedOrigins` | `[]string` | Required | — | At least one entry. `"*"` is rejected outright — see [Authentication → Origin checking](authentication.mdx#origin-checking) for what this actually protects against. |
 | `AllowMissingCSRFHeaders` | `bool` | Optional | `false` | Allow requests with no `Origin`/`Referer` header at all — needed for some native/mobile clients. |
-| `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | `nil` (disabled) | Adds a double-submit cookie token on top of origin checking — this one *can't* be spoofed by just setting a header, since it requires a cookie value only the server issued. |
+| `DisableCSRFToken` | `bool` | Optional | `false` — layer is on | Turns off the double-submit cookie layer entirely. Origin/Referer checking still applies and cannot be disabled. |
+| `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only** — leaving it `nil` does not disable anything. The double-submit token sits on top of origin checking, and unlike the origin header it *can't* be spoofed, since it requires a cookie value only the server issued. |
 | `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Checked on every path that sets a password: register, reset, set-password, and change-password below. |
 | `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
 | `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. |
+
+The double-submit token layer is **on in every deployment** — `New` creates a `CSRFTokenConfig` with the defaults shown whenever you leave the field `nil`, so passing the struct overrides those defaults rather than switching the layer on. Turn it off with `DisableCSRFToken: true`, which is meant for deployments with no browser clients at all. See [Configuration → `WithSecurity`](../configuration.mdx#withsecurity--required-allowedorigins) for the full treatment.
 
 **`PasswordPolicy`** (`domain.PasswordPolicy`) — `MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`. All fields are individually optional, but the struct as a whole replaces the default: setting `RequireUppercase: true` without repeating `MinLength`/`RequireDigit` means those two are no longer enforced. Every violation comes back as the same error code:
 
@@ -55,6 +59,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
 - `allowed_origins must include at least one origin`
 - `allowed_origins must not contain "*" — this disables CSRF protection; list specific origins instead`
 - `token_ttl must be positive` — only reachable if `TokenTTL` was explicitly set negative
+- `security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set` — each is defensible alone, but together a cross-site request carrying neither an `Origin`/`Referer` header nor a token would pass, leaving no CSRF defense at all. Keep one of the two layers.
 
 ## Frontend client setup
 

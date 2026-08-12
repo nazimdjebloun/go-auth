@@ -1,6 +1,7 @@
 ---
-title: "Configuration"instal
+title: "Configuration"
 description: "Every configuration option, field by field — required vs optional, defaults, and the exact validation errors each one can produce."
+icon: "Settings2"
 ---
 
 # Configuration
@@ -73,13 +74,14 @@ goauth.WithSecret(os.Getenv("AUTH_SECRET"))
 
 ## `WithSecurity` — Required (`AllowedOrigins`)
 
-CSRF origin allow-list, password policy, the optional double-submit CSRF cookie, token TTL, and the `http://` policy for email links.
+CSRF origin allow-list, password policy, the double-submit CSRF cookie, token TTL, and the `http://` policy for email links.
 
 ```go
 goauth.WithSecurity(goauth.SecurityConfig{
     AllowedOrigins:          []string{"https://myapp.com"}, // required — at least one, never "*"
     AllowMissingCSRFHeaders: false,                          // optional, default false
-    CSRFToken: &middleware.CSRFTokenConfig{ // optional, default nil (disabled)
+    DisableCSRFToken:        false,                          // optional, default false — the token layer is ON
+    CSRFToken: &middleware.CSRFTokenConfig{ // optional — overrides only; a config is created for you
         TokenLength:    32,                       // optional, default 32
         CookieName:     "_csrf",                  // optional, default "_csrf"
         HeaderName:     "X-CSRF-Token",           // optional, default "X-CSRF-Token"
@@ -108,7 +110,8 @@ goauth.WithSecurity(goauth.SecurityConfig{
 |---|---|---|---|---|
 | `AllowedOrigins` | `[]string` | Required | — | At least one entry. `"*"` is rejected outright. |
 | `AllowMissingCSRFHeaders` | `bool` | Optional | `false` | Allow requests with no `Origin`/`Referer` header at all — needed for some native/mobile clients. |
-| `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | `nil` (disabled) | Adds a double-submit cookie token on top of origin checking. See table below. |
+| `DisableCSRFToken` | `bool` | Optional | `false` — layer is on | Turns off the double-submit cookie layer entirely. Origin/Referer checking still applies and cannot be disabled. |
+| `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only.** Leaving it `nil` does not disable anything — see below. |
 | `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Setting any one field means you're specifying the whole policy — see note below. |
 | `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
 | `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. |
@@ -120,7 +123,25 @@ goauth.WithSecurity(goauth.SecurityConfig{
 
 `PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default — if you set `RequireUppercase: true` without repeating `MinLength` or `RequireDigit`, those two are no longer applied.
 
-**`CSRFToken` (`middleware.CSRFTokenConfig`)** — only relevant if you set it; every field below is optional and defaults when omitted.
+The double-submit token layer is **on in every deployment**. `WithSecret` is
+mandatory at 32+ bytes, and `New` creates a `CSRFTokenConfig` with the defaults
+below whenever you leave the field `nil` — so passing the struct overrides those
+defaults, it doesn't switch the layer on.
+
+To actually turn it off, set `DisableCSRFToken: true`. That's intended for
+deployments with no browser clients — a CLI or a server-to-server API — where
+CSRF isn't in the threat model and the token round-trip buys nothing. Every
+state-changing route otherwise requires the client to `GET /auth/csrf-token`
+first and echo the cookie value back in the header.
+
+<Callout type="warn" title="One combination is rejected">
+  `DisableCSRFToken: true` together with `AllowMissingCSRFHeaders: true` is a
+  configuration error. Each is defensible alone, but together a cross-site
+  request carrying neither an `Origin`/`Referer` header nor a token would pass —
+  leaving no CSRF defense at all. Keep one of the two layers.
+</Callout>
+
+**`CSRFToken` (`middleware.CSRFTokenConfig`)** — every field is optional and takes the default shown when omitted.
 
 | Field | Default |
 |---|---|
@@ -137,6 +158,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
 - `allowed_origins must include at least one origin` — hint: `AllowedOrigins` was empty.
 - `allowed_origins must not contain "*" — this disables CSRF protection; list specific origins instead`.
 - `token_ttl must be positive` — hint: only reachable if `TokenTTL` was explicitly set negative; an omitted value defaults to `1h` and never reaches this check.
+- `security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set — a cross-site request with no Origin/Referer and no token would pass; keep one of the two layers`.
 - `security: two_factor_code_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `5m`.
 - `security: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path`.
 

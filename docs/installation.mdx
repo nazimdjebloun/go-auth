@@ -1,6 +1,7 @@
 ---
 title: "Installation"
 description: "Prerequisites, what you need before configuring go-auth, and a map of the configuration pattern."
+icon: "Download"
 ---
 
 # Installation
@@ -9,7 +10,7 @@ description: "Prerequisites, what you need before configuring go-auth, and a map
 
 - Go 1.26 or later
 - A database: PostgreSQL, MySQL, or SQLite
-- An SMTP server, or your own mailer implementation — only required if you enable invite-only signup or required email verification
+- An SMTP server, or your own mailer implementation — required in every deployment, since admin login always delivers a second factor by email. `EnvironmentDev` is the one exception: with neither `WithMailer` nor `WithEmail` set, it falls back to a log-only driver. See [Configuration](configuration.mdx#withmailer--withemail--withtemplates--required).
 
 ## Install
 
@@ -27,6 +28,34 @@ go-auth's own `go.mod` only depends on the PostgreSQL driver (`pgx/v5`). Whichev
 
 If the driver you configured isn't actually registered (the import is missing), `New()` fails fast at startup with a clear error naming the missing import — it doesn't fail later on the first query.
 
+## The `goauth` CLI
+
+Schema and bootstrap tooling, shipped alongside the library. There are two ways to run it, and they do the same thing:
+
+```bash
+# Install once, then call it by name
+go install github.com/nazimdjebloun/go-auth/cmd/goauth@latest
+goauth migrate --driver postgres --dsn "$DATABASE_URL"
+
+# Or run it without installing anything
+go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
+  --driver postgres --dsn "$DATABASE_URL"
+```
+
+`go install` is shorter to type afterwards and faster on repeat use, but it needs `$GOBIN` (or `$GOPATH/bin`) on your `PATH`, and it pins whatever version you installed until you reinstall. `go run` leaves nothing behind and is always current — the better fit for CI, a Dockerfile, or a one-off bootstrap, which is how `migrate` and `seed-admin` are usually used.
+
+<Callout type="warn" title="`@latest` is required, in both forms">
+  `cmd/goauth` is a **separate module** with its own `go.mod`, so it isn't part of your project's dependency graph even after `go get` of the library. Drop the version suffix and Go looks for the package among your own dependencies and fails with `no required module provides package`. This is not a `run` vs `install` distinction — both need it. Pin a release instead of `@latest` if you want reproducible builds.
+</Callout>
+
+| Command | What it does |
+|---|---|
+| `migrate` | Connects to your database and applies the schema directly, one statement at a time. Requires `--driver` and `--dsn`. |
+| `generate` | Writes the schema to a `.sql` file instead of applying it — for checking in, or feeding to Atlas, golang-migrate, Flyway, or your own migration tool. Requires `--driver`; `--out` defaults to `auth.schema.sql`. |
+| `seed-admin` | Creates the first admin account directly in the database, since every admin route needs an existing admin session to call. Sends a real email first and writes nothing if that send fails. See [Admin → Creating the first admin](guides/admin.mdx#creating-the-first-admin). |
+
+Each command takes `--help`. [Schemas](schemas.mdx) covers `migrate` and `generate` in full.
+
 ## What you'll need before configuring
 
 Gather these before writing your configuration:
@@ -35,7 +64,7 @@ Gather these before writing your configuration:
 - **A database connection** — either a connection string, or a database/pool you've already opened yourself.
 - **A signing secret** — at least 32 random bytes. This is the one piece of key material the library needs; source it from your environment, never commit it.
 - **The origins your frontend is served from** — used for CSRF origin checking. There's no wildcard option by design.
-- **A mailer, conditionally** — only if you plan to enable invite-only signup or required email verification. Either SMTP credentials or your own delivery implementation (Resend, Postmark, SES, etc.) work.
+- **A mailer** — required in every deployment, not just when you enable invite-only signup or email verification: admin login always sends a second factor by email. Either SMTP credentials or your own delivery implementation (Resend, Postmark, SES, etc.) work. `EnvironmentDev` alone falls back to a log-only driver when neither is configured.
 - **OAuth credentials, conditionally** — a client ID, client secret, and redirect URL per provider, only if you want OAuth login.
 
 Nothing here is read from the environment by the library itself — go-auth has no notion of env vars. You decide how your program sources these values (environment variables are the usual choice) and pass them in as plain Go values.
@@ -63,19 +92,18 @@ Every aspect of the library is configured through its own option function, and a
 
 ## Database setup
 
-Apply the schema before starting your app for the first time:
+The schema ships embedded in the library — there is no `.sql` file to find on
+disk after `go get`. Apply it once before starting your app for the first time:
 
 ```bash
-# PostgreSQL
-psql "$DATABASE_URL" -f schema/postgres.sql
-
-# SQLite
-sqlite3 data.db < schema/sqlite.sql
-
-# MySQL
-mysql "$DATABASE_URL" < schema/mysql.sql
+go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
+  --driver postgres --dsn "$DATABASE_URL"
 ```
+
+[Schemas](schemas.mdx) covers the tables themselves, the other two ways to get
+at the schema, and what to expect when it changes between releases.
 
 ## Next
 
 - [Configuration](configuration.mdx) — every option, field by field
+- [Schemas](schemas.mdx) — the tables, the CLI, and applying the schema

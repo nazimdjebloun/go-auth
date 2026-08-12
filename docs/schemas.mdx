@@ -1,6 +1,7 @@
 ---
 title: "Schemas"
 description: "The tables go-auth creates, the differences between drivers, and the three ways to generate or apply the schema."
+icon: "Database"
 ---
 
 import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
@@ -38,9 +39,13 @@ Three routes to the same SQL. Pick whichever fits how you deploy.
 Connects and applies the schema directly:
 
 ```bash
-go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
   --driver postgres --dsn "$DATABASE_URL"
 ```
+
+The `@latest` is not optional: the CLI is its own module, so without a version
+suffix `go run` looks for the package in *your* module's dependency graph and
+fails with `no required module provides package`.
 
 Both flags are required. It opens the connection, pings it, then executes each
 statement in order, printing `OK: <statement>` for each one.
@@ -52,7 +57,7 @@ Writes the schema to a file so you can check it in or feed it to your own
 migration tool:
 
 ```bash
-go run github.com/nazimdjebloun/go-auth/cmd/goauth generate \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest generate \
   --driver postgres --out auth.schema.sql
 ```
 
@@ -97,6 +102,19 @@ up.
 
 Driver names accept aliases in all three routes: `postgres` or `pg`, `sqlite`
 or `sqlite3`, and `mysql`.
+
+<Callout title="PostgreSQL: the first statement is CREATE EXTENSION">
+  The PostgreSQL schema opens with `CREATE EXTENSION IF NOT EXISTS "pgcrypto"`,
+  which is what supplies the `gen_random_uuid()` default on every primary key.
+  It needs privileges some managed providers don't hand out, so this is the
+  statement most likely to fail first on a locked-down instance — and because
+  `migrate` exits on the first failure, nothing after it runs.
+
+  If your provider blocks it, have a superuser create the extension once
+  beforehand; the `IF NOT EXISTS` then makes the library's copy a no-op. On
+  PostgreSQL 13 and later `gen_random_uuid()` is built in and the extension
+  isn't strictly needed, but the statement is still issued.
+</Callout>
 
 <Callout type="warn" title="migrate is not transactional, and is only re-runnable on PostgreSQL and SQLite">
   Statements execute one at a time and the command exits on the first failure,

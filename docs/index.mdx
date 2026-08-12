@@ -1,6 +1,7 @@
 ---
 title: "Introduction"
 description: "What go-auth is, why it exists, what it does, and how it compares to rolling your own auth or using a hosted provider."
+icon: "BookOpen"
 ---
 
 # go-auth
@@ -23,7 +24,7 @@ go-auth sits in between. It's a library, not a service — your data stays in yo
 
 Registration and login support email/password, OAuth (Google and GitHub built in, or any provider you implement), and invite-only signup, with optional required email verification. Sessions use two tokens — a short-lived session token and a longer-lived refresh token — with idle timeout, an absolute maximum lifetime, and transparent rotation. Password reset, change-password, and set-password (for OAuth-only accounts) are all handled, as is email verification with resend throttling.
 
-Beyond individual accounts, it supports multi-tenant organizations with membership roles and invites, and an admin surface for listing, banning, role changes, and session revocation across users. Every request that mutates state passes through CSRF checks (origin/referer validation, with an optional double-submit cookie token on top), and every sensitive endpoint has a rate limit out of the box. Security-relevant events — logins, password changes, admin actions, org changes — can be recorded to an audit log, streamed to Kafka, NATS, a webhook, or any sink you write yourself, alongside the built-in one. Every internal component logs through a single structured `slog.Logger` you provide, so audit events, rejected requests, and startup warnings all land in your existing log pipeline.
+Beyond individual accounts, it supports multi-tenant organizations with membership roles and invites, and an admin surface for listing, banning, role changes, and session revocation across users. Every request that mutates state passes through CSRF checks — origin/referer validation, with a double-submit cookie token on top that you can turn off but don't have to turn on — and every sensitive endpoint has a rate limit out of the box. Security-relevant events — logins, password changes, admin actions, org changes — can be recorded to an audit log, streamed to Kafka, NATS, a webhook, or any sink you write yourself, alongside the built-in one. Every internal component logs through a single structured `slog.Logger` you provide, so audit events, rejected requests, and startup warnings all land in your existing log pipeline.
 
 Delivery of email (verification, invites, password reset) goes through a one-method interface, so plugging in Resend, Postmark, SES, or your own SMTP server is a small amount of glue code, not a fork. The templates themselves are replaceable too — if you want your own branding or copy instead of the built-in HTML/text templates, implement one interface and hand it your own renderer.
 
@@ -50,9 +51,9 @@ Delivery of email (verification, invites, password reset) goes through a one-met
 
 **Admin** — list/detail/ban/unban/role-change/delete for users, per-user session listing and revocation, invite management, audit log viewing.
 
-**Security** — CSRF origin checking with an optional double-submit cookie layer, per-route rate limiting, configurable password policy, tri-state cookie `Secure` and email-link `http://` policy that default sensibly per environment.
+**Security** — CSRF origin checking plus a double-submit cookie layer, both on by default, per-route rate limiting, configurable password policy, tri-state cookie `Secure` and email-link `http://` policy that default sensibly per environment.
 
-**Audit logging** — an async, non-blocking event pipeline with a built-in database sink; add your own sinks (Kafka, NATS, a webhook, anything implementing one interface) to stream the same events elsewhere, with fail-open or fail-closed behavior your choice.
+**Audit logging** — off by default; opt in with one flag for an async, non-blocking event pipeline with a built-in database sink; add your own sinks (Kafka, NATS, a webhook, anything implementing one interface) to stream the same events elsewhere, with fail-open or fail-closed behavior your choice.
 
 **Logging** — a single structured `slog.Logger` used everywhere in the library (sessions, CSRF, rate limiting, audit, admin actions) — bring your own handler (JSON, text, or a third-party `slog` backend) and everything shows up there.
 

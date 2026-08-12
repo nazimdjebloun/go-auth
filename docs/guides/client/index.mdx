@@ -8,7 +8,7 @@ icon: "Plug"
 
 Every **Client** section across the guides — and every named method on the wrapped clients in this folder (`authApi`, and whatever gets added alongside future guides) — is built on one small `fetch` wrapper. It's defined once here rather than repeated in every guide.
 
-It has to do two things a plain `fetch` call doesn't: send cookies on every request, and attach the CSRF header if CSRF protection (`SecurityConfig.CSRFToken`) is turned on.
+It has to do two things a plain `fetch` call doesn't: send cookies on every request, and attach the CSRF header on every state-changing request. Both are mandatory — the double-submit token layer is on by default, so a `POST` without the header is a `403` before it reaches a handler.
 
 ```ts
 function getCookie(name: string): string | null {
@@ -60,7 +60,7 @@ export async function apiRequest(baseUrl: string, method: string, path: string, 
 }
 ```
 
-`credentials: "include"` is the load-bearing line — without it, the browser never sends or stores the `HttpOnly` session/refresh cookies, and every request looks unauthenticated regardless of what the server sets. `_csrf` and `X-CSRF-Token` are the defaults; both are configurable on `CSRFTokenConfig` (see [Configuration → WithSecurity](../../configuration.mdx)) — match whatever you actually set there. If `CSRFToken` is left `nil` (the default), the CSRF cookie never gets set and `getCookie("_csrf")` just stays `null` forever — the header is simply never attached, which is correct.
+`credentials: "include"` is the load-bearing line — without it, the browser never sends or stores the `HttpOnly` session/refresh cookies, and every request looks unauthenticated regardless of what the server sets. `_csrf` and `X-CSRF-Token` are the defaults; both are configurable on `CSRFTokenConfig` (see [Configuration → WithSecurity](../../configuration.mdx#withsecurity--required-allowedorigins)) — match whatever you actually set there. Leaving `CSRFToken` `nil` server-side does **not** turn the layer off; it just means the defaults apply, so this wrapper works against a stock configuration as written. The only case where the cookie never appears is `DisableCSRFToken: true` — and the `if (csrf)` guard handles that on its own, so the same code is correct either way.
 
 `setUnauthorizedHandler` exists for one reason: a session can die on the server (revoked, banned, expired past its refresh window) while a tab is sitting open with stale `user` state in memory. The next request that tab makes will fail — `401`, or `403 user_banned` — and without this hook, only that one call would know. Wiring it up (done in the [Provider](provider.mdx) guide) means the whole app's state clears the moment any request discovers the session is gone, not just the one that happened to ask first.
 
