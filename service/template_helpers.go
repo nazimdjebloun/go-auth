@@ -14,7 +14,7 @@ func resolveTemplates(p port.TemplateProvider, validator *port.URLValidator) por
 	}
 	provider, err := emailtemplate.New(validator)
 	if err != nil {
-		panic("go-auth: failed to initialize default email templates: " + err.Error())
+		panic("goauth: failed to initialize default email templates: " + err.Error())
 	}
 	return provider
 }

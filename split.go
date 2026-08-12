@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var ErrNoDatabase = errors.New("go-auth: no database pool or DSN provided")
+var ErrNoDatabase = errors.New("goauth: no database pool or DSN provided")
 
 func SplitSQL(sql string) []string {
 	var statements []string

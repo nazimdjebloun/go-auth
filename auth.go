@@ -27,12 +27,17 @@ import (
 )
 
 type Auth struct {
-	Config     config
-	Pool       *pgxpool.Pool
-	DB         *sqlstore.DB
-	Services   Services
-	Handlers   HandlerGroup
-	Middleware MiddlewareGroup
+	Config   config
+	Pool     *pgxpool.Pool
+	DB       *sqlstore.DB
+	Services Services
+	Handlers HandlerGroup
+
+	authMW      func(http.Handler) http.Handler
+	adminMW     func(http.Handler) http.Handler
+	rateLimitMW func(http.Handler) http.Handler
+	corsMW      func(http.Handler) http.Handler
+	orgMemberMW func(http.Handler) http.Handler
 
 	authService      *service.AuthService
 	passwordService  *service.PasswordService
@@ -133,13 +138,6 @@ type HandlerGroup struct {
 	DeleteOrgInvite          http.HandlerFunc
 }
 
-type MiddlewareGroup struct {
-	Authenticate func(http.Handler) http.Handler
-	RequireAdmin func(http.Handler) http.Handler
-	RateLimit    func(http.Handler) http.Handler
-	CORS         func(http.Handler) http.Handler
-}
-
 // New builds the Auth instance from a config produced by NewConfig(opts...)
 // — the only supported way to configure go-auth. NewConfig is what runs
 // validate() (required fields, secret length, origin policy, rate-limit
@@ -217,7 +215,7 @@ func New(config config) (*Auth, error) {
 			}
 		}
 	default:
-		return nil, fmt.Errorf("go-auth: unsupported driver %q", config.database.Driver)
+		return nil, fmt.Errorf("goauth: unsupported driver %q", config.database.Driver)
 	}
 
 	switch {
@@ -240,11 +238,11 @@ func New(config config) (*Auth, error) {
 		}
 		db, err := sql.Open(driverName, config.database.URL)
 		if err != nil {
-			return nil, fmt.Errorf("go-auth: open database: %w", err)
+			return nil, fmt.Errorf("goauth: open database: %w", err)
 		}
 		if err := db.Ping(); err != nil {
 			db.Close()
-			return nil, fmt.Errorf("go-auth: ping database: %w", err)
+			return nil, fmt.Errorf("goauth: ping database: %w", err)
 		}
 		config.database.opened = true
 		sqlDB = sqlstore.NewDB(db, string(config.database.Driver))
@@ -253,7 +251,7 @@ func New(config config) (*Auth, error) {
 			pool, err = pgxpool.New(context.Background(), config.database.URL)
 			if err != nil {
 				db.Close()
-				return nil, fmt.Errorf("go-auth: create connection pool: %w", err)
+				return nil, fmt.Errorf("goauth: create connection pool: %w", err)
 			}
 		}
 	default:
@@ -391,14 +389,14 @@ func New(config config) (*Auth, error) {
 	oauthProviders := make(map[string]port.OAuthProvider)
 	for _, p := range config.providers {
 		if p == nil {
-			return nil, fmt.Errorf("go-auth: nil provider registered via WithProvider")
+			return nil, fmt.Errorf("goauth: nil provider registered via WithProvider")
 		}
 		name := p.Name()
 		if name == "" {
-			return nil, fmt.Errorf("go-auth: provider with empty name registered via WithProvider")
+			return nil, fmt.Errorf("goauth: provider with empty name registered via WithProvider")
 		}
 		if _, exists := oauthProviders[name]; exists {
-			return nil, fmt.Errorf("go-auth: duplicate provider %q", name)
+			return nil, fmt.Errorf("goauth: duplicate provider %q", name)
 		}
 		oauthProviders[name] = p
 	}
@@ -506,6 +504,11 @@ func New(config config) (*Auth, error) {
 		Config:           config,
 		Pool:             pool,
 		DB:               sqlDB,
+		authMW:           authMW,
+		adminMW:          adminMW,
+		rateLimitMW:      rateLimitMW,
+		corsMW:           corsMW,
+		orgMemberMW:      orgMemberMW,
 		authService:      authSvc,
 		passwordService:  passSvc,
 		sessionService:   sessSvc,
@@ -615,12 +618,6 @@ func New(config config) (*Auth, error) {
 			ResendOrgInvite:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite))))))).ServeHTTP,
 			DeleteOrgInvite:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite))))))).ServeHTTP,
 		},
-		Middleware: MiddlewareGroup{
-			Authenticate: authMW,
-			RequireAdmin: adminMW,
-			RateLimit:    rateLimitMW,
-			CORS:         corsMW,
-		},
 	}, nil
 }
 
@@ -643,7 +640,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	// All middleware (CORS, rate limit, csrf token, origin check, auth, admin)
 	// is already baked into a.Handlers — CORS outermost so preflight OPTIONS
 	// short-circuits before rate limiting. Mount only registers routes; do NOT
-	// wrap the mux again with a.Middleware.CORS or any other middleware.
+	// wrap the mux again with a.CORS or any other middleware.
 	//
 	// handle registers a route and, when CORS origins are configured, also the
 	// exact OPTIONS twin for the same path. OPTIONS is registered 1:1 with each
@@ -753,6 +750,65 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		handle("GET /auth/orgs/{orgID}/invites", a.Handlers.ListOrgInvites)
 		handle("POST /auth/orgs/{orgID}/invites/{inviteID}/resend", a.Handlers.ResendOrgInvite)
 		handle("DELETE /auth/orgs/{orgID}/invites/{inviteID}", a.Handlers.DeleteOrgInvite)
+	}
+}
+
+// ─── Middleware accessors ───────────────────────────────────
+
+// RequireAuth protects a consumer route with the same session validation
+// (including transparent refresh) that the built-in auth routes use. On
+// success the user and session are placed in the request context — read
+// them with middleware.GetUserFromContext and middleware.GetSessionFromContext.
+func (a *Auth) RequireAuth(next http.Handler) http.Handler {
+	return a.authMW(next)
+}
+
+// RequireAdmin protects a consumer route with the admin role check used by
+// the built-in /admin routes. Wrap with RequireAuth first: the check reads
+// the user from the context RequireAuth populates.
+func (a *Auth) RequireAdmin(next http.Handler) http.Handler {
+	return a.adminMW(next)
+}
+
+// RateLimit applies the configured rate limiter to a consumer route. The
+// routes mounted by Mount already have rate limiting baked in — this is for
+// your own routes only.
+func (a *Auth) RateLimit(next http.Handler) http.Handler {
+	return a.rateLimitMW(next)
+}
+
+// CORS applies the configured CORS middleware to a consumer route. The
+// routes mounted by Mount already have CORS baked in — this is for your own
+// routes only.
+func (a *Auth) CORS(next http.Handler) http.Handler {
+	return a.corsMW(next)
+}
+
+// RequireOrg protects a consumer route with an org membership check plus a
+// minimum role, using the same org repository and auth context as the built-in
+// org routes. It resolves the org from the {orgID} path segment, falling back
+// to the org_id query parameter, and must run after RequireAuth.
+//
+// When organizations are disabled the returned middleware rejects every
+// request with 503 — add goauth.WithOrganizations(goauth.OrganizationConfig{
+// Enable: true}) to enable them.
+func (a *Auth) RequireOrg(role domain.OrgRole) func(http.Handler) http.Handler {
+	if !role.IsValid() {
+		panic(fmt.Sprintf(
+			"goauth: invalid org role %q — use domain.OrgRoleMember, domain.OrgRoleAdmin, or domain.OrgRoleOwner",
+			role,
+		))
+	}
+	if a.orgService == nil {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, `{"error":"organizations_disabled","message":"Organizations are not enabled — add goauth.WithOrganizations(goauth.OrganizationConfig{Enable: true})"}`, http.StatusServiceUnavailable)
+			})
+		}
+	}
+	roleMW := middleware.RequireOrgRole(role)
+	return func(next http.Handler) http.Handler {
+		return a.orgMemberMW(roleMW(next))
 	}
 }
 

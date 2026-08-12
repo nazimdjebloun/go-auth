@@ -83,22 +83,22 @@ func newEmailTemplates() (*emailTemplates, error) {
 
 		htmlContent, err := templateFS.ReadFile(htmlPath)
 		if err != nil {
-			return nil, fmt.Errorf("go-auth: read html template %s: %w", htmlPath, err)
+			return nil, fmt.Errorf("goauth: read html template %s: %w", htmlPath, err)
 		}
 		htmlTpls[ttype], err = template.New(string(ttype)).Funcs(funcMap).Parse(string(htmlContent))
 		if err != nil {
-			return nil, fmt.Errorf("go-auth: parse html template %s: %w", htmlPath, err)
+			return nil, fmt.Errorf("goauth: parse html template %s: %w", htmlPath, err)
 		}
 
 		txtContent, err := templateFS.ReadFile(txtPath)
 		if err != nil {
-			return nil, fmt.Errorf("go-auth: read text template %s: %w", txtPath, err)
+			return nil, fmt.Errorf("goauth: read text template %s: %w", txtPath, err)
 		}
 		textTpls[ttype], err = textTmpl.New(string(ttype)).Funcs(textTmpl.FuncMap{
 			"formatDuration": FormatDuration,
 		}).Parse(string(txtContent))
 		if err != nil {
-			return nil, fmt.Errorf("go-auth: parse text template %s: %w", txtPath, err)
+			return nil, fmt.Errorf("goauth: parse text template %s: %w", txtPath, err)
 		}
 	}
 
@@ -140,16 +140,16 @@ func (p *Provider) Render(data port.TemplateData) (port.TemplateResult, error) {
 
 	htmlTpl, ok := p.tpls.html[tmplType]
 	if !ok {
-		return port.TemplateResult{}, fmt.Errorf("go-auth: unknown template type %q", tmplType)
+		return port.TemplateResult{}, fmt.Errorf("goauth: unknown template type %q", tmplType)
 	}
 	textTpl := p.tpls.text[tmplType]
 
 	var htmlBuf, textBuf strings.Builder
 	if err := htmlTpl.Execute(&htmlBuf, data); err != nil {
-		return port.TemplateResult{}, fmt.Errorf("go-auth: execute html template %s: %w", tmplType, err)
+		return port.TemplateResult{}, fmt.Errorf("goauth: execute html template %s: %w", tmplType, err)
 	}
 	if err := textTpl.Execute(&textBuf, data); err != nil {
-		return port.TemplateResult{}, fmt.Errorf("go-auth: execute text template %s: %w", tmplType, err)
+		return port.TemplateResult{}, fmt.Errorf("goauth: execute text template %s: %w", tmplType, err)
 	}
 
 	subject := subjects[tmplType] + " - " + appNameFromData(data)

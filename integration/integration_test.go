@@ -109,7 +109,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 			GraceWindow: goauth.Disabled,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowHTTPURLs:  goauth.Bool(true),
+			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
 			AllowedOrigins: []string{"http://localhost:8080"},
 			TokenTTL:       1 * time.Hour,
 		}),
@@ -152,7 +152,7 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, sec goauth.SecurityConfig, r
 		sec.TokenTTL = 1 * time.Hour
 	}
 	if sec.AllowHTTPURLs == nil {
-		sec.AllowHTTPURLs = goauth.Bool(true)
+		sec.AllowHTTPURLs = goauth.AllowPlaintextEmailLinks()
 	}
 	if len(sec.AllowedOrigins) == 0 {
 		sec.AllowedOrigins = []string{"http://localhost:8080"}
@@ -728,7 +728,7 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 			RefreshTokenTTL: 1 * time.Millisecond,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowHTTPURLs:  goauth.Bool(true),
+			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
 			TokenTTL:       1 * time.Millisecond,
 			AllowedOrigins: []string{"http://localhost:8080"},
 		}),
@@ -892,7 +892,7 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 			RefreshTokenTTL: 1 * time.Millisecond,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowHTTPURLs:  goauth.Bool(true),
+			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
 			TokenTTL:       1 * time.Millisecond,
 			AllowedOrigins: []string{"http://localhost:8080"},
 		}),
@@ -1242,8 +1242,8 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 }
 
 // TestMount_BakesInCORS verifies Mount wires the CORS middleware into every
-// mounted handler so consumers don't need to wrap the mux with
-// Auth.Middleware.CORS themselves.
+// mounted handler so consumers don't need to wrap the mux with a.CORS
+// themselves.
 func TestMount_BakesInCORS(t *testing.T) {
 	db, cleanup := newSQLiteDB(t)
 	defer cleanup()

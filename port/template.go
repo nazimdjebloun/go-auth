@@ -179,5 +179,5 @@ type URLError struct {
 }
 
 func (e *URLError) Error() string {
-	return "go-auth: template URL field " + e.Field + ": " + e.Detail
+	return "goauth: template URL field " + e.Field + ": " + e.Detail
 }

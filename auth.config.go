@@ -40,9 +40,9 @@ const Disabled time.Duration = -1
 type TLSMode int
 
 const (
-	TLSNone     TLSMode = iota // plaintext — dev/local only
-	TLSStart                   // STARTTLS, typically port 587
+	TLSStart    TLSMode = iota // STARTTLS, typically port 587 — the zero value, so an unset TLSMode is never plaintext
 	TLSImplicit                // implicit TLS, typically port 465
+	TLSNone                    // plaintext — dev/local only
 )
 
 // DatabaseConfig configures the database connection.
@@ -82,16 +82,24 @@ type CookieConfig struct {
 	Secure *bool
 }
 
-// Bool returns a pointer to v, for the tri-state config fields where nil means
+// boolPtr returns a pointer to v — the shared implementation behind the
+// readable spellings below, for the tri-state config fields where nil means
 // "derive from the environment": CookieConfig.Secure and
 // SecurityConfig.AllowHTTPURLs.
-func Bool(v bool) *bool { return &v }
+func boolPtr(v bool) *bool { return &v }
 
-// SecureAlways and SecureNever are readable spellings of Bool for
-// CookieConfig.Secure. SecureNever is for local development over http:// only
-// — browsers will send the cookie over plaintext connections.
-func SecureAlways() *bool { return Bool(true) }
-func SecureNever() *bool  { return Bool(false) }
+// SecureAlways and SecureNever are readable spellings for CookieConfig.Secure.
+// SecureNever is for local development over http:// only — browsers will send
+// the cookie over plaintext connections.
+func SecureAlways() *bool { return boolPtr(true) }
+func SecureNever() *bool  { return boolPtr(false) }
+
+// AllowPlaintextEmailLinks and RequireHTTPSEmailLinks are readable spellings
+// for SecurityConfig.AllowHTTPURLs. AllowPlaintextEmailLinks permits http://
+// links in emails outside a dev environment; RequireHTTPSEmailLinks enforces
+// https:// even inside one.
+func AllowPlaintextEmailLinks() *bool { return boolPtr(true) }
+func RequireHTTPSEmailLinks() *bool   { return boolPtr(false) }
 
 // SessionConfig groups session lifetime settings.
 type SessionConfig struct {
@@ -183,9 +191,9 @@ type SecurityConfig struct {
 	// template rendering, not transport, so it applies to every mailer.
 	//
 	// Tri-state: nil (the default) derives it — allowed in EnvironmentDev,
-	// refused everywhere else. Set it with Bool(true) to allow plaintext links
-	// outside a dev environment, or Bool(false) to enforce https:// even in
-	// development.
+	// refused everywhere else. Set it explicitly with AllowPlaintextEmailLinks
+	// to allow plaintext links outside a dev environment, or
+	// RequireHTTPSEmailLinks to enforce https:// even in development.
 	AllowHTTPURLs *bool
 
 	// RequireEmail2FA makes email two-factor mandatory for every password
@@ -389,7 +397,7 @@ func (c *config) validate() error {
 		if (e.User == "") != (e.Pass == "") {
 			errs = append(errs, errors.New("email: user and pass must both be set or both be empty"))
 		}
-		if e.TLSMode < TLSNone || e.TLSMode > TLSImplicit {
+		if e.TLSMode < TLSStart || e.TLSMode > TLSNone {
 			errs = append(
 				errs,
 				fmt.Errorf("email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got %d", e.TLSMode),

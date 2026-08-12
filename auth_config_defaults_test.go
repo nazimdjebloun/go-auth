@@ -295,8 +295,8 @@ func TestAllowHTTPURLs_Resolution(t *testing.T) {
 		{"dev derives allow", EnvironmentDev, nil, true},
 		{"prod derives refuse", EnvironmentProd, nil, false},
 		{"staging derives refuse", EnvironmentStaging, nil, false},
-		{"explicit true outside dev", EnvironmentProd, Bool(true), true},
-		{"explicit false inside dev", EnvironmentDev, Bool(false), false},
+		{"explicit true outside dev", EnvironmentProd, AllowPlaintextEmailLinks(), true},
+		{"explicit false inside dev", EnvironmentDev, RequireHTTPSEmailLinks(), false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

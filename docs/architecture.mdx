@@ -38,7 +38,7 @@ The dependency direction is strict: `domain` depends on nothing, `port` depends 
 4. Constructs every `service.*Service`, injecting the repositories, mailer, template provider, hasher, and token generator each one needs.
 5. Builds the middleware instances (`authMW`, `adminMW`, `rateLimitMW`, `csrfMW`, `csrfTokenMW`, `corsMW`, `orgMemberMW`, `orgAdminMW`, `orgOwnerMW`) once, so every handler that needs one shares the same instance.
 6. Wraps each HTTP handler in its specific middleware chain (see below) and assembles the result into `HandlerGroup`.
-7. Returns an `*Auth` exposing `Services` (the raw service methods, for calling programmatically without HTTP — see the next section), `Handlers` (pre-wrapped `http.HandlerFunc`s), and `Middleware` (the shared middleware instances, in case you want to apply one to your own routes).
+7. Returns an `*Auth` exposing `Services` (the raw service methods, for calling programmatically without HTTP — see the next section), `Handlers` (pre-wrapped `http.HandlerFunc`s), and a set of middleware accessor methods (`RequireAuth`, `RequireAdmin`, `RateLimit`, `CORS`, `RequireOrg`) backed by those same shared instances, in case you want to apply one to your own routes.
 
 `Auth.Mount(mux *http.ServeMux)` only registers routes on the mux you give it — it does not add any middleware of its own. Every handler in `HandlerGroup` already has its full chain baked in from step 6, and CORS preflight (`OPTIONS`) is registered per-path automatically wherever `WithSecurity.AllowedOrigins` is non-empty.
 

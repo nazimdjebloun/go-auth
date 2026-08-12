@@ -95,8 +95,8 @@ goauth.WithSecurity(goauth.SecurityConfig{
         RequireDigit:     true,
         RequireSpecial:   false,
     },
-    TokenTTL:      time.Hour,          // optional, default 1h
-    AllowHTTPURLs: goauth.Bool(false), // optional, default derived from Environment
+    TokenTTL:      time.Hour,                            // optional, default 1h
+    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(),       // optional, default derived from Environment
 
     RequireEmail2FA:                  false, // optional, default false — mandatory email 2FA on every password login
     DefaultTwoFactorEnabled:          false, // optional, default false — seeds User.TwoFactorEnabled at registration
@@ -114,7 +114,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
 | `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only.** Leaving it `nil` does not disable anything — see below. |
 | `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Setting any one field means you're specifying the whole policy — see note below. |
 | `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
-| `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. |
+| `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
 | `RequireEmail2FA` | `bool` | Optional | `false` | Makes email 2FA mandatory for every password login (`Login`, `AdminLogin`, `Register`, invite registration). While on, `Enable`/`Disable` both reject — users cannot opt out. OAuth logins are not covered; see [Security](security.mdx). |
 | `DefaultTwoFactorEnabled` | `bool` | Optional | `false` | Seeds `User.TwoFactorEnabled` at registration (email/password only). Users can still call `Disable` to opt out — use `RequireEmail2FA` if that shouldn't be possible. |
 | `TwoFactorCodeTTL` | `time.Duration` | Optional | `5m` | Lifetime of a 2FA login code. Deliberately shorter than `VerificationCodeTTL`: a 6-digit code has ~20 fewer bits of entropy than the 8-char alphanumeric codes used elsewhere. |
@@ -297,7 +297,7 @@ goauth.WithEmail(goauth.EmailConfig{
     From:    "auth@myapp.com",       // required, must be a valid email address
     User:    os.Getenv("SMTP_USER"), // optional — must be set together with Pass, or both empty
     Pass:    os.Getenv("SMTP_PASS"), // optional — same pairing rule as User
-    TLSMode: goauth.TLSStart,        // optional, default TLSNone (plaintext) — TLSNone | TLSStart | TLSImplicit
+    TLSMode: goauth.TLSStart,        // optional, default TLSStart (STARTTLS) — TLSStart | TLSImplicit | TLSNone
 })
 
 // Or your own implementation of port.Mailer (Resend, Postmark, SES, ...):
@@ -327,7 +327,7 @@ goauth.WithTemplates(myTemplateProvider)
 | `Port` | `int` | Required | — | 1–65535. |
 | `User` | `string` | Optional | — | Must be set together with `Pass`, or both left empty. |
 | `Pass` | `string` | Optional | — | Same pairing rule as `User`. |
-| `TLSMode` | `TLSMode` | Optional | `TLSNone` | One of `TLSNone` (plaintext), `TLSStart` (STARTTLS, typically port 587), `TLSImplicit` (typically port 465). The zero value is plaintext — set this explicitly for anything but local testing. |
+| `TLSMode` | `TLSMode` | Optional | `TLSStart` | One of `TLSStart` (STARTTLS, typically port 587), `TLSImplicit` (typically port 465), `TLSNone` (plaintext). The zero value is `TLSStart` — plaintext requires setting `TLSNone` explicitly. |
 
 **Expected errors**
 

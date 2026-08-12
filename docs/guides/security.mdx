@@ -31,8 +31,8 @@ goauth.WithSecurity(goauth.SecurityConfig{
         RequireDigit:     true,
         RequireSpecial:   false,
     },
-    TokenTTL:      time.Hour,          // optional, default 1h
-    AllowHTTPURLs: goauth.Bool(false), // optional, default derived from Environment
+    TokenTTL:      time.Hour,                      // optional, default 1h
+    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(), // optional, default derived from Environment
 })
 ```
 
@@ -44,7 +44,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
 | `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only** — leaving it `nil` does not disable anything. The double-submit token sits on top of origin checking, and unlike the origin header it *can't* be spoofed, since it requires a cookie value only the server issued. |
 | `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Checked on every path that sets a password: register, reset, set-password, and change-password below. |
 | `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
-| `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. |
+| `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
 
 The double-submit token layer is **on in every deployment** — `New` creates a `CSRFTokenConfig` with the defaults shown whenever you leave the field `nil`, so passing the struct overrides those defaults rather than switching the layer on. Turn it off with `DisableCSRFToken: true`, which is meant for deployments with no browser clients at all. See [Configuration → `WithSecurity`](../configuration.mdx#withsecurity--required-allowedorigins) for the full treatment.
 
