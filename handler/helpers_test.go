@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/keyring"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 )
@@ -88,6 +89,18 @@ func (m *mockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned b
 	}
 	u.IsBanned = isBanned
 	u.BannedAt = bannedAt
+	return nil
+}
+
+func (m *mockUserRepo) SetTwoFactorEnabled(_ context.Context, userID string, enabled bool, updatedAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return nil
+	}
+	u.TwoFactorEnabled = enabled
+	u.UpdatedAt = updatedAt
 	return nil
 }
 
@@ -445,6 +458,67 @@ func (m *mockTokenRepo) MarkUsed(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *mockTokenRepo) GetByID(_ context.Context, id string) (*domain.VerificationToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.tokens {
+		if t.ID == id {
+			return t, nil
+		}
+	}
+	return nil, nil
+}
+
+func (m *mockTokenRepo) IncrementAttempts(_ context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.tokens {
+		if t.ID == id {
+			if t.Attempts >= maxAttemptsPerChallenge {
+				return false, nil
+			}
+			t.Attempts++
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *mockTokenRepo) MarkUsedIfUnderCap(_ context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, t := range m.tokens {
+		if t.ID == id {
+			if t.UsedAt != nil || t.Attempts >= maxAttemptsPerChallenge {
+				return false, nil
+			}
+			now := time.Now().UTC()
+			t.UsedAt = &now
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (m *mockTokenRepo) UpdateForResend(_ context.Context, id string, newHash string, newExpiresAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for hash, t := range m.tokens {
+		if t.ID == id {
+			if t.UsedAt != nil || t.ResendCount >= maxRefreshesPerChallenge || t.Attempts >= maxAttemptsPerChallenge {
+				return false, nil
+			}
+			delete(m.tokens, hash)
+			t.TokenHash = newHash
+			t.ExpiresAt = newExpiresAt
+			t.ResendCount++
+			m.tokens[newHash] = t
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (m *mockTokenRepo) DeleteExpired(_ context.Context) error {
 	return nil
 }
@@ -797,14 +871,15 @@ func (m *mockTxManager) WithTx(_ context.Context, fn func(ctx context.Context) e
 // ─── testHarness ─────────────────────────────────────────────────────
 
 type testHarness struct {
-	handler     *Handler
-	users       *mockUserRepo
-	sessions    *mockSessionRepo
-	tokens      *mockTokenRepo
-	mailer      *mockMailer
-	orgs        *mockOrgRepo
-	orgInvites  *mockOrgInviteRepo
-	providers   *mockProviderAccountRepo
+	handler    *Handler
+	users      *mockUserRepo
+	sessions   *mockSessionRepo
+	tokens     *mockTokenRepo
+	mailer     *mockMailer
+	orgs       *mockOrgRepo
+	orgInvites *mockOrgInviteRepo
+	providers  *mockProviderAccountRepo
+	twoFactor  *service.TwoFactorService
 }
 
 func newTestHarness() *testHarness {
@@ -817,26 +892,32 @@ func newTestHarness() *testHarness {
 	orgs := newMockOrgRepo()
 	orgInvites := newMockOrgInviteRepo()
 
+	keys := keyring.Derive([]byte("test-secret-at-least-32-bytes!!"))
+
 	cfg := service.Config{
-		AppName:            "TestApp",
-		EnableEmailPassword: true,
-		EnableOAuth:        true,
-		EnableInvite:       true,
-		InviteTTL:          7 * 24 * time.Hour,
-		SessionTTL:         30 * 24 * time.Hour,
-		TokenTTL:           1 * time.Hour,
-		BaseURL:            "http://localhost:3000",
-		URLValidator:       &port.URLValidator{AllowHTTP: true},
+		AppName:                      "TestApp",
+		EnableEmailPassword:          true,
+		EnableOAuth:                  true,
+		EnableInvite:                 true,
+		InviteTTL:                    7 * 24 * time.Hour,
+		SessionTTL:                   30 * 24 * time.Hour,
+		TokenTTL:                     1 * time.Hour,
+		BaseURL:                      "http://localhost:3000",
+		URLValidator:                 &port.URLValidator{AllowHTTP: true},
+		TwoFactorCodeTTL:             time.Hour,
+		TwoFactorBindingKey:          keys.TwoFactor,
+		TwoFactorChallengeCookieName: "_2fa_challenge",
 	}
 
 	sessCfg := service.DefaultSessionConfig()
 	sessCfg.Duration = 30 * 24 * time.Hour
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil)
+	twoFactorSvc := service.NewTwoFactorService(users, sessions, tokens, hasher, mailer, nil, cfg, sessSvc)
+	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, twoFactorSvc)
 	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
 	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
-	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, cfg, sessSvc)
+	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, cfg, sessSvc, twoFactorSvc)
 	providers := newMockProviderAccountRepo()
 	adminSvc := service.NewAdminService(users, sessions, providers, hasher, cfg, sessSvc)
 	orgSvc := service.NewOrgService(orgs, users, sessions, &mockTxManager{}, service.OrgServiceConfig{
@@ -861,7 +942,8 @@ func newTestHarness() *testHarness {
 		Admin:     adminSvc,
 		Org:       orgSvc,
 		OrgInvite: orgInviteSvc,
+		TwoFactor: twoFactorSvc,
 		AuditLog:  nil,
 	})
-	return &testHarness{handler: h, users: users, sessions: sessions, tokens: tokens, mailer: mailer, orgs: orgs, orgInvites: orgInvites, providers: providers}
+	return &testHarness{handler: h, users: users, sessions: sessions, tokens: tokens, mailer: mailer, orgs: orgs, orgInvites: orgInvites, providers: providers, twoFactor: twoFactorSvc}
 }

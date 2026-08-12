@@ -120,6 +120,85 @@ func NewLoginLockedEvent(email string, ip net.IP, ua string) Event {
 	}
 }
 
+// The 2FA builders key on userID as ActorID. Do not copy
+// NewEmailVerificationSentEvent's pattern of putting the email there — every
+// 2FA path resolves a real user before it publishes.
+
+func NewTwoFactorCodeSentEvent(userID string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventTwoFactorCodeSent,
+		Severity:  SeverityInfo,
+		Success:   true,
+		ActorID:   strPtr(userID),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func NewTwoFactorVerifiedEvent(userID, sessionID string, ip net.IP, ua string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventTwoFactorVerified,
+		Severity:  SeverityInfo,
+		Success:   true,
+		ActorID:   strPtr(userID),
+		SessionID: strPtr(sessionID),
+		IP:        ip,
+		UserAgent: ua,
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func NewTwoFactorFailedEvent(userID string, ip net.IP, ua string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventTwoFactorFailed,
+		Severity:  SeverityWarning,
+		Success:   false,
+		ActorID:   strPtr(userID),
+		IP:        ip,
+		UserAgent: ua,
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func NewTwoFactorEnabledEvent(userID string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventTwoFactorEnabled,
+		Severity:  SeverityInfo,
+		Success:   true,
+		ActorID:   strPtr(userID),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func NewTwoFactorDisabledEvent(userID string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventTwoFactorDisabled,
+		Severity:  SeverityInfo,
+		Success:   true,
+		ActorID:   strPtr(userID),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+// NewTwoFactorSuspiciousEvent marks an account crossing the failed-2FA notify
+// threshold. It records a condition, not a refusal — nothing is blocked.
+func NewTwoFactorSuspiciousEvent(userID string, ip net.IP, ua string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventTwoFactorSuspicious,
+		Severity:  SeverityWarning,
+		Success:   false,
+		ActorID:   strPtr(userID),
+		IP:        ip,
+		UserAgent: ua,
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
 func NewAdminLoginSuccessEvent(actorID, sessionID string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),

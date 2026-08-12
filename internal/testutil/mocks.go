@@ -94,6 +94,18 @@ func (m *MockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned b
 	return nil
 }
 
+func (m *MockUserRepo) SetTwoFactorEnabled(_ context.Context, userID string, enabled bool, updatedAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return nil
+	}
+	u.TwoFactorEnabled = enabled
+	u.UpdatedAt = updatedAt
+	return nil
+}
+
 func (m *MockUserRepo) UpdateLastLoginAt(_ context.Context, userID string, t time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -455,6 +467,58 @@ func (m *MockTokenRepo) MarkUsed(_ context.Context, id string) error {
 		t.UsedAt = &now
 	}
 	return nil
+}
+
+func (m *MockTokenRepo) GetByID(_ context.Context, id string) (*domain.VerificationToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[id]
+	if !ok {
+		return nil, nil
+	}
+	return t, nil
+}
+
+// IncrementAttempts, MarkUsedIfUnderCap and UpdateForResend mirror the guarded
+// SQL semantics: each checks its cap under the same lock that applies the
+// change and reports whether it landed. Modelling them as unconditional writes
+// would let tests pass while the real cap does nothing.
+func (m *MockTokenRepo) IncrementAttempts(_ context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[id]
+	if !ok || t.Attempts >= maxAttemptsPerChallenge {
+		return false, nil
+	}
+	t.Attempts++
+	return true, nil
+}
+
+func (m *MockTokenRepo) MarkUsedIfUnderCap(_ context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[id]
+	if !ok || t.UsedAt != nil || t.Attempts >= maxAttemptsPerChallenge {
+		return false, nil
+	}
+	now := time.Now().UTC()
+	t.UsedAt = &now
+	return true, nil
+}
+
+func (m *MockTokenRepo) UpdateForResend(_ context.Context, id string, newHash string, newExpiresAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[id]
+	if !ok || t.UsedAt != nil || t.ResendCount >= maxRefreshesPerChallenge || t.Attempts >= maxAttemptsPerChallenge {
+		return false, nil
+	}
+	delete(m.tokens, t.TokenHash)
+	t.TokenHash = newHash
+	t.ExpiresAt = newExpiresAt
+	t.ResendCount++
+	m.tokens[newHash] = t
+	return true, nil
 }
 
 func (m *MockTokenRepo) DeleteExpired(_ context.Context) error {

@@ -25,22 +25,26 @@ type emailTemplates struct {
 
 // templateFiles maps each email type to its base filename.
 var templateFiles = map[port.EmailTemplateType]string{
-	port.TemplatePasswordReset: "password_reset",
-	port.TemplateSetPassword:   "set_password",
-	port.TemplateVerification:  "verification",
-	port.TemplateInvite:        "invite",
-	port.TemplateOrgInvite:     "org_invite",
-	port.TemplateDeleteAccount: "delete_account",
+	port.TemplatePasswordReset:       "password_reset",
+	port.TemplateSetPassword:         "set_password",
+	port.TemplateVerification:        "verification",
+	port.TemplateInvite:              "invite",
+	port.TemplateOrgInvite:           "org_invite",
+	port.TemplateDeleteAccount:       "delete_account",
+	port.TemplateTwoFactor:           "two_factor",
+	port.TemplateTwoFactorSuspicious: "two_factor_suspicious",
 }
 
 // subjects holds the default subject line prefix for each email type.
 var subjects = map[port.EmailTemplateType]string{
-	port.TemplatePasswordReset: "Reset your password",
-	port.TemplateSetPassword:   "Set your password",
-	port.TemplateVerification:  "Verify your email",
-	port.TemplateInvite:        "You've been invited",
-	port.TemplateOrgInvite:     "Organization invitation",
-	port.TemplateDeleteAccount: "Delete your account",
+	port.TemplatePasswordReset:       "Reset your password",
+	port.TemplateSetPassword:         "Set your password",
+	port.TemplateVerification:        "Verify your email",
+	port.TemplateInvite:              "You've been invited",
+	port.TemplateOrgInvite:           "Organization invitation",
+	port.TemplateDeleteAccount:       "Delete your account",
+	port.TemplateTwoFactor:           "Your login code",
+	port.TemplateTwoFactorSuspicious: "Unusual sign-in activity",
 }
 
 // FormatDuration formats a time.Duration into a human-readable string.
@@ -176,6 +180,10 @@ func appNameFromData(data port.TemplateData) string {
 	case port.OrgInviteData:
 		return d.AppName
 	case port.DeleteAccountData:
+		return d.AppName
+	case port.TwoFactorData:
+		return d.AppName
+	case port.TwoFactorSuspiciousData:
 		return d.AppName
 	}
 	return ""

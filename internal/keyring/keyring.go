@@ -8,14 +8,16 @@ import (
 )
 
 type Keys struct {
-	CSRF     []byte
-	OAuthEnc []byte
+	CSRF      []byte
+	OAuthEnc  []byte
+	TwoFactor []byte
 }
 
 func Derive(secret []byte) Keys {
 	return Keys{
-		CSRF:     deriveKey(secret, []byte("goauth-csrf-signing-v1")),
-		OAuthEnc: deriveKey(secret, []byte("goauth-oauth-encryption-v1")),
+		CSRF:      deriveKey(secret, []byte("goauth-csrf-signing-v1")),
+		OAuthEnc:  deriveKey(secret, []byte("goauth-oauth-encryption-v1")),
+		TwoFactor: deriveKey(secret, []byte("goauth-2fa-binding-v1")),
 	}
 }
 

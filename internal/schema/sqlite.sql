@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     verified_at DATETIME,
     is_banned INTEGER NOT NULL DEFAULT 0,
     banned_at DATETIME,
+    two_factor_enabled INTEGER NOT NULL DEFAULT 0,
     org_owner_count INTEGER NOT NULL DEFAULT 0,
     last_login_at DATETIME,
     created_at DATETIME NOT NULL,
@@ -42,7 +43,10 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     type TEXT NOT NULL,
     expires_at DATETIME NOT NULL,
     used_at DATETIME,
-    code_verifier TEXT
+    code_verifier TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    resend_count INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS provider_accounts (

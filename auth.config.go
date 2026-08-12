@@ -187,6 +187,36 @@ type SecurityConfig struct {
 	// outside a dev environment, or Bool(false) to enforce https:// even in
 	// development.
 	AllowHTTPURLs *bool
+
+	// RequireEmail2FA makes email two-factor mandatory for every password
+	// login. Enable/Disable both reject while it is on, so users cannot opt
+	// out. OAuth logins are not covered — see docs/security.mdx.
+	RequireEmail2FA bool
+
+	// DefaultTwoFactorEnabled seeds User.TwoFactorEnabled at registration.
+	// Users can still opt out with Disable; use RequireEmail2FA for the
+	// mandatory case.
+	DefaultTwoFactorEnabled bool
+
+	// TwoFactorCodeTTL is how long a 2FA login code lives (default 5m).
+	// Deliberately shorter than VerificationCodeTTL: a 6-digit code has ~20
+	// fewer bits than the 8-char alphanumeric codes used elsewhere.
+	TwoFactorCodeTTL time.Duration
+
+	// DisableTwoFactorChallengeBinding turns off the challenge binding cookie,
+	// which otherwise ties a 2FA challenge to the browser that started it.
+	//
+	// As with DisableCSRFToken, the zero value keeps the protection on: this is
+	// spelled as "Disable" so that forgetting it is the secure outcome. Intended
+	// for the same consumers — a CLI or server-to-server API with no browser —
+	// where a mandatory cookie makes 2FA unusable. With it set, the challenge id
+	// alone identifies the challenge, so treat it as a secret and keep it out of
+	// logs.
+	DisableTwoFactorChallengeBinding bool
+
+	// TwoFactorChallengeCookieName overrides the binding cookie name
+	// (default "_2fa_challenge").
+	TwoFactorChallengeCookieName string
 }
 
 // ─── Top-level config ───────────────────────────────────────
@@ -231,6 +261,12 @@ type config struct {
 	allowHTTPURLs              bool  // resolved by applyDefaults — read this
 	rateLimit                  *ratelimit.Config
 	csrfToken                  *middleware.CSRFTokenConfig
+
+	requireEmail2FA                  bool
+	defaultTwoFactorEnabled          bool
+	twoFactorCodeTTL                 time.Duration
+	disableTwoFactorChallengeBinding bool
+	twoFactorChallengeCookieName     string
 
 	providers []port.OAuthProvider
 
@@ -356,14 +392,21 @@ func (c *config) validate() error {
 			)
 		}
 	}
-	if (c.registration.RequireEmailVerification || c.registration.EnableInvite) && c.mailer == nil && c.email == nil {
-		errs = append(errs, errors.New("email: Mailer or Email config required when RequireEmailVerification or EnableInvite is enabled"))
+	if (c.registration.RequireEmailVerification || c.registration.EnableInvite || c.requireEmail2FA || c.defaultTwoFactorEnabled) &&
+		c.mailer == nil && c.email == nil {
+		errs = append(errs, errors.New("email: Mailer or Email config required when RequireEmailVerification, EnableInvite, RequireEmail2FA, or DefaultTwoFactorEnabled is enabled"))
 	}
 	if c.registration.InviteTTL <= 0 {
 		errs = append(errs, errors.New("registration: invite_ttl must be positive"))
 	}
 	if c.registration.VerificationCodeTTL <= 0 {
 		errs = append(errs, errors.New("registration: verification_code_ttl must be positive"))
+	}
+	if c.twoFactorCodeTTL <= 0 {
+		errs = append(errs, errors.New("security: two_factor_code_ttl must be positive"))
+	}
+	if c.requireEmail2FA && !c.registration.EnableEmailPassword {
+		errs = append(errs, errors.New("security: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path"))
 	}
 	if c.registration.RequireEmailVerification && !c.registration.EnableEmailPassword && !c.registration.EnableOAuth {
 		errs = append(errs, errors.New("registration: RequireEmailVerification has no effect when both EnableEmailPassword and EnableOAuth are disabled"))
@@ -511,6 +554,12 @@ func (c *config) applyDefaults() {
 	}
 	if c.tokenTTL == 0 {
 		c.tokenTTL = 1 * time.Hour
+	}
+	if c.twoFactorCodeTTL == 0 {
+		c.twoFactorCodeTTL = 5 * time.Minute
+	}
+	if c.twoFactorChallengeCookieName == "" {
+		c.twoFactorChallengeCookieName = "_2fa_challenge"
 	}
 
 	if c.passwordPolicy == (domain.PasswordPolicy{}) {
@@ -682,6 +731,11 @@ func WithSecurity(cfg SecurityConfig) Option {
 		c.tokenTTL = cfg.TokenTTL
 		c.disableCSRFToken = cfg.DisableCSRFToken
 		c.allowHTTPURLsOpt = cfg.AllowHTTPURLs
+		c.requireEmail2FA = cfg.RequireEmail2FA
+		c.defaultTwoFactorEnabled = cfg.DefaultTwoFactorEnabled
+		c.twoFactorCodeTTL = cfg.TwoFactorCodeTTL
+		c.disableTwoFactorChallengeBinding = cfg.DisableTwoFactorChallengeBinding
+		c.twoFactorChallengeCookieName = cfg.TwoFactorChallengeCookieName
 	}
 }
 

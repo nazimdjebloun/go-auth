@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     verified_at DATETIME,
     is_banned BOOLEAN NOT NULL DEFAULT false,
     banned_at DATETIME,
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     org_owner_count INT NOT NULL DEFAULT 0,
@@ -81,6 +82,9 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     expires_at DATETIME NOT NULL,
     used_at DATETIME,
     code_verifier TEXT,
+    attempts INT NOT NULL DEFAULT 0,
+    resend_count INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 

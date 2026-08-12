@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unusual Sign-In Activity</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="padding:40px 48px;">
+              <h1 style="margin:0 0 24px;font-size:24px;font-weight:600;color:#1a1a1a;">Unusual Sign-In Activity</h1>
+              <p style="margin:0 0 16px;font-size:16px;line-height:24px;color:#4a4a4a;">
+                We've seen <strong>{{.AttemptCount}}</strong> incorrect login codes entered for your {{.AppName}} account recently. This can happen if someone else has your password and is trying to guess the code sent to your email.
+              </p>
+              <p style="margin:0 0 16px;font-size:16px;line-height:24px;color:#4a4a4a;">
+                Your account has not been accessed. No further action is required if this was you.
+              </p>
+              <table cellpadding="0" cellspacing="0" style="width:100%;margin:8px 0 24px;">
+                <tr>
+                  <td align="center">
+                    <a href="{{.ResetPasswordURL}}" style="display:inline-block;padding:12px 24px;background-color:#1a1a1a;color:#ffffff;text-decoration:none;border-radius:6px;font-size:16px;font-weight:600;">Reset your password</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0;font-size:14px;line-height:20px;color:#999999;">
+                If this was you, you can safely ignore this email.
+              </p>
+            </td>
+          </tr>
+        </table>
+        <p style="margin:24px 0 0;font-size:12px;line-height:16px;color:#999999;">
+          {{.AppName}}
+        </p>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

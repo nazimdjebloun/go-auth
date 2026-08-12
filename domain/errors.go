@@ -63,4 +63,15 @@ var (
 	ErrOrgInviteEmailMismatch   = NewError("org_invite_email_mismatch", "Authenticated email does not match invite recipient", http.StatusBadRequest)
 	ErrOrgMetadataTooLarge      = NewError("org_metadata_too_large", "Organization metadata exceeds 16KB limit", http.StatusBadRequest)
 	ErrMethodDisabled           = NewError("method_disabled", "This registration method is not available", http.StatusMethodNotAllowed)
+
+	ErrTwoFactorCodeInvalid     = NewError("two_factor_code_invalid", "Invalid two-factor code", http.StatusBadRequest)
+	ErrTwoFactorCodeExpired     = NewError("two_factor_code_expired", "Two-factor code has expired", http.StatusGone)
+	ErrTwoFactorCodeAlreadyUsed = NewError("two_factor_code_already_used", "This two-factor code has already been used", http.StatusGone)
+	ErrTwoFactorAlreadyEnforced = NewError("two_factor_already_enforced", "Two-factor authentication is required and cannot be changed", http.StatusConflict)
+	// Deliberately not ErrPasswordRequired: that one's message is specific to
+	// account deletion, and generalizing it would change that response body.
+	// The code must differ too, not just the variable — "password_required" is
+	// ErrPasswordRequired's code, and a shared code means a client matching on
+	// err.Code can't tell the two apart even though the messages differ.
+	ErrTwoFactorPasswordRequired = NewError("two_factor_password_required", "Password is required to change two-factor settings", http.StatusBadRequest)
 )

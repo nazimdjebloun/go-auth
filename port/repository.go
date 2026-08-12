@@ -30,6 +30,7 @@ type UserRepository interface {
 	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, tokenID string) error
 	SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error
 	UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error
+	SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error
 }
 
 type UpdateRefreshInput struct {
@@ -100,11 +101,22 @@ type SessionRepository interface {
 type TokenRepository interface {
 	Create(ctx context.Context, t *domain.VerificationToken) error
 	GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error)
+	GetByID(ctx context.Context, id string) (*domain.VerificationToken, error)
 	GetLastByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error)
 	HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error)
 	MarkUsed(ctx context.Context, id string) error
 	DeleteExpired(ctx context.Context) error
 	DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error
+
+	// IncrementAttempts, MarkUsedIfUnderCap and UpdateForResend are guarded
+	// updates: each applies its cap in the WHERE clause and reports whether the
+	// row was actually touched. Read-then-write would be a TOCTOU — concurrent
+	// requests all observe the same pre-increment count and all pass the cap
+	// check before any write lands. Returning bool rather than the new count
+	// also keeps them driver-portable: MySQL has no UPDATE...RETURNING.
+	IncrementAttempts(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error)
+	MarkUsedIfUnderCap(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error)
+	UpdateForResend(ctx context.Context, id string, newHash string, newExpiresAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error)
 }
 
 type InviteFilter struct {

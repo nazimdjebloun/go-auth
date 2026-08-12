@@ -67,6 +67,12 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 		return nil, domain.NewError("code_invalid", "Invalid verification code", 400)
 	}
 
+	// Not attempt-capped, and it cannot be with this lookup: VerifyEmail
+	// resolves the token by hash, so a wrong code finds no row and there is
+	// nothing to count against. Per-token attempt capping requires the client
+	// to name the token it is guessing at — which is precisely why the 2FA
+	// flow exposes a challenge id. Brute-force resistance here rests on the
+	// 8-char alphanumeric space (32^8) plus the per-IP rate limit.
 	user, err := s.users.GetByID(ctx, *token.UserID)
 	if err != nil || user == nil {
 		return nil, domain.ErrUserNotFound

@@ -20,6 +20,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/nazimdjebloun/go-auth/ratelimit"
 	"github.com/nazimdjebloun/go-auth/service"
 	"github.com/nazimdjebloun/go-auth/sqlstore"
 	"github.com/nazimdjebloun/go-auth/token"
@@ -56,6 +57,7 @@ type Services struct {
 	OAuth     *service.OAuthService
 	Org       *service.OrgService
 	OrgInvite *service.OrgInviteService
+	TwoFactor *service.TwoFactorService
 	AuditLog  port.AuditLogRepository
 }
 
@@ -78,6 +80,10 @@ type HandlerGroup struct {
 	RevokeManySessions       http.HandlerFunc
 	RevokeAllSessions        http.HandlerFunc
 	InviteRegister           http.HandlerFunc
+	VerifyTwoFactor          http.HandlerFunc
+	ResendTwoFactor          http.HandlerFunc
+	Enable2FA                http.HandlerFunc
+	Disable2FA               http.HandlerFunc
 	CheckSession             http.HandlerFunc
 	RefreshToken             http.HandlerFunc
 	GetMe                    http.HandlerFunc
@@ -333,6 +339,13 @@ func New(config config) (*Auth, error) {
 		URLValidator:               urlValidator,
 		Logger:                     config.logger,
 		Audit:                      auditPub,
+
+		RequireEmail2FA:                  config.requireEmail2FA,
+		DefaultTwoFactorEnabled:          config.defaultTwoFactorEnabled,
+		TwoFactorCodeTTL:                 config.twoFactorCodeTTL,
+		TwoFactorBindingKey:              keys.TwoFactor,
+		DisableTwoFactorChallengeBinding: config.disableTwoFactorChallengeBinding,
+		TwoFactorChallengeCookieName:     config.twoFactorChallengeCookieName,
 	}
 
 	sessionCfg := service.DefaultSessionConfig()
@@ -354,9 +367,19 @@ func New(config config) (*Auth, error) {
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
 
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, serviceCfg)
-	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc)
+
+	// The 2FA failure counter shares the rate-limit Store so it inherits
+	// whatever backend the consumer configured. A nil store disables the
+	// notification only — it never gates verification.
+	var twoFactorStore ratelimit.Store
+	if config.rateLimit != nil {
+		twoFactorStore = config.rateLimit.Store
+	}
+	twoFactorSvc := service.NewTwoFactorService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
+
+	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
-	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc)
+	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, twoFactorSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, providerAccountRepo, hasherImpl, serviceCfg, sessSvc)
 
 	// Attach logger to session repository
@@ -439,6 +462,7 @@ func New(config config) (*Auth, error) {
 		OAuth:     oauthSvc,
 		Org:       orgSvc,
 		OrgInvite: orgInviteSvc,
+		TwoFactor: twoFactorSvc,
 		AuditLog:  auditLogRepo,
 	}, config.logger, config.csrfToken)
 
@@ -503,6 +527,7 @@ func New(config config) (*Auth, error) {
 			OAuth:     oauthSvc,
 			Org:       orgSvc,
 			OrgInvite: orgInviteSvc,
+			TwoFactor: twoFactorSvc,
 			AuditLog:  auditLogRepo,
 		},
 		Handlers: HandlerGroup{
@@ -526,13 +551,20 @@ func New(config config) (*Auth, error) {
 			RevokeManySessions:       corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeManySessions))))).ServeHTTP,
 			RevokeAllSessions:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RevokeAllSessions))))).ServeHTTP,
 			InviteRegister:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.InviteRegister))))).ServeHTTP,
-			GetInviteInfo:            corsMW(http.HandlerFunc(h.GetInviteInfo)).ServeHTTP,
-			GetMe:                    corsMW(authMW(http.HandlerFunc(h.GetMe))).ServeHTTP,
-			CheckSession:             corsMW(http.HandlerFunc(h.CheckAuth)).ServeHTTP,
-			RefreshToken:             corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.RefreshToken))))).ServeHTTP,
-			ChangeName:               corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangeName))))).ServeHTTP,
-			DeleteAccount:            corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))))).ServeHTTP,
-			RequestDeleteAccount:     corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RequestDeleteAccount)))))).ServeHTTP,
+			// VerifyTwoFactor/ResendTwoFactor are public — they complete a login
+			// already in progress, not an authenticated action — but rate-limited
+			// and CSRF-checked like Login/Register.
+			VerifyTwoFactor:      corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.VerifyTwoFactor))))).ServeHTTP,
+			ResendTwoFactor:      corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendTwoFactor))))).ServeHTTP,
+			Enable2FA:            corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Enable2FA)))))).ServeHTTP,
+			Disable2FA:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Disable2FA)))))).ServeHTTP,
+			GetInviteInfo:        corsMW(http.HandlerFunc(h.GetInviteInfo)).ServeHTTP,
+			GetMe:                corsMW(authMW(http.HandlerFunc(h.GetMe))).ServeHTTP,
+			CheckSession:         corsMW(http.HandlerFunc(h.CheckAuth)).ServeHTTP,
+			RefreshToken:         corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.RefreshToken))))).ServeHTTP,
+			ChangeName:           corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangeName))))).ServeHTTP,
+			DeleteAccount:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))))).ServeHTTP,
+			RequestDeleteAccount: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RequestDeleteAccount)))))).ServeHTTP,
 			// Confirm delete requires an authenticated session (user ID from context only).
 			ConfirmDeleteAccount: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ConfirmDeleteAccount)))))).ServeHTTP,
 			// Admin endpoints: CORS outer, then rate limit, then auth + admin role check.
@@ -652,6 +684,10 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		handle("GET /auth/invite/info", a.Handlers.GetInviteInfo)
 		handle("POST /auth/invite/register", a.Handlers.InviteRegister)
 	}
+	handle("POST /auth/2fa/verify", a.Handlers.VerifyTwoFactor)
+	handle("POST /auth/2fa/resend", a.Handlers.ResendTwoFactor)
+	handle("POST /auth/2fa/enable", a.Handlers.Enable2FA)
+	handle("POST /auth/2fa/disable", a.Handlers.Disable2FA)
 	handle("POST /auth/logout", a.Handlers.Logout)
 	handle("POST /auth/signout", a.Handlers.Logout)
 	handle("GET /auth/me", a.Handlers.GetMe)

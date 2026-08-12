@@ -19,10 +19,11 @@ type InviteService struct {
 	gen        port.TokenGenerator
 	mailer     port.Mailer
 	templates  port.TemplateProvider
-	config     Config
-	sessionSvc *SessionService
-	log        *slog.Logger
-	audit      AuditPublisher
+	config       Config
+	sessionSvc   *SessionService
+	twoFactorSvc *TwoFactorService
+	log          *slog.Logger
+	audit        AuditPublisher
 }
 
 func NewInviteService(
@@ -34,6 +35,7 @@ func NewInviteService(
 	mailer port.Mailer,
 	config Config,
 	sessionSvc *SessionService,
+	twoFactorSvc *TwoFactorService,
 ) *InviteService {
 	if config.Logger == nil {
 		config.Logger = slog.Default()
@@ -46,8 +48,9 @@ func NewInviteService(
 		gen:        gen,
 		mailer:     mailer,
 		templates:  resolveTemplates(config.TemplateProvider, config.URLValidator),
-		config:     config,
-		sessionSvc: sessionSvc,
+		config:       config,
+		sessionSvc:   sessionSvc,
+		twoFactorSvc: twoFactorSvc,
 		log:        config.Logger,
 		audit:      config.Audit,
 	}
@@ -170,15 +173,19 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}
 
 	now := time.Now().UTC()
+	// Invite registration is an email/password registration, so it seeds and
+	// gates exactly like Register. Skipping the seed would leave every invited
+	// user with 2FA off in a default-on deployment.
 	user := &domain.User{
-		ID:           generateID(),
-		Email:        invite.Email,
-		PasswordHash: &hash,
-		Name:         input.Name,
-		Role:         domain.RoleUser,
-		IsVerified:   true,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:               generateID(),
+		Email:            invite.Email,
+		PasswordHash:     &hash,
+		Name:             input.Name,
+		Role:             domain.RoleUser,
+		IsVerified:       true,
+		TwoFactorEnabled: s.config.DefaultTwoFactorEnabled,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
@@ -190,6 +197,29 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	now2 := time.Now().UTC()
 	invite.AcceptedAt = &now2
 	s.invites.Update(ctx, invite)
+
+	// Same rationale as Register: gate on the global flag only, not the
+	// effective check — a code mailed to the address that just accepted the
+	// invite proves nothing here. The invite is already claimed above, so a
+	// gated response does not strand it.
+	if s.config.RequireEmail2FA && s.twoFactorSvc != nil {
+		challenge, aerr := s.twoFactorSvc.Challenge(ctx, user.ID)
+		if aerr != nil {
+			return nil, aerr
+		}
+		s.log.Info("invite registered, two-factor required", "user_id", user.ID, "invite_id", invite.ID)
+		if s.audit != nil {
+			s.audit.Publish(ctx, audit.NewUserRegisteredEvent(user.ID, nil, ""))
+		}
+		return &CompleteInviteResult{
+			User:               user,
+			RequiresTwoFactor:  true,
+			CodeSent:           challenge.Sent,
+			TwoFactorChallenge: challenge.ID,
+			TwoFactorExpiresAt: challenge.ExpiresAt,
+			bindingToken:       challenge.BindingToken,
+		}, nil
+	}
 
 	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {

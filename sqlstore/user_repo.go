@@ -35,7 +35,8 @@ func scanRow(s scanner) (*domain.User, error) {
 	var lastLoginAt sql.NullTime
 	if err := s.Scan(
 		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
-		&u.IsVerified, &verifiedAt, &u.IsBanned, &bannedAt, &u.OrgOwnerCount, &lastLoginAt, &u.CreatedAt, &u.UpdatedAt,
+		&u.IsVerified, &verifiedAt, &u.IsBanned, &bannedAt, &u.TwoFactorEnabled,
+		&u.OrgOwnerCount, &lastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
@@ -54,7 +55,8 @@ func scanRow(s scanner) (*domain.User, error) {
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, userCreateQuery,
 		user.ID, user.Email, user.PasswordHash, user.Name, user.Role,
-		user.IsVerified, user.VerifiedAt, user.IsBanned, user.OrgOwnerCount, user.CreatedAt, user.UpdatedAt)
+		user.IsVerified, user.VerifiedAt, user.IsBanned, user.TwoFactorEnabled,
+		user.OrgOwnerCount, user.CreatedAt, user.UpdatedAt)
 	return err
 }
 
@@ -90,6 +92,11 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 func (r *UserRepository) SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error {
 	_, err := r.db.ExecContext(ctx, userBanQuery,
 		isBanned, bannedAt, updatedAt, userID)
+	return err
+}
+
+func (r *UserRepository) SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, userSetTwoFactorQuery, enabled, updatedAt, userID)
 	return err
 }
 

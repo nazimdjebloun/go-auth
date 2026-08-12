@@ -466,6 +466,10 @@ func TestRefreshToken_ExpiredRefreshCookie(t *testing.T) {
 	}
 }
 
+// AdminLogin always requires a second factor when a TwoFactorService is
+// wired in (unconditionally, independent of RequireEmail2FA/per-user flags —
+// see AuthService.AdminLogin), so this exercises the full challenge+verify
+// round trip rather than expecting a session directly from AdminLogin.
 func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
 	th := newTestHarness()
 	createAdminUser(t, th, "admin@example.com", "Passw0rd!")
@@ -481,26 +485,17 @@ func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 
-	var sessionCookie *http.Cookie
-	for _, c := range res.Cookies() {
-		if c.Name == "goauth_session" {
-			sessionCookie = c
-			break
-		}
-	}
-	if sessionCookie == nil {
-		t.Fatal("expected goauth_session cookie after admin login")
-	}
-	if sessionCookie.Value == "" {
-		t.Error("expected non-empty cookie value")
-	}
-
 	var resp map[string]any
 	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if tok, ok := resp["sessionToken"]; ok && tok != "" {
-		t.Errorf("sessionToken must not leak in JSON response body, got %v", tok)
+	if resp["requiresTwoFactor"] != true {
+		t.Fatalf("expected admin login to require two-factor, got %v", resp)
+	}
+	for _, c := range res.Cookies() {
+		if c.Name == "goauth_session" {
+			t.Fatal("must not set goauth_session before the second factor is verified")
+		}
 	}
 	user, ok := resp["user"].(map[string]any)
 	if !ok {
@@ -508,6 +503,54 @@ func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
 	}
 	if user["role"] != "admin" {
 		t.Errorf("expected admin role in response, got %v", user["role"])
+	}
+	challengeID, _ := resp["challengeId"].(string)
+	if challengeID == "" {
+		t.Fatal("expected a challengeId")
+	}
+	var bindingCookie *http.Cookie
+	for _, c := range res.Cookies() {
+		if c.Name == "_2fa_challenge" {
+			bindingCookie = c
+		}
+	}
+	if bindingCookie == nil {
+		t.Fatal("expected a challenge binding cookie")
+	}
+
+	code := extractCode(t, th.mailer.Calls[len(th.mailer.Calls)-1].Text)
+	verifyBody := `{"challengeId":"` + challengeID + `","code":"` + code + `"}`
+	verifyReq := httptest.NewRequest(http.MethodPost, "/auth/2fa/verify", strings.NewReader(verifyBody))
+	verifyReq.Header.Set("Content-Type", "application/json")
+	verifyReq.AddCookie(bindingCookie)
+	verifyW := httptest.NewRecorder()
+	th.handler.VerifyTwoFactor(verifyW, verifyReq)
+
+	verifyRes := verifyW.Result()
+	if verifyRes.StatusCode != http.StatusOK {
+		t.Fatalf("expected verify to succeed, got %d", verifyRes.StatusCode)
+	}
+
+	var sessionCookie *http.Cookie
+	for _, c := range verifyRes.Cookies() {
+		if c.Name == "goauth_session" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("expected goauth_session cookie after completing admin two-factor verification")
+	}
+	if sessionCookie.Value == "" {
+		t.Error("expected non-empty cookie value")
+	}
+
+	var verifyResp map[string]any
+	if err := json.NewDecoder(verifyRes.Body).Decode(&verifyResp); err != nil {
+		t.Fatal(err)
+	}
+	if tok, ok := verifyResp["sessionToken"]; ok && tok != "" {
+		t.Errorf("sessionToken must not leak in JSON response body, got %v", tok)
 	}
 }
 

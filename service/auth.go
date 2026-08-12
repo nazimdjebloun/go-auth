@@ -30,8 +30,9 @@ type AuthService struct {
 	log        *slog.Logger
 	audit      AuditPublisher
 
-	sessionSvc *SessionService
-	verifySvc  *VerificationService
+	sessionSvc   *SessionService
+	verifySvc    *VerificationService
+	twoFactorSvc *TwoFactorService
 }
 
 type Config struct {
@@ -52,6 +53,21 @@ type Config struct {
 	URLValidator               *port.URLValidator
 	Logger                     *slog.Logger
 	Audit                      AuditPublisher
+
+	RequireEmail2FA         bool
+	DefaultTwoFactorEnabled bool
+	TwoFactorCodeTTL        time.Duration
+
+	// TwoFactorBindingKey signs 2FA challenge binding tokens. It is a
+	// purpose-derived subkey from internal/keyring, never the raw app secret:
+	// the keyring exists so each consumer of the secret gets its own key under
+	// a versioned info string, the way CSRF signing already does. Empty means
+	// no key was derived, and the signer fails closed rather than signing with
+	// nothing.
+	TwoFactorBindingKey []byte
+
+	DisableTwoFactorChallengeBinding bool
+	TwoFactorChallengeCookieName     string
 }
 
 type AuditPublisher interface {
@@ -68,6 +84,7 @@ func NewAuthService(
 	config Config,
 	sessionSvc *SessionService,
 	verifySvc *VerificationService,
+	twoFactorSvc *TwoFactorService,
 ) *AuthService {
 	if config.PasswordPolicy.MinLength == 0 {
 		config.PasswordPolicy.MinLength = 8
@@ -89,9 +106,17 @@ func NewAuthService(
 		config:     config,
 		log:        config.Logger,
 		audit:      config.Audit,
-		sessionSvc: sessionSvc,
-		verifySvc:  verifySvc,
+		sessionSvc:   sessionSvc,
+		verifySvc:    verifySvc,
+		twoFactorSvc: twoFactorSvc,
 	}
+}
+
+// enforceTwoFactor reports whether this login must stop for a second factor.
+// Nil-guarded: a consumer wiring AuthService directly without the 2FA service
+// gets today's behaviour rather than a panic.
+func (s *AuthService) enforceTwoFactor(user *domain.User) bool {
+	return s.twoFactorSvc != nil && s.twoFactorSvc.Enforce(user)
 }
 
 func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {
@@ -128,14 +153,15 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	now := time.Now().UTC()
 
 	user := &domain.User{
-		ID:           uuid.New().String(),
-		Email:        input.Email,
-		PasswordHash: &hash,
-		Name:         input.Name,
-		Role:         domain.RoleUser,
-		IsBanned:     false,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:               uuid.New().String(),
+		Email:            input.Email,
+		PasswordHash:     &hash,
+		Name:             input.Name,
+		Role:             domain.RoleUser,
+		IsBanned:         false,
+		TwoFactorEnabled: s.config.DefaultTwoFactorEnabled,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
@@ -156,6 +182,26 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		return &RegisterResult{
 			User:                 user,
 			RequiresVerification: true,
+		}, nil
+	}
+
+	// Registration gates on the global flag only, not on the effective check.
+	// With DefaultTwoFactorEnabled the new account already has the flag set,
+	// yet still gets a session here — the code would go to the address they
+	// just typed in, so it proves nothing at registration time. The gate first
+	// applies on their next login. Intentional; do not "fix" to enforceTwoFactor.
+	if s.config.RequireEmail2FA && s.twoFactorSvc != nil {
+		challenge, aerr := s.twoFactorSvc.Challenge(ctx, user.ID)
+		if aerr != nil {
+			return nil, aerr
+		}
+		return &RegisterResult{
+			User:               user,
+			RequiresTwoFactor:  true,
+			CodeSent:           challenge.Sent,
+			TwoFactorChallenge: challenge.ID,
+			TwoFactorExpiresAt: challenge.ExpiresAt,
+			bindingToken:       challenge.BindingToken,
 		}, nil
 	}
 
@@ -216,6 +262,22 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		}, nil
 	}
 
+	// Ordering: banned → email-verify → password → 2FA → session.
+	if s.enforceTwoFactor(user) {
+		challenge, aerr := s.twoFactorSvc.Challenge(ctx, user.ID)
+		if aerr != nil {
+			return nil, aerr
+		}
+		return &LoginResult{
+			User:               user,
+			RequiresTwoFactor:  true,
+			CodeSent:           challenge.Sent,
+			TwoFactorChallenge: challenge.ID,
+			TwoFactorExpiresAt: challenge.ExpiresAt,
+			bindingToken:       challenge.BindingToken,
+		}, nil
+	}
+
 	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
@@ -257,6 +319,33 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 			s.audit.Publish(ctx, audit.NewAdminLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent))
 		}
 		return nil, domain.ErrInvalidCredentials
+	}
+
+	// /auth/admin/login always requires a second factor. Not
+	// s.enforceTwoFactor: this is unconditional, independent of
+	// RequireEmail2FA and of the user's own TwoFactorEnabled flag, and there is
+	// deliberately no config switch to turn it off. Applied after the role
+	// rejection above so the admin-vs-not distinction still leaks nothing.
+	//
+	// Scope note: this gates the endpoint, not the account. An admin signing in
+	// through /auth/login gets the ordinary check, and the session issued there
+	// carries role:admin just the same — so this raises the bar on the admin
+	// route specifically rather than guaranteeing every admin session cleared a
+	// second factor. Pair it with RequireEmail2FA, or with the admin enabling
+	// 2FA on their own account, if you want that stronger property.
+	if s.twoFactorSvc != nil {
+		challenge, aerr := s.twoFactorSvc.Challenge(ctx, user.ID)
+		if aerr != nil {
+			return nil, aerr
+		}
+		return &LoginResult{
+			User:               user,
+			RequiresTwoFactor:  true,
+			CodeSent:           challenge.Sent,
+			TwoFactorChallenge: challenge.ID,
+			TwoFactorExpiresAt: challenge.ExpiresAt,
+			bindingToken:       challenge.BindingToken,
+		}, nil
 	}
 
 	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)

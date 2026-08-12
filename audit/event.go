@@ -25,6 +25,14 @@ const (
 	EventEmailVerificationSent EventType = "email.verification.sent"
 	EventEmailVerified        EventType = "email.verified"
 
+	// Two-factor
+	EventTwoFactorCodeSent   EventType = "2fa.code.sent"
+	EventTwoFactorVerified   EventType = "2fa.verified"
+	EventTwoFactorFailed     EventType = "2fa.failed"
+	EventTwoFactorEnabled    EventType = "2fa.enabled"
+	EventTwoFactorDisabled   EventType = "2fa.disabled"
+	EventTwoFactorSuspicious EventType = "2fa.suspicious"
+
 	// Password
 	EventPasswordChanged      EventType = "password.changed"
 	EventPasswordResetRequest EventType = "password.reset.requested"

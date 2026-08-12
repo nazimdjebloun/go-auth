@@ -10,19 +10,20 @@ const (
 )
 
 type User struct {
-	ID            string     `json:"id"`
-	Email         string     `json:"email"`
-	PasswordHash  *string    `json:"-"`
-	Name          string     `json:"name"`
-	Role          Role       `json:"role"`
-	IsVerified    bool       `json:"isVerified"`
-	VerifiedAt    *time.Time `json:"verifiedAt,omitempty"`
-	IsBanned      bool       `json:"isBanned"`
-	BannedAt      *time.Time `json:"bannedAt,omitempty"`
-	LastLoginAt    *time.Time `json:"lastLoginAt,omitempty"`
-	OrgOwnerCount int        `json:"orgOwnerCount"`
-	CreatedAt     time.Time  `json:"createdAt"`
-	UpdatedAt     time.Time  `json:"updatedAt"`
+	ID               string     `json:"id"`
+	Email            string     `json:"email"`
+	PasswordHash     *string    `json:"-"`
+	Name             string     `json:"name"`
+	Role             Role       `json:"role"`
+	IsVerified       bool       `json:"isVerified"`
+	VerifiedAt       *time.Time `json:"verifiedAt,omitempty"`
+	IsBanned         bool       `json:"isBanned"`
+	BannedAt         *time.Time `json:"bannedAt,omitempty"`
+	TwoFactorEnabled bool       `json:"twoFactorEnabled"`
+	LastLoginAt      *time.Time `json:"lastLoginAt,omitempty"`
+	OrgOwnerCount    int        `json:"orgOwnerCount"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
 }
 
 func (u *User) HasPassword() bool {
@@ -38,6 +39,7 @@ const (
 	TokenInviteVerify TokenType = "invite_verify"
 	TokenOAuthState   TokenType = "oauth_state"
 	TokenDeleteAccount TokenType = "delete_account"
+	TokenTwoFactor    TokenType = "2fa_login"
 )
 
 type VerificationToken struct {
@@ -50,6 +52,12 @@ type VerificationToken struct {
 	UsedAt       *time.Time `json:"usedAt,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	CodeVerifier *string    `json:"-"` // PKCE code verifier for OAuth state tokens
+
+	// Attempts and ResendCount are per-token (per challenge lineage) counters
+	// used by the 2FA login flow. They stay on this row across a resend, which
+	// is what stops a resend from handing out a fresh guess budget.
+	Attempts    int `json:"-"`
+	ResendCount int `json:"-"`
 }
 
 type InviteStatus string

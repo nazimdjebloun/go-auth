@@ -1,8 +1,23 @@
 package service
 
 import (
+	"time"
+
 	"github.com/nazimdjebloun/go-auth/domain"
 )
+
+// ChallengeResult describes a pending 2FA challenge.
+//
+// Sent is false when an existing, still-usable challenge was reused rather than
+// a new code mailed — the caller gets the same ID back and no second email.
+// BindingToken is the HMAC that ties the challenge to the client that started
+// it; it is empty when challenge binding is disabled.
+type ChallengeResult struct {
+	ID           string
+	Sent         bool
+	ExpiresAt    time.Time
+	BindingToken string
+}
 
 type RegisterInput struct {
 	Email     string
@@ -23,7 +38,21 @@ type RegisterResult struct {
 	SessionToken         string          `json:"sessionToken,omitempty"`
 	RefreshToken         string          `json:"refreshToken,omitempty"`
 	RequiresVerification bool            `json:"requiresVerification,omitempty"`
+
+	RequiresTwoFactor  bool      `json:"requiresTwoFactor,omitempty"`
+	CodeSent           bool      `json:"codeSent,omitempty"`
+	TwoFactorChallenge string    `json:"challengeId,omitempty"`
+	TwoFactorExpiresAt time.Time `json:"twoFactorExpiresAt,omitempty"`
+
+	// bindingToken is deliberately unexported: it must reach the client as a
+	// cookie set by the handler, never as a field in the JSON body, or it
+	// would leak alongside the challenge id it is meant to be separate from.
+	bindingToken string
 }
+
+// BindingToken returns the challenge binding token for the handler to set as a
+// cookie. Not serialized — see the field comment.
+func (r *RegisterResult) BindingToken() string { return r.bindingToken }
 
 type LoginInput struct {
 	Email     string
@@ -39,7 +68,18 @@ type LoginResult struct {
 	SessionToken         string          `json:"sessionToken,omitempty"`
 	RefreshToken         string          `json:"refreshToken,omitempty"`
 	RequiresVerification bool            `json:"requiresVerification,omitempty"`
+
+	RequiresTwoFactor  bool      `json:"requiresTwoFactor,omitempty"`
+	CodeSent           bool      `json:"codeSent,omitempty"`
+	TwoFactorChallenge string    `json:"challengeId,omitempty"`
+	TwoFactorExpiresAt time.Time `json:"twoFactorExpiresAt,omitempty"`
+
+	bindingToken string // see RegisterResult.bindingToken
 }
+
+// BindingToken returns the challenge binding token for the handler to set as a
+// cookie. Not serialized — see RegisterResult.bindingToken.
+func (r *LoginResult) BindingToken() string { return r.bindingToken }
 
 type CompleteInviteInput struct {
 	Code            string
@@ -55,7 +95,18 @@ type CompleteInviteResult struct {
 	Session      *domain.Session `json:"session,omitempty"`
 	SessionToken string          `json:"sessionToken,omitempty"`
 	RefreshToken string          `json:"refreshToken,omitempty"`
+
+	RequiresTwoFactor  bool      `json:"requiresTwoFactor,omitempty"`
+	CodeSent           bool      `json:"codeSent,omitempty"`
+	TwoFactorChallenge string    `json:"challengeId,omitempty"`
+	TwoFactorExpiresAt time.Time `json:"twoFactorExpiresAt,omitempty"`
+
+	bindingToken string // see RegisterResult.bindingToken
 }
+
+// BindingToken returns the challenge binding token for the handler to set as a
+// cookie. Not serialized — see RegisterResult.bindingToken.
+func (r *CompleteInviteResult) BindingToken() string { return r.bindingToken }
 
 type ForgotPasswordInput struct {
 	Email string

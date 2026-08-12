@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     verified_at TIMESTAMPTZ,
     is_banned BOOLEAN NOT NULL DEFAULT false,
     banned_at TIMESTAMPTZ,
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     org_owner_count INT NOT NULL DEFAULT 0,
@@ -73,10 +74,13 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
     token_hash TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account')),
+    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account', '2fa_login')),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
-    code_verifier TEXT
+    code_verifier TEXT,
+    attempts INT NOT NULL DEFAULT 0,
+    resend_count INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS provider_accounts (

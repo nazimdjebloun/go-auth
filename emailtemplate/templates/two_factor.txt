@@ -1,0 +1,9 @@
+Your Login Code
+
+Use the code below to finish signing in to {{.AppName}}.
+
+Your code: {{.Code}}
+
+This code expires in {{formatDuration .ExpiresIn}}.
+
+If you did not try to sign in, you can safely ignore this email — your password was not used to access your account.

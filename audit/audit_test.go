@@ -451,6 +451,8 @@ func TestEventTypes_NoDuplicates(t *testing.T) {
 		EventLoginSuccess, EventLoginFailed, EventLoginLocked, EventLogout,
 		EventUserRegistered,
 		EventEmailVerificationSent, EventEmailVerified,
+		EventTwoFactorCodeSent, EventTwoFactorVerified, EventTwoFactorFailed,
+		EventTwoFactorEnabled, EventTwoFactorDisabled, EventTwoFactorSuspicious,
 		EventPasswordChanged, EventPasswordResetRequest, EventPasswordResetDone,
 		EventSessionCreated, EventSessionRefreshed, EventSessionRevoked, EventSessionRevokedAll,
 		EventOAuthLogin, EventOAuthLinked, EventOAuthUnlinked,

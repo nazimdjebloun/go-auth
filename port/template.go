@@ -12,6 +12,13 @@ const (
 	TemplateInvite        EmailTemplateType = "invite"
 	TemplateOrgInvite     EmailTemplateType = "org_invite"
 	TemplateDeleteAccount EmailTemplateType = "delete_account"
+	TemplateTwoFactor     EmailTemplateType = "2fa"
+
+	// TemplateTwoFactorSuspicious is the notify-only warning sent when an
+	// account crosses the failed-2FA threshold. It carries no code and no
+	// action link other than password reset, so it is useless to an
+	// attacker who intercepts it.
+	TemplateTwoFactorSuspicious EmailTemplateType = "2fa_suspicious"
 )
 
 // TemplateData is implemented by every template data struct.
@@ -109,6 +116,25 @@ type DeleteAccountData struct {
 }
 
 func (d DeleteAccountData) Template() EmailTemplateType { return TemplateDeleteAccount }
+
+type TwoFactorData struct {
+	AppName   string
+	Code      string
+	ExpiresIn time.Duration
+}
+
+func (d TwoFactorData) Template() EmailTemplateType { return TemplateTwoFactor }
+
+type TwoFactorSuspiciousData struct {
+	AppName          string
+	AttemptCount     int
+	ResetPasswordURL string
+}
+
+func (d TwoFactorSuspiciousData) Template() EmailTemplateType { return TemplateTwoFactorSuspicious }
+func (d TwoFactorSuspiciousData) ValidateURLs(v *URLValidator) error {
+	return v.Validate(d.ResetPasswordURL, "ResetPasswordURL")
+}
 
 // ─── URL validation (unexported, used by emailtemplate) ────
 

@@ -1,0 +1,7 @@
+Unusual Sign-In Activity
+
+We've seen {{.AttemptCount}} incorrect login codes entered for your {{.AppName}} account recently. This can happen if someone else has your password and is trying to guess the code sent to your email.
+
+Your account has not been accessed. No further action is required if this was you.
+
+If it wasn't you, reset your password now: {{.ResetPasswordURL}}

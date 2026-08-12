@@ -17,7 +17,7 @@ func TestInviteRegister(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	raw, _ := gen.Generate()
 	now := time.Now().UTC()
@@ -66,7 +66,7 @@ func TestInviteRegisterExpired(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.InviteTTL = -1 * time.Hour
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, cfg, sessSvc)
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, cfg, sessSvc, nil)
 
 	raw, _ := gen.Generate()
 	now := time.Now().UTC()
@@ -103,7 +103,7 @@ func TestInviteRegisterPasswordMismatch(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc)
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
 
 	raw, _ := gen.Generate()
 	invite := &domain.Invite{

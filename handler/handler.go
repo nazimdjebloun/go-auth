@@ -25,13 +25,14 @@ type Services struct {
 	OAuth     *service.OAuthService
 	Org       *service.OrgService
 	OrgInvite *service.OrgInviteService
+	TwoFactor *service.TwoFactorService
 	AuditLog  port.AuditLogRepository
 }
 
 type Handler struct {
-	services       Services
-	log            *slog.Logger
-	csrfTokenCfg   *middleware.CSRFTokenConfig
+	services     Services
+	log          *slog.Logger
+	csrfTokenCfg *middleware.CSRFTokenConfig
 }
 
 func New(s Services) *Handler {
@@ -77,6 +78,10 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if result.RequiresTwoFactor {
+		h.writeTwoFactorChallenge(w, http.StatusCreated, result.User, result.CodeSent, result.TwoFactorChallenge, result.TwoFactorExpiresAt, result.BindingToken())
+		return
+	}
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
 	setRefreshCookie(w, h.services.Session, result.RefreshToken)
@@ -114,6 +119,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if result.RequiresTwoFactor {
+		h.writeTwoFactorChallenge(w, http.StatusOK, result.User, result.CodeSent, result.TwoFactorChallenge, result.TwoFactorExpiresAt, result.BindingToken())
+		return
+	}
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
 	setRefreshCookie(w, h.services.Session, result.RefreshToken)
@@ -140,6 +149,10 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if result.RequiresTwoFactor {
+		h.writeTwoFactorChallenge(w, http.StatusOK, result.User, result.CodeSent, result.TwoFactorChallenge, result.TwoFactorExpiresAt, result.BindingToken())
 		return
 	}
 
@@ -634,6 +647,10 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if result.RequiresTwoFactor {
+		h.writeTwoFactorChallenge(w, http.StatusCreated, result.User, result.CodeSent, result.TwoFactorChallenge, result.TwoFactorExpiresAt, result.BindingToken())
+		return
+	}
 
 	setSessionCookie(w, h.services.Session, result.SessionToken)
 	setRefreshCookie(w, h.services.Session, result.RefreshToken)
@@ -641,6 +658,117 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 	result.SessionToken = ""
 	result.RefreshToken = ""
 	writeJSON(w, http.StatusCreated, result)
+}
+
+// --- Two-factor handlers ---
+
+// VerifyTwoFactor completes any of the four gated flows above (Login,
+// AdminLogin, Register, InviteRegister) — it doesn't need to know which one
+// started the challenge.
+func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ChallengeID string `json:"challengeId"`
+		Code        string `json:"code"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	user, session, rawToken, refreshToken, err := h.services.TwoFactor.Verify(
+		r.Context(), body.ChallengeID, h.twoFactorBindingCookieValue(r), body.Code,
+		extractIP(r.RemoteAddr), r.UserAgent(),
+	)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	setSessionCookie(w, h.services.Session, rawToken)
+	setRefreshCookie(w, h.services.Session, refreshToken)
+	h.clearTwoFactorBindingCookie(w)
+	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
+	writeJSON(w, http.StatusOK, map[string]any{"user": user, "session": session})
+}
+
+// ResendTwoFactor refreshes the code on the caller's existing challenge. An
+// unknown or binding-mismatched challenge gets the same generic 200 message
+// as a real send — see TwoFactorService.Resend — so this handler doesn't
+// special-case that path, it just forwards whatever error/status the service
+// returns.
+func (h *Handler) ResendTwoFactor(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ChallengeID string `json:"challengeId"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	result, err := h.services.TwoFactor.Resend(r.Context(), body.ChallengeID, h.twoFactorBindingCookieValue(r))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+
+	h.setTwoFactorBindingCookie(w, result.BindingToken)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"codeSent":    result.Sent,
+		"expiresAt":   result.ExpiresAt,
+		"challengeId": result.ID,
+		"message":     "A new code has been sent",
+	})
+}
+
+// Enable2FA turns on per-user 2FA for the authenticated caller.
+// keepOtherSessions defaults to false (omitted = revoke) — see
+// TwoFactorService.Enable for why the zero value has to be the safe one.
+func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	currentSession := middleware.GetSessionFromContext(r.Context())
+
+	var body struct {
+		Password          string `json:"password"`
+		KeepOtherSessions bool   `json:"keepOtherSessions"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	callerSessionID := ""
+	if currentSession != nil {
+		callerSessionID = currentSession.ID
+	}
+
+	if err := h.services.TwoFactor.Enable(r.Context(), user.ID, body.Password, body.KeepOtherSessions, callerSessionID); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Two-factor authentication enabled"})
+}
+
+// Disable2FA turns off per-user 2FA for the authenticated caller. No session
+// revocation here — see TwoFactorService.Disable.
+func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+
+	var body struct {
+		Password string `json:"password"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	if err := h.services.TwoFactor.Disable(r.Context(), user.ID, body.Password); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Two-factor authentication disabled"})
 }
 
 // --- Admin handlers ---
@@ -1037,6 +1165,77 @@ func clearRefreshCookie(w http.ResponseWriter, svc *service.SessionService) {
 		Secure:   cfg.Secure,
 		SameSite: http.SameSite(cfg.SameSite),
 		MaxAge:   -1,
+	})
+}
+
+// setTwoFactorBindingCookie ties a 2FA challenge to this browser. It travels
+// exactly as far as the session cookie — same Domain/Path/Secure/SameSite —
+// so there's only one cookie-reach story to maintain, not two. No-op when
+// binding is disabled or the token is empty (Challenge/Resend return an
+// empty BindingToken in that case).
+func (h *Handler) setTwoFactorBindingCookie(w http.ResponseWriter, token string) {
+	if h.services.TwoFactor == nil || h.services.TwoFactor.BindingDisabled() || token == "" {
+		return
+	}
+	cfg := h.services.Session.Config()
+	http.SetCookie(w, &http.Cookie{
+		Name:     h.services.TwoFactor.CookieName(),
+		Value:    token,
+		Domain:   cfg.Domain,
+		Path:     cfg.Path,
+		HttpOnly: true,
+		Secure:   cfg.Secure,
+		SameSite: http.SameSite(cfg.SameSite),
+		MaxAge:   int(h.services.TwoFactor.CookieTTL().Seconds()),
+	})
+}
+
+func (h *Handler) clearTwoFactorBindingCookie(w http.ResponseWriter) {
+	if h.services.TwoFactor == nil {
+		return
+	}
+	cfg := h.services.Session.Config()
+	http.SetCookie(w, &http.Cookie{
+		Name:     h.services.TwoFactor.CookieName(),
+		Value:    "",
+		Domain:   cfg.Domain,
+		Path:     cfg.Path,
+		HttpOnly: true,
+		Secure:   cfg.Secure,
+		SameSite: http.SameSite(cfg.SameSite),
+		MaxAge:   -1,
+	})
+}
+
+func (h *Handler) twoFactorBindingCookieValue(r *http.Request) string {
+	if h.services.TwoFactor == nil {
+		return ""
+	}
+	c, err := r.Cookie(h.services.TwoFactor.CookieName())
+	if err != nil {
+		return ""
+	}
+	return c.Value
+}
+
+// writeTwoFactorChallenge is the shared gated response for
+// Login/Register/AdminLogin/InviteRegister: a second factor is still owed, so
+// no session/refresh cookie is set and CSRF is not rotated. The binding
+// cookie is the one exception — it is not a session credential on its own,
+// see TwoFactorService.
+func (h *Handler) writeTwoFactorChallenge(w http.ResponseWriter, status int, user *domain.User, codeSent bool, challengeID string, expiresAt time.Time, bindingToken string) {
+	h.setTwoFactorBindingCookie(w, bindingToken)
+	message := "A two-factor code was already sent, check your email"
+	if codeSent {
+		message = "Two-factor code sent to your email"
+	}
+	writeJSON(w, status, map[string]any{
+		"user":              user,
+		"requiresTwoFactor": true,
+		"codeSent":          codeSent,
+		"challengeId":       challengeID,
+		"expiresAt":         expiresAt,
+		"message":           message,
 	})
 }
 
