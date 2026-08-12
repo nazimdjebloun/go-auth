@@ -95,6 +95,12 @@ goauth.WithSecurity(goauth.SecurityConfig{
     },
     TokenTTL:      time.Hour,          // optional, default 1h
     AllowHTTPURLs: goauth.Bool(false), // optional, default derived from Environment
+
+    RequireEmail2FA:                  false, // optional, default false — mandatory email 2FA on every password login
+    DefaultTwoFactorEnabled:          false, // optional, default false — seeds User.TwoFactorEnabled at registration
+    TwoFactorCodeTTL:                 5 * time.Minute, // optional, default 5m
+    DisableTwoFactorChallengeBinding: false, // optional, default false — binding cookie stays on
+    TwoFactorChallengeCookieName:     "_2fa_challenge", // optional, default "_2fa_challenge"
 })
 ```
 
@@ -106,6 +112,11 @@ goauth.WithSecurity(goauth.SecurityConfig{
 | `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Setting any one field means you're specifying the whole policy — see note below. |
 | `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
 | `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. |
+| `RequireEmail2FA` | `bool` | Optional | `false` | Makes email 2FA mandatory for every password login (`Login`, `AdminLogin`, `Register`, invite registration). While on, `Enable`/`Disable` both reject — users cannot opt out. OAuth logins are not covered; see [Security](security.mdx). |
+| `DefaultTwoFactorEnabled` | `bool` | Optional | `false` | Seeds `User.TwoFactorEnabled` at registration (email/password only). Users can still call `Disable` to opt out — use `RequireEmail2FA` if that shouldn't be possible. |
+| `TwoFactorCodeTTL` | `time.Duration` | Optional | `5m` | Lifetime of a 2FA login code. Deliberately shorter than `VerificationCodeTTL`: a 6-digit code has ~20 fewer bits of entropy than the 8-char alphanumeric codes used elsewhere. |
+| `DisableTwoFactorChallengeBinding` | `bool` | Optional | `false` | Turns off the cookie that ties a 2FA challenge to the browser that started it. Spelled as "Disable" so the zero value is the secure one. Intended for CLI/server-to-server consumers with no browser — see [Security](security.mdx). With it set, the challenge id alone identifies the challenge, so treat it as a secret. |
+| `TwoFactorChallengeCookieName` | `string` | Optional | `_2fa_challenge` | Overrides the binding cookie name. |
 
 `PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default — if you set `RequireUppercase: true` without repeating `MinLength` or `RequireDigit`, those two are no longer applied.
 
@@ -126,6 +137,8 @@ goauth.WithSecurity(goauth.SecurityConfig{
 - `allowed_origins must include at least one origin` — hint: `AllowedOrigins` was empty.
 - `allowed_origins must not contain "*" — this disables CSRF protection; list specific origins instead`.
 - `token_ttl must be positive` — hint: only reachable if `TokenTTL` was explicitly set negative; an omitted value defaults to `1h` and never reaches this check.
+- `security: two_factor_code_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `5m`.
+- `security: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path`.
 
 ## `WithSession` — Optional
 
@@ -219,7 +232,7 @@ A `bool` has no "unset" state — an omitted `false` looks identical to a delibe
 
 **Expected errors**
 
-- `email: Mailer or Email config required when RequireEmailVerification or EnableInvite is enabled` — hint: call `WithMailer` or `WithEmail` too.
+- `email: Mailer or Email config required when RequireEmailVerification, EnableInvite, RequireEmail2FA, or DefaultTwoFactorEnabled is enabled` — hint: call `WithMailer` or `WithEmail` too.
 - `registration: invite_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `7d`.
 - `registration: verification_code_ttl must be positive` — same hint, defaults to `15m`.
 - `registration: RequireEmailVerification has no effect when both EnableEmailPassword and EnableOAuth are disabled`.
@@ -289,7 +302,7 @@ goauth.WithTemplates(myTemplateProvider)
 
 **Expected errors**
 
-- `email: Mailer or Email config required when RequireEmailVerification or EnableInvite is enabled` (repeated from `WithRegistration` — it's the same check).
+- `email: Mailer or Email config required when RequireEmailVerification, EnableInvite, RequireEmail2FA, or DefaultTwoFactorEnabled is enabled` (repeated from `WithRegistration` — it's the same check).
 - `email: host is required`
 - `email: port must be between 1 and 65535, got N`
 - `email: from address is required`
@@ -313,7 +326,7 @@ type TemplateResult struct {
 }
 ```
 
-`Render` is called once per email the library sends, with one of six concrete `TemplateData` types — switch on the concrete type (or on `data.Template()`, which returns an `EmailTemplateType` string) to decide which template to render:
+`Render` is called once per email the library sends, with one of eight concrete `TemplateData` types — switch on the concrete type (or on `data.Template()`, which returns an `EmailTemplateType` string) to decide which template to render:
 
 | `TemplateData` type | `Template()` | Fields | Sent for |
 |---|---|---|---|
@@ -323,6 +336,8 @@ type TemplateResult struct {
 | `port.InviteData` | `TemplateInvite` | `AppName, InviteURL, ExpiresIn` | Invite-only signup |
 | `port.OrgInviteData` | `TemplateOrgInvite` | `AppName, OrgName, InviteURL, ExpiresIn` | Organization invite |
 | `port.DeleteAccountData` | `TemplateDeleteAccount` | `AppName, Code, ExpiresIn` | Account deletion confirmation |
+| `port.TwoFactorData` | `TemplateTwoFactor` | `AppName, Code, ExpiresIn` | 2FA login code |
+| `port.TwoFactorSuspiciousData` | `TemplateTwoFactorSuspicious` | `AppName, AttemptCount, ResetPasswordURL` | Notify-only warning after repeated wrong 2FA codes on one account — never blocks login, see [Security](security.mdx) |
 
 A minimal implementation:
 

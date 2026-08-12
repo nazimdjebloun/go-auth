@@ -106,6 +106,21 @@ The raw session and refresh tokens are never in this body — they're set as `Ht
 
 No cookies are set on this response. The account exists in the database, but there's nothing to authenticate with yet — the client has to go through [Verifying the email](#verifying-the-email) below.
 
+**Response — `SecurityConfig.RequireEmail2FA: true`** (`201 Created`) — a session is not issued; register gates on this flag alone, independent of `RequireEmailVerification`, so the two never stack (see [Two-factor authentication](#two-factor-authentication)):
+
+```json
+{
+  "user": { "...": "same shape as above" },
+  "requiresTwoFactor": true,
+  "codeSent": true,
+  "challengeId": "c4a1...",
+  "expiresAt": "2026-08-09T12:05:00Z",
+  "message": "Two-factor code sent to your email"
+}
+```
+
+Alongside this body, a binding cookie is set (`_2fa_challenge` by default) — see [Two-factor authentication](#two-factor-authentication) for what it's for and how `POST /auth/2fa/verify` uses it.
+
 **Errors**
 
 | Code | Status | Cause |
@@ -352,6 +367,21 @@ const result = await apiRequest(API_BASE, "POST", "/auth/invite/register", {
 
 No session is issued — the credentials were correct, but that's not enough on its own.
 
+**Response — two-factor pending** (`200 OK`) — if `SecurityConfig.RequireEmail2FA: true`, or the account has per-user 2FA on (`User.TwoFactorEnabled`):
+
+```json
+{
+  "user": { "...": "same shape as normal success" },
+  "requiresTwoFactor": true,
+  "codeSent": true,
+  "challengeId": "c4a1...",
+  "expiresAt": "2026-08-09T12:05:00Z",
+  "message": "Two-factor code sent to your email"
+}
+```
+
+Same shape and same binding cookie as the register case above — see [Two-factor authentication](#two-factor-authentication) to complete the flow. `codeSent` is `false` and the message changes to "A two-factor code was already sent, check your email" if the client calls `Login` again while a still-valid, uncapped challenge already exists — the code isn't re-mailed on every login attempt.
+
 **Errors**
 
 | Code | Status | Cause |
@@ -390,6 +420,10 @@ if err != nil {
 if result.RequiresVerification {
     // no session issued
 }
+if result.RequiresTwoFactor {
+    // no session issued — result.TwoFactorChallenge is the challenge id,
+    // result.BindingToken() is what the handler would set as a cookie
+}
 ```
 
 ---
@@ -401,14 +435,154 @@ const result = await apiRequest(API_BASE, "POST", "/auth/login", { email, passwo
 
 if (result.requiresVerification) {
   // route to a "verify your email" screen
+} else if (result.requiresTwoFactor) {
+  // route to a "enter your code" screen — the binding cookie is already set
+  setChallengeId(result.challengeId);
 } else {
   setUser(result.user); // cookies are already set
 }
 ```
 
-<Callout type="info" title="Admin login has its own page">
-  `POST /auth/admin/login` gets its own guide alongside the rest of the admin panel rather than living here — see [Admin → Admin login](admin.mdx#admin-login). It's a login variant, but everything else about it (who can use it, what it manages) belongs with Admin, not Authentication.
+<Callout type="warn" title="Admin login has its own page — and always requires a second factor">
+  `POST /auth/admin/login` gets its own guide alongside the rest of the admin panel rather than living here — see [Admin → Admin login](admin.mdx#admin-login). It's a login variant, but everything else about it (who can use it, what it manages) belongs with Admin, not Authentication. One thing worth knowing before you get there: admin login **always** requires a second factor in every real deployment — this is unconditional, not gated by `RequireEmail2FA` or any other flag, and there is no supported way to turn it off. See [Admin → Admin login](admin.mdx#admin-login) for what that means in practice (a mailer becomes effectively mandatory) and [Security](../security.mdx#two-factor-authentication) for the reasoning.
 </Callout>
+
+## Two-factor authentication
+
+Turned on globally with `SecurityConfig.RequireEmail2FA` (mandatory for every account) or per-user via `POST /auth/2fa/enable` (opt-in, unless `RequireEmail2FA` is on, in which case per-user toggling is rejected). Either way, `Login`/`Register`/`POST /auth/invite/register` return the gated `{user, requiresTwoFactor: true, codeSent, challengeId, expiresAt, message}` shape shown above instead of a session, plus a binding cookie. Full config reference on [Configuration](../configuration.mdx); the risk trade-offs behind this design are on [Security](../security.mdx).
+
+<Callout type="warn" title="Requires a mailer">
+  Same requirement as email verification — `RequireEmail2FA` or `DefaultTwoFactorEnabled` without `WithMailer`/`WithEmail` is rejected outright by `NewConfig`.
+</Callout>
+
+### Verifying the code — `POST /auth/2fa/verify`
+
+Completes any of the gated flows above — it doesn't need to know which one started the challenge. Body: `{ "challengeId": "...", "code": "..." }`. The binding cookie set alongside the gated response must be present on this request (unless `DisableTwoFactorChallengeBinding` is set); a missing or mismatched cookie is rejected the same way a wrong code is, without revealing which.
+
+```json
+{
+  "user": { "...": "same shape as login" },
+  "session": { "...": "same shape as login" }
+}
+```
+
+Session and refresh cookies are set here, not on the original gated response — until this call succeeds, nothing has been issued.
+
+| Code | Status | Cause |
+|---|---|---|
+| `two_factor_code_invalid` | 400 | Wrong code, wrong/missing binding cookie, or the lineage already hit its 5-guess cap — all three look identical on purpose |
+| `two_factor_code_expired` | 410 | Past `TwoFactorCodeTTL` (default 5m) |
+| `two_factor_code_already_used` | 410 | This challenge already completed a login |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/2fa/verify \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt -c cookies.txt \
+  -d '{"challengeId":"c4a1...","code":"482913"}'
+```
+
+`-b cookies.txt` matters here — it's what sends the binding cookie saved from the login/register response back to the server.
+
+---
+
+#### Programmatic (Go)
+
+```go
+user, session, rawToken, refreshToken, err := auth.Services.TwoFactor.Verify(
+    ctx, challengeID, bindingToken, code, r.RemoteAddr, r.UserAgent(),
+)
+if err != nil {
+    // *domain.AuthError
+}
+// rawToken / refreshToken are the raw values — set them as cookies yourself
+```
+
+---
+
+#### Client
+
+```ts
+const result = await apiRequest(API_BASE, "POST", "/auth/2fa/verify", {
+  challengeId,
+  code,
+});
+setUser(result.user); // cookies are already set
+```
+
+---
+
+### Resending the code — `POST /auth/2fa/resend`
+
+Body: `{ "challengeId": "..." }`. Refreshes the code on the same challenge — `challengeId` doesn't change, so the client doesn't need to update it. Capped at 3 resends per challenge; combined with the 5-guess attempt cap, this is what keeps the guess budget bounded rather than resettable on demand.
+
+An unknown or binding-mismatched `challengeId` gets the same generic `200` as a real resend (`challenge_not_found`, "If the challenge is valid, a new code has been sent") — the endpoint never confirms or denies which challenge IDs are real.
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/2fa/resend \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt -c cookies.txt \
+  -d '{"challengeId":"c4a1..."}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+result, err := auth.Services.TwoFactor.Resend(ctx, challengeID, bindingToken)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/2fa/resend", { challengeId });
+```
+
+---
+
+### Turning 2FA on or off
+
+Both require the account's password, even for an OAuth-authenticated session — this is what stops a compromised OAuth session from turning your second factor off. Rejected with `two_factor_already_enforced` if `RequireEmail2FA` is on.
+
+**`POST /auth/2fa/enable`** — body `{ "password": "...", "keepOtherSessions": false }`. `keepOtherSessions` defaults to `false` if omitted — every other session gets revoked, on the theory that turning 2FA on is usually a response to "I think someone else has my password." Set it to `true` to keep other sessions alive.
+
+**`POST /auth/2fa/disable`** — body `{ "password": "..." }`. No session revocation — turning 2FA off isn't the same signal.
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/2fa/enable \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt \
+  -d '{"password":"correct horse battery staple 1"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.TwoFactor.Enable(ctx, userID, password, keepOtherSessions, callerSessionID)
+err = auth.Services.TwoFactor.Disable(ctx, userID, password)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/2fa/enable", { password: currentPassword });
+await apiRequest(API_BASE, "POST", "/auth/2fa/disable", { password: currentPassword });
+```
 
 ## Logout
 

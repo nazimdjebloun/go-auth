@@ -55,6 +55,18 @@ Everything else below — every service-layer and handler-layer error — uses t
 | `unauthorized` | 401 | Invalid session / User not found | From the auth middleware, not a specific service call. |
 | `session_expired` | 401 | Missing session cookie / Session has expired | Also from the auth middleware — see [Sessions](#sessions) below for the token-level version. |
 
+## Two-factor authentication
+
+| Code | Status | Message | Hint |
+|---|---|---|---|
+| `two_factor_code_invalid` | 400 | Invalid two-factor code | Also returned for a wrong binding cookie and for a code submitted after the lineage's 5-guess cap is hit — the client can't distinguish "wrong code" from "capped" or "wrong browser," on purpose. |
+| `two_factor_code_expired` | 410 | Two-factor code has expired | Also what `POST /auth/2fa/resend` returns once a lineage is used up (5 wrong guesses or 3 resends) — starting over with a fresh `Login`/`Register` call works. |
+| `two_factor_code_already_used` | 410 | This two-factor code has already been used | |
+| `two_factor_already_enforced` | 409 | Two-factor authentication is required and cannot be changed | Returned by `POST /auth/2fa/enable` and `POST /auth/2fa/disable` when `SecurityConfig.RequireEmail2FA` is on — mandatory 2FA can't be toggled per-user. |
+| `two_factor_password_required` | 400 | Password is required to change two-factor settings | From `POST /auth/2fa/enable`/`disable`. Deliberately its own code, not the pre-existing `password_required` (delete-account) — same shape, different endpoint, different message; sharing a code would make the two indistinguishable to a client matching on `error`. |
+| `challenge_not_found` | 200 | If the challenge is valid, a new code has been sent | Yes, HTTP 200 — `POST /auth/2fa/resend` never reveals whether a `challengeId` is real, so an unrecognized or binding-mismatched one gets the same generic response as a real resend. |
+| `email_not_configured` | 500 | Email sender is not configured | 2FA requires a mailer the same way email verification does — see [Configuration](configuration.mdx). |
+
 ## Sessions
 
 | Code | Status | Message | Hint |

@@ -20,9 +20,9 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 | Method & Path | Auth | Body | Description |
 |---|---|---|---|
-| `POST /auth/register`, `POST /auth/signup` | Public | `` `{email, password, name}` `` | Register with email/password. Returns a session unless verification is required. |
-| `POST /auth/login`, `POST /auth/signin` | Public | `` `{email, password}` `` | Log in. May return `requiresVerification: true` instead of a session. |
-| `POST /auth/admin/login` | Public | `` `{email, password}` `` | Same as login, but only succeeds for `role: admin` users. |
+| `POST /auth/register`, `POST /auth/signup` | Public | `` `{email, password, name}` `` | Register with email/password. Returns a session unless verification is required, or `RequireEmail2FA` is on (see [Two-factor authentication](#two-factor-authentication)). |
+| `POST /auth/login`, `POST /auth/signin` | Public | `` `{email, password}` `` | Log in. May return `requiresVerification: true` instead of a session, or `requiresTwoFactor: true` if the account has 2FA on. |
+| `POST /auth/admin/login` | Public | `` `{email, password}` `` | Same as login, but only succeeds for `role: admin` users. Always requires a second factor — see [Two-factor authentication](#two-factor-authentication). |
 | `POST /auth/logout`, `POST /auth/signout` | Public (session cookie optional) | none | Revokes the current session if the cookie is present; clears cookies either way. |
 | `GET /auth/me` | Auth | none | Returns the authenticated user plus `hasPassword`. |
 | `GET /auth/check` | Public (session cookie optional) | none | Soft check — always `200`, returns `{"user": null}` instead of erroring when there's no valid session. |
@@ -66,12 +66,23 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | `POST /auth/resend-verification` | Auth | none | Resends the verification email to the authenticated (unverified) user. |
 | `POST /auth/verify-email/resend` | Public | `` `{email}` `` | Unauthenticated resend by email address. Always returns a generic success message — no enumeration. |
 
+## Two-factor authentication
+
+`Login`, `AdminLogin`, `Register`, and `POST /auth/invite/register` all return the same gated shape when a second factor is still owed: `{user, requiresTwoFactor: true, codeSent, challengeId, expiresAt, message}` — no session/refresh cookie, no CSRF rotation. Alongside that body, the response sets a binding cookie (name from `SecurityConfig.TwoFactorChallengeCookieName`, default `_2fa_challenge`; HttpOnly; same `Domain`/`Path`/`Secure`/`SameSite` as the session cookie; `MaxAge` = `TwoFactorCodeTTL`) that ties the challenge to the browser that started it. `POST /auth/2fa/verify` and `POST /auth/2fa/resend` both require that cookie back — a `challengeId` alone (e.g. one that leaked into a log line) is not a usable credential without it. The cookie is skipped entirely when `SecurityConfig.DisableTwoFactorChallengeBinding` is set, for non-browser consumers.
+
+| Method & Path | Auth | Body | Description |
+|---|---|---|---|
+| `POST /auth/2fa/verify` | Public (requires the binding cookie, unless disabled) | `` `{challengeId, code}` `` | Completes any of the four gated flows above. Sets session+refresh cookies and clears the binding cookie on success. Wrong code, wrong binding cookie, and a capped lineage (5 wrong guesses) all return the same `two_factor_code_invalid` — see [Error Handling](error-handling.mdx). |
+| `POST /auth/2fa/resend` | Public (requires the binding cookie, unless disabled) | `` `{challengeId}` `` | Refreshes the code on the same challenge — the `challengeId` doesn't change. Capped at 3 resends per challenge; an unknown or binding-mismatched challenge gets the same generic `200` as a real send, to avoid enumeration. |
+| `POST /auth/2fa/enable` | Auth | `` `{password, keepOtherSessions}` `` | Turns on per-user 2FA after re-checking the password. `keepOtherSessions` defaults to `false` (omitted = revoke every other session) — spelled this way so the zero value is the safe one, matching `DisableCSRFToken`. Rejected with `two_factor_already_enforced` if `RequireEmail2FA` is on. |
+| `POST /auth/2fa/disable` | Auth | `` `{password}` `` | Turns off per-user 2FA after re-checking the password. No session revocation — turning 2FA off isn't the "someone may be in my account" signal that turning it on is. Rejected with `two_factor_already_enforced` if `RequireEmail2FA` is on. |
+
 ## Invites (self-service signup) — requires `EnableInvite`
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
 | `GET /auth/invite/info` | Public | Query: `token` (required) | Looks up an invite by token — used to pre-fill a registration form. `400 missing_token` if omitted. |
-| `POST /auth/invite/register` | Public | Body: `` `{code, name, password, confirmPassword}` `` | Completes registration from an invite code, creating the account and a session in one step. |
+| `POST /auth/invite/register` | Public | Body: `` `{code, name, password, confirmPassword}` `` | Completes registration from an invite code, creating the account and a session in one step — unless `RequireEmail2FA` is on, in which case it returns a gated response instead; see [Two-factor authentication](#two-factor-authentication). |
 
 ## OAuth — requires `EnableOAuth` and at least one registered provider
 

@@ -35,7 +35,24 @@ Same request shape as [Login](authentication.mdx#login), but only succeeds for u
 | `email` | `string` | Required |
 | `password` | `string` | Required |
 
-**Response** (`200 OK`) — identical shape to regular login's success response: `{ "user", "session" }`, cookies set the same way.
+<Callout type="warn" title="Admin login always requires a second factor — unconditionally, not just under RequireEmail2FA">
+  Every real `goauth.New()` deployment constructs the 2FA service internally, with no config flag that skips it, and `AdminLogin` gates on that unconditionally — independent of `SecurityConfig.RequireEmail2FA`, and independent of whether the admin account itself has `TwoFactorEnabled` set. In other words: this isn't "on by default and configurable" — there is currently no supported way to turn it off. This holds even in a deployment that never touches any 2FA setting at all, which has one concrete consequence worth knowing up front: **a mailer (`WithMailer`/`WithEmail`) is effectively mandatory for `/auth/admin/login` to work at all**, since the second-factor code has to be emailed. Without one, every admin login attempt fails with `email_not_configured` (500), even though `NewConfig`'s validation only requires a mailer when `RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, or `DefaultTwoFactorEnabled` is on — none of which need to be true here. See [Two-factor authentication](authentication.mdx#two-factor-authentication) for the verify step, and [Security](../security.mdx#two-factor-authentication) for the reasoning.
+</Callout>
+
+**Response** (`200 OK`) — never a session directly. A correct admin password returns a gated challenge, the same shape [Login](authentication.mdx#login) uses:
+
+```json
+{
+  "user": { "...": "role: admin" },
+  "requiresTwoFactor": true,
+  "codeSent": true,
+  "challengeId": "c4a1...",
+  "expiresAt": "2026-08-09T12:05:00Z",
+  "message": "Two-factor code sent to your email"
+}
+```
+
+No session/refresh cookie is set on this response — only the 2FA binding cookie. Complete the login with `POST /auth/2fa/verify` (`{challengeId, code}`) using the code emailed to the admin; that call is what actually sets `goauth_session`/`goauth_refresh`. See [Two-factor authentication](authentication.mdx#two-factor-authentication) for the full request/response shape.
 
 **Errors**
 
@@ -44,19 +61,28 @@ Same request shape as [Login](authentication.mdx#login), but only succeeds for u
 | `invalid_json` | 400 | Malformed body |
 | `invalid_credentials` | 401 | Wrong password, unknown email, an OAuth-only account with no password, **or** correct credentials for a non-admin user — all indistinguishable on purpose |
 | `user_banned` | 403 | Account is banned |
+| `email_not_configured` | 500 | No mailer configured — see the callout above |
 | `internal_error` | 500 | Session creation failure |
 
 #### curl
 
 ```bash
+# 1. Password step — returns a challenge, not a session
 curl -X POST https://api.myapp.com/auth/admin/login \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -c admin-cookies.txt \
   -d '{"email":"root@myapp.com","password":"a very strong admin password 1"}'
+
+# 2. Second-factor step — this is what actually sets the session cookies
+curl -X POST https://api.myapp.com/auth/2fa/verify \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt -c admin-cookies.txt \
+  -d '{"challengeId":"c4a1...","code":"482913"}'
 ```
 
-Use a separate cookie jar from your regular user session while testing — this response sets the same cookie names (`goauth_session`, `goauth_refresh`), so reusing a jar overwrites whichever session you had.
+Use a separate cookie jar from your regular user session while testing — the verify response sets the same cookie names (`goauth_session`, `goauth_refresh`), so reusing a jar overwrites whichever session you had.
 
 ---
 
@@ -72,6 +98,12 @@ result, err := auth.Services.Auth.AdminLogin(ctx, service.LoginInput{
 if err != nil {
     // *domain.AuthError — invalid_credentials covers "not an admin" too
 }
+// result.RequiresTwoFactor is always true here — result.TwoFactorChallenge is
+// the challenge id, result.BindingToken() is what the handler sets as a cookie.
+
+user, session, rawToken, refreshToken, err := auth.Services.TwoFactor.Verify(
+    ctx, result.TwoFactorChallenge, result.BindingToken(), code, r.RemoteAddr, r.UserAgent(),
+)
 ```
 
 ---
@@ -80,7 +112,15 @@ if err != nil {
 
 ```ts
 const result = await apiRequest(API_BASE, "POST", "/auth/admin/login", { email, password });
-setAdminUser(result.user);
+// result.requiresTwoFactor is always true — route to a "enter your code" screen
+setChallengeId(result.challengeId);
+
+// after the admin enters the code:
+const verified = await apiRequest(API_BASE, "POST", "/auth/2fa/verify", {
+  challengeId,
+  code,
+});
+setAdminUser(verified.user); // cookies are already set
 ```
 
 ---
