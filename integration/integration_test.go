@@ -107,7 +107,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 			RefreshTokenTTL: 1 * time.Hour,
 			// Off, so refresh-token reuse is detected immediately rather than
 			// tolerated for the default 5s — see TestRefreshToken_E2E.
-			GraceWindow: goauth.Disabled,
+			GraceWindow: goauth.Duration(0),
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
 			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
@@ -183,7 +183,7 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, sec goauth.SecurityConfig, r
 			TTL:             1 * time.Hour,
 			IdleTTL:         1 * time.Hour,
 			RefreshTokenTTL: 1 * time.Hour,
-			GraceWindow:     goauth.Disabled,
+			GraceWindow:     goauth.Duration(0),
 		}),
 		goauth.WithSecurity(sec),
 		goauth.WithRegistration(reg),

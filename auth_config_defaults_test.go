@@ -139,17 +139,41 @@ func TestDefaults_PartialSessionKeepsGraceAndDebounce(t *testing.T) {
 	}
 }
 
-func TestDefaults_SessionDisabledSentinel(t *testing.T) {
+func TestDefaults_SessionExplicitZeroMeansOff(t *testing.T) {
 	cfg, err := NewConfig(minimalOpts(WithSession(SessionConfig{
-		GraceWindow:   Disabled,
-		TouchDebounce: Disabled,
+		GraceWindow:   Duration(0),
+		TouchDebounce: Duration(0),
 	}))...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.graceWindow != 0 || cfg.touchDebounce != 0 {
-		t.Errorf("Disabled must turn the feature off, got grace=%v debounce=%v",
+		t.Errorf("Duration(0) must turn the feature off, got grace=%v debounce=%v",
 			cfg.graceWindow, cfg.touchDebounce)
+	}
+}
+
+// TestDefaults_SessionNilLeavesDefault guards the exact bug that motivated
+// switching GraceWindow/TouchDebounce to *time.Duration: with a plain
+// time.Duration field, a struct literal that simply doesn't mention the
+// field is indistinguishable from one that sets it to 0, so "leave it
+// unset" and "turn it off" collided. A *time.Duration field makes "unset"
+// (nil) and "off" (a pointer to 0) two different values.
+func TestDefaults_SessionNilLeavesDefault(t *testing.T) {
+	cfg, err := NewConfig(minimalOpts(WithSession(SessionConfig{
+		TTL:             24 * time.Hour,
+		IdleTTL:         time.Hour,
+		RefreshTokenTTL: 48 * time.Hour,
+		// GraceWindow/TouchDebounce deliberately omitted — nil, not 0.
+	}))...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.graceWindow != 5*time.Second {
+		t.Errorf("graceWindow = %v, want the 5s default (nil must not mean off)", cfg.graceWindow)
+	}
+	if cfg.touchDebounce != 5*time.Minute {
+		t.Errorf("touchDebounce = %v, want the 5m default (nil must not mean off)", cfg.touchDebounce)
 	}
 }
 
@@ -243,13 +267,13 @@ func TestCookieSecure_Resolution(t *testing.T) {
 }
 
 func TestDefaults_NegativeDurationIsAnErrorNotDisabled(t *testing.T) {
-	// Only the exact Disabled sentinel means "off" — a stray negative must be
-	// rejected rather than silently normalized to 0.
+	// A negative *time.Duration is a bad value, not another way to spell
+	// "off" — only Duration(0) means that.
 	_, err := NewConfig(minimalOpts(WithSession(SessionConfig{
-		GraceWindow: -5 * time.Second,
+		GraceWindow: Duration(-5 * time.Second),
 	}))...)
 	if err == nil {
-		t.Fatal("expected error for a negative grace window that is not Disabled")
+		t.Fatal("expected error for a negative grace window")
 	}
 	if !strings.Contains(err.Error(), "grace_window") {
 		t.Errorf("error should name the field, got: %v", err)
@@ -257,8 +281,8 @@ func TestDefaults_NegativeDurationIsAnErrorNotDisabled(t *testing.T) {
 }
 
 func TestValidate_RejectsNegativeSessionDurations(t *testing.T) {
-	// Disabled normalizes to 0 in applyDefaults; a hand-built config with a
-	// negative value must still be rejected by validate.
+	// A hand-built config with a negative value must be rejected by
+	// validate, regardless of how it got there.
 	cfg := config{
 		appName: "Test", baseURL: "https://example.com", environment: EnvironmentProd,
 		sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour,

@@ -168,12 +168,12 @@ Session and refresh-token lifetimes.
 
 ```go
 goauth.WithSession(goauth.SessionConfig{
-    TTL:             30 * 24 * time.Hour, // optional, default 30d
-    IdleTTL:         7 * 24 * time.Hour,  // optional, default 7d
-    RefreshTokenTTL: 30 * 24 * time.Hour, // optional, default 30d
-    MaxLifetime:     0,                   // optional, default 0 (no limit)
-    GraceWindow:     10 * time.Second,    // optional, default 5s — or goauth.Disabled
-    TouchDebounce:   goauth.Disabled,     // optional, default 5m — or goauth.Disabled
+    TTL:             30 * 24 * time.Hour,        // optional, default 30d
+    IdleTTL:         7 * 24 * time.Hour,         // optional, default 7d
+    RefreshTokenTTL: 30 * 24 * time.Hour,        // optional, default 30d
+    MaxLifetime:     0,                          // optional, default 0 (no limit)
+    GraceWindow:     goauth.Duration(10 * time.Second), // optional, default 5s
+    TouchDebounce:   goauth.Duration(0),          // optional, default 5m — 0 turns it off
 })
 ```
 
@@ -183,10 +183,10 @@ goauth.WithSession(goauth.SessionConfig{
 | `IdleTTL` | `time.Duration` | Optional | `7d` | Timeout since last activity. Must not exceed `TTL`. |
 | `RefreshTokenTTL` | `time.Duration` | Optional | `30d` | Must not be less than `TTL`. |
 | `MaxLifetime` | `time.Duration` | Optional | `0` — no limit | If set, must be `>= TTL`. |
-| `GraceWindow` | `time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh don't log the user out. Use `goauth.Disabled` to turn it off — a plain `0` means "use the default," not "off." |
-| `TouchDebounce` | `time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes. `goauth.Disabled` writes on every authenticated request. |
+| `GraceWindow` | `*time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh don't log the user out. `nil` (the zero value — leave the field out) means "use the default"; a non-nil pointer is used exactly as given, including `goauth.Duration(0)` to turn it off. Set it with `goauth.Duration(...)`, since Go can't take the address of a duration literal directly. |
+| `TouchDebounce` | `*time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes. Same `nil`-vs-pointer rule as `GraceWindow`; `goauth.Duration(0)` writes on every authenticated request. |
 
-Only the exact `goauth.Disabled` sentinel means off; any other negative duration is treated as a mistake, not a deliberate opt-out.
+`GraceWindow` and `TouchDebounce` are pointers specifically so "left unset" and "explicitly zero" can't collide — with a plain `time.Duration` field, `GraceWindow: 0` and simply not mentioning `GraceWindow` at all are the same struct, so one of the two meanings would always win by accident. A `*time.Duration` field can be `nil` (unset → default) or point at `0` (off) as two different values.
 
 **Expected errors**
 
@@ -195,8 +195,8 @@ Only the exact `goauth.Disabled` sentinel means off; any other negative duration
 - `session_idle_ttl must not exceed session_ttl`
 - `refresh_token_ttl must be positive`
 - `refresh_token_ttl must not be less than session_ttl`
-- `session grace_window must not be negative (use goauth.Disabled to turn it off)` — hint: you passed a negative duration that isn't the `Disabled` sentinel.
-- `session touch_debounce must not be negative (use goauth.Disabled to turn it off)` — same hint.
+- `session grace_window must not be negative (use goauth.Duration(0) to turn it off)` — hint: you passed a negative duration.
+- `session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)` — same hint.
 - `session max_lifetime must not be negative (0 = no limit)`
 - `session max_lifetime must not be less than session_ttl` — hint: only checked when `MaxLifetime` is set above zero.
 
