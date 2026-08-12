@@ -9,6 +9,7 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 	_ "modernc.org/sqlite"
 )
@@ -52,11 +53,11 @@ func buildAuth(t *testing.T, opts ...Option) *Auth {
 	if err != nil {
 		t.Fatal(err)
 	}
-	schema, err := GetSchema("sqlite")
+	schemaSQL, err := GetSchema("sqlite")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, stmt := range SplitSQL(schema) {
+	for _, stmt := range schema.SplitSQL(schemaSQL) {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("migrate: %v", err)
 		}
@@ -403,13 +404,13 @@ func TestCSRFToken_OnByDefault(t *testing.T) {
 	// "build one with defaults", not "off".
 	a := buildAuth(t, minimalOpts()...)
 	defer a.Close()
-	if a.Config.csrfToken == nil {
+	if a.cfg.csrfToken == nil {
 		t.Fatal("double-submit token layer must be on by default")
 	}
-	if a.Config.csrfToken.CookieName != "_csrf" || a.Config.csrfToken.HeaderName != "X-CSRF-Token" {
-		t.Errorf("unexpected auto-created config: %+v", a.Config.csrfToken)
+	if a.cfg.csrfToken.CookieName != "_csrf" || a.cfg.csrfToken.HeaderName != "X-CSRF-Token" {
+		t.Errorf("unexpected auto-created config: %+v", a.cfg.csrfToken)
 	}
-	if len(a.Config.csrfToken.Secret) == 0 {
+	if len(a.cfg.csrfToken.Secret) == 0 {
 		t.Error("signing secret was not derived into the token config")
 	}
 }
@@ -420,7 +421,7 @@ func TestCSRFToken_Disable(t *testing.T) {
 		DisableCSRFToken: true,
 	}))...)
 	defer a.Close()
-	if a.Config.csrfToken != nil {
+	if a.cfg.csrfToken != nil {
 		t.Fatal("DisableCSRFToken must leave csrfToken nil so the middleware passes through")
 	}
 }

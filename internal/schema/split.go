@@ -1,12 +1,12 @@
-package goauth
+// Package schema holds the embedded SQL schemas and the SQL statement
+// splitter used by the CLI migrate command.
+package schema
 
-import (
-	"errors"
-	"strings"
-)
+import "strings"
 
-var ErrNoDatabase = errors.New("goauth: no database pool or DSN provided")
-
+// SplitSQL splits a semicolon-delimited SQL script into individual
+// statements. Single-quoted strings are respected (a semicolon inside a
+// quoted string does not split), and lines starting with -- are dropped.
 func SplitSQL(sql string) []string {
 	var statements []string
 	var b strings.Builder

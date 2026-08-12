@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/spf13/cobra"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -35,7 +36,7 @@ Supported drivers: postgres, sqlite, mysql`,
 			os.Exit(1)
 		}
 
-		schema, err := goauth.GetSchema(driver)
+		schemaSQL, err := goauth.GetSchema(driver)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
@@ -52,7 +53,7 @@ Supported drivers: postgres, sqlite, mysql`,
 			log.Fatalf("goauth: ping failed: %v", err)
 		}
 
-		for _, stmt := range goauth.SplitSQL(schema) {
+		for _, stmt := range schema.SplitSQL(schemaSQL) {
 			if _, err := db.Exec(stmt); err != nil {
 				log.Fatalf("goauth: migration failed: %v\nStatement: %s", err, stmt)
 			}

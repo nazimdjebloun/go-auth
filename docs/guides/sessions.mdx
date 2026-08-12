@@ -68,6 +68,34 @@ No field on `CookieConfig` reaches validation as an error — every field is def
 
 Full reference for both, including how they interact with everything else: [Configuration → WithSession](../configuration.mdx#withsession--optional) and [Configuration → WithCookie](../configuration.mdx#withcookie--optional).
 
+## Writing your own login handler
+
+`a.Services.Auth.Login` (and `Register`) return raw tokens — no cookies are set, since the service layer never touches `net/http`. If you're writing a custom handler (a different response shape, extra steps before the session is issued) instead of using the built-in `a.Handlers.Login`, use these three methods to reproduce the exact cookie behavior the built-in handlers use:
+
+```go
+func myLoginHandler(a *goauth.Auth) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		result, err := a.Services.Auth.Login(r.Context(), service.LoginInput{
+			Email:    r.FormValue("email"),
+			Password: r.FormValue("password"),
+		})
+		if err != nil {
+			// handle err
+			return
+		}
+
+		a.SetSessionCookies(w, result.SessionToken, result.RefreshToken)
+		a.RotateCSRFToken(w) // optional — matches the built-in handlers' behavior
+
+		// ... your own response shape
+	}
+}
+```
+
+- `SetSessionCookies(w, sessionToken, refreshToken)` writes both cookies using the configured `CookieConfig`/`SessionConfig` settings. Pass `""` for `refreshToken` to skip the refresh cookie — the same guard the built-in handlers use.
+- `ClearSessionCookies(w)` expires both cookies — pair with `a.Services.Session.Revoke` in a custom logout handler.
+- `RotateCSRFToken(w)` issues a fresh CSRF token cookie. It's a separate call, not bundled into `SetSessionCookies`, because CSRF rotation is also needed on flows that don't touch cookies at all (e.g. password change) — keeping them separate means one method does one thing. It's a no-op if `SecurityConfig.DisableCSRFToken` is set.
+
 ## Frontend client setup
 
 The **Client** examples below call the same `apiRequest` helper defined on [Client → Setup](client/index.mdx) — see that page (or [Authentication](authentication.mdx)) if you haven't already.

@@ -1,4 +1,4 @@
-package goauth
+package schema
 
 import (
 	"reflect"

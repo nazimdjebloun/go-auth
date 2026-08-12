@@ -109,8 +109,8 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 			return nil, nil, ""
 		}
 
-		setSessionCookie(w, sessionSvc, newRawToken)
-		setRefreshCookie(w, sessionSvc, newRefreshToken)
+		SetSessionCookie(w, sessionSvc.Config(), newRawToken)
+		SetRefreshCookie(w, sessionSvc.Config(), newRefreshToken)
 
 		session = refreshedSession
 

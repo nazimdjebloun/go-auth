@@ -27,9 +27,9 @@ import (
 )
 
 type Auth struct {
-	Config   config
-	Pool     *pgxpool.Pool
-	DB       *sqlstore.DB
+	cfg      config
+	pool     *pgxpool.Pool
+	db       *sqlstore.DB
 	Services Services
 	Handlers HandlerGroup
 
@@ -253,9 +253,10 @@ func New(config config) (*Auth, error) {
 				db.Close()
 				return nil, fmt.Errorf("goauth: create connection pool: %w", err)
 			}
+			config.database.poolOpened = true
 		}
 	default:
-		return nil, ErrNoDatabase
+		return nil, fmt.Errorf("goauth: no database pool or DSN provided")
 	}
 
 	userRepo := sqlstore.NewUserRepository(sqlDB)
@@ -501,9 +502,9 @@ func New(config config) (*Auth, error) {
 	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 
 	return &Auth{
-		Config:           config,
-		Pool:             pool,
-		DB:               sqlDB,
+		cfg:              config,
+		pool:             pool,
+		db:               sqlDB,
 		authMW:           authMW,
 		adminMW:          adminMW,
 		rateLimitMW:      rateLimitMW,
@@ -628,11 +629,11 @@ func (a *Auth) Close() {
 		defer cancel()
 		_ = a.auditService.Stop(ctx)
 	}
-	if a.Pool != nil {
-		a.Pool.Close()
+	if a.cfg.database.poolOpened && a.pool != nil {
+		a.pool.Close()
 	}
-	if a.Config.database.opened && a.DB != nil {
-		a.DB.Close()
+	if a.cfg.database.opened && a.db != nil {
+		a.db.Close()
 	}
 }
 
@@ -647,7 +648,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	// route go-auth owns — never a catch-all — so preflight requests for paths
 	// go-auth does not own (including a consumer's own routes on a shared mux)
 	// still get a normal 404/405 and never reach the CORS layer.
-	preflight := len(a.Config.allowedOrigins) > 0
+	preflight := len(a.cfg.allowedOrigins) > 0
 	preflightPaths := make(map[string]bool)
 	handle := func(pattern string, h http.Handler) {
 		mux.Handle(pattern, h)
@@ -667,7 +668,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		}
 	}
 
-	if a.Config.registration.EnableEmailPassword {
+	if a.cfg.registration.EnableEmailPassword {
 		handle("POST /auth/register", a.Handlers.Register)
 		handle("POST /auth/signup", a.Handlers.Register)
 	}
@@ -677,7 +678,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	handle("POST /auth/forgot-password", a.Handlers.ForgotPassword)
 	handle("POST /auth/reset-password", a.Handlers.ResetPassword)
 	handle("POST /auth/verify-email", a.Handlers.VerifyEmail)
-	if a.Config.registration.EnableInvite {
+	if a.cfg.registration.EnableInvite {
 		handle("GET /auth/invite/info", a.Handlers.GetInviteInfo)
 		handle("POST /auth/invite/register", a.Handlers.InviteRegister)
 	}
@@ -718,14 +719,14 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	handle("DELETE /admin/users/{id}/sessions", a.Handlers.RevokeUserSessions)
 	handle("GET /admin/audit-logs", a.Handlers.AdminListAuditLogs)
 	handle("GET /admin/users/{id}/audit-logs", a.Handlers.AdminListUserAuditLogs)
-	if a.Config.registration.EnableInvite {
+	if a.cfg.registration.EnableInvite {
 		handle("POST /admin/invites", a.Handlers.CreateInvite)
 		handle("GET /admin/invites", a.Handlers.ListInvites)
 		handle("DELETE /admin/invites/{id}", a.Handlers.RevokeInvite)
 		handle("POST /admin/invites/{id}/resend", a.Handlers.ResendInvite)
 		handle("DELETE /admin/invites/{id}/hard", a.Handlers.HardDeleteInvite)
 	}
-	if a.Config.registration.EnableOAuth && a.oAuthService != nil {
+	if a.cfg.registration.EnableOAuth && a.oAuthService != nil {
 		handle("GET /auth/oauth/{provider}", a.Handlers.OAuthInitiate)
 		handle("GET /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
 		handle("POST /auth/oauth/{provider}/callback", a.Handlers.OAuthCallback)
@@ -810,6 +811,44 @@ func (a *Auth) RequireOrg(role domain.OrgRole) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return a.orgMemberMW(roleMW(next))
 	}
+}
+
+// ─── Session cookie accessors ───────────────────────────────
+
+// SetSessionCookies writes the session and refresh cookies for a newly
+// issued token pair, using the configured cookie settings. Pair it with a
+// custom handler that calls a.Services.Auth.Login (or Register) directly —
+// that call returns raw tokens with no cookies set; this is how you turn
+// them into the same cookies the built-in handlers issue. A non-empty
+// refreshToken is required to also write the refresh cookie; pass "" to
+// skip it (mirrors the built-in handlers' behavior when no refresh token
+// was issued).
+//
+// This does not rotate the CSRF token — call RotateCSRFToken separately if
+// your handler needs the same "session issued" ceremony the built-in login
+// handlers perform.
+func (a *Auth) SetSessionCookies(w http.ResponseWriter, sessionToken, refreshToken string) {
+	cfg := a.sessionService.Config()
+	middleware.SetSessionCookie(w, cfg, sessionToken)
+	middleware.SetRefreshCookie(w, cfg, refreshToken)
+}
+
+// ClearSessionCookies expires both the session and refresh cookies. Pair it
+// with a custom handler that revokes the session itself via
+// a.Services.Session.Revoke.
+func (a *Auth) ClearSessionCookies(w http.ResponseWriter) {
+	cfg := a.sessionService.Config()
+	middleware.ClearSessionCookie(w, cfg)
+	middleware.ClearRefreshCookie(w, cfg)
+}
+
+// RotateCSRFToken issues a fresh CSRF token cookie, using the configured
+// CSRF settings. A no-op if the double-submit CSRF layer is disabled
+// (SecurityConfig.DisableCSRFToken). Call this alongside SetSessionCookies
+// in a custom login handler to match the built-in handlers, which rotate
+// the CSRF token on every login/logout.
+func (a *Auth) RotateCSRFToken(w http.ResponseWriter) {
+	middleware.RotateCSRFToken(w, a.cfg.csrfToken)
 }
 
 func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResult, *domain.AuthError) {

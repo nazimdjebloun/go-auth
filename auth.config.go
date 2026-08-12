@@ -54,7 +54,8 @@ type DatabaseConfig struct {
 	Pool   *pgxpool.Pool // pre-opened pgx pool (library borrows, does not close)
 	Driver Driver        // DriverPostgres (default), DriverSQLite, DriverMySQL
 
-	opened bool // internal — true if the library opened the connection
+	opened     bool // internal — true if the library opened DB itself
+	poolOpened bool // internal — true if the library opened Pool itself
 }
 
 // EmailConfig configures SMTP email delivery (transport only).

@@ -16,6 +16,7 @@ import (
 
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 	_ "modernc.org/sqlite"
@@ -23,11 +24,11 @@ import (
 
 func migrateDB(t *testing.T, db *sql.DB, driver string) {
 	t.Helper()
-	schema, err := goauth.GetSchema(driver)
+	schemaSQL, err := goauth.GetSchema(driver)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, stmt := range goauth.SplitSQL(schema) {
+	for _, stmt := range schema.SplitSQL(schemaSQL) {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("migration failed: %v\nStatement: %s", err, stmt)
 		}

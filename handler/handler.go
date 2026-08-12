@@ -83,8 +83,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, h.services.Session, result.SessionToken)
-	setRefreshCookie(w, h.services.Session, result.RefreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), result.SessionToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), result.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
@@ -124,8 +124,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, h.services.Session, result.SessionToken)
-	setRefreshCookie(w, h.services.Session, result.RefreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), result.SessionToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), result.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
@@ -156,8 +156,8 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, h.services.Session, result.SessionToken)
-	setRefreshCookie(w, h.services.Session, result.RefreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), result.SessionToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), result.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
@@ -172,8 +172,8 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 			h.log.Warn("logout revoke error", "err", err)
 		}
 	}
-	clearSessionCookie(w, h.services.Session)
-	clearRefreshCookie(w, h.services.Session)
+	middleware.ClearSessionCookie(w, h.services.Session.Config())
+	middleware.ClearRefreshCookie(w, h.services.Session.Config())
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 }
@@ -348,8 +348,8 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	clearSessionCookie(w, h.services.Session)
-	clearRefreshCookie(w, h.services.Session)
+	middleware.ClearSessionCookie(w, h.services.Session.Config())
+	middleware.ClearRefreshCookie(w, h.services.Session.Config())
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }
@@ -388,8 +388,8 @@ func (h *Handler) ConfirmDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clearSessionCookie(w, h.services.Session)
-	clearRefreshCookie(w, h.services.Session)
+	middleware.ClearSessionCookie(w, h.services.Session.Config())
+	middleware.ClearRefreshCookie(w, h.services.Session.Config())
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }
@@ -418,8 +418,8 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, h.services.Session, rawToken)
-	setRefreshCookie(w, h.services.Session, refreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), rawToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), refreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -485,8 +485,8 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	session, rawToken, refreshToken, err := h.services.Session.RefreshSession(r.Context(), cookie.Value)
 	if err != nil {
-		clearSessionCookie(w, h.services.Session)
-		clearRefreshCookie(w, h.services.Session)
+		middleware.ClearSessionCookie(w, h.services.Session.Config())
+		middleware.ClearRefreshCookie(w, h.services.Session.Config())
 		if authErr, ok := err.(*domain.AuthError); ok {
 			writeError(w, authErr)
 		} else {
@@ -496,8 +496,8 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, h.services.Session, rawToken)
-	setRefreshCookie(w, h.services.Session, refreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), rawToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), refreshToken)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session": map[string]any{
 			"id":          session.ID,
@@ -669,8 +669,8 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, h.services.Session, result.SessionToken)
-	setRefreshCookie(w, h.services.Session, result.RefreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), result.SessionToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), result.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
@@ -700,8 +700,8 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	setSessionCookie(w, h.services.Session, rawToken)
-	setRefreshCookie(w, h.services.Session, refreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), rawToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), refreshToken)
 	h.clearTwoFactorBindingCookie(w)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	writeJSON(w, http.StatusOK, map[string]any{"user": user, "session": session})
@@ -1125,65 +1125,6 @@ func (h *Handler) ResendInvite(w http.ResponseWriter, r *http.Request) {
 // --- Helpers ---
 
 const maxBodySize = 1 << 16 // 64 KB
-
-func setSessionCookie(w http.ResponseWriter, svc *service.SessionService, token string) {
-	cfg := svc.Config()
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.CookieName,
-		Value:    token,
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
-		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
-		MaxAge:   int(cfg.Duration.Seconds()),
-	})
-}
-
-func clearSessionCookie(w http.ResponseWriter, svc *service.SessionService) {
-	cfg := svc.Config()
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.CookieName,
-		Value:    "",
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
-		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
-		MaxAge:   -1,
-	})
-}
-
-func setRefreshCookie(w http.ResponseWriter, svc *service.SessionService, token string) {
-	if token == "" {
-		return
-	}
-	cfg := svc.Config()
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.RefreshCookieName,
-		Value:    token,
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
-		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
-		MaxAge:   int(cfg.RefreshTTL.Seconds()),
-	})
-}
-
-func clearRefreshCookie(w http.ResponseWriter, svc *service.SessionService) {
-	cfg := svc.Config()
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.RefreshCookieName,
-		Value:    "",
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
-		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
-		MaxAge:   -1,
-	})
-}
 
 // setTwoFactorBindingCookie ties a 2FA challenge to this browser. It travels
 // exactly as far as the session cookie — same Domain/Path/Secure/SameSite —
