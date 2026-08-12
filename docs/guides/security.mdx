@@ -350,12 +350,25 @@ Covers re-sending the verification email after the fact — for the initial code
 
 Auth required, no body — resends to the authenticated user's own email.
 
+A success response does not mean an email was sent. When a usable code is still outstanding it is left in place rather than a second one mailed, and when the last one was minted inside `VerificationResendInterval` the refresh is throttled. Both cases return 200 with `codeSent: false`:
+
+```json
+{
+  "codeSent": false,
+  "expiresAt": "2026-01-01T12:15:00Z",
+  "message": "A verification code was already sent, check your email"
+}
+```
+
+Branch on `codeSent`, not on the status code — it is the same flag `POST /auth/login` returns for a reused 2FA challenge, and the only thing separating a deliberate skip from a mailer that is quietly failing. A mailer that actually fails returns `email_failed` (500) and leaves no token behind, so `codeSent: false` always refers to a code the mailer accepted — retrying straight after a failure mails a new one rather than reporting the undelivered code as outstanding.
+
 **Errors**
 
 | Code | Status | Cause |
 |---|---|---|
 | `user_not_found` | 404 | Session's user no longer exists |
 | `already_verified` | 400 | Email is already verified |
+| `email_failed` | 500 | The mailer rejected the send |
 
 #### curl
 
@@ -370,7 +383,10 @@ curl -X POST https://api.myapp.com/auth/resend-verification \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Verify.ResendVerification(ctx, userID)
+result, err := auth.Services.Verify.ResendVerification(ctx, userID)
+if err == nil && !result.Sent {
+    // A usable code was already outstanding; result.ExpiresAt is its expiry.
+}
 ```
 
 ---
@@ -386,6 +402,8 @@ await apiRequest(API_BASE, "POST", "/auth/resend-verification");
 ### Resend by email — `POST /auth/verify-email/resend`
 
 Public — for a user who isn't logged in on this device (e.g. finishing signup on a different browser). **Request body**: `{ "email": "..." }`. Always returns the same generic success message — an unknown email and an already-verified one look identical, to avoid leaking which addresses are registered.
+
+Note this route deliberately omits the `codeSent` field the authenticated one returns. Reporting it here would answer "does an unverified account exist for this address, and does it already have a live code?" to anyone who asks, which is precisely what the flat response withholds.
 
 #### curl
 

@@ -197,8 +197,8 @@ if (result.requiresVerification) {
 
 Only relevant when `RequireEmailVerification: true`. Two ways in: a link with a code (`POST /auth/verify-email`), or a resend if the email never arrived.
 
-<Callout type="warn" title="Requires a mailer">
-  `RequireEmailVerification: true` is only useful if something actually delivers the verification email — set `WithMailer` or `WithEmail` too, or the code is generated and stored but never sent anywhere. This isn't just a suggestion: `NewConfig` rejects `RequireEmailVerification: true` outright with `email: Mailer or Email config required when RequireEmailVerification or EnableInvite is enabled` if neither is set. See [Configuration → WithMailer / WithEmail / WithTemplates](../configuration.mdx#withmailer--withemail--withtemplates--conditionally-required) for both options, plus how to replace the email content itself with `WithTemplates`.
+<Callout type="warn" title="A mailer is required either way">
+  A mailer is required by `NewConfig` in every deployment — not just when `RequireEmailVerification: true` — since `POST /auth/admin/login` needs one to deliver its 2FA code regardless of this flag. Set `WithMailer` or `WithEmail`, or in `EnvironmentDev` only, `NewConfig` defaults to a log-only mailer automatically if you set neither. See [Configuration → WithMailer / WithEmail / WithTemplates](../configuration.mdx#withmailer--withemail--withtemplates--required) for both options, plus how to replace the email content itself with `WithTemplates`.
 </Callout>
 
 **`POST /auth/verify-email`** — body `{ "code": "..." }`. On success, the handler verifies the user **and** immediately creates a session in the same request — this is the only place verification and login happen in one step.
@@ -381,6 +381,8 @@ No session is issued — the credentials were correct, but that's not enough on 
 ```
 
 Same shape and same binding cookie as the register case above — see [Two-factor authentication](#two-factor-authentication) to complete the flow. `codeSent` is `false` and the message changes to "A two-factor code was already sent, check your email" if the client calls `Login` again while a still-valid, uncapped challenge already exists — the code isn't re-mailed on every login attempt.
+
+`codeSent: false` always refers to a code the mailer accepted. A login whose send fails returns `email_failed` (500) and leaves no challenge behind, so the next attempt mints and mails a fresh one rather than pointing at a code that was never delivered. `POST /auth/2fa/resend` is the exception: it refreshes the code on the existing challenge row, and a failed send there keeps the row — that row carries the lineage's attempt count, which a delete would reset. Retrying the resend re-mints on it while refreshes remain.
 
 **Errors**
 

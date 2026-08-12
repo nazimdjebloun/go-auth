@@ -15,8 +15,40 @@ For the full path/param reference see [Routes](../routes.mdx#admin--users). For 
 There's no `WithAdmin` flag — these routes are always mounted. What gates them is purely the `role` column on `domain.User`, which is either `"user"` or `"admin"`.
 
 <Callout type="warn" title="Bootstrapping the first admin">
-  Every admin-management endpoint below requires an admin session to call — including `POST /admin/users`. That's a chicken-and-egg problem for the very first admin: there's no CLI command or API route that creates one from nothing. In practice you promote an existing user directly against the database once, e.g. `UPDATE users SET role = 'admin' WHERE email = '...'`, and use the API for every admin after that.
+  Every admin-management endpoint below requires an admin session to call — including `POST /admin/users`. That's a chicken-and-egg problem for the very first admin: there's no API route that creates one from nothing. Use the `goauth seed-admin` CLI command — see [Creating the first admin](#creating-the-first-admin) below.
 </Callout>
+
+## Creating the first admin
+
+`goauth seed-admin` writes an admin user directly to the database, bypassing the API entirely — it's the supported answer to the chicken-and-egg problem above, so you don't have to hand-write an `UPDATE users SET role = 'admin' WHERE email = '...'` against production.
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth seed-admin \
+  --driver postgres --dsn "$DATABASE_URL" --env prod \
+  --smtp-host smtp.example.com --smtp-from auth@example.com
+```
+
+Because [admin login always requires a second factor](#admin-login), a seeded admin who can't receive email can never log in — so this command sends a **real** verification email to the address you're seeding, before writing anything to the database, and aborts with nothing written if that send fails. `--driver`, `--dsn`, and `--env` are required; `--env` is `dev`, `staging`, or `prod` and controls which mailer default applies.
+
+That email is fixed HTML-and-text content with no app name, links, or configurable parts — it lives in `cmd/goauth/cmd/seed_admin_email.go` and, unlike the library's emails, does not go through `TemplateProvider`. A compiled CLI has no way to accept a custom provider from an operator, so there is nothing to swap.
+
+| Input | Flag | Env var | Notes |
+|---|---|---|---|
+| Admin email | — | `ADMIN_EMAIL` | Prompted for interactively if unset and stdin is a TTY; a hard error otherwise. |
+| Admin password | — | `ADMIN_PASSWORD` | Validated against the default password policy if set. Otherwise prompted (hidden input) with fallback to a strong auto-generated password, printed once and never shown again. |
+| SMTP config | `--smtp-host`, `--smtp-port`, `--smtp-from`, `--smtp-user`, `--smtp-pass`, `--smtp-tls` | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASS`, `SMTP_TLS` | Required unless `--env dev` (see below) or `--skip-mailer-check`. |
+| Force non-interactive | `--non-interactive` | — | Missing `ADMIN_EMAIL` fails immediately instead of prompting — for CI. |
+| Skip the mailer send | `--skip-mailer-check` | — | Still builds a mailer if SMTP config is present; just doesn't require the send to succeed. Prints a loud warning either way. |
+| Allow a second admin | `--force` | — | Without it, seeding refuses outright if any `role: admin` row already exists. |
+
+**`--env dev` with no SMTP flags/env set** uses a log-only mailer instead of real SMTP — the same [`LogMailer`](../configuration.mdx#withmailer--withemail--withtemplates--required) `NewConfig` defaults to automatically in `EnvironmentDev`. The "verification email" is written to the command's log output instead of actually sent, so local bootstrapping needs no SMTP setup at all:
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth seed-admin \
+  --driver sqlite --dsn ./dev.db --env dev
+```
+
+If email/password aren't supplied and stdin is a TTY, both are prompted for; otherwise both auto-generate or error per the table above. The command refuses to write anything to the database if the mailer send fails or if an admin already exists without `--force` — see the flag table above.
 
 ## Frontend client setup
 
@@ -36,7 +68,7 @@ Same request shape as [Login](authentication.mdx#login), but only succeeds for u
 | `password` | `string` | Required |
 
 <Callout type="warn" title="Admin login always requires a second factor — unconditionally, not just under RequireEmail2FA">
-  Every real `goauth.New()` deployment constructs the 2FA service internally, with no config flag that skips it, and `AdminLogin` gates on that unconditionally — independent of `SecurityConfig.RequireEmail2FA`, and independent of whether the admin account itself has `TwoFactorEnabled` set. In other words: this isn't "on by default and configurable" — there is currently no supported way to turn it off. This holds even in a deployment that never touches any 2FA setting at all, which has one concrete consequence worth knowing up front: **a mailer (`WithMailer`/`WithEmail`) is effectively mandatory for `/auth/admin/login` to work at all**, since the second-factor code has to be emailed. Without one, every admin login attempt fails with `email_not_configured` (500), even though `NewConfig`'s validation only requires a mailer when `RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, or `DefaultTwoFactorEnabled` is on — none of which need to be true here. See [Two-factor authentication](authentication.mdx#two-factor-authentication) for the verify step, and [Security](../security.mdx#two-factor-authentication) for the reasoning.
+  Every real `goauth.New()` deployment constructs the 2FA service internally, with no config flag that skips it, and `AdminLogin` gates on that unconditionally — independent of `SecurityConfig.RequireEmail2FA`, and independent of whether the admin account itself has `TwoFactorEnabled` set. In other words: this isn't "on by default and configurable" — there is currently no supported way to turn it off. This holds even in a deployment that never touches any 2FA setting at all, which has one concrete consequence worth knowing up front: **a mailer (`WithMailer`/`WithEmail`) is mandatory for `/auth/admin/login` to work at all**, since the second-factor code has to be emailed. `NewConfig`'s validation reflects this directly — a mailer is required unconditionally in every environment except `EnvironmentDev` (which defaults to a log-only mailer automatically if none is configured), regardless of `RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, or `DefaultTwoFactorEnabled`. See [Configuration → WithMailer / WithEmail / WithTemplates](../configuration.mdx#withmailer--withemail--withtemplates--required), [Two-factor authentication](authentication.mdx#two-factor-authentication) for the verify step, and [Security](../security.mdx#two-factor-authentication) for the reasoning.
 </Callout>
 
 **Response** (`200 OK`) — never a session directly. A correct admin password returns a gated challenge, the same shape [Login](authentication.mdx#login) uses:
