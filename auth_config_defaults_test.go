@@ -39,6 +39,7 @@ func minimalOpts(extra ...Option) []Option {
 		}),
 		WithSecret("0123456789abcdef0123456789abcdef"),
 		WithSecurity(SecurityConfig{AllowedOrigins: []string{"https://example.com"}}),
+		WithMailer(noopMailer{}),
 	}
 	return append(base, extra...)
 }
@@ -228,6 +229,7 @@ func TestCookieSecure_Resolution(t *testing.T) {
 				WithSecret("0123456789abcdef0123456789abcdef"),
 				WithSecurity(SecurityConfig{AllowedOrigins: []string{tt.url}}),
 				WithCookie(CookieConfig{Secure: tt.set}),
+				WithMailer(noopMailer{}),
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -310,6 +312,7 @@ func TestAllowHTTPURLs_Resolution(t *testing.T) {
 					AllowedOrigins: []string{"https://example.com"},
 					AllowHTTPURLs:  tt.set,
 				}),
+				WithMailer(noopMailer{}),
 			)
 			if err != nil {
 				t.Fatal(err)

@@ -102,20 +102,31 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	return user, nil
 }
 
-func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) *domain.AuthError {
+// SendVerification mails a verification code, skipping the send when one is
+// already outstanding. The returned VerificationResult says which happened;
+// a nil error alone does not mean an email left the building.
+func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) (*VerificationResult, *domain.AuthError) {
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
 	}
 
+	// One read answers both skip questions, the way TwoFactorService.Challenge
+	// does it. Checking only the newest token is not a narrowing: a token is
+	// minted only when none is outstanding, so a live one is always the newest.
+	// (Two concurrent sends can both pass and mint two; the loser then goes
+	// unnoticed once the winner is used, which costs one extra email and
+	// nothing else.)
 	if user.ID != "" {
-		hasValid, err := s.tokens.HasValidByUserAndType(ctx, user.ID, domain.TokenVerifyEmail)
-		if err == nil && hasValid {
-			return nil
-		}
-		if s.config.VerificationResendInterval > 0 {
-			lastToken, err := s.tokens.GetLastByUserAndType(ctx, user.ID, domain.TokenVerifyEmail)
-			if err == nil && lastToken != nil && time.Since(lastToken.CreatedAt) < s.config.VerificationResendInterval {
-				return nil
+		last, err := s.tokens.GetLastByUserAndType(ctx, user.ID, domain.TokenVerifyEmail)
+		if err == nil && last != nil {
+			// Still usable — reuse it rather than mail a second code.
+			if last.UsedAt == nil && time.Now().UTC().Before(last.ExpiresAt) {
+				return &VerificationResult{Sent: false, ExpiresAt: last.ExpiresAt}, nil
+			}
+			// Spent or expired, but minted moments ago: throttle the refresh.
+			if s.config.VerificationResendInterval > 0 &&
+				time.Since(last.CreatedAt) < s.config.VerificationResendInterval {
+				return &VerificationResult{Sent: false, ExpiresAt: last.ExpiresAt}, nil
 			}
 		}
 	}
@@ -123,7 +134,7 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	raw, err := otp.Generate(8)
 	if err != nil {
 		s.log.Error("failed to generate verification code", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	now := time.Now().UTC()
@@ -134,11 +145,14 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		TokenHash: hashToken(raw),
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(s.config.VerificationCodeTTL),
+		// Set here, not left to the repository's backfill: the resend throttle
+		// above reads CreatedAt, so the value has to exist for every store.
+		CreatedAt: now,
 	}
 
 	if err := s.tokens.Create(ctx, token); err != nil {
 		s.log.Error("failed to store verification token", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	ttl := s.config.VerificationCodeTTL
@@ -149,42 +163,55 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	})
 	if err != nil {
 		s.log.Error("failed to render verification email template", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send verification email", "err", err, "user_id", user.ID)
-		return domain.NewError("email_failed", "Failed to send verification email", 500)
+		// Drop the row the failed send would otherwise leave behind. An
+		// undelivered code is indistinguishable from an outstanding one to the
+		// skip check above, so keeping it would make the next call answer "a
+		// code was already sent" about a code that never left — for the whole
+		// VerificationCodeTTL, with resend hitting the same branch. Clearing it
+		// is what lets Sent=false mean a code the mailer actually accepted.
+		if derr := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenVerifyEmail); derr != nil {
+			s.log.Error("failed to clear undelivered verification token", "err", derr, "user_id", user.ID)
+		}
+		return nil, domain.NewError("email_failed", "Failed to send verification email", 500)
 	}
 
 	if s.audit != nil {
 		s.audit.Publish(ctx, audit.NewEmailVerificationSentEvent(user.Email))
 	}
 
-	return nil
+	return &VerificationResult{Sent: true, ExpiresAt: token.ExpiresAt}, nil
 }
 
-func (s *VerificationService) ResendVerification(ctx context.Context, userID string) *domain.AuthError {
+func (s *VerificationService) ResendVerification(ctx context.Context, userID string) (*VerificationResult, *domain.AuthError) {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
-		return domain.ErrUserNotFound
+		return nil, domain.ErrUserNotFound
 	}
 
 	if user.IsVerified {
-		return domain.NewError("already_verified", "Email is already verified", 400)
+		return nil, domain.NewError("already_verified", "Email is already verified", 400)
 	}
 
 	return s.SendVerification(ctx, user)
 }
 
-func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) *domain.AuthError {
+// SendVerificationByEmail resolves the account itself and is safe to expose
+// unauthenticated. Its result must not reach the caller — Sent would report
+// whether an unverified account exists for that address, which is exactly what
+// the flat "if an account exists" reply is there to withhold. See the handler.
+func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) (*VerificationResult, *domain.AuthError) {
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil || user == nil {
-		return domain.NewError("email_not_found", "If an account exists, a verification email has been sent", 200)
+		return nil, domain.NewError("email_not_found", "If an account exists, a verification email has been sent", 200)
 	}
 
 	if user.IsVerified {
-		return domain.NewError("email_not_found", "If an account exists, a verification email has been sent", 200)
+		return nil, domain.NewError("email_not_found", "If an account exists, a verification email has been sent", 200)
 	}
 
 	return s.SendVerification(ctx, user)

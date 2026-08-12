@@ -266,7 +266,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		}
 
 		if s.config.RequireEmailVerification && !user.IsVerified {
-			if err := s.verifySvc.SendVerification(ctx, user); err != nil {
+			if _, err := s.verifySvc.SendVerification(ctx, user); err != nil {
 				return "", "", false, false, "", err
 			}
 			return "", "", false, true, user.Email, nil
@@ -331,7 +331,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	// Only send verification email if the provider did NOT verify the email
 	// and email verification is required.
 	if s.config.RequireEmailVerification && !newUser.IsVerified {
-		if err := s.verifySvc.SendVerification(ctx, newUser); err != nil {
+		if _, err := s.verifySvc.SendVerification(ctx, newUser); err != nil {
 			return "", "", false, false, "", err
 		}
 		return "", "", true, true, newUser.Email, nil

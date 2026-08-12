@@ -51,7 +51,7 @@ func TestValidate_NoDatabase(t *testing.T) {
 }
 
 func TestValidate_WithDB(t *testing.T) {
-	cfg := config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
+	cfg := config{appName: "Test", baseURL: "http://localhost", environment: EnvironmentDev, sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
 	cfg.applyDefaults()
 	err := cfg.validate()
 	if err != nil {
@@ -542,6 +542,10 @@ func validConfigOpts() []Option {
 			c.allowedOrigins = []string{"http://localhost"}
 			c.registration.EnableInvite = false
 			c.secret = "0123456789abcdef0123456789abcdef"
+			// EnvironmentDev so applyDefaults auto-fills a log mailer when a
+			// test doesn't provide its own WithMailer/WithEmail — the mailer
+			// requirement is unconditional now (AdminLogin always needs it).
+			c.environment = EnvironmentDev
 		},
 	}
 }
@@ -621,6 +625,7 @@ func TestNewConfig_OverridesDefault(t *testing.T) {
 		func(c *config) {
 			c.appName = "Custom"
 			c.baseURL = "http://localhost"
+			c.environment = EnvironmentDev
 			c.database.Driver = DriverSQLite
 			c.database.URL = "file::memory:?cache=shared"
 			c.sessionTTL = 7 * 24 * time.Hour
@@ -713,7 +718,7 @@ func TestValidate_SecretTooShort(t *testing.T) {
 }
 
 func TestValidate_Secret32BytesOK(t *testing.T) {
-	cfg := config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
+	cfg := config{appName: "Test", baseURL: "http://localhost", environment: EnvironmentDev, sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
 	cfg.applyDefaults()
 	err := cfg.validate()
 	if err != nil {

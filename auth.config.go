@@ -368,6 +368,10 @@ func (c *config) validate() error {
 		errs = append(errs, errors.New("secret: signing secret must be at least 32 bytes for HMAC-SHA256"))
 	}
 
+	if _, isLog := c.mailer.(*LogMailer); isLog && c.environment.normalize() != EnvironmentDev {
+		errs = append(errs, errors.New("mailer: LogMailer cannot be used outside EnvironmentDev — codes and reset links would be written to application logs instead of delivered"))
+	}
+
 	// Email validation — only check SMTP fields when no custom mailer is set
 	if c.email != nil && c.mailer == nil {
 		e := c.email
@@ -392,9 +396,12 @@ func (c *config) validate() error {
 			)
 		}
 	}
-	if (c.registration.RequireEmailVerification || c.registration.EnableInvite || c.requireEmail2FA || c.defaultTwoFactorEnabled) &&
-		c.mailer == nil && c.email == nil {
-		errs = append(errs, errors.New("email: Mailer or Email config required when RequireEmailVerification, EnableInvite, RequireEmail2FA, or DefaultTwoFactorEnabled is enabled"))
+	// AdminLogin always requires two-factor email delivery, unconditionally,
+	// independent of RequireEmailVerification/EnableInvite/RequireEmail2FA/
+	// DefaultTwoFactorEnabled — see docs/security.mdx. A mailer is therefore
+	// always required, not just when one of those four is on.
+	if c.mailer == nil && c.email == nil {
+		errs = append(errs, errors.New("email: Mailer or Email config required — AdminLogin always requires two-factor email delivery, and RequireEmailVerification/EnableInvite/RequireEmail2FA/DefaultTwoFactorEnabled each also need it when enabled"))
 	}
 	if c.registration.InviteTTL <= 0 {
 		errs = append(errs, errors.New("registration: invite_ttl must be positive"))
@@ -513,6 +520,13 @@ func defaultRegistration() RegistrationConfig {
 func (c *config) applyDefaults() {
 	if c.environment == "" {
 		c.environment = EnvironmentProd
+	}
+
+	// In dev, an unconfigured mailer defaults to the log driver instead of
+	// silently no-oping every send — but only when neither WithMailer nor
+	// WithEmail was called; an explicit choice is never overridden.
+	if c.mailer == nil && c.email == nil && c.environment.normalize() == EnvironmentDev {
+		c.mailer = NewLogMailer(c.logger)
 	}
 
 	if !c.registrationSet {

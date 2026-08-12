@@ -11,7 +11,8 @@ type SMTPMailer struct {
 	cfg EmailConfig
 }
 
-func newSMTPMailer(cfg EmailConfig) (*SMTPMailer, error) {
+// NewSMTPMailer builds a *SMTPMailer from the given transport config.
+func NewSMTPMailer(cfg EmailConfig) (*SMTPMailer, error) {
 	if cfg.Host == "" {
 		return nil, fmt.Errorf("goauth: SMTP host is required")
 	}

@@ -278,7 +278,7 @@ func New(config config) (*Auth, error) {
 	if config.mailer != nil {
 		mailer = config.mailer
 	} else if config.email != nil {
-		m, err := newSMTPMailer(*config.email)
+		m, err := NewSMTPMailer(*config.email)
 		if err != nil {
 			return nil, err
 		}

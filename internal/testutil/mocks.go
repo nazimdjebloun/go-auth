@@ -525,7 +525,21 @@ func (m *MockTokenRepo) DeleteExpired(_ context.Context) error {
 	return nil
 }
 
+// DeleteUnusedByUserAndType really deletes, matching sqlstore. It used to
+// return nil without touching anything, which silently passed any test whose
+// subject was the cleanup itself.
+//
+// Tokens are indexed under both their id and their hash, so a single row is
+// two entries here; the predicate matches both, and deleting during a range is
+// well defined in Go.
 func (m *MockTokenRepo) DeleteUnusedByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, t := range m.tokens {
+		if t.UserID != nil && *t.UserID == userID && t.Type == tokenType && t.UsedAt == nil {
+			delete(m.tokens, key)
+		}
+	}
 	return nil
 }
 

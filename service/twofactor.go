@@ -178,6 +178,21 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 	}
 
 	if aerr := s.send(ctx, user, raw); aerr != nil {
+		// Undo the mint. Left in place, this row is a live lineage as far as
+		// Challenge's reuse check is concerned, so every login for the next
+		// TwoFactorCodeTTL would answer "a code was already sent" and hand back
+		// a challenge whose code nobody has — locking the account out of login
+		// entirely until it expires. Note Challenge's own cleanup cannot save
+		// it: the reuse branch returns before reaching that delete.
+		//
+		// Deleting by user+type rather than by id is safe here because issue is
+		// only reached after Challenge cleared the unused rows, so this is the
+		// only one. Two concurrent logins can race — the loser's challenge id
+		// stops resolving and that login has to be retried, which is the right
+		// trade against a guaranteed lockout.
+		if derr := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenTwoFactor); derr != nil {
+			s.log.Error("failed to clear undelivered 2fa token", "err", derr, "user_id", user.ID)
+		}
 		return nil, aerr
 	}
 
@@ -411,6 +426,11 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 		return nil, domain.ErrTwoFactorCodeExpired
 	}
 
+	// No cleanup on failure here, unlike issue: this row carries the lineage's
+	// attempts, and deleting it would hand back a fresh guess budget to anyone
+	// who can make a send fail. The undelivered code is recoverable anyway —
+	// retrying Resend re-mints on the same row while refreshes remain — which
+	// is exactly what a fresh mint is not.
 	if aerr := s.send(ctx, user, raw); aerr != nil {
 		return nil, aerr
 	}

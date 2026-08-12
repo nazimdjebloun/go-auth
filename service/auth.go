@@ -176,7 +176,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	}
 
 	if s.config.RequireEmailVerification {
-		if err := s.verifySvc.SendVerification(ctx, user); err != nil {
+		if _, err := s.verifySvc.SendVerification(ctx, user); err != nil {
 			return nil, err
 		}
 		return &RegisterResult{

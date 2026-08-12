@@ -435,11 +435,23 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Verify.ResendVerification(r.Context(), user.ID); err != nil {
+	result, err := h.services.Verify.ResendVerification(r.Context(), user.ID)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Verification email sent"})
+	// codeSent distinguishes a fresh send from a still-valid code left in
+	// place, the same way the 2FA challenge response does — without it a
+	// deliberate skip and a dead mailer are the same 200 to the client.
+	message := "A verification code was already sent, check your email"
+	if result.Sent {
+		message = "Verification email sent"
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"codeSent":  result.Sent,
+		"expiresAt": result.ExpiresAt,
+		"message":   message,
+	})
 }
 
 func (h *Handler) ResendVerificationPublic(w http.ResponseWriter, r *http.Request) {
@@ -450,7 +462,12 @@ func (h *Handler) ResendVerificationPublic(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	h.services.Verify.SendVerificationByEmail(r.Context(), body.Email)
+	// Both return values are dropped deliberately: this endpoint is
+	// unauthenticated, so the error distinguishes "no such account" and Sent
+	// distinguishes "already had a live code" — each of which would turn the
+	// flat reply below into an account-existence oracle. The authenticated
+	// ResendVerification above is where codeSent is safe to expose.
+	_, _ = h.services.Verify.SendVerificationByEmail(r.Context(), body.Email)
 
 	writeJSON(w, http.StatusOK, map[string]string{"message": "If an account exists, a verification email has been sent"})
 }
