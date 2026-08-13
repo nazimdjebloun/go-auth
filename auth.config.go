@@ -298,6 +298,7 @@ type config struct {
 	allowHTTPURLsOpt           *bool // consumer intent; nil = derive
 	allowHTTPURLs              bool  // resolved by applyDefaults — read this
 	rateLimit                  *ratelimit.Config
+	rateLimitStoreExplicit     bool // true once WithRateLimitStore/WithRateLimit sets Store — that Store is the consumer's, Close() must not touch it
 	csrfToken                  *middleware.CSRFTokenConfig
 
 	requireEmail2FA                  bool
@@ -849,6 +850,7 @@ func WithRateLimit(cfg ratelimit.Config) Option {
 		// Store and Logger are deliberately shared: they are live objects the
 		// consumer owns, not data to be snapshotted.
 		c.rateLimit = &clone
+		c.rateLimitStoreExplicit = true
 	}
 }
 
@@ -892,6 +894,7 @@ func WithRateLimitStore(s ratelimit.Store) Option {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
 		}
 		c.rateLimit.Store = s
+		c.rateLimitStoreExplicit = true
 	}
 }
 

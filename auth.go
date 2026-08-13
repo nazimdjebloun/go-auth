@@ -632,6 +632,14 @@ func (a *Auth) Close() {
 		defer cancel()
 		_ = a.auditService.Stop(ctx)
 	}
+	// Only close a rate-limit Store this library constructed itself (the
+	// default path, never touched by WithRateLimitStore/WithRateLimit) — a
+	// consumer-supplied Store is a live object the consumer owns.
+	if !a.cfg.rateLimitStoreExplicit && a.cfg.rateLimit != nil {
+		if closer, ok := a.cfg.rateLimit.Store.(ratelimit.StoreCloser); ok {
+			closer.Close()
+		}
+	}
 	if a.cfg.database.poolOpened && a.pool != nil {
 		a.pool.Close()
 	}

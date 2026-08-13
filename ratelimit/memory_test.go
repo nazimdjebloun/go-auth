@@ -114,3 +114,42 @@ func TestIsDefaultStore(t *testing.T) {
 		t.Error("expected a distinct Store implementation to not be identified as the default store")
 	}
 }
+
+// TestMemoryStore_Close_StopsCleanupGoroutine proves the cleanup goroutine
+// actually exits, not just that Close doesn't panic: Close blocks on
+// <-s.done, which only closes when cleanup's own select loop observes
+// ctx.Done() and returns. If cleanup never exited, this call — and the
+// test — would hang until the suite's own timeout, not return cleanly.
+func TestMemoryStore_Close_StopsCleanupGoroutine(t *testing.T) {
+	s := NewMemoryStore().(*memoryStore)
+
+	done := make(chan struct{})
+	go func() {
+		s.Close()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close() did not return within 5s — cleanup goroutine likely did not exit")
+	}
+}
+
+func TestMemoryStore_Close_SafeAfterClose(t *testing.T) {
+	s := NewMemoryStore().(*memoryStore)
+	s.Close()
+
+	// Increment/Reset don't depend on cleanup running — the store stays
+	// usable after Close, only pruning stops.
+	if _, err := s.Increment("key", time.Minute); err != nil {
+		t.Errorf("Increment after Close: %v", err)
+	}
+	if err := s.Reset("key"); err != nil {
+		t.Errorf("Reset after Close: %v", err)
+	}
+}
+
+func TestMemoryStore_ImplementsStoreCloser(t *testing.T) {
+	var _ StoreCloser = NewMemoryStore().(*memoryStore)
+}

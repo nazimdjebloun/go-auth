@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -206,5 +207,54 @@ func TestNew_NoWarningWhenRateLimitDisabled(t *testing.T) {
 
 	if strings.Contains(buf.String(), "does not share state across instances") {
 		t.Errorf("expected no default-store warning when rate limiting is disabled, got log:\n%s", buf.String())
+	}
+}
+
+// closeTrackingStore is a Store + StoreCloser that records whether Close was
+// called, used to prove Auth.Close() never touches a consumer-supplied
+// Store — per WithRateLimitStore's contract, that Store is a live object
+// the consumer owns.
+type closeTrackingStore struct {
+	closed *bool
+}
+
+func (closeTrackingStore) Increment(_ string, _ time.Duration) (ratelimit.StoreResult, error) {
+	return ratelimit.StoreResult{}, nil
+}
+func (closeTrackingStore) Reset(_ string) error { return nil }
+func (s closeTrackingStore) Close()             { *s.closed = true }
+
+func TestClose_DoesNotCloseConsumerSuppliedRateLimitStore(t *testing.T) {
+	closed := false
+	store := closeTrackingStore{closed: &closed}
+
+	a := buildAuth(t, minimalOpts(WithRateLimitStore(store))...)
+	a.Close()
+
+	if closed {
+		t.Error("Close() closed a consumer-supplied rate-limit Store — WithRateLimitStore's contract is that the consumer owns it")
+	}
+}
+
+// TestClose_ClosesDefaultRateLimitStore proves Auth.Close() stops the
+// default store's cleanup goroutine when nothing overrode it. Goroutine
+// counting is inherently a little noisy, so this polls for a shrink rather
+// than asserting an exact count immediately after Close.
+func TestClose_ClosesDefaultRateLimitStore(t *testing.T) {
+	a := buildAuth(t, minimalOpts()...) // no WithRateLimitStore/WithRateLimit — default path
+
+	before := runtime.NumGoroutine()
+	a.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		after := runtime.NumGoroutine()
+		if after < before {
+			return // cleanup goroutine (and possibly others) exited
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutine count did not shrink after Close(): before=%d after=%d", before, after)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

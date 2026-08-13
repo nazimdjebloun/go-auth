@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"context"
 	"sync"
 	"time"
 )
@@ -8,6 +9,8 @@ import (
 type memoryStore struct {
 	mu      sync.Mutex
 	buckets map[string]*bucket
+	cancel  context.CancelFunc
+	done    chan struct{}
 }
 
 type bucket struct {
@@ -16,9 +19,33 @@ type bucket struct {
 }
 
 func NewMemoryStore() Store {
-	s := &memoryStore{buckets: make(map[string]*bucket)}
-	go s.cleanup()
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &memoryStore{
+		buckets: make(map[string]*bucket),
+		cancel:  cancel,
+		done:    make(chan struct{}),
+	}
+	go s.cleanup(ctx)
 	return s
+}
+
+// StoreCloser is an optional capability a Store can implement to release
+// background resources (e.g. a cleanup goroutine). It's a separate
+// interface from Store, not an addition to it, so a consumer-provided Store
+// (Redis-backed or otherwise) that has nothing to close isn't forced to grow
+// a no-op method — Auth.Close checks for it via a type assertion.
+type StoreCloser interface {
+	Close()
+}
+
+var _ StoreCloser = (*memoryStore)(nil)
+
+// Close stops the background cleanup goroutine. Safe to call once; the
+// store remains readable/writable after Close (Increment/Reset don't depend
+// on cleanup running), it just stops pruning expired buckets.
+func (s *memoryStore) Close() {
+	s.cancel()
+	<-s.done
 }
 
 // IsDefaultStore reports whether s is a Store returned by NewMemoryStore —
@@ -54,16 +81,23 @@ func (s *memoryStore) Reset(key string) error {
 	return nil
 }
 
-func (s *memoryStore) cleanup() {
+func (s *memoryStore) cleanup(ctx context.Context) {
+	defer close(s.done)
 	ticker := time.NewTicker(5 * time.Minute)
-	for range ticker.C {
-		s.mu.Lock()
-		now := time.Now()
-		for k, b := range s.buckets {
-			if now.After(b.resetAt) {
-				delete(s.buckets, k)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.mu.Lock()
+			now := time.Now()
+			for k, b := range s.buckets {
+				if now.After(b.resetAt) {
+					delete(s.buckets, k)
+				}
 			}
+			s.mu.Unlock()
 		}
-		s.mu.Unlock()
 	}
 }
