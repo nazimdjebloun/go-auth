@@ -13,9 +13,18 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// adminSessionStore is AdminService's session dependency: listing a user's
+// sessions (AdminListUserSessions) and revoking one by id
+// (AdminRevokeUserSession) — SessionReader and SessionRevoker, not the full
+// port.SessionRepository.
+type adminSessionStore interface {
+	port.SessionReader
+	port.SessionRevoker
+}
+
 type AdminService struct {
 	users      port.UserRepository
-	sessions   port.SessionRepository
+	sessions   adminSessionStore
 	providers  port.ProviderAccountRepository
 	hasher     port.Hasher
 	config     Config
@@ -26,7 +35,7 @@ type AdminService struct {
 
 func NewAdminService(
 	users port.UserRepository,
-	sessions port.SessionRepository,
+	sessions adminSessionStore,
 	providers port.ProviderAccountRepository,
 	hasher port.Hasher,
 	config Config,

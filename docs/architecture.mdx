@@ -105,6 +105,8 @@ Everywhere the library needs to talk to the outside world, it does so through a 
 | `audit.EventSink` | the SQL sink (persists to the `audit_log` table) | Kafka, NATS, a webhook — added via `WithAuditSink` alongside the built-in one |
 | `port.Hasher` | bcrypt (`hasher` package) | Not currently swappable via a `With*` option — it's constructed internally with a fixed cost |
 
+**Repository interfaces are segmented, not just one flat contract per aggregate.** `port.SessionRepository` composes `SessionReader` / `SessionWriter` / `SessionRevoker` / `ActiveOrgSessionStore`; `port.OrgRepository` composes `OrgCRUD` / `OrgLimitCounters`. There's no `With*` option to swap a repository today — every consumer goes through `internal/sqlstore` — but a fork or a future extension point implementing only a slice (e.g. a Redis-backed session store that only revokes and reads, never touches the active-org pointer) can depend on the narrow interface instead of every method on the composed one.
+
 ## Testing structure
 
 Unit tests live alongside the code they test (`service/*_test.go`, `internal/handler/*_test.go`, ...) and use hand-written fakes for the `port` interfaces (see `internal/testutil`), so they run without a database. The `integration` package runs the same flows against real PostgreSQL, MySQL, and SQLite databases behind build-tag-free `_test.go` files gated on environment variables (e.g. `GOAUTH_POSTGRES_DSN`) — they're skipped, not failed, when the corresponding database isn't available.

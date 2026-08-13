@@ -20,7 +20,7 @@ const deleteAccountCodeTTL = 10 * time.Minute
 
 type AuthService struct {
 	users     port.UserRepository
-	sessions  port.SessionRepository
+	sessions  port.SessionRevoker // only DeleteAllForUser (account deletion)
 	tokens    port.TokenRepository
 	hasher    port.Hasher
 	gen       port.TokenGenerator
@@ -80,7 +80,7 @@ type AuditPublisher interface {
 
 func NewAuthService(
 	users port.UserRepository,
-	sessions port.SessionRepository,
+	sessions port.SessionRevoker,
 	tokens port.TokenRepository,
 	hasher port.Hasher,
 	gen port.TokenGenerator,

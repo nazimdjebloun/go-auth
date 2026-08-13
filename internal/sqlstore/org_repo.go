@@ -7,7 +7,10 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
 )
+
+var _ port.OrgRepository = (*OrgRepository)(nil)
 
 type OrgRepository struct {
 	db *DB

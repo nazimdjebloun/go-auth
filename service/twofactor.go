@@ -46,7 +46,7 @@ const (
 // the residual distributed case accepted and documented in docs/security.mdx.
 type TwoFactorService struct {
 	users      port.UserRepository
-	sessions   port.SessionRepository
+	sessions   port.SessionRevoker // DeleteAllForUserExcept (Enable/Disable revoke other sessions)
 	tokens     port.TokenRepository
 	hasher     port.Hasher
 	mailer     port.Mailer
@@ -60,7 +60,7 @@ type TwoFactorService struct {
 
 func NewTwoFactorService(
 	users port.UserRepository,
-	sessions port.SessionRepository,
+	sessions port.SessionRevoker,
 	tokens port.TokenRepository,
 	hasher port.Hasher,
 	mailer port.Mailer,

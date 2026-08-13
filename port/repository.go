@@ -80,25 +80,34 @@ type SessionFilter struct {
 	Limit  int
 }
 
-type SessionRepository interface {
-	// Create persists a new session.
-	Create(ctx context.Context, s *domain.Session) error
-
-	// ── Lookups ─────────────────────────────────────────────────────────────
+// SessionReader covers session lookups and listing — no mutation.
+type SessionReader interface {
 	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Session, error)
 	GetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
 	GetByPreviousRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
 	LockAndGetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error)
 
-	// ── Listing ─────────────────────────────────────────────────────────────
 	// ListByUserID returns a user's active sessions, paginated, plus a total count.
 	ListByUserID(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error)
 	// ListAllByUserID returns all of a user's active sessions (no pagination).
 	ListAllByUserID(ctx context.Context, userID string) ([]domain.Session, error)
 	// ListAll returns active sessions across all users, optionally filtered (admin).
 	ListAll(ctx context.Context, filter SessionFilter) ([]domain.Session, int, error)
+}
 
-	// ── Delete (hard delete, no ownership check) ─────────────────────────────
+// SessionWriter covers session creation and in-place field updates —
+// everything short of deleting/revoking a session.
+type SessionWriter interface {
+	// Create persists a new session.
+	Create(ctx context.Context, s *domain.Session) error
+	UpdateLastActiveAt(ctx context.Context, tokenHash string) error
+	UpdateRefreshToken(ctx context.Context, input UpdateRefreshInput) (*domain.Session, error)
+}
+
+// SessionRevoker covers every way a session stops being valid: hard deletes
+// (no ownership check — logout/maintenance paths) and user-scoped revokes
+// (ownership enforced in SQL — a user can only revoke their own sessions).
+type SessionRevoker interface {
 	// Delete removes a session by its access-token hash (logout path).
 	Delete(ctx context.Context, tokenHash string) error
 	// DeleteByID removes a session by its id.
@@ -110,24 +119,34 @@ type SessionRepository interface {
 	// DeleteExpired removes sessions past their refresh expiry (maintenance).
 	DeleteExpired(ctx context.Context) error
 
-	// ── Revoke (user-scoped delete, ownership enforced in SQL) ───────────────
 	// RevokeByIDForUser removes one session only if it belongs to userID.
 	// Returns false if the session is missing or belongs to someone else.
 	RevokeByIDForUser(ctx context.Context, id, userID string) (bool, error)
 	// RevokeManyForUser removes the given sessions only if they belong to userID.
 	// Returns the number of sessions actually removed.
 	RevokeManyForUser(ctx context.Context, ids []string, userID string) (int, error)
+}
 
-	// ── State updates ────────────────────────────────────────────────────────
-	UpdateLastActiveAt(ctx context.Context, tokenHash string) error
-	UpdateRefreshToken(ctx context.Context, input UpdateRefreshInput) (*domain.Session, error)
-
-	// ── Active org ───────────────────────────────────────────────────────────
+// ActiveOrgSessionStore covers a session's "active org" pointer — which
+// org, if any, a session is currently scoped to.
+type ActiveOrgSessionStore interface {
 	UpdateActiveOrgRoleForUser(ctx context.Context, userID, orgID string, newRole domain.OrgRole) error
 	ClearActiveOrgForUser(ctx context.Context, userID, orgID string) error
 	ClearActiveOrgForAllMembers(ctx context.Context, orgID string) error
 	ClearActiveOrg(ctx context.Context, sessionID string) error
 	SetActiveOrg(ctx context.Context, sessionID, orgID string, role domain.OrgRole) error
+}
+
+// SessionRepository composes the four facets above for sqlstore and any
+// consumer that wants the full session contract in one implementation.
+// Services that only need a slice (e.g. only revoking, or only the active-org
+// pointer) should depend on that slice's interface directly instead — see
+// service/password.go and service/org.go for examples.
+type SessionRepository interface {
+	SessionReader
+	SessionWriter
+	SessionRevoker
+	ActiveOrgSessionStore
 }
 
 type TokenRepository interface {
@@ -178,7 +197,9 @@ type ProviderAccountRepository interface {
 	Delete(ctx context.Context, userID, provider string) error
 }
 
-type OrgRepository interface {
+// OrgCRUD covers organization and membership records themselves — creating,
+// reading, updating, and deleting orgs and their members.
+type OrgCRUD interface {
 	Create(ctx context.Context, org *domain.Organization) error
 	GetByID(ctx context.Context, id string) (*domain.Organization, error)
 	GetBySlug(ctx context.Context, slug string) (*domain.Organization, error)
@@ -191,7 +212,14 @@ type OrgRepository interface {
 	GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error)
 	ListMembers(ctx context.Context, orgID string, offset, limit int) ([]domain.OrgMemberDetail, int, error)
 	ListUserOrgs(ctx context.Context, userID string) ([]domain.Organization, error)
+}
 
+// OrgLimitCounters maintains the denormalized owner/member counts that back
+// SecurityConfig's org limits (max orgs owned per user, max members per
+// org) — invariant-maintenance for that feature, not core org CRUD. Each
+// Increment enforces its cap atomically in SQL (guarded update, not
+// read-then-write) and returns an error if the cap is already reached.
+type OrgLimitCounters interface {
 	IncrementUserOrgOwnerCount(ctx context.Context, userID string, maxOrgs int) error
 	DecrementUserOrgOwnerCount(ctx context.Context, userID string) error
 	IncrementOrgMemberCount(ctx context.Context, orgID string, maxMembers int) error
@@ -199,6 +227,13 @@ type OrgRepository interface {
 	TryDecrementOrgOwnerCount(ctx context.Context, orgID string) error
 	IncrementOrgOwnerCount(ctx context.Context, orgID string) error
 	DecrementOwnerCountForOrgOwners(ctx context.Context, orgID string) error
+}
+
+// OrgRepository composes the two facets above for sqlstore and any consumer
+// that wants the full org contract in one implementation.
+type OrgRepository interface {
+	OrgCRUD
+	OrgLimitCounters
 }
 
 type OrgInviteRepository interface {

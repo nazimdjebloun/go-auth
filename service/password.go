@@ -21,7 +21,7 @@ type PasswordService struct {
 	gen       port.TokenGenerator
 	mailer    port.Mailer
 	templates port.TemplateProvider
-	sessions  port.SessionRepository
+	sessions  port.SessionRevoker // DeleteAllForUser / DeleteAllForUserExcept
 	config    Config
 	log       *slog.Logger
 	audit     AuditPublisher
@@ -33,7 +33,7 @@ func NewPasswordService(
 	hasher port.Hasher,
 	gen port.TokenGenerator,
 	mailer port.Mailer,
-	sessions port.SessionRepository,
+	sessions port.SessionRevoker,
 	config Config,
 ) *PasswordService {
 	if config.Logger == nil {

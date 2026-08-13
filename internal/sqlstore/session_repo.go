@@ -13,6 +13,8 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+var _ port.SessionRepository = (*SessionRepository)(nil)
+
 type SessionRepository struct {
 	db  *DB
 	log *slog.Logger

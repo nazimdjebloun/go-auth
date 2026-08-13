@@ -14,7 +14,7 @@ import (
 type OrgService struct {
 	orgs      port.OrgRepository
 	users     port.UserRepository
-	sessions  port.SessionRepository
+	sessions  port.ActiveOrgSessionStore
 	txManager port.TxManager
 	maxOrgs   int
 	log       *slog.Logger
@@ -30,7 +30,7 @@ type OrgServiceConfig struct {
 func NewOrgService(
 	orgs port.OrgRepository,
 	users port.UserRepository,
-	sessions port.SessionRepository,
+	sessions port.ActiveOrgSessionStore,
 	txManager port.TxManager,
 	cfg OrgServiceConfig,
 ) *OrgService {
