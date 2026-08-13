@@ -1,13 +1,17 @@
 package goauth
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
 // TestClose_DoesNotCloseConsumerSuppliedPool guards the DatabaseConfig.Pool
@@ -156,5 +160,51 @@ func TestLogin_PersistsIPAndUserAgent(t *testing.T) {
 	}
 	if res.Session.UserAgent != "test-agent/2.0" {
 		t.Errorf("session.UserAgent = %q, want %q", res.Session.UserAgent, "test-agent/2.0")
+	}
+}
+
+// fakeRateLimitStore is a Store implementation distinct from
+// ratelimit.NewMemoryStore's, used to prove the default-store warning is
+// type-based rather than firing unconditionally whenever rate limiting is on.
+type fakeRateLimitStore struct{}
+
+func (fakeRateLimitStore) Increment(_ string, _ time.Duration) (ratelimit.StoreResult, error) {
+	return ratelimit.StoreResult{}, nil
+}
+func (fakeRateLimitStore) Reset(_ string) error { return nil }
+
+func TestNew_WarnsWhenRateLimitUsesDefaultStore(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	// minimalOpts doesn't touch rate limiting, so New() falls back to
+	// ratelimit.DefaultRateLimitConfig() — Enabled: true, Store:
+	// NewMemoryStore() — which is exactly the case the warning targets.
+	buildAuth(t, minimalOpts(WithLogger(logger))...)
+
+	if !strings.Contains(buf.String(), "does not share state across instances") {
+		t.Errorf("expected a warning about the default in-memory rate-limit store, got log:\n%s", buf.String())
+	}
+}
+
+func TestNew_NoWarningWithCustomRateLimitStore(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	buildAuth(t, minimalOpts(WithLogger(logger), WithRateLimitStore(fakeRateLimitStore{}))...)
+
+	if strings.Contains(buf.String(), "does not share state across instances") {
+		t.Errorf("expected no default-store warning with a custom Store, got log:\n%s", buf.String())
+	}
+}
+
+func TestNew_NoWarningWhenRateLimitDisabled(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+
+	buildAuth(t, minimalOpts(WithLogger(logger), WithRateLimitEnabled(false))...)
+
+	if strings.Contains(buf.String(), "does not share state across instances") {
+		t.Errorf("expected no default-store warning when rate limiting is disabled, got log:\n%s", buf.String())
 	}
 }

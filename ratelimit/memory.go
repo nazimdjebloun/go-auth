@@ -21,6 +21,18 @@ func NewMemoryStore() Store {
 	return s
 }
 
+// IsDefaultStore reports whether s is a Store returned by NewMemoryStore —
+// used by Auth.New to warn that rate limiting doesn't share state across
+// instances. This matches by type, not by construction site: a store built
+// via an explicit WithRateLimitStore(ratelimit.NewMemoryStore()) matches
+// too, since the underlying multi-instance caveat is identical either way —
+// only a genuinely different Store implementation (e.g. Redis-backed)
+// avoids the warning.
+func IsDefaultStore(s Store) bool {
+	_, ok := s.(*memoryStore)
+	return ok
+}
+
 func (s *memoryStore) Increment(key string, window time.Duration) (StoreResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

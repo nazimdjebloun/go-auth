@@ -475,6 +475,13 @@ func New(config config) (*Auth, error) {
 			config.logger.Warn("goauth: rate limiting is disabled — this is insecure for production",
 				"fix", "re-enable with WithRateLimitEnabled(true) or use a trusted edge rate limiter")
 		}
+		if config.rateLimit.Enabled && config.logger != nil && ratelimit.IsDefaultStore(config.rateLimit.Store) {
+			// Heuristic reminder, not a diagnosis — the library has no way to
+			// detect "multiple instances" directly, so this fires on every
+			// process using the default store, dev included.
+			config.logger.Warn("goauth: rate limiting is using the default in-memory store, which does not share state across instances",
+				"fix", "if you run more than one instance behind a load balancer, use WithRateLimitStore with a shared store (e.g. Redis) or limits apply per-instance rather than globally")
+		}
 	}
 	rateLimitMW := middleware.RateLimit(config.rateLimit)
 	csrfMW := middleware.OriginCheck(config.allowedOrigins, config.allowMissingCSRFHeaders, trustedIPs, config.logger)

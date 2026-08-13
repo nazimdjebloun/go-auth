@@ -100,3 +100,17 @@ func TestMemoryStore_StoreResultImplements(t *testing.T) {
 	// Compile-time check: NewMemoryStore returns Store interface
 	var _ Store = NewMemoryStore()
 }
+
+type fakeStore struct{}
+
+func (fakeStore) Increment(_ string, _ time.Duration) (StoreResult, error) { return StoreResult{}, nil }
+func (fakeStore) Reset(_ string) error                                     { return nil }
+
+func TestIsDefaultStore(t *testing.T) {
+	if !IsDefaultStore(NewMemoryStore()) {
+		t.Error("expected NewMemoryStore() to be identified as the default store")
+	}
+	if IsDefaultStore(fakeStore{}) {
+		t.Error("expected a distinct Store implementation to not be identified as the default store")
+	}
+}
