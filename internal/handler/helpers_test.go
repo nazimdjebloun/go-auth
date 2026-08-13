@@ -904,14 +904,16 @@ func newTestHarness() *testHarness {
 	keys := keyring.Derive([]byte("test-secret-at-least-32-bytes!!"))
 
 	cfg := service.Config{
-		AppName:                      "TestApp",
+		CommonConfig: service.CommonConfig{
+			AppName:    "TestApp",
+			BaseURL:    "http://localhost:3000",
+			SessionTTL: 30 * 24 * time.Hour,
+			TokenTTL:   1 * time.Hour,
+		},
 		EnableEmailPassword:          true,
 		EnableOAuth:                  true,
 		EnableInvite:                 true,
 		InviteTTL:                    7 * 24 * time.Hour,
-		SessionTTL:                   30 * 24 * time.Hour,
-		TokenTTL:                     1 * time.Hour,
-		BaseURL:                      "http://localhost:3000",
 		URLValidator:                 &port.URLValidator{AllowHTTP: true},
 		TwoFactorCodeTTL:             time.Hour,
 		TwoFactorBindingKey:          keys.TwoFactor,

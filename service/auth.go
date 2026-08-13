@@ -36,8 +36,8 @@ type AuthService struct {
 }
 
 type Config struct {
-	AppName                    string
-	BaseURL                    string
+	CommonConfig
+
 	InviteOnly                 bool
 	EnableEmailPassword        bool
 	EnableOAuth                bool
@@ -46,13 +46,9 @@ type Config struct {
 	InviteTTL                  time.Duration
 	VerificationCodeTTL        time.Duration
 	VerificationResendInterval time.Duration
-	SessionTTL                 time.Duration
-	TokenTTL                   time.Duration
 	PasswordPolicy             domain.PasswordPolicy
 	TemplateProvider           port.TemplateProvider
 	URLValidator               *port.URLValidator
-	Logger                     *slog.Logger
-	Audit                      AuditPublisher
 
 	RequireEmail2FA         bool
 	DefaultTwoFactorEnabled bool

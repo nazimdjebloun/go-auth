@@ -13,8 +13,10 @@ import (
 
 func newTwoFactorConfig() service.Config {
 	return service.Config{
-		AppName:          "TestApp",
-		BaseURL:          "http://localhost:3000",
+		CommonConfig: service.CommonConfig{
+			AppName: "TestApp",
+			BaseURL: "http://localhost:3000",
+		},
 		TwoFactorCodeTTL: 5 * time.Minute,
 		URLValidator:     &port.URLValidator{AllowHTTP: true},
 	}

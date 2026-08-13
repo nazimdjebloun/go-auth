@@ -321,9 +321,17 @@ func New(config config) (*Auth, error) {
 		auditPub = auditSvc
 	}
 
+	commonCfg := service.CommonConfig{
+		AppName:    config.appName,
+		BaseURL:    config.baseURL,
+		SessionTTL: config.sessionTTL,
+		TokenTTL:   config.tokenTTL,
+		Logger:     config.logger,
+		Audit:      auditPub,
+	}
+
 	serviceCfg := service.Config{
-		AppName:                    config.appName,
-		BaseURL:                    config.baseURL,
+		CommonConfig:               commonCfg,
 		InviteOnly:                 !config.registration.AllowPublic,
 		EnableEmailPassword:        config.registration.EnableEmailPassword,
 		EnableOAuth:                config.registration.EnableOAuth,
@@ -332,13 +340,9 @@ func New(config config) (*Auth, error) {
 		InviteTTL:                  config.registration.InviteTTL,
 		VerificationCodeTTL:        config.registration.VerificationCodeTTL,
 		VerificationResendInterval: config.verificationResendInterval,
-		SessionTTL:                 config.sessionTTL,
-		TokenTTL:                   config.tokenTTL,
 		PasswordPolicy:             config.passwordPolicy,
 		TemplateProvider:           templateProvider,
 		URLValidator:               urlValidator,
-		Logger:                     config.logger,
-		Audit:                      auditPub,
 
 		RequireEmail2FA:                  config.requireEmail2FA,
 		DefaultTwoFactorEnabled:          config.defaultTwoFactorEnabled,
@@ -411,15 +415,10 @@ func New(config config) (*Auth, error) {
 			encryptor, _ = crypto.NewEncryptor(keys.OAuthEnc)
 		}
 		oauthCfg := service.OAuthServiceConfig{
-			AppName:                  config.appName,
-			BaseURL:                  config.baseURL,
-			SessionTTL:               config.sessionTTL,
-			TokenTTL:                 config.tokenTTL,
+			CommonConfig:             commonCfg,
 			RequireEmailVerification: config.registration.RequireEmailVerification,
 			EnableOAuth:              config.registration.EnableOAuth,
 			InviteOnly:               !config.registration.AllowPublic,
-			Logger:                   config.logger,
-			Audit:                    auditPub,
 			Encryptor:                encryptor,
 		}
 		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, oauthCfg)

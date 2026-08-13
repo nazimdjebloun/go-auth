@@ -35,16 +35,18 @@ func authErrMessage(err error) string {
 
 func defaultTestConfig() Config {
 	return Config{
-		AppName:                  "TestApp",
+		CommonConfig: CommonConfig{
+			AppName:    "TestApp",
+			BaseURL:    "http://localhost:3000",
+			SessionTTL: 30 * 24 * time.Hour,
+			TokenTTL:   1 * time.Hour,
+		},
 		RequireEmailVerification: false,
 		EnableEmailPassword:      true,
 		EnableOAuth:              true,
 		EnableInvite:             true,
 		InviteTTL:                7 * 24 * time.Hour,
 		VerificationCodeTTL:      15 * time.Minute,
-		SessionTTL:               30 * 24 * time.Hour,
-		TokenTTL:                 1 * time.Hour,
-		BaseURL:                  "http://localhost:3000",
 		URLValidator:             &port.URLValidator{AllowHTTP: true},
 	}
 }

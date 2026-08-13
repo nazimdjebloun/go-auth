@@ -33,9 +33,11 @@ func authErrCode(err error) string {
 
 func newVerificationConfig() service.Config {
 	return service.Config{
-		AppName:             "TestApp",
+		CommonConfig: service.CommonConfig{
+			AppName:  "TestApp",
+			TokenTTL: 1 * time.Hour,
+		},
 		VerificationCodeTTL: 15 * time.Minute,
-		TokenTTL:            1 * time.Hour,
 		URLValidator:        &port.URLValidator{AllowHTTP: true},
 	}
 }

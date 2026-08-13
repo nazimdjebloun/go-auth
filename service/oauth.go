@@ -37,15 +37,11 @@ type OAuthService struct {
 // HTTP layer (see middleware.SetSessionCookie / auth.go's Mount wiring)
 // using the top-level CookieConfig, not by OAuthService itself.
 type OAuthServiceConfig struct {
-	AppName                  string
-	BaseURL                  string
-	SessionTTL               time.Duration
-	TokenTTL                 time.Duration
+	CommonConfig
+
 	RequireEmailVerification bool
 	EnableOAuth              bool
 	InviteOnly               bool
-	Logger                   *slog.Logger
-	Audit                    AuditPublisher
 	Encryptor                *crypto.Encryptor
 }
 

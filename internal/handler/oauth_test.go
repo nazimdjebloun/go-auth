@@ -151,10 +151,12 @@ func newOAuthTestHarness() *oauthTestHarness {
 	mailer := &mockMailer{}
 
 	cfg := service.Config{
-		AppName:    "TestApp",
-		InviteTTL:  7 * 24 * time.Hour,
-		SessionTTL: 30 * 24 * time.Hour,
-		TokenTTL:   1 * time.Hour,
+		CommonConfig: service.CommonConfig{
+			AppName:    "TestApp",
+			SessionTTL: 30 * 24 * time.Hour,
+			TokenTTL:   1 * time.Hour,
+		},
+		InviteTTL: 7 * 24 * time.Hour,
 	}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -180,13 +182,14 @@ func newOAuthTestHarness() *oauthTestHarness {
 	}
 
 	oauthCfg := service.OAuthServiceConfig{
-		BaseURL:                  "http://localhost:3000",
-		AppName:                  "TestApp",
+		CommonConfig: service.CommonConfig{
+			BaseURL:    "http://localhost:3000",
+			AppName:    "TestApp",
+			SessionTTL: 30 * 24 * time.Hour,
+			TokenTTL:   1 * time.Hour,
+		},
 		EnableOAuth:              true,
-		SessionTTL:               30 * 24 * time.Hour,
-		TokenTTL:                 1 * time.Hour,
 		RequireEmailVerification: false,
-		Logger:                   nil,
 	}
 
 	oauthSvc := service.NewOAuthService(
