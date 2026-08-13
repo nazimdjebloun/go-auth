@@ -11,14 +11,37 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/middleware"
 )
+
+// seedAdminActor seeds and returns an admin user — every admin handler now
+// requires an authenticated admin actor in the request context, mirroring
+// what RequireRole(domain.RoleAdmin) already enforces via Mount().
+func seedAdminActor(t *testing.T, th *testHarness) *domain.User {
+	t.Helper()
+	actor := &domain.User{
+		ID:         "actor-admin",
+		Email:      "actor-admin@example.com",
+		Name:       "Actor Admin",
+		Role:       domain.RoleAdmin,
+		IsVerified: true,
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}
+	if err := th.users.Create(context.Background(), actor); err != nil {
+		t.Fatal(err)
+	}
+	return actor
+}
 
 func TestAdminCreateUser(t *testing.T) {
 	th := newTestHarness()
+	actor := seedAdminActor(t, th)
 
 	body := `{"email":"admin-created@example.com","password":"Passw0rd!","name":"Admin Created","role":"admin"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
 	w := httptest.NewRecorder()
 	th.handler.AdminCreateUser(w, req)
 
@@ -50,10 +73,12 @@ func TestAdminCreateUser(t *testing.T) {
 
 func TestAdminCreateUser_DuplicateEmail(t *testing.T) {
 	th := newTestHarness()
+	actor := seedAdminActor(t, th)
 
 	body1 := `{"email":"dup@example.com","password":"Passw0rd!","name":"First"}`
 	req1 := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(body1))
 	req1.Header.Set("Content-Type", "application/json")
+	req1 = req1.WithContext(middleware.ContextWithUser(req1.Context(), actor))
 	w1 := httptest.NewRecorder()
 	th.handler.AdminCreateUser(w1, req1)
 	if w1.Result().StatusCode != http.StatusCreated {
@@ -63,6 +88,7 @@ func TestAdminCreateUser_DuplicateEmail(t *testing.T) {
 	body2 := `{"email":"dup@example.com","password":"Passw0rd!","name":"Second"}`
 	req2 := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(body2))
 	req2.Header.Set("Content-Type", "application/json")
+	req2 = req2.WithContext(middleware.ContextWithUser(req2.Context(), actor))
 	w2 := httptest.NewRecorder()
 	th.handler.AdminCreateUser(w2, req2)
 
@@ -74,6 +100,7 @@ func TestAdminCreateUser_DuplicateEmail(t *testing.T) {
 
 func TestAdminCreateUser_InvalidInput(t *testing.T) {
 	th := newTestHarness()
+	actor := seedAdminActor(t, th)
 
 	tests := []struct {
 		name string
@@ -90,6 +117,7 @@ func TestAdminCreateUser_InvalidInput(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(tc.body))
 			req.Header.Set("Content-Type", "application/json")
+			req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
 			w := httptest.NewRecorder()
 			th.handler.AdminCreateUser(w, req)
 
@@ -103,10 +131,12 @@ func TestAdminCreateUser_InvalidInput(t *testing.T) {
 
 func TestAdminListUserSessions(t *testing.T) {
 	th := newTestHarness()
+	actor := seedAdminActor(t, th)
 
 	body := `{"email":"sessions-test@example.com","password":"Passw0rd!","name":"Sessions Test"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
 	w := httptest.NewRecorder()
 	th.handler.AdminCreateUser(w, req)
 
@@ -152,6 +182,7 @@ func TestAdminListUserSessions(t *testing.T) {
 
 	req2 := httptest.NewRequest(http.MethodGet, "/admin/users/"+user.ID+"/sessions", nil)
 	req2.SetPathValue("id", user.ID)
+	req2 = req2.WithContext(middleware.ContextWithUser(req2.Context(), actor))
 	w2 := httptest.NewRecorder()
 	th.handler.AdminListUserSessions(w2, req2)
 
@@ -174,8 +205,10 @@ func TestAdminListUserSessions(t *testing.T) {
 
 func TestAdminListUserSessions_NoUser(t *testing.T) {
 	th := newTestHarness()
+	actor := seedAdminActor(t, th)
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/users/nonexistent/sessions", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
 	w := httptest.NewRecorder()
 	th.handler.AdminListUserSessions(w, req)
 
@@ -187,10 +220,12 @@ func TestAdminListUserSessions_NoUser(t *testing.T) {
 
 func TestAdminRevokeUserSession(t *testing.T) {
 	th := newTestHarness()
+	actor := seedAdminActor(t, th)
 
 	body := `{"email":"revoke-test@example.com","password":"Passw0rd!","name":"Revoke Test"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
 	w := httptest.NewRecorder()
 	th.handler.AdminCreateUser(w, req)
 
@@ -221,6 +256,7 @@ func TestAdminRevokeUserSession(t *testing.T) {
 	req2 := httptest.NewRequest(http.MethodDelete, "/admin/users/"+user.ID+"/sessions/revoke-sess-1", nil)
 	req2.SetPathValue("id", user.ID)
 	req2.SetPathValue("sessionId", "revoke-sess-1")
+	req2 = req2.WithContext(middleware.ContextWithUser(req2.Context(), actor))
 	w2 := httptest.NewRecorder()
 	th.handler.AdminRevokeUserSession(w2, req2)
 
@@ -237,10 +273,12 @@ func TestAdminRevokeUserSession(t *testing.T) {
 
 func TestAdminRevokeUserSession_NotFound(t *testing.T) {
 	th := newTestHarness()
+	actor := seedAdminActor(t, th)
 
 	body := `{"email":"revoke-notfound@example.com","password":"Passw0rd!","name":"Revoke NotFound"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
 	w := httptest.NewRecorder()
 	th.handler.AdminCreateUser(w, req)
 
@@ -258,6 +296,7 @@ func TestAdminRevokeUserSession_NotFound(t *testing.T) {
 	req2 := httptest.NewRequest(http.MethodDelete, "/admin/users/"+user.ID+"/sessions/no-such-session", nil)
 	req2.SetPathValue("id", user.ID)
 	req2.SetPathValue("sessionId", "no-such-session")
+	req2 = req2.WithContext(middleware.ContextWithUser(req2.Context(), actor))
 	w2 := httptest.NewRecorder()
 	th.handler.AdminRevokeUserSession(w2, req2)
 
@@ -269,10 +308,12 @@ func TestAdminRevokeUserSession_NotFound(t *testing.T) {
 
 func TestAdminBanUser(t *testing.T) {
 	th := newTestHarness()
+	actor := seedAdminActor(t, th)
 
 	body := `{"email":"ban-me@example.com","password":"Passw0rd!","name":"Ban Me"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
 	w := httptest.NewRecorder()
 	th.handler.AdminCreateUser(w, req)
 
@@ -290,6 +331,7 @@ func TestAdminBanUser(t *testing.T) {
 
 	req2 := httptest.NewRequest(http.MethodPatch, "/admin/users/"+user.ID+"/ban", nil)
 	req2.SetPathValue("id", user.ID)
+	req2 = req2.WithContext(middleware.ContextWithUser(req2.Context(), actor))
 	w2 := httptest.NewRecorder()
 	th.handler.BanUser(w2, req2)
 
@@ -306,10 +348,12 @@ func TestAdminBanUser(t *testing.T) {
 
 func TestAdminUnbanUser(t *testing.T) {
 	th := newTestHarness()
+	actor := seedAdminActor(t, th)
 
 	body := `{"email":"unban-me@example.com","password":"Passw0rd!","name":"Unban Me"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
 	w := httptest.NewRecorder()
 	th.handler.AdminCreateUser(w, req)
 
@@ -326,10 +370,12 @@ func TestAdminUnbanUser(t *testing.T) {
 
 	banReq := httptest.NewRequest(http.MethodPatch, "/admin/users/"+user.ID+"/ban", nil)
 	banReq.SetPathValue("id", user.ID)
+	banReq = banReq.WithContext(middleware.ContextWithUser(banReq.Context(), actor))
 	th.handler.BanUser(httptest.NewRecorder(), banReq)
 
 	req3 := httptest.NewRequest(http.MethodPatch, "/admin/users/"+user.ID+"/unban", nil)
 	req3.SetPathValue("id", user.ID)
+	req3 = req3.WithContext(middleware.ContextWithUser(req3.Context(), actor))
 	w3 := httptest.NewRecorder()
 	th.handler.UnbanUser(w3, req3)
 

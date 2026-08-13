@@ -139,6 +139,8 @@ type MockSessionRepo struct {
 	sessions      map[string]*domain.Session
 	byID          map[string]*domain.Session
 	byRefreshHash map[string]*domain.Session
+	// ClearActiveOrgCalls records session IDs passed to ClearActiveOrg.
+	ClearActiveOrgCalls []string
 }
 
 func NewMockSessionRepo() *MockSessionRepo {
@@ -418,6 +420,13 @@ func (m *MockSessionRepo) UpdateActiveOrgRoleForUser(_ context.Context, userID, 
 }
 
 func (m *MockSessionRepo) ClearActiveOrgForUser(_ context.Context, userID, orgID string) error {
+	return nil
+}
+
+func (m *MockSessionRepo) ClearActiveOrg(_ context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ClearActiveOrgCalls = append(m.ClearActiveOrgCalls, sessionID)
 	return nil
 }
 
@@ -753,9 +762,12 @@ func (m *MockInviteRepo) ClaimInvite(_ context.Context, code string, acceptedAt 
 // ─── mockOrgRepo ───────────────────────────────────────────────────
 
 type MockOrgRepo struct {
-	mu     sync.Mutex
-	orgs   map[string]*domain.Organization
+	mu      sync.Mutex
+	orgs    map[string]*domain.Organization
 	members map[string]*domain.OrgMember // key: "orgID:userID"
+	// GetMembershipErr, when non-nil, is returned by GetMembership before
+	// any lookup — lets tests exercise repository-failure paths.
+	GetMembershipErr error
 }
 
 func NewMockOrgRepo() *MockOrgRepo {
@@ -836,6 +848,9 @@ func (m *MockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, 
 func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*domain.OrgMember, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.GetMembershipErr != nil {
+		return nil, m.GetMembershipErr
+	}
 	key := orgID + ":" + userID
 	mem, ok := m.members[key]
 	if !ok {

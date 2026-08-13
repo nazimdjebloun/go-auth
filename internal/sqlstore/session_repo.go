@@ -3,7 +3,6 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -29,29 +28,31 @@ func (r *SessionRepository) WithLogger(logger *slog.Logger) *SessionRepository {
 	return r
 }
 
+// scanSession populates s from a row. ParsedUA is not a stored column — it's
+// derived fresh from UserAgent on every read, so the on-disk format is never
+// coupled to domain.UserAgentInfo's JSON tags (which can and do change; see
+// CHANGELOG). This also means a session always reflects the current
+// UA-parsing logic, never a parse frozen at the row's creation time.
 func scanSession(s *domain.Session, sc interface{ Scan(dest ...any) error }) error {
-	var parsedUARaw []byte
 	err := sc.Scan(
 		&s.ID, &s.UserID, &s.TokenHash, &s.RefreshTokenHash, &s.PreviousRefreshHash,
-		&s.IP, &s.UserAgent, &parsedUARaw, &s.IsRevoked, &s.ExpiresAt, &s.RefreshExpiresAt,
+		&s.IP, &s.UserAgent, &s.IsRevoked, &s.ExpiresAt, &s.RefreshExpiresAt,
 		&s.RefreshRotatedAt, &s.CreatedAt, &s.RevokedAt, &s.LastActiveAt,
 		&s.ActiveOrgID, &s.ActiveOrgRole,
 	)
 	if err != nil {
 		return err
 	}
-	s.ParsedUA = domain.ParseUserAgentFromJSON(parsedUARaw)
+	if s.UserAgent != "" {
+		s.ParsedUA = domain.ParseUserAgent(s.UserAgent)
+	}
 	return nil
 }
 
 func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error {
-	var parsedUAJSON []byte
-	if s.ParsedUA != nil {
-		parsedUAJSON, _ = json.Marshal(s.ParsedUA)
-	}
 	_, err := r.db.ExecContext(ctx, sessionCreateQuery,
 		s.ID, s.UserID, s.TokenHash, s.RefreshTokenHash, s.PreviousRefreshHash,
-		s.IP, s.UserAgent, parsedUAJSON, s.IsRevoked, s.ExpiresAt, s.RefreshExpiresAt,
+		s.IP, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.RefreshExpiresAt,
 		s.RefreshRotatedAt, s.CreatedAt, s.RevokedAt, s.LastActiveAt,
 		s.ActiveOrgID, s.ActiveOrgRole)
 	return err
@@ -407,6 +408,11 @@ func (r *SessionRepository) UpdateActiveOrgRoleForUser(ctx context.Context, user
 
 func (r *SessionRepository) ClearActiveOrgForUser(ctx context.Context, userID, orgID string) error {
 	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgForUserQuery, userID, orgID)
+	return err
+}
+
+func (r *SessionRepository) ClearActiveOrg(ctx context.Context, sessionID string) error {
+	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgQuery, sessionID)
 	return err
 }
 

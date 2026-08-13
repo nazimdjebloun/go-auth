@@ -3,6 +3,9 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -106,7 +109,7 @@ func TestOrg_CreateOrgAndGetByID(t *testing.T) {
 		t.Errorf("role=%q", role)
 	}
 
-	got, err := a.Services.Org.GetByID(ctx, org.ID)
+	got, err := a.Services.Org.GetByID(ctx, service.GetOrgInput{OrgID: org.ID, ActorID: res.User.ID})
 	if err != nil {
 		t.Fatalf("GetByID failed: %v", err)
 	}
@@ -192,7 +195,7 @@ func TestOrg_GetBySlug(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := a.Services.Org.GetBySlug(ctx, "by-slug")
+	got, err := a.Services.Org.GetBySlug(ctx, service.GetOrgBySlugInput{Slug: "by-slug", ActorID: res.User.ID})
 	if err != nil {
 		t.Fatalf("GetBySlug failed: %v", err)
 	}
@@ -200,7 +203,7 @@ func TestOrg_GetBySlug(t *testing.T) {
 		t.Error("GetBySlug wrong org")
 	}
 
-	_, err = a.Services.Org.GetBySlug(ctx, "nonexistent")
+	_, err = a.Services.Org.GetBySlug(ctx, service.GetOrgBySlugInput{Slug: "nonexistent", ActorID: res.User.ID})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -229,7 +232,7 @@ func TestOrg_UpdateOrg(t *testing.T) {
 
 	newName, newSlug := "New Name", "new-slug"
 	updated, err := a.Services.Org.UpdateOrg(ctx, service.UpdateOrgInput{
-		OrgID: org.ID, Name: &newName, Slug: &newSlug,
+		OrgID: org.ID, Name: &newName, Slug: &newSlug, ActorID: res.User.ID,
 	})
 	if err != nil {
 		t.Fatalf("UpdateOrg failed: %v", err)
@@ -266,11 +269,11 @@ func TestOrg_DeleteOrg(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := a.Services.Org.DeleteOrg(ctx, org.ID); err != nil {
+	if err := a.Services.Org.DeleteOrg(ctx, service.DeleteOrgInput{OrgID: org.ID, ActorID: res.User.ID}); err != nil {
 		t.Fatalf("DeleteOrg failed: %v", err)
 	}
 
-	if _, err := a.Services.Org.GetByID(ctx, org.ID); err == nil {
+	if _, err := a.Services.Org.GetByID(ctx, service.GetOrgInput{OrgID: org.ID, ActorID: res.User.ID}); err == nil {
 		t.Fatal("expected error after deletion")
 	}
 }
@@ -305,12 +308,12 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 	}
 
 	if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
-		OrgID: org.ID, UserID: member.User.ID, Role: domain.OrgRoleMember,
+		OrgID: org.ID, UserID: member.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 	}); err != nil {
 		t.Fatalf("AddMember failed: %v", err)
 	}
 
-	m, err := a.Services.Org.GetMembership(ctx, org.ID, member.User.ID)
+	m, err := a.Services.Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID})
 	if err != nil {
 		t.Fatalf("GetMembership failed: %v", err)
 	}
@@ -324,11 +327,11 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 		t.Errorf("member_count=%d", dbCount)
 	}
 
-	if err := a.Services.Org.RemoveMember(ctx, org.ID, member.User.ID); err != nil {
+	if err := a.Services.Org.RemoveMember(ctx, service.RemoveMemberInput{OrgID: org.ID, UserID: member.User.ID, ActorID: owner.User.ID}); err != nil {
 		t.Fatalf("RemoveMember failed: %v", err)
 	}
 
-	if _, err := a.Services.Org.GetMembership(ctx, org.ID, member.User.ID); err == nil {
+	if _, err := a.Services.Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID}); err == nil {
 		t.Fatal("expected error after removal")
 	}
 
@@ -361,7 +364,7 @@ func TestOrg_AddDuplicateMember(t *testing.T) {
 	}
 
 	err = a.Services.Org.AddMember(ctx, service.AddMemberInput{
-		OrgID: org.ID, UserID: owner.User.ID, Role: domain.OrgRoleMember,
+		OrgID: org.ID, UserID: owner.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -401,7 +404,7 @@ func TestOrg_UpdateMemberRole(t *testing.T) {
 	}
 
 	if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
-		OrgID: org.ID, UserID: member.User.ID, Role: domain.OrgRoleMember,
+		OrgID: org.ID, UserID: member.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -447,7 +450,7 @@ func TestOrg_CannotRemoveLastOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := a.Services.Org.RemoveMember(ctx, org.ID, owner.User.ID); err == nil {
+	if err := a.Services.Org.RemoveMember(ctx, service.RemoveMemberInput{OrgID: org.ID, UserID: owner.User.ID, ActorID: owner.User.ID}); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -482,13 +485,13 @@ func TestOrg_ListMembers(t *testing.T) {
 			t.Fatal(rerr)
 		}
 		if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
-			OrgID: org.ID, UserID: u.User.ID, Role: domain.OrgRoleMember,
+			OrgID: org.ID, UserID: u.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	members, total, err := a.Services.Org.ListMembers(ctx, org.ID, 0, 2)
+	members, total, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Offset: 0, Limit: 2})
 	if err != nil {
 		t.Fatalf("ListMembers failed: %v", err)
 	}
@@ -577,7 +580,7 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 		t.Errorf("email=%q role=%q", dbEmail, dbRole)
 	}
 
-	invites, err := a.Services.OrgInvite.ListOrgInvites(ctx, org.ID)
+	invites, err := a.Services.OrgInvite.ListOrgInvites(ctx, org.ID, owner.User.ID)
 	if err != nil {
 		t.Fatalf("ListOrgInvites failed: %v", err)
 	}
@@ -585,11 +588,11 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 		t.Errorf("expected 1, got %d", len(invites))
 	}
 
-	if err := a.Services.OrgInvite.DeleteOrgInvite(ctx, invite.ID); err != nil {
+	if err := a.Services.OrgInvite.DeleteOrgInvite(ctx, org.ID, invite.ID, owner.User.ID); err != nil {
 		t.Fatalf("DeleteOrgInvite failed: %v", err)
 	}
 
-	if _, err := a.Services.OrgInvite.ListOrgInvites(ctx, org.ID); err != nil {
+	if _, err := a.Services.OrgInvite.ListOrgInvites(ctx, org.ID, owner.User.ID); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -674,7 +677,7 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 	}
 
 	// Verify membership
-	m, err := a.Services.Org.GetMembership(ctx, org.ID, invitee.User.ID)
+	m, err := a.Services.Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: invitee.User.ID})
 	if err != nil {
 		t.Fatalf("GetMembership after accept failed: %v", err)
 	}
@@ -690,7 +693,7 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 	}
 
 	// Invite is claimed (no longer listed)
-	invites, err := a.Services.OrgInvite.ListOrgInvites(ctx, org.ID)
+	invites, err := a.Services.OrgInvite.ListOrgInvites(ctx, org.ID, owner.User.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -743,5 +746,114 @@ func TestOrg_AcceptInvite_WrongEmail(t *testing.T) {
 	}
 	if err.Error() != domain.ErrOrgInviteEmailMismatch.Error() {
 		t.Errorf("expected email mismatch error, got %v", err)
+	}
+}
+
+// TestActiveOrg_RoundTripThroughHTTP exercises PUT/DELETE /auth/orgs/active
+// through the mounted handlers against the real SQL store. Regression test for
+// a pre-existing bug where OrgService.ClearActiveOrg passed the session ID
+// into the repo's user-ID parameter, so the clearing UPDATE could never match
+// a row and DELETE /auth/orgs/active was a silent no-op that still returned
+// 200.
+func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openOrgAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+
+	res, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email: "active@test.com", Password: "V@lidPswd1", Name: "Active",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+		Name: "Active Org", Slug: "active-org", OwnerID: res.User.ID,
+	})
+	if err != nil {
+		t.Fatalf("CreateOrg failed: %v", err)
+	}
+
+	login, aerr := a.Services.Auth.Login(ctx, service.LoginInput{
+		Email: "active@test.com", Password: "V@lidPswd1",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	mux := http.NewServeMux()
+	a.Mount(mux)
+
+	sessionCookie := &http.Cookie{Name: "goauth_session", Value: login.SessionToken}
+
+	// GET /auth/csrf-token establishes the CSRF double-submit cookie that the
+	// state-changing routes below require. (The PUT/DELETE themselves prove
+	// the session cookie authenticates: they'd 401 otherwise.)
+	meReq := httptest.NewRequest("GET", "/auth/csrf-token", nil)
+	meReq.AddCookie(sessionCookie)
+	meRec := httptest.NewRecorder()
+	mux.ServeHTTP(meRec, meReq)
+	if meRec.Code != http.StatusNoContent {
+		t.Fatalf("GET /auth/csrf-token: expected 204, got %d", meRec.Code)
+	}
+	var csrf string
+	for _, c := range meRec.Result().Cookies() {
+		if c.Name == "_csrf" {
+			csrf = c.Value
+		}
+	}
+	if csrf == "" {
+		t.Fatal("expected a _csrf cookie from GET /auth/csrf-token")
+	}
+
+	csrfCookie := &http.Cookie{Name: "_csrf", Value: csrf}
+	origin := "http://localhost:8080"
+
+	// PUT /auth/orgs/active — set the active org.
+	putReq := httptest.NewRequest(http.MethodPut, "/auth/orgs/active", strings.NewReader(`{"orgId":"`+org.ID+`"}`))
+	putReq.Header.Set("Content-Type", "application/json")
+	putReq.Header.Set("Origin", origin)
+	putReq.Header.Set("X-CSRF-Token", csrf)
+	putReq.AddCookie(sessionCookie)
+	putReq.AddCookie(csrfCookie)
+	putRec := httptest.NewRecorder()
+	mux.ServeHTTP(putRec, putReq)
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("PUT /auth/orgs/active: expected 200, got %d (body %q)", putRec.Code, putRec.Body.String())
+	}
+
+	var activeOrgID, activeRole sql.NullString
+	if err := db.QueryRow("SELECT active_org_id, active_org_role FROM sessions WHERE id=?", login.Session.ID).
+		Scan(&activeOrgID, &activeRole); err != nil {
+		t.Fatalf("query session after set: %v", err)
+	}
+	if !activeOrgID.Valid || activeOrgID.String != org.ID {
+		t.Errorf("expected active_org_id %q after PUT, got %q", org.ID, activeOrgID.String)
+	}
+	if !activeRole.Valid || activeRole.String != "owner" {
+		t.Errorf("expected active_org_role owner after PUT, got %q", activeRole.String)
+	}
+
+	// DELETE /auth/orgs/active — clear it. This must actually clear the row.
+	delReq := httptest.NewRequest(http.MethodDelete, "/auth/orgs/active", nil)
+	delReq.Header.Set("Origin", origin)
+	delReq.Header.Set("X-CSRF-Token", csrf)
+	delReq.AddCookie(sessionCookie)
+	delReq.AddCookie(csrfCookie)
+	delRec := httptest.NewRecorder()
+	mux.ServeHTTP(delRec, delReq)
+	if delRec.Code != http.StatusOK {
+		t.Fatalf("DELETE /auth/orgs/active: expected 200, got %d", delRec.Code)
+	}
+
+	if err := db.QueryRow("SELECT active_org_id FROM sessions WHERE id=?", login.Session.ID).
+		Scan(&activeOrgID); err != nil {
+		t.Fatalf("query session after clear: %v", err)
+	}
+	if activeOrgID.Valid {
+		t.Errorf("expected active_org_id NULL after DELETE, got %q", activeOrgID.String)
 	}
 }

@@ -8,11 +8,9 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-type contextKey string
-
 const (
-	orgIDKey   contextKey = "org_id"
-	orgRoleKey contextKey = "org_role"
+	orgIDKey   ctxKey = "org_id"
+	orgRoleKey ctxKey = "org_role"
 )
 
 func GetOrgID(ctx context.Context) string {
@@ -25,6 +23,19 @@ func GetOrgRole(ctx context.Context) domain.OrgRole {
 	return v
 }
 
+// writeAuthError writes err's Code/Message/HTTPStatus as the standard
+// {"error","message"} JSON envelope, matching what internal/handler's
+// writeError produces for the same *domain.AuthError — callers reaching this
+// package's org middleware and callers reaching the service directly (which
+// returns these same sentinels from OrgService.requireRole) must see
+// identical responses for identical failures.
+func writeAuthError(w http.ResponseWriter, err *domain.AuthError) {
+	writeJSON(w, err.HTTPStatus, map[string]string{
+		"error":   err.Code,
+		"message": err.Message,
+	}, nil)
+}
+
 func RequireOrgMember(orgs port.OrgRepository, userKeyFn func(context.Context) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -33,19 +44,25 @@ func RequireOrgMember(orgs port.OrgRepository, userKeyFn func(context.Context) s
 				orgID = r.URL.Query().Get("org_id")
 			}
 			if orgID == "" {
-				http.Error(w, `{"error":"org_id required"}`, http.StatusBadRequest)
+				writeAuthError(w, domain.NewError("invalid_input", "orgID is required", http.StatusBadRequest))
 				return
 			}
 
 			userID := userKeyFn(r.Context())
 			if userID == "" {
-				http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+				writeAuthError(w, domain.NewError("unauthorized", "Authentication required", http.StatusUnauthorized))
 				return
 			}
 
 			member, err := orgs.GetMembership(r.Context(), orgID, userID)
-			if err != nil || member == nil {
-				http.Error(w, `{"error":"not an org member"}`, http.StatusForbidden)
+			if err != nil {
+				// A repository failure is a server-side problem, not proof the
+				// user isn't a member — never conflate the two into a 404.
+				writeAuthError(w, domain.NewError("internal_error", "Internal server error", http.StatusInternalServerError))
+				return
+			}
+			if member == nil {
+				writeAuthError(w, domain.ErrOrgMemberNotFound)
 				return
 			}
 
@@ -61,7 +78,7 @@ func RequireOrgRole(minRole domain.OrgRole) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			role := GetOrgRole(r.Context())
 			if role.Weight() < minRole.Weight() {
-				http.Error(w, `{"error":"insufficient role"}`, http.StatusForbidden)
+				writeAuthError(w, domain.ErrOrgForbidden)
 				return
 			}
 			next.ServeHTTP(w, r)

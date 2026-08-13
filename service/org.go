@@ -54,6 +54,28 @@ func (s *OrgService) guardAndIncrementOwnerCount(ctx context.Context, userID str
 	return s.orgs.IncrementUserOrgOwnerCount(ctx, userID, s.maxOrgs)
 }
 
+// requireRole verifies actorID is a member of orgID with at least min role.
+// It mirrors middleware.RequireOrgMember + middleware.RequireOrgRole so the
+// same authorization is enforced whether a call arrives over HTTP (already
+// pre-checked by that middleware) or directly through this service — this is
+// the actual authority, the HTTP middleware is only a fast-fail pre-check.
+func (s *OrgService) requireRole(ctx context.Context, orgID, actorID string, min domain.OrgRole) error {
+	if actorID == "" {
+		return domain.ErrForbidden
+	}
+	m, err := s.orgs.GetMembership(ctx, orgID, actorID)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return domain.ErrOrgMemberNotFound
+	}
+	if m.Role.Weight() < min.Weight() {
+		return domain.ErrOrgForbidden
+	}
+	return nil
+}
+
 type CreateOrgInput struct {
 	Name    string
 	Slug    string
@@ -128,10 +150,18 @@ func (s *OrgService) CreateOrg(ctx context.Context, input CreateOrgInput) (*doma
 	return org, nil
 }
 
-func (s *OrgService) GetByID(ctx context.Context, orgID string) (*domain.Organization, error) {
-	org, err := s.orgs.GetByID(ctx, orgID)
+type GetOrgInput struct {
+	OrgID   string
+	ActorID string
+}
+
+func (s *OrgService) GetByID(ctx context.Context, input GetOrgInput) (*domain.Organization, error) {
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
+		return nil, err
+	}
+	org, err := s.orgs.GetByID(ctx, input.OrgID)
 	if err != nil {
-		s.log.Error("failed to get org by id", "err", err, "org_id", orgID)
+		s.log.Error("failed to get org by id", "err", err, "org_id", input.OrgID)
 		return nil, err
 	}
 	if org == nil {
@@ -140,25 +170,37 @@ func (s *OrgService) GetByID(ctx context.Context, orgID string) (*domain.Organiz
 	return org, nil
 }
 
-func (s *OrgService) GetBySlug(ctx context.Context, slug string) (*domain.Organization, error) {
-	org, err := s.orgs.GetBySlug(ctx, slug)
+type GetOrgBySlugInput struct {
+	Slug    string
+	ActorID string
+}
+
+func (s *OrgService) GetBySlug(ctx context.Context, input GetOrgBySlugInput) (*domain.Organization, error) {
+	org, err := s.orgs.GetBySlug(ctx, input.Slug)
 	if err != nil {
-		s.log.Error("failed to get org by slug", "err", err, "slug", slug)
+		s.log.Error("failed to get org by slug", "err", err, "slug", input.Slug)
 		return nil, err
 	}
 	if org == nil {
 		return nil, domain.ErrOrgNotFound
+	}
+	if err := s.requireRole(ctx, org.ID, input.ActorID, domain.OrgRoleMember); err != nil {
+		return nil, err
 	}
 	return org, nil
 }
 
 type UpdateOrgInput struct {
-	OrgID string
-	Name  *string
-	Slug  *string
+	OrgID   string
+	Name    *string
+	Slug    *string
+	ActorID string
 }
 
 func (s *OrgService) UpdateOrg(ctx context.Context, input UpdateOrgInput) (*domain.Organization, error) {
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
+		return nil, err
+	}
 	org, err := s.orgs.GetByID(ctx, input.OrgID)
 	if err != nil {
 		s.log.Error("failed to get org for update", "err", err, "org_id", input.OrgID)
@@ -197,10 +239,18 @@ func (s *OrgService) UpdateOrg(ctx context.Context, input UpdateOrgInput) (*doma
 	return org, nil
 }
 
-func (s *OrgService) DeleteOrg(ctx context.Context, orgID string) error {
-	org, err := s.orgs.GetByID(ctx, orgID)
+type DeleteOrgInput struct {
+	OrgID   string
+	ActorID string
+}
+
+func (s *OrgService) DeleteOrg(ctx context.Context, input DeleteOrgInput) error {
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleOwner); err != nil {
+		return err
+	}
+	org, err := s.orgs.GetByID(ctx, input.OrgID)
 	if err != nil {
-		s.log.Error("failed to get org for deletion", "err", err, "org_id", orgID)
+		s.log.Error("failed to get org for deletion", "err", err, "org_id", input.OrgID)
 		return err
 	}
 	if org == nil {
@@ -208,22 +258,22 @@ func (s *OrgService) DeleteOrg(ctx context.Context, orgID string) error {
 	}
 
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		if err := s.orgs.DecrementOwnerCountForOrgOwners(txCtx, orgID); err != nil {
+		if err := s.orgs.DecrementOwnerCountForOrgOwners(txCtx, input.OrgID); err != nil {
 			return err
 		}
-		if err := s.sessions.ClearActiveOrgForAllMembers(txCtx, orgID); err != nil {
+		if err := s.sessions.ClearActiveOrgForAllMembers(txCtx, input.OrgID); err != nil {
 			return err
 		}
-		return s.orgs.Delete(txCtx, orgID)
+		return s.orgs.Delete(txCtx, input.OrgID)
 	})
 	if err != nil {
-		s.log.Error("failed to delete org", "err", err, "org_id", orgID)
+		s.log.Error("failed to delete org", "err", err, "org_id", input.OrgID)
 		return err
 	}
-	s.log.Info("org deleted", "org_id", orgID)
+	s.log.Info("org deleted", "org_id", input.OrgID)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgDeleted, "", orgID, nil))
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgDeleted, "", input.OrgID, nil))
 	}
 
 	return nil
@@ -233,8 +283,13 @@ func (s *OrgService) ListUserOrgs(ctx context.Context, userID string) ([]domain.
 	return s.orgs.ListUserOrgs(ctx, userID)
 }
 
-func (s *OrgService) GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
-	m, err := s.orgs.GetMembership(ctx, orgID, userID)
+type GetOrgMembershipInput struct {
+	OrgID  string
+	UserID string
+}
+
+func (s *OrgService) GetMembership(ctx context.Context, input GetOrgMembershipInput) (*domain.OrgMember, error) {
+	m, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -245,14 +300,24 @@ func (s *OrgService) GetMembership(ctx context.Context, orgID, userID string) (*
 }
 
 type AddMemberInput struct {
-	OrgID  string
-	UserID string
-	Role   domain.OrgRole
+	OrgID   string
+	UserID  string
+	Role    domain.OrgRole
+	ActorID string
 }
 
+// AddMember adds input.UserID to input.OrgID. There is no direct HTTP route
+// for it — invite acceptance adds members via the repository directly, in
+// its own transaction, rather than calling this method — but it is an
+// exported method on an exported service and reachable directly as
+// auth.Services.Org.AddMember(...), so it enforces the same Admin-or-above
+// requirement as the other org-mutating methods.
 func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error {
 	if !input.Role.IsValid() {
 		return domain.NewError("invalid_role", "Invalid organization role", 400)
+	}
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
+		return err
 	}
 
 	membership, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
@@ -292,10 +357,26 @@ func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error 
 	return nil
 }
 
-func (s *OrgService) RemoveMember(ctx context.Context, orgID, userID string) error {
-	member, err := s.orgs.GetMembership(ctx, orgID, userID)
+type RemoveMemberInput struct {
+	OrgID   string
+	UserID  string
+	ActorID string
+}
+
+// RemoveMember removes input.UserID from input.OrgID. input.ActorID must
+// either equal input.UserID (a member leaving on their own) or hold at
+// least Admin — anything else is removing someone else and requires that
+// privilege.
+func (s *OrgService) RemoveMember(ctx context.Context, input RemoveMemberInput) error {
+	if input.ActorID != input.UserID {
+		if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
+			return err
+		}
+	}
+
+	member, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
 	if err != nil {
-		s.log.Error("failed to get membership for removal", "err", err, "org_id", orgID, "user_id", userID)
+		s.log.Error("failed to get membership for removal", "err", err, "org_id", input.OrgID, "user_id", input.UserID)
 		return err
 	}
 	if member == nil {
@@ -304,44 +385,47 @@ func (s *OrgService) RemoveMember(ctx context.Context, orgID, userID string) err
 
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		if member.Role == domain.OrgRoleOwner {
-			if err := s.orgs.TryDecrementOrgOwnerCount(txCtx, orgID); err != nil {
+			if err := s.orgs.TryDecrementOrgOwnerCount(txCtx, input.OrgID); err != nil {
 				return err
 			}
-			if err := s.orgs.DecrementUserOrgOwnerCount(txCtx, userID); err != nil {
+			if err := s.orgs.DecrementUserOrgOwnerCount(txCtx, input.UserID); err != nil {
 				return err
 			}
 		}
 
-		if err := s.orgs.DecrementOrgMemberCount(txCtx, orgID); err != nil {
+		if err := s.orgs.DecrementOrgMemberCount(txCtx, input.OrgID); err != nil {
 			return err
 		}
-		if err := s.orgs.RemoveMember(txCtx, orgID, userID); err != nil {
+		if err := s.orgs.RemoveMember(txCtx, input.OrgID, input.UserID); err != nil {
 			return err
 		}
-		return s.sessions.ClearActiveOrgForUser(txCtx, userID, orgID)
+		return s.sessions.ClearActiveOrgForUser(txCtx, input.UserID, input.OrgID)
 	})
 	if err != nil {
 		return err
 	}
-	s.log.Info("member removed", "org_id", orgID, "user_id", userID, "role", member.Role)
+	s.log.Info("member removed", "org_id", input.OrgID, "user_id", input.UserID, "role", member.Role)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, "", orgID, &userID))
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, "", input.OrgID, &input.UserID))
 	}
 
 	return nil
 }
 
 type UpdateMemberRoleInput struct {
-	OrgID    string
-	UserID   string
-	NewRole  domain.OrgRole
-	ActorID  string // user performing the action
+	OrgID   string
+	UserID  string
+	NewRole domain.OrgRole
+	ActorID string // user performing the action
 }
 
 func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRoleInput) error {
 	if !input.NewRole.IsValid() {
 		return domain.NewError("invalid_role", "Invalid organization role", 400)
+	}
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
+		return err
 	}
 
 	member, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
@@ -406,21 +490,43 @@ func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRol
 	return nil
 }
 
-func (s *OrgService) LeaveOrg(ctx context.Context, orgID, userID string) error {
-	return s.RemoveMember(ctx, orgID, userID)
+type LeaveOrgInput struct {
+	OrgID  string
+	UserID string
 }
 
-func (s *OrgService) ListMembers(ctx context.Context, orgID string, offset, limit int) ([]domain.OrgMemberDetail, int, error) {
+func (s *OrgService) LeaveOrg(ctx context.Context, input LeaveOrgInput) error {
+	return s.RemoveMember(ctx, RemoveMemberInput{OrgID: input.OrgID, UserID: input.UserID, ActorID: input.UserID})
+}
+
+type ListMembersInput struct {
+	OrgID   string
+	ActorID string
+	Offset  int
+	Limit   int
+}
+
+func (s *OrgService) ListMembers(ctx context.Context, input ListMembersInput) ([]domain.OrgMemberDetail, int, error) {
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
+		return nil, 0, err
+	}
+	limit := input.Limit
 	if limit <= 0 {
 		limit = 20
 	} else if limit > 100 {
 		limit = 100
 	}
-	return s.orgs.ListMembers(ctx, orgID, offset, limit)
+	return s.orgs.ListMembers(ctx, input.OrgID, input.Offset, limit)
 }
 
-func (s *OrgService) SetActiveOrg(ctx context.Context, sessionID, userID, orgID string) error {
-	member, err := s.orgs.GetMembership(ctx, orgID, userID)
+type SetActiveOrgInput struct {
+	SessionID string
+	UserID    string
+	OrgID     string
+}
+
+func (s *OrgService) SetActiveOrg(ctx context.Context, input SetActiveOrgInput) error {
+	member, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
 	if err != nil {
 		return err
 	}
@@ -428,9 +534,13 @@ func (s *OrgService) SetActiveOrg(ctx context.Context, sessionID, userID, orgID 
 		return domain.ErrOrgMemberNotFound
 	}
 
-	return s.sessions.SetActiveOrg(ctx, sessionID, orgID, member.Role)
+	return s.sessions.SetActiveOrg(ctx, input.SessionID, input.OrgID, member.Role)
 }
 
-func (s *OrgService) ClearActiveOrg(ctx context.Context, sessionID, orgID string) error {
-	return s.sessions.ClearActiveOrgForUser(ctx, sessionID, orgID)
+type ClearActiveOrgInput struct {
+	SessionID string
+}
+
+func (s *OrgService) ClearActiveOrg(ctx context.Context, input ClearActiveOrgInput) error {
+	return s.sessions.ClearActiveOrg(ctx, input.SessionID)
 }

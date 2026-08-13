@@ -272,6 +272,10 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	currentSession := middleware.GetSessionFromContext(r.Context())
 
 	var body struct {
@@ -337,6 +341,10 @@ func (h *Handler) SetPasswordConfirm(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 
 	var body struct {
 		Password string `json:"password"`
@@ -357,6 +365,10 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) RequestDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 
 	if err := h.services.Auth.RequestDeleteAccount(r.Context(), user.ID); err != nil {
 		writeError(w, err)
@@ -412,20 +424,20 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, rawToken, refreshToken, sessionErr := h.services.Session.Create(r.Context(), user.ID, extractIP(r.RemoteAddr), r.UserAgent())
+	sessResult, sessionErr := h.services.Session.Create(r.Context(), user.ID, extractIP(r.RemoteAddr), r.UserAgent())
 	if sessionErr != nil {
 		h.log.Error("failed to create session after verification", "err", sessionErr, "user_id", user.ID)
 		writeError(w, domain.NewError("internal_error", "Internal server error", 500))
 		return
 	}
 
-	middleware.SetSessionCookie(w, h.services.Session.Config(), rawToken)
-	middleware.SetRefreshCookie(w, h.services.Session.Config(), refreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), sessResult.SessionToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), sessResult.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user":    user,
-		"session": session,
+		"session": sessResult.Session,
 	})
 }
 
@@ -484,7 +496,7 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	session, rawToken, refreshToken, err := h.services.Session.RefreshSession(r.Context(), cookie.Value)
+	refreshResult, err := h.services.Session.RefreshSession(r.Context(), cookie.Value)
 	if err != nil {
 		middleware.ClearSessionCookie(w, h.services.Session.Config())
 		middleware.ClearRefreshCookie(w, h.services.Session.Config())
@@ -492,20 +504,24 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, h.services.Session.Config(), rawToken)
-	middleware.SetRefreshCookie(w, h.services.Session.Config(), refreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), refreshResult.SessionToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), refreshResult.RefreshToken)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"session": map[string]any{
-			"id":          session.ID,
-			"user_id":     session.UserID,
-			"expires_at":  session.ExpiresAt,
-			"last_active": session.LastActiveAt,
+			"id":         refreshResult.Session.ID,
+			"userId":     refreshResult.Session.UserID,
+			"expiresAt":  refreshResult.Session.ExpiresAt,
+			"lastActive": refreshResult.Session.LastActiveAt,
 		},
 	})
 }
 
 func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	currentSession := middleware.GetSessionFromContext(r.Context())
 
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
@@ -527,16 +543,20 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 		currentSessionID = currentSession.ID
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sessions":           sessions,
-		"total":              total,
-		"limit":              limit,
-		"offset":             offset,
-		"current_session_id": currentSessionID,
+		"sessions":         sessions,
+		"total":            total,
+		"limit":            limit,
+		"offset":           offset,
+		"currentSessionId": currentSessionID,
 	})
 }
 
 func (h *Handler) GetAllSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	currentSession := middleware.GetSessionFromContext(r.Context())
 
 	sessions, err := h.services.Session.ListAll(r.Context(), user.ID)
@@ -550,13 +570,17 @@ func (h *Handler) GetAllSessions(w http.ResponseWriter, r *http.Request) {
 		currentSessionID = currentSession.ID
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sessions":           sessions,
-		"current_session_id": currentSessionID,
+		"sessions":         sessions,
+		"currentSessionId": currentSessionID,
 	})
 }
 
 func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	sessionID := r.PathValue("id")
 
 	revoked, err := h.services.Session.RevokeByIDForUser(r.Context(), sessionID, user.ID)
@@ -574,15 +598,19 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) RevokeManySessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 
 	var body struct {
-		SessionIDs []string `json:"session_ids"`
+		SessionIDs []string `json:"sessionIds"`
 	}
 	if !decodeJSON(w, r, &body) {
 		return
 	}
 	if len(body.SessionIDs) == 0 {
-		writeError(w, domain.NewError("invalid_input", "session_ids must not be empty", http.StatusBadRequest))
+		writeError(w, domain.NewError("invalid_input", "sessionIds must not be empty", http.StatusBadRequest))
 		return
 	}
 	if len(body.SessionIDs) > 100 {
@@ -601,6 +629,10 @@ func (h *Handler) RevokeManySessions(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	currentSession := middleware.GetSessionFromContext(r.Context())
 
 	if currentSession != nil {
@@ -687,7 +719,7 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, session, rawToken, refreshToken, err := h.services.TwoFactor.Verify(
+	result, err := h.services.TwoFactor.Verify(
 		r.Context(), body.ChallengeID, h.twoFactorBindingCookieValue(r), body.Code,
 		extractIP(r.RemoteAddr), r.UserAgent(),
 	)
@@ -696,11 +728,11 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, h.services.Session.Config(), rawToken)
-	middleware.SetRefreshCookie(w, h.services.Session.Config(), refreshToken)
+	middleware.SetSessionCookie(w, h.services.Session.Config(), result.SessionToken)
+	middleware.SetRefreshCookie(w, h.services.Session.Config(), result.RefreshToken)
 	h.clearTwoFactorBindingCookie(w)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
-	writeJSON(w, http.StatusOK, map[string]any{"user": user, "session": session})
+	writeJSON(w, http.StatusOK, map[string]any{"user": result.User, "session": result.Session})
 }
 
 // ResendTwoFactor refreshes the code on the caller's existing challenge. An
@@ -787,6 +819,11 @@ func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 // --- Admin handlers ---
 
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
@@ -822,6 +859,7 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.services.Admin.ListUsers(r.Context(), service.AdminListUsersInput{
+		ActorID:        actor.ID,
 		Offset:         offset,
 		Limit:          limit,
 		Email:          email,
@@ -839,8 +877,13 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) BanUser(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.BanUser(r.Context(), userID); err != nil {
+	if err := h.services.Admin.BanUser(r.Context(), service.BanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -848,8 +891,13 @@ func (h *Handler) BanUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.UnbanUser(r.Context(), userID); err != nil {
+	if err := h.services.Admin.UnbanUser(r.Context(), service.UnbanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -857,6 +905,11 @@ func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	userID := r.PathValue("id")
 	var body struct {
 		Role string `json:"role"`
@@ -864,7 +917,7 @@ func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSON(w, r, &body) {
 		return
 	}
-	if err := h.services.Admin.UpdateUserRole(r.Context(), userID, body.Role); err != nil {
+	if err := h.services.Admin.UpdateUserRole(r.Context(), service.UpdateUserRoleInput{UserID: userID, Role: body.Role, ActorID: actor.ID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -872,8 +925,13 @@ func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.DeleteUser(r.Context(), userID); err != nil {
+	if err := h.services.Admin.DeleteUser(r.Context(), service.DeleteUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -881,8 +939,13 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.RevokeUserSessions(r.Context(), userID); err != nil {
+	if err := h.services.Admin.RevokeUserSessions(r.Context(), service.RevokeUserSessionsInput{UserID: userID, ActorID: actor.ID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -890,6 +953,11 @@ func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	var body struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -901,6 +969,7 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.services.Admin.CreateUser(r.Context(), service.CreateUserInput{
+		ActorID:  actor.ID,
 		Email:    body.Email,
 		Password: body.Password,
 		Name:     body.Name,
@@ -914,6 +983,11 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	userID := r.PathValue("id")
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -924,9 +998,10 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	sessions, total, aerr := h.services.Admin.ListUserSessions(r.Context(), service.AdminListUserSessionsInput{
-		UserID: userID,
-		Offset: offset,
-		Limit:  limit,
+		ActorID: actor.ID,
+		UserID:  userID,
+		Offset:  offset,
+		Limit:   limit,
 	})
 	if aerr != nil {
 		writeError(w, aerr)
@@ -936,9 +1011,14 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) GetUserDetail(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	userID := r.PathValue("id")
 
-	detail, aerr := h.services.Admin.GetUserDetail(r.Context(), userID)
+	detail, aerr := h.services.Admin.GetUserDetail(r.Context(), service.GetUserDetailInput{UserID: userID, ActorID: actor.ID})
 	if aerr != nil {
 		writeError(w, aerr)
 		return
@@ -947,10 +1027,15 @@ func (h *Handler) GetUserDetail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) AdminRevokeUserSession(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	userID := r.PathValue("id")
 	sessionID := r.PathValue("sessionId")
 
-	if aerr := h.services.Admin.RevokeUserSession(r.Context(), userID, sessionID); aerr != nil {
+	if aerr := h.services.Admin.RevokeUserSession(r.Context(), service.RevokeUserSessionInput{UserID: userID, SessionID: sessionID, ActorID: actor.ID}); aerr != nil {
 		writeError(w, aerr)
 		return
 	}
@@ -1050,6 +1135,10 @@ func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request, userID *
 
 func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 
 	var body struct {
 		Email string `json:"email"`

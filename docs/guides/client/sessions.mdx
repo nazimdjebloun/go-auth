@@ -27,7 +27,7 @@ export const sessionsApi = {
     apiRequest(API_BASE, "DELETE", `/auth/sessions/${sessionId}`),
 
   revokeMany: (sessionIds: string[]) =>
-    apiRequest(API_BASE, "POST", "/auth/sessions/revoke", { session_ids: sessionIds }),
+    apiRequest(API_BASE, "POST", "/auth/sessions/revoke", { sessionIds }),
 
   revokeAllExceptCurrent: () => apiRequest(API_BASE, "DELETE", "/auth/sessions"),
 };
@@ -36,9 +36,9 @@ export const sessionsApi = {
 ## Using it
 
 ```ts
-const { sessions, current_session_id } = await sessionsApi.list();
+const { sessions, currentSessionId } = await sessionsApi.list();
 
-const otherDevices = sessions.filter((s) => s.id !== current_session_id);
+const otherDevices = sessions.filter((s) => s.id !== currentSessionId);
 ```
 
 ```ts

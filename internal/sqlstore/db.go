@@ -19,7 +19,7 @@ func NewDB(db *sql.DB, driver string) *DB {
 	return &DB{DB: db, driver: driver}
 }
 
-var mysqlDrivers = map[string]bool{
+var positionalParamDrivers = map[string]bool{
 	"mysql":   true,
 	"sqlite3": true,
 	"sqlite":  true,
@@ -30,7 +30,7 @@ func (d *DB) Driver() string {
 }
 
 func (d *DB) Rebind(query string) string {
-	if mysqlDrivers[d.driver] {
+	if positionalParamDrivers[d.driver] {
 		return rebindQuery(query)
 	}
 	return query

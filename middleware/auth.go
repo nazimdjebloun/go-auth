@@ -98,7 +98,7 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 			return nil, nil, ""
 		}
 
-		refreshedSession, newRawToken, newRefreshToken, refreshErr := sessionSvc.RefreshSession(r.Context(), refreshCookie.Value)
+		refreshResult, refreshErr := sessionSvc.RefreshSession(r.Context(), refreshCookie.Value)
 		if refreshErr != nil {
 			// Warn: cannot distinguish "both cookies just expired" from "possible token replay", so default to visibility.
 			logRejectedRequest(r, logger, slog.LevelWarn, "auth rejected", "session refresh failed")
@@ -109,10 +109,10 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 			return nil, nil, ""
 		}
 
-		SetSessionCookie(w, sessionSvc.Config(), newRawToken)
-		SetRefreshCookie(w, sessionSvc.Config(), newRefreshToken)
+		SetSessionCookie(w, sessionSvc.Config(), refreshResult.SessionToken)
+		SetRefreshCookie(w, sessionSvc.Config(), refreshResult.RefreshToken)
 
-		session = refreshedSession
+		session = refreshResult.Session
 
 		user, err := userRepo.GetByID(r.Context(), session.UserID)
 		if err != nil || user == nil {
@@ -133,7 +133,7 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 			return nil, nil, ""
 		}
 
-		return session, user, newRawToken
+		return session, user, refreshResult.SessionToken
 	}
 
 	user, err := userRepo.GetByID(r.Context(), session.UserID)

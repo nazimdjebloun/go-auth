@@ -11,11 +11,15 @@ func TestPasswordPolicy_DefaultMinLength(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for password under default min length (8)")
 	}
-	if err.HTTPStatus != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", err.HTTPStatus)
+	ae, ok := err.(*AuthError)
+	if !ok {
+		t.Fatalf("expected *AuthError, got %T", err)
 	}
-	if err.Code != "weak_password" {
-		t.Errorf("expected weak_password, got %s", err.Code)
+	if ae.HTTPStatus != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", ae.HTTPStatus)
+	}
+	if ae.Code != "weak_password" {
+		t.Errorf("expected weak_password, got %s", ae.Code)
 	}
 }
 

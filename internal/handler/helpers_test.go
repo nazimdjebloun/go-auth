@@ -135,6 +135,8 @@ type mockSessionRepo struct {
 	sessions      map[string]*domain.Session
 	byID          map[string]*domain.Session
 	byRefreshHash map[string]*domain.Session
+	// clearActiveOrgCalls records session IDs passed to ClearActiveOrg.
+	clearActiveOrgCalls []string
 }
 
 func newMockSessionRepo() *mockSessionRepo {
@@ -409,6 +411,13 @@ func (m *mockSessionRepo) UpdateActiveOrgRoleForUser(_ context.Context, userID, 
 }
 
 func (m *mockSessionRepo) ClearActiveOrgForUser(_ context.Context, userID, orgID string) error {
+	return nil
+}
+
+func (m *mockSessionRepo) ClearActiveOrg(_ context.Context, sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.clearActiveOrgCalls = append(m.clearActiveOrgCalls, sessionID)
 	return nil
 }
 

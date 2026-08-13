@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"log/slog"
 	"net"
-	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,16 +32,14 @@ type OAuthService struct {
 	audit        AuditPublisher
 }
 
+// OAuthServiceConfig has no cookie settings — cookies are written by the
+// HTTP layer (see middleware.SetSessionCookie / auth.go's Mount wiring)
+// using the top-level CookieConfig, not by OAuthService itself.
 type OAuthServiceConfig struct {
 	AppName                  string
 	BaseURL                  string
 	SessionTTL               time.Duration
 	TokenTTL                 time.Duration
-	CookieName               string
-	CookieDomain             string
-	CookiePath               string
-	CookieSecure             bool
-	CookieSameSite           http.SameSite
 	RequireEmailVerification bool
 	EnableOAuth              bool
 	InviteOnly               bool
@@ -183,29 +180,45 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 }
 
 // Callback handles the OAuth callback for both login and link flows.
-func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, ip, userAgent string) (string, string, bool, bool, string, error) {
+// OAuthCallbackResult is Callback's outcome. SessionToken/RefreshToken are
+// set on a successful login or registration; RequiresVerification and
+// VerifyEmail are set instead when the new/existing account still needs
+// email verification before a session is issued; a linking callback (state
+// token carries a UserID) sets only IsLink and leaves every other field
+// zero — the caller already has a valid session from before the link
+// started and must not touch it (no new session is created or returned).
+type OAuthCallbackResult struct {
+	SessionToken         string
+	RefreshToken         string
+	IsNewUser            bool
+	RequiresVerification bool
+	VerifyEmail          string
+	IsLink               bool
+}
+
+func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, ip, userAgent string) (*OAuthCallbackResult, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
-		return "", "", false, false, "", err
+		return nil, err
 	}
 
 	stateHash := hashToken(rawState)
 	stateToken, repoErr := s.tokenRepo.GetByHash(ctx, stateHash)
 	if repoErr != nil || stateToken == nil || stateToken.Type != domain.TokenOAuthState {
-		return "", "", false, false, "", domain.NewError("invalid_state", "Invalid or expired OAuth state", 400)
+		return nil, domain.NewError("invalid_state", "Invalid or expired OAuth state", 400)
 	}
 
 	if stateToken.UsedAt != nil {
-		return "", "", false, false, "", domain.NewError("state_used", "OAuth state token already used", 400)
+		return nil, domain.NewError("state_used", "OAuth state token already used", 400)
 	}
 
 	if time.Now().UTC().After(stateToken.ExpiresAt) {
-		return "", "", false, false, "", domain.NewError("state_expired", "OAuth state token has expired", 400)
+		return nil, domain.NewError("state_expired", "OAuth state token has expired", 400)
 	}
 
 	if markErr := s.tokenRepo.MarkUsed(ctx, stateToken.ID); markErr != nil {
 		s.log.Error("failed to mark state token used", "err", markErr)
-		return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	codeVerifier := ""
@@ -216,13 +229,13 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	info, exchangeErr := p.Exchange(ctx, code, codeVerifier)
 	if exchangeErr != nil {
 		s.log.Error("provider exchange failed", "err", exchangeErr, "provider", providerName)
-		return "", "", false, false, "", domain.NewError("provider_error", "Failed to authenticate with provider", 502)
+		return nil, domain.NewError("provider_error", "Failed to authenticate with provider", 502)
 	}
 
 	existing, lookupErr := s.providerRepo.GetByProvider(ctx, providerName, info.ProviderUserID)
 	if lookupErr != nil {
 		s.log.Error("failed to look up provider account", "err", lookupErr, "provider", providerName)
-		return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	userID := stateToken.UserID
@@ -230,30 +243,30 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	if userID != nil {
 		if existing != nil {
 			if existing.UserID == *userID {
-				return "", "", false, false, "", domain.NewError("already_linked", "This provider is already linked to your account", 409)
+				return nil, domain.NewError("already_linked", "This provider is already linked to your account", 409)
 			}
-			return "", "", false, false, "", domain.ErrProviderAccountExists
+			return nil, domain.ErrProviderAccountExists
 		}
 
 		_, linkErr := s.createProviderAccount(ctx, *userID, info)
 		if linkErr != nil {
-			return "", "", false, false, "", linkErr
+			return nil, linkErr
 		}
 		s.log.Info("provider linked", "user_id", *userID, "provider", providerName)
 		if s.audit != nil {
 			s.audit.Publish(ctx, audit.NewOAuthEvent(audit.EventOAuthLinked, *userID, providerName, net.ParseIP(ip), userAgent))
 		}
-		return "", "", false, false, "", nil
+		return &OAuthCallbackResult{IsLink: true}, nil
 	}
 
 	if existing != nil {
 		user, userErr := s.userRepo.GetByID(ctx, existing.UserID)
 		if userErr != nil || user == nil {
 			s.log.Error("failed to find linked user", "err", userErr, "user_id", existing.UserID)
-			return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
+			return nil, domain.NewError("internal_error", "Internal server error", 500)
 		}
 		if user.IsBanned {
-			return "", "", false, false, "", domain.ErrUserBanned
+			return nil, domain.ErrUserBanned
 		}
 
 		// Upgrade verification status if the provider confirms the email.
@@ -267,35 +280,33 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 
 		if s.config.RequireEmailVerification && !user.IsVerified {
 			if _, err := s.verifySvc.SendVerification(ctx, user); err != nil {
-				return "", "", false, false, "", err
+				return nil, err
 			}
-			return "", "", false, true, user.Email, nil
+			return &OAuthCallbackResult{RequiresVerification: true, VerifyEmail: user.Email}, nil
 		}
 
-		session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
+		sessResult, sessionErr := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
 		if sessionErr != nil {
 			s.log.Error("failed to create session", "err", sessionErr, "user_id", user.ID)
-			return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
+			return nil, domain.NewError("internal_error", "Internal server error", 500)
 		}
 		s.log.Info("oauth login", "user_id", user.ID, "provider", providerName, "ip", ip)
 		if s.audit != nil {
 			s.audit.Publish(ctx, audit.NewOAuthEvent(audit.EventOAuthLogin, user.ID, providerName, net.ParseIP(ip), userAgent))
 		}
-		_ = session
-		_ = refreshToken
-		return rawToken, refreshToken, false, false, "", nil
+		return &OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken}, nil
 	}
 
 	if !s.config.EnableOAuth {
-		return "", "", false, false, "", domain.ErrMethodDisabled
+		return nil, domain.ErrMethodDisabled
 	}
 	if s.config.InviteOnly {
-		return "", "", false, false, "", domain.ErrForbidden
+		return nil, domain.ErrForbidden
 	}
 
 	existingUser, userErr := s.userRepo.GetByEmail(ctx, info.Email)
 	if userErr != nil || existingUser != nil {
-		return "", "", false, false, "", domain.ErrEmailAlreadyExists
+		return nil, domain.ErrEmailAlreadyExists
 	}
 
 	now := time.Now().UTC()
@@ -315,11 +326,11 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 
 	if err := s.userRepo.Create(ctx, newUser); err != nil {
 		s.log.Error("failed to create user", "err", err, "email", info.Email)
-		return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if _, linkErr := s.createProviderAccount(ctx, newUser.ID, info); linkErr != nil {
-		return "", "", false, false, "", linkErr
+		return nil, linkErr
 	}
 
 	s.log.Info("oauth register", "user_id", newUser.ID, "provider", providerName, "email_verified", info.EmailVerified)
@@ -332,25 +343,18 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	// and email verification is required.
 	if s.config.RequireEmailVerification && !newUser.IsVerified {
 		if _, err := s.verifySvc.SendVerification(ctx, newUser); err != nil {
-			return "", "", false, false, "", err
+			return nil, err
 		}
-		return "", "", true, true, newUser.Email, nil
+		return &OAuthCallbackResult{IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email}, nil
 	}
 
-	session, rawToken, refreshToken, sessionErr := s.sessionSvc.Create(ctx, newUser.ID, ip, userAgent)
+	sessResult, sessionErr := s.sessionSvc.Create(ctx, newUser.ID, ip, userAgent)
 	if sessionErr != nil {
 		s.log.Error("failed to create session", "err", sessionErr, "user_id", newUser.ID)
-		return "", "", false, false, "", domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
-	_ = session
 
-	return rawToken, refreshToken, true, false, "", nil
-}
-
-// Link connects a provider to an existing user.
-func (s *OAuthService) Link(ctx context.Context, userID, providerName, code, rawState string) error {
-	_, _, _, _, _, err := s.Callback(ctx, providerName, code, rawState, "", "")
-	return err
+	return &OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken, IsNewUser: true}, nil
 }
 
 func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) error {

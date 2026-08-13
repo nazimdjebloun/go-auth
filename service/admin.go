@@ -47,12 +47,41 @@ func NewAdminService(
 	}
 }
 
+// requireAdmin verifies actorID is a current, non-banned admin. Every other
+// exported AdminService method calls this first — the HTTP layer's
+// RequireRole(domain.RoleAdmin) middleware pre-checks the same thing, but
+// this is the real authority: it also protects the "call it without HTTP"
+// path the root package advertises (auth.Services.Admin.BanUser(ctx, ...)),
+// which has no middleware in front of it at all.
+func (s *AdminService) requireAdmin(ctx context.Context, actorID string) error {
+	if actorID == "" {
+		return domain.ErrForbidden
+	}
+	actor, err := s.users.GetByID(ctx, actorID)
+	if err != nil {
+		return err
+	}
+	if actor == nil || actor.Role != domain.RoleAdmin {
+		return domain.ErrForbidden
+	}
+	return nil
+}
+
 func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput) (*AdminListUsersResult, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return nil, err
+	}
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 20
+	} else if limit > 100 {
+		limit = 100
+	}
 	filter := port.UserFilter{
 		Email:          input.Email,
 		Role:           input.Role,
 		Offset:         input.Offset,
-		Limit:          input.Limit,
+		Limit:          limit,
 		Search:         input.Search,
 		OrderBy:        input.OrderBy,
 		OrderDirection: input.OrderDirection,
@@ -71,13 +100,21 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 	return &AdminListUsersResult{
 		Users:  users,
 		Total:  total,
-		Limit:  input.Limit,
+		Limit:  limit,
 		Offset: input.Offset,
 	}, nil
 }
 
-func (s *AdminService) BanUser(ctx context.Context, userID string) error {
-	user, err := s.users.GetByID(ctx, userID)
+type BanUserInput struct {
+	UserID  string
+	ActorID string
+}
+
+func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return err
+	}
+	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
 	}
@@ -95,33 +132,41 @@ func (s *AdminService) BanUser(ctx context.Context, userID string) error {
 			return domain.NewError("internal_error", "Internal server error", 500)
 		}
 		if total <= 1 {
-			s.log.Warn("last admin ban blocked", "user_id", userID)
+			s.log.Warn("last admin ban blocked", "user_id", input.UserID)
 			return domain.NewError("last_admin", "Cannot ban the last admin", 400)
 		}
 	}
 
 	now := time.Now().UTC()
-	if err := s.users.SetBanStatus(ctx, userID, true, &now, now); err != nil {
-		s.log.Error("failed to ban user", "err", err, "user_id", userID)
+	if err := s.users.SetBanStatus(ctx, input.UserID, true, &now, now); err != nil {
+		s.log.Error("failed to ban user", "err", err, "user_id", input.UserID)
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	if err := s.sessionSvc.RevokeAll(ctx, userID); err != nil {
-		s.log.Error("failed to revoke sessions after ban", "err", err, "user_id", userID)
+	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
+		s.log.Error("failed to revoke sessions after ban", "err", err, "user_id", input.UserID)
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	s.log.Info("user banned", "user_id", userID)
+	s.log.Info("user banned", "user_id", input.UserID)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserBanned, "", userID))
+		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserBanned, "", input.UserID))
 	}
 
 	return nil
 }
 
-func (s *AdminService) UnbanUser(ctx context.Context, userID string) error {
-	user, err := s.users.GetByID(ctx, userID)
+type UnbanUserInput struct {
+	UserID  string
+	ActorID string
+}
+
+func (s *AdminService) UnbanUser(ctx context.Context, input UnbanUserInput) error {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return err
+	}
+	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
 	}
@@ -131,32 +176,41 @@ func (s *AdminService) UnbanUser(ctx context.Context, userID string) error {
 	}
 
 	now := time.Now().UTC()
-	if err := s.users.SetBanStatus(ctx, userID, false, nil, now); err != nil {
-		s.log.Error("failed to unban user", "err", err, "user_id", userID)
+	if err := s.users.SetBanStatus(ctx, input.UserID, false, nil, now); err != nil {
+		s.log.Error("failed to unban user", "err", err, "user_id", input.UserID)
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	s.log.Info("user unbanned", "user_id", userID)
+	s.log.Info("user unbanned", "user_id", input.UserID)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserUnbanned, "", userID))
+		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserUnbanned, "", input.UserID))
 	}
 
 	return nil
 }
 
-func (s *AdminService) UpdateUserRole(ctx context.Context, userID string, role string) error {
-	if role != "user" && role != "admin" {
+type UpdateUserRoleInput struct {
+	UserID  string
+	Role    string
+	ActorID string
+}
+
+func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleInput) error {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return err
+	}
+	if input.Role != "user" && input.Role != "admin" {
 		return domain.NewError("invalid_role", "Role must be 'user' or 'admin'", 400)
 	}
 
-	user, err := s.users.GetByID(ctx, userID)
+	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
 	}
 
 	// Prevent demoting the last admin.
-	if user.Role == domain.RoleAdmin && role == "user" {
+	if user.Role == domain.RoleAdmin && input.Role == "user" {
 		adminRole := domain.RoleAdmin
 		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
 		if err != nil {
@@ -164,30 +218,38 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, userID string, role s
 			return domain.NewError("internal_error", "Internal server error", 500)
 		}
 		if total <= 1 {
-			s.log.Warn("last admin demotion blocked", "user_id", userID)
+			s.log.Warn("last admin demotion blocked", "user_id", input.UserID)
 			return domain.NewError("last_admin", "Cannot demote the last admin", 400)
 		}
 	}
 
-	user.Role = domain.Role(role)
+	user.Role = domain.Role(input.Role)
 	user.UpdatedAt = time.Now().UTC()
 
 	if err := s.users.Update(ctx, user); err != nil {
-		s.log.Error("failed to update role", "err", err, "user_id", userID)
+		s.log.Error("failed to update role", "err", err, "user_id", input.UserID)
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	s.log.Info("user role updated", "user_id", userID, "new_role", role)
+	s.log.Info("user role updated", "user_id", input.UserID, "new_role", input.Role)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewRoleChangedEvent("", userID, string(user.Role), role))
+		s.audit.Publish(ctx, audit.NewRoleChangedEvent("", input.UserID, string(user.Role), input.Role))
 	}
 
 	return nil
 }
 
-func (s *AdminService) DeleteUser(ctx context.Context, userID string) error {
-	user, err := s.users.GetByID(ctx, userID)
+type DeleteUserInput struct {
+	UserID  string
+	ActorID string
+}
+
+func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) error {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return err
+	}
+	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
 	}
@@ -201,46 +263,57 @@ func (s *AdminService) DeleteUser(ctx context.Context, userID string) error {
 			return domain.NewError("internal_error", "Internal server error", 500)
 		}
 		if total <= 1 {
-			s.log.Warn("last admin deletion blocked", "user_id", userID)
+			s.log.Warn("last admin deletion blocked", "user_id", input.UserID)
 			return domain.NewError("last_admin", "Cannot delete the last admin", 400)
 		}
 	}
 
-	if err := s.sessionSvc.RevokeAll(ctx, userID); err != nil {
-		s.log.Error("failed to revoke sessions", "err", err, "user_id", userID)
+	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
+		s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	if err := s.users.Delete(ctx, userID); err != nil {
-		s.log.Error("failed to delete user", "err", err, "user_id", userID)
+	if err := s.users.Delete(ctx, input.UserID); err != nil {
+		s.log.Error("failed to delete user", "err", err, "user_id", input.UserID)
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	s.log.Info("user deleted by admin", "user_id", userID)
+	s.log.Info("user deleted by admin", "user_id", input.UserID)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserDeleted, "", userID))
+		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserDeleted, "", input.UserID))
 	}
 
 	return nil
 }
 
-func (s *AdminService) RevokeUserSessions(ctx context.Context, userID string) error {
-	user, err := s.users.GetByID(ctx, userID)
+type RevokeUserSessionsInput struct {
+	UserID  string
+	ActorID string
+}
+
+func (s *AdminService) RevokeUserSessions(ctx context.Context, input RevokeUserSessionsInput) error {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return err
+	}
+	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
 	}
 
-	if err := s.sessionSvc.RevokeAll(ctx, userID); err != nil {
-		s.log.Error("failed to revoke sessions", "err", err, "user_id", userID)
+	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
+		s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	s.log.Info("user sessions revoked by admin", "user_id", userID)
+	s.log.Info("user sessions revoked by admin", "user_id", input.UserID)
 	return nil
 }
 
 func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*domain.User, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return nil, err
+	}
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	if err := validateEmail(input.Email); err != nil {
 		return nil, err
@@ -296,6 +369,9 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 }
 
 func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUserSessionsInput) ([]domain.Session, int, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return nil, 0, err
+	}
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return nil, 0, domain.ErrUserNotFound
@@ -310,22 +386,31 @@ func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUser
 	return sessions, total, nil
 }
 
-func (s *AdminService) RevokeUserSession(ctx context.Context, userID, sessionID string) error {
-	user, err := s.users.GetByID(ctx, userID)
+type RevokeUserSessionInput struct {
+	UserID    string
+	SessionID string
+	ActorID   string
+}
+
+func (s *AdminService) RevokeUserSession(ctx context.Context, input RevokeUserSessionInput) error {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return err
+	}
+	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
 	}
 
-	revoked, err := s.sessions.RevokeByIDForUser(ctx, sessionID, userID)
+	revoked, err := s.sessions.RevokeByIDForUser(ctx, input.SessionID, input.UserID)
 	if err != nil {
-		s.log.Error("failed to revoke session", "err", err, "user_id", userID, "session_id", sessionID)
+		s.log.Error("failed to revoke session", "err", err, "user_id", input.UserID, "session_id", input.SessionID)
 		return domain.NewError("internal_error", "Internal server error", 500)
 	}
 	if !revoked {
 		return domain.NewError("session_not_found", "Session not found", 404)
 	}
 
-	s.log.Info("user session revoked by admin", "user_id", userID, "session_id", sessionID)
+	s.log.Info("user session revoked by admin", "user_id", input.UserID, "session_id", input.SessionID)
 	return nil
 }
 
@@ -335,21 +420,29 @@ type AdminUserDetail struct {
 	Providers          []domain.ProviderAccount `json:"providers"`
 }
 
-func (s *AdminService) GetUserDetail(ctx context.Context, userID string) (*AdminUserDetail, error) {
-	user, err := s.users.GetByID(ctx, userID)
+type GetUserDetailInput struct {
+	UserID  string
+	ActorID string
+}
+
+func (s *AdminService) GetUserDetail(ctx context.Context, input GetUserDetailInput) (*AdminUserDetail, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return nil, err
+	}
+	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return nil, domain.ErrUserNotFound
 	}
 
-	_, activeSessionCount, err := s.sessions.ListByUserID(ctx, userID, 0, 1)
+	_, activeSessionCount, err := s.sessions.ListByUserID(ctx, input.UserID, 0, 1)
 	if err != nil {
-		s.log.Error("failed to count sessions", "err", err, "user_id", userID)
+		s.log.Error("failed to count sessions", "err", err, "user_id", input.UserID)
 		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
-	providers, err := s.providers.ListByUserID(ctx, userID)
+	providers, err := s.providers.ListByUserID(ctx, input.UserID)
 	if err != nil {
-		s.log.Error("failed to list providers", "err", err, "user_id", userID)
+		s.log.Error("failed to list providers", "err", err, "user_id", input.UserID)
 		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 

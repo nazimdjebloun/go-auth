@@ -1,3 +1,10 @@
+// This file declares go-auth's storage interfaces — UserRepository,
+// SessionRepository, TokenRepository, InviteRepository, OrgRepository,
+// OrgInviteRepository, ProviderAccountRepository, AuditLogRepository — each
+// implemented against SQL by the (internal) sqlstore package. Implement one
+// of these to back a repository with something other than SQL; there's no
+// embeddable base, so a replacement implements every method on the
+// interface it's swapping in for.
 package port
 
 import (
@@ -33,6 +40,17 @@ type UserRepository interface {
 	SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error
 }
 
+// UpdateRefreshInput rotates a session's tokens on refresh. The
+// implementation must find the session by OldRefreshHash, reject it if
+// MaxLifetime (0 = no limit) has elapsed since creation, and otherwise
+// atomically: move the current refresh hash to PreviousRefreshHash, set the
+// new token/refresh hashes and NewExpiresAt, and stamp RotatedAt.
+// GraceWindow is how long OldRefreshHash — now the previous hash — is still
+// accepted as a courtesy for a request that raced the rotation (returning
+// the *same* rotated session rather than treating it as reuse); after the
+// window elapses, presenting a previous hash again must be treated as
+// token-reuse detection and revoke the session, since a rotated token being
+// reused past the grace window means it leaked.
 type UpdateRefreshInput struct {
 	OldRefreshHash string
 	NewTokenHash   string
@@ -95,6 +113,7 @@ type SessionRepository interface {
 	UpdateActiveOrgRoleForUser(ctx context.Context, userID, orgID string, newRole domain.OrgRole) error
 	ClearActiveOrgForUser(ctx context.Context, userID, orgID string) error
 	ClearActiveOrgForAllMembers(ctx context.Context, orgID string) error
+	ClearActiveOrg(ctx context.Context, sessionID string) error
 	SetActiveOrg(ctx context.Context, sessionID, orgID string, role domain.OrgRole) error
 }
 

@@ -9,10 +9,6 @@ import (
 	"github.com/nazimdjebloun/go-auth/service"
 )
 
-func orgDisabled() bool {
-	return false
-}
-
 func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -49,8 +45,13 @@ func (h *Handler) GetOrg(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	orgID := r.PathValue("orgID")
-	org, err := h.services.Org.GetByID(r.Context(), orgID)
+	org, err := h.services.Org.GetByID(r.Context(), service.GetOrgInput{OrgID: orgID, ActorID: user.ID})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -61,6 +62,11 @@ func (h *Handler) GetOrg(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	orgID := r.PathValue("orgID")
@@ -74,9 +80,10 @@ func (h *Handler) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 	}
 
 	org, err := h.services.Org.UpdateOrg(r.Context(), service.UpdateOrgInput{
-		OrgID: orgID,
-		Name:  body.Name,
-		Slug:  body.Slug,
+		OrgID:   orgID,
+		Name:    body.Name,
+		Slug:    body.Slug,
+		ActorID: user.ID,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -90,8 +97,13 @@ func (h *Handler) DeleteOrg(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	orgID := r.PathValue("orgID")
-	if err := h.services.Org.DeleteOrg(r.Context(), orgID); err != nil {
+	if err := h.services.Org.DeleteOrg(r.Context(), service.DeleteOrgInput{OrgID: orgID, ActorID: user.ID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -122,11 +134,18 @@ func (h *Handler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	orgID := r.PathValue("orgID")
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
-	members, total, err := h.services.Org.ListMembers(r.Context(), orgID, offset, limit)
+	members, total, err := h.services.Org.ListMembers(r.Context(), service.ListMembersInput{
+		OrgID: orgID, ActorID: user.ID, Offset: offset, Limit: limit,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -142,9 +161,14 @@ func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	orgID := r.PathValue("orgID")
 	userID := r.PathValue("userID")
-	if err := h.services.Org.RemoveMember(r.Context(), orgID, userID); err != nil {
+	if err := h.services.Org.RemoveMember(r.Context(), service.RemoveMemberInput{OrgID: orgID, UserID: userID, ActorID: actor.ID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -194,7 +218,7 @@ func (h *Handler) LeaveOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID := r.PathValue("orgID")
-	if err := h.services.Org.LeaveOrg(r.Context(), orgID, user.ID); err != nil {
+	if err := h.services.Org.LeaveOrg(r.Context(), service.LeaveOrgInput{OrgID: orgID, UserID: user.ID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -220,7 +244,7 @@ func (h *Handler) SetActiveOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Org.SetActiveOrg(r.Context(), session.ID, user.ID, body.OrgID); err != nil {
+	if err := h.services.Org.SetActiveOrg(r.Context(), service.SetActiveOrgInput{SessionID: session.ID, UserID: user.ID, OrgID: body.OrgID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -237,7 +261,7 @@ func (h *Handler) ClearActiveOrg(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
-	if err := h.services.Org.ClearActiveOrg(r.Context(), session.ID, ""); err != nil {
+	if err := h.services.Org.ClearActiveOrg(r.Context(), service.ClearActiveOrgInput{SessionID: session.ID}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -314,8 +338,13 @@ func (h *Handler) ListOrgInvites(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
 	orgID := r.PathValue("orgID")
-	invites, err := h.services.OrgInvite.ListOrgInvites(r.Context(), orgID)
+	invites, err := h.services.OrgInvite.ListOrgInvites(r.Context(), orgID, user.ID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -328,8 +357,14 @@ func (h *Handler) ResendOrgInvite(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
 	inviteID := r.PathValue("inviteID")
-	if err := h.services.OrgInvite.ResendOrgInviteEmail(r.Context(), inviteID); err != nil {
+	if err := h.services.OrgInvite.ResendOrgInviteEmail(r.Context(), orgID, inviteID, user.ID); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -341,8 +376,14 @@ func (h *Handler) DeleteOrgInvite(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
 	inviteID := r.PathValue("inviteID")
-	if err := h.services.OrgInvite.DeleteOrgInvite(r.Context(), inviteID); err != nil {
+	if err := h.services.OrgInvite.DeleteOrgInvite(r.Context(), orgID, inviteID, user.ID); err != nil {
 		writeError(w, err)
 		return
 	}

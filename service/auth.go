@@ -209,7 +209,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		}, nil
 	}
 
-	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.NewError("internal_error", "Internal server error", 500)
@@ -217,9 +217,9 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 
 	return &RegisterResult{
 		User:         user,
-		Session:      session,
-		SessionToken: rawToken,
-		RefreshToken: refreshToken,
+		Session:      sessResult.Session,
+		SessionToken: sessResult.SessionToken,
+		RefreshToken: sessResult.RefreshToken,
 	}, nil
 }
 
@@ -282,7 +282,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		}, nil
 	}
 
-	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.NewError("internal_error", "Internal server error", 500)
@@ -295,14 +295,14 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 	s.log.Info("user logged in", "user_id", user.ID, "ip", input.IP)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewLoginEvent(user.ID, session.ID, net.ParseIP(input.IP), input.UserAgent, true))
+		s.audit.Publish(ctx, audit.NewLoginEvent(user.ID, sessResult.Session.ID, net.ParseIP(input.IP), input.UserAgent, true))
 	}
 
 	return &LoginResult{
 		User:         user,
-		Session:      session,
-		SessionToken: rawToken,
-		RefreshToken: refreshToken,
+		Session:      sessResult.Session,
+		SessionToken: sessResult.SessionToken,
+		RefreshToken: sessResult.RefreshToken,
 	}, nil
 }
 
@@ -355,7 +355,7 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 		}, nil
 	}
 
-	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.NewError("internal_error", "Internal server error", 500)
@@ -368,14 +368,14 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 	s.log.Info("admin logged in", "user_id", user.ID, "ip", input.IP)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAdminLoginSuccessEvent(user.ID, session.ID, net.ParseIP(input.IP), input.UserAgent))
+		s.audit.Publish(ctx, audit.NewAdminLoginSuccessEvent(user.ID, sessResult.Session.ID, net.ParseIP(input.IP), input.UserAgent))
 	}
 
 	return &LoginResult{
 		User:         user,
-		Session:      session,
-		SessionToken: rawToken,
-		RefreshToken: refreshToken,
+		Session:      sessResult.Session,
+		SessionToken: sessResult.SessionToken,
+		RefreshToken: sessResult.RefreshToken,
 	}, nil
 }
 

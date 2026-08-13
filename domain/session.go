@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"encoding/json"
 	"time"
 
 	ua "github.com/mileusna/useragent"
@@ -9,10 +8,10 @@ import (
 
 type UserAgentInfo struct {
 	BrowserName    string `json:"browser"`
-	BrowserVersion string `json:"browser_version,omitempty"`
+	BrowserVersion string `json:"browserVersion,omitempty"`
 	OS             string `json:"os"`
-	OSVersion      string `json:"os_version,omitempty"`
-	DeviceType     string `json:"device_type"`
+	OSVersion      string `json:"osVersion,omitempty"`
+	DeviceType     string `json:"deviceType"`
 }
 
 func ParseUserAgent(raw string) *UserAgentInfo {
@@ -36,39 +35,23 @@ func ParseUserAgent(raw string) *UserAgentInfo {
 	return info
 }
 
-func (u *UserAgentInfo) MarshalJSON() ([]byte, error) {
-	type Alias UserAgentInfo
-	return json.Marshal((*Alias)(u))
-}
-
-func ParseUserAgentFromJSON(data []byte) *UserAgentInfo {
-	if len(data) == 0 || string(data) == "null" {
-		return nil
-	}
-	var info UserAgentInfo
-	if err := json.Unmarshal(data, &info); err != nil {
-		return nil
-	}
-	return &info
-}
-
 type Session struct {
 	ID                  string         `json:"id"`
-	UserID              string         `json:"user_id"`
+	UserID              string         `json:"userId"`
 	TokenHash           string         `json:"-"`
 	RefreshTokenHash    string         `json:"-"`
 	PreviousRefreshHash string         `json:"-"`
-	IP                  string         `json:"ip_address,omitempty"`
-	UserAgent           string         `json:"user_agent,omitempty"`
-	ParsedUA            *UserAgentInfo `json:"parsed_ua,omitempty"`
-	IsRevoked           bool           `json:"is_revoked"`
-	ExpiresAt           time.Time      `json:"expires_at"`
-	RefreshExpiresAt    time.Time      `json:"refresh_expires_at,omitempty"`
-	RefreshRotatedAt    *time.Time     `json:"refresh_rotated_at,omitempty"`
-	CreatedAt           time.Time      `json:"created_at"`
-	RevokedAt           *time.Time     `json:"revoked_at,omitempty"`
-	LastActiveAt        time.Time      `json:"last_active_at,omitempty"`
+	IP                  string         `json:"ipAddress,omitempty"`
+	UserAgent           string         `json:"userAgent,omitempty"`
+	ParsedUA            *UserAgentInfo `json:"parsedUA,omitempty"`
+	IsRevoked           bool           `json:"isRevoked"`
+	ExpiresAt           time.Time      `json:"expiresAt"`
+	RefreshExpiresAt    time.Time      `json:"refreshExpiresAt,omitempty"`
+	RefreshRotatedAt    *time.Time     `json:"refreshRotatedAt,omitempty"`
+	CreatedAt           time.Time      `json:"createdAt"`
+	RevokedAt           *time.Time     `json:"revokedAt,omitempty"`
+	LastActiveAt        time.Time      `json:"lastActiveAt,omitempty"`
 
-	ActiveOrgID   *string `json:"active_org_id,omitempty"`
-	ActiveOrgRole *string `json:"active_org_role,omitempty"`
+	ActiveOrgID   *string `json:"activeOrgId,omitempty"`
+	ActiveOrgRole *string `json:"activeOrgRole,omitempty"`
 }

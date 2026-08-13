@@ -17,7 +17,7 @@ export const securityApi = {
   changeName: (name: string) => apiRequest(API_BASE, "PUT", "/auth/name", { name }),
 
   changePassword: (oldPassword: string, newPassword: string) =>
-    apiRequest(API_BASE, "PUT", "/auth/password", { oldPassword, newPassword }),
+    apiRequest(API_BASE, "POST", "/auth/change-password", { oldPassword, newPassword }),
 
   requestSetPassword: () => apiRequest(API_BASE, "POST", "/auth/set-password/request"),
 

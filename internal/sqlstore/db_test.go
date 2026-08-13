@@ -96,17 +96,17 @@ func TestRebindQuery_SQLiteDriver(t *testing.T) {
 }
 
 func TestDriver_MysqlDriversMap(t *testing.T) {
-	if !mysqlDrivers["mysql"] {
-		t.Error("expected mysql in mysqlDrivers")
+	if !positionalParamDrivers["mysql"] {
+		t.Error("expected mysql in positionalParamDrivers")
 	}
-	if !mysqlDrivers["sqlite3"] {
-		t.Error("expected sqlite3 in mysqlDrivers")
+	if !positionalParamDrivers["sqlite3"] {
+		t.Error("expected sqlite3 in positionalParamDrivers")
 	}
-	if !mysqlDrivers["sqlite"] {
-		t.Error("expected sqlite in mysqlDrivers")
+	if !positionalParamDrivers["sqlite"] {
+		t.Error("expected sqlite in positionalParamDrivers")
 	}
-	if mysqlDrivers["postgres"] {
-		t.Error("expected postgres NOT in mysqlDrivers")
+	if positionalParamDrivers["postgres"] {
+		t.Error("expected postgres NOT in positionalParamDrivers")
 	}
 }
 

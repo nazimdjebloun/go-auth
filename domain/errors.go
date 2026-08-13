@@ -12,6 +12,19 @@ func (e *AuthError) Error() string {
 	return e.Code + ": " + e.Message
 }
 
+// Is makes errors.Is(err, domain.ErrXxx) match by Code rather than pointer
+// identity. Without it, an *AuthError built inline with the same code as one
+// of the sentinels below (domain.NewError("session_not_found", ...) instead
+// of reusing domain.ErrSessionNotFound) would never compare equal, even
+// though it represents the same error.
+func (e *AuthError) Is(target error) bool {
+	t, ok := target.(*AuthError)
+	if !ok {
+		return false
+	}
+	return e.Code == t.Code
+}
+
 func NewError(code string, msg string, status int) *AuthError {
 	return &AuthError{Code: code, Message: msg, HTTPStatus: status}
 }
@@ -42,7 +55,6 @@ var (
 	ErrTokenAlreadyRotated      = NewError("token_already_rotated", "This refresh token has already been rotated — use the new one", http.StatusConflict)
 	ErrMaxLifetimeExceeded      = NewError("max_lifetime_exceeded", "Session lifetime exceeded, please re-authenticate", http.StatusUnauthorized)
 	ErrProviderNotFound         = NewError("provider_not_found", "Unrecognized provider", http.StatusNotFound)
-	ErrProviderEmailUnverified  = NewError("provider_email_unverified", "Provider email is not verified", http.StatusForbidden)
 	ErrProviderAccountExists    = NewError("provider_already_linked", "This provider is already linked to another account", http.StatusConflict)
 	ErrProviderAccountNotFound  = NewError("provider_not_linked", "This provider is not linked to your account", http.StatusNotFound)
 	ErrCannotUnlinkLastProvider = NewError("cannot_unlink_last_provider", "Cannot unlink last login method — set a password first", http.StatusBadRequest)

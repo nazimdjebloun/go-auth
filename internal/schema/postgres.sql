@@ -56,7 +56,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
-    parsed_ua JSONB,
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at TIMESTAMPTZ NOT NULL,
     refresh_expires_at TIMESTAMPTZ,

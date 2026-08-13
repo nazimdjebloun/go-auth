@@ -87,6 +87,26 @@ func NewOrgInviteService(
 	}
 }
 
+// requireRole verifies actorID is a member of orgID with at least min role.
+// See OrgService.requireRole for the rationale — the same defense-in-depth
+// applies here: HTTP middleware pre-checks this, this is the real authority.
+func (s *OrgInviteService) requireRole(ctx context.Context, orgID, actorID string, min domain.OrgRole) error {
+	if actorID == "" {
+		return domain.ErrForbidden
+	}
+	m, err := s.orgs.GetMembership(ctx, orgID, actorID)
+	if err != nil {
+		return err
+	}
+	if m == nil {
+		return domain.ErrOrgMemberNotFound
+	}
+	if m.Role.Weight() < min.Weight() {
+		return domain.ErrOrgForbidden
+	}
+	return nil
+}
+
 // ─── Input types ────────────────────────────────────────────────────
 
 type CreateOrgInviteInput struct {
@@ -112,19 +132,21 @@ func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgI
 		return nil, domain.NewError("internal_error", "Organization invites are not configured", 500)
 	}
 
+	actor, err := s.orgs.GetMembership(ctx, input.OrgID, input.InvitedBy)
+	if err != nil {
+		s.log.Error("failed to get actor membership for org invite", "err", err, "org_id", input.OrgID, "invited_by", input.InvitedBy)
+		return nil, err
+	}
+	if actor == nil || actor.Role.Weight() < domain.OrgRoleAdmin.Weight() {
+		return nil, domain.ErrOrgForbidden
+	}
+
 	// Inviting someone directly as Owner grants the org's highest privilege
-	// level; only an existing Owner may do that. Admins (who can otherwise
-	// create Member/Admin invites per RequireOrgRole at the HTTP layer) must
-	// not be able to hand out ownership.
-	if input.Role == domain.OrgRoleOwner {
-		actor, err := s.orgs.GetMembership(ctx, input.OrgID, input.InvitedBy)
-		if err != nil {
-			s.log.Error("failed to get actor membership for owner invite", "err", err, "org_id", input.OrgID, "invited_by", input.InvitedBy)
-			return nil, err
-		}
-		if actor == nil || actor.Role != domain.OrgRoleOwner {
-			return nil, domain.ErrOrgForbidden
-		}
+	// level; only an existing Owner may do that. Admins (allowed to create
+	// Member/Admin invites by the check above) must not be able to hand out
+	// ownership.
+	if input.Role == domain.OrgRoleOwner && actor.Role != domain.OrgRoleOwner {
+		return nil, domain.ErrOrgForbidden
 	}
 
 	if s.mailer == nil {
@@ -225,19 +247,28 @@ func (s *OrgInviteService) AcceptInvite(ctx context.Context, input AcceptInviteI
 
 // ─── ListOrgInvites ─────────────────────────────────────────────────
 
-func (s *OrgInviteService) ListOrgInvites(ctx context.Context, orgID string) ([]domain.OrgInvite, error) {
+func (s *OrgInviteService) ListOrgInvites(ctx context.Context, orgID, actorID string) ([]domain.OrgInvite, error) {
+	if err := s.requireRole(ctx, orgID, actorID, domain.OrgRoleAdmin); err != nil {
+		return nil, err
+	}
 	return s.orgInvites.ListByOrgID(ctx, orgID)
 }
 
 // ─── DeleteOrgInvite ────────────────────────────────────────────────
 
-func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, inviteID string) error {
+// DeleteOrgInvite deletes inviteID, which must belong to orgID — this also
+// guards against an admin of one org deleting an invite that actually
+// belongs to a different org by guessing/enumerating its ID.
+func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, orgID, inviteID, actorID string) error {
+	if err := s.requireRole(ctx, orgID, actorID, domain.OrgRoleAdmin); err != nil {
+		return err
+	}
 	invite, err := s.orgInvites.GetByID(ctx, inviteID)
 	if err != nil {
 		s.log.Error("failed to get org invite for deletion", "err", err, "invite_id", inviteID)
 		return err
 	}
-	if invite == nil {
+	if invite == nil || invite.OrgID != orgID {
 		return domain.NewError("invite_not_found", "Invite not found", 404)
 	}
 	if err := s.orgInvites.Delete(ctx, inviteID); err != nil {
@@ -250,13 +281,18 @@ func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, inviteID string)
 
 // ─── ResendOrgInviteEmail ───────────────────────────────────────────
 
-func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, inviteID string) error {
+// ResendOrgInviteEmail resends inviteID, which must belong to orgID — same
+// cross-org guard as DeleteOrgInvite.
+func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, orgID, inviteID, actorID string) error {
+	if err := s.requireRole(ctx, orgID, actorID, domain.OrgRoleAdmin); err != nil {
+		return err
+	}
 	invite, err := s.orgInvites.GetByID(ctx, inviteID)
 	if err != nil {
 		s.log.Error("failed to get org invite for resend", "err", err, "invite_id", inviteID)
 		return err
 	}
-	if invite == nil {
+	if invite == nil || invite.OrgID != orgID {
 		return domain.NewError("invite_not_found", "Invite not found", 404)
 	}
 

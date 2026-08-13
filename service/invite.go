@@ -223,7 +223,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 		}, nil
 	}
 
-	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.NewError("internal_error", "Internal server error", 500)
@@ -237,9 +237,9 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 
 	return &CompleteInviteResult{
 		User:         user,
-		Session:      session,
-		SessionToken: rawToken,
-		RefreshToken: refreshToken,
+		Session:      sessResult.Session,
+		SessionToken: sessResult.SessionToken,
+		RefreshToken: sessResult.RefreshToken,
 	}, nil
 }
 

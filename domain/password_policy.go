@@ -14,7 +14,12 @@ type PasswordPolicy struct {
 	RequireSpecial   bool
 }
 
-func (p PasswordPolicy) Validate(password string) *AuthError {
+// Validate returns error, not *AuthError, so a caller assigning the result to
+// a plain `var err error` (the natural thing to do, since PasswordPolicy is
+// exported and consumer-settable via WithSecurity) can't hit the typed-nil
+// trap: a nil *AuthError boxed into a non-nil error interface would make
+// `err != nil` true even on success.
+func (p PasswordPolicy) Validate(password string) error {
 	if p.MinLength == 0 {
 		p.MinLength = 8
 	}

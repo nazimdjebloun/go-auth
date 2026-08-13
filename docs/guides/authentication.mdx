@@ -81,13 +81,13 @@ Requires `EnableEmailPassword: true` and `AllowPublic: true`.
   },
   "session": {
     "id": "9e2c...",
-    "user_id": "b3f1...",
-    "ip_address": "203.0.113.4",
-    "user_agent": "Mozilla/5.0 ...",
-    "is_revoked": false,
-    "expires_at": "2026-09-08T12:00:00Z",
-    "refresh_expires_at": "2026-09-08T12:00:00Z",
-    "created_at": "2026-08-09T12:00:00Z"
+    "userId": "b3f1...",
+    "ipAddress": "203.0.113.4",
+    "userAgent": "Mozilla/5.0 ...",
+    "isRevoked": false,
+    "expiresAt": "2026-09-08T12:00:00Z",
+    "refreshExpiresAt": "2026-09-08T12:00:00Z",
+    "createdAt": "2026-08-09T12:00:00Z"
   }
 }
 ```
@@ -249,7 +249,8 @@ if err != nil {
     // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
 }
 
-session, rawToken, refreshToken, err := auth.Services.Session.Create(ctx, user.ID, r.RemoteAddr, r.UserAgent())
+result, err := auth.Services.Session.Create(ctx, user.ID, r.RemoteAddr, r.UserAgent())
+// result.SessionToken / result.RefreshToken are the raw values — set them as cookies yourself
 ```
 
 ---
@@ -278,7 +279,7 @@ Two-step: look up the invite to pre-fill the form, then complete registration wi
 | `missing_token` | 400 | `token` query param omitted |
 | `invite_not_found` | 404 | Token doesn't match any invite |
 | `invite_already_used` | 410 | Invite was already accepted |
-| `invite_revoked` | 410 | Invite was revoked by an admin |
+| `invite_revoked` | 403 | Invite was revoked by an admin |
 
 **`POST /auth/invite/register`** — body `{ "code", "name", "password", "confirmPassword" }`. `code` is the same raw token as `token` above, just renamed in the body.
 
@@ -293,7 +294,7 @@ Two-step: look up the invite to pre-fill the form, then complete registration wi
 |---|---|---|
 | `method_disabled` | 405 | `EnableInvite` is `false` |
 | `invite_not_found` | 404 | Bad code |
-| `invite_already_used` / `invite_expired` / `invite_revoked` | 410 | Invite no longer usable |
+| `invite_already_used` / `invite_expired` | 410 | Invite no longer usable — a revoked invite also surfaces as `invite_already_used` |
 | `name_required` | 400 | Blank name |
 | `password_mismatch` | 400 | `password` doesn't match `confirmPassword` |
 | `weak_password` | 400 | Fails `PasswordPolicy` |
@@ -500,13 +501,14 @@ curl -X POST https://api.myapp.com/auth/2fa/verify \
 #### Programmatic (Go)
 
 ```go
-user, session, rawToken, refreshToken, err := auth.Services.TwoFactor.Verify(
+result, err := auth.Services.TwoFactor.Verify(
     ctx, challengeID, bindingToken, code, r.RemoteAddr, r.UserAgent(),
 )
 if err != nil {
     // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
 }
-// rawToken / refreshToken are the raw values — set them as cookies yourself
+// result.User is the authenticated user; result.SessionToken / result.RefreshToken
+// are the raw values — set them as cookies yourself
 ```
 
 ---

@@ -121,6 +121,27 @@ func (th *oauthTestHarness) createStateToken(rawState string) string {
 	return rawState
 }
 
+// createLinkStateToken mints a state token carrying userID, matching what
+// OAuthService.InitiateLink produces — this is what routes a callback into
+// Callback's link branch instead of its login/register branch.
+func (th *oauthTestHarness) createLinkStateToken(rawState, userID string) string {
+	stateHash := sha256.Sum256([]byte(rawState))
+	verifier := "test-code-verifier-value"
+	sid := "link-state-" + rawState
+
+	stateToken := &domain.VerificationToken{
+		ID:           sid,
+		UserID:       &userID,
+		TokenHash:    hex.EncodeToString(stateHash[:]),
+		Type:         domain.TokenOAuthState,
+		ExpiresAt:    time.Now().UTC().Add(1 * time.Hour),
+		CodeVerifier: &verifier,
+	}
+
+	th.tokenRepo.Create(context.Background(), stateToken)
+	return rawState
+}
+
 func newOAuthTestHarness() *oauthTestHarness {
 	users := newMockUserRepo()
 	sessions := newMockSessionRepo()
@@ -164,11 +185,6 @@ func newOAuthTestHarness() *oauthTestHarness {
 		EnableOAuth:              true,
 		SessionTTL:               30 * 24 * time.Hour,
 		TokenTTL:                 1 * time.Hour,
-		CookieName:               "goauth_session",
-		CookieDomain:             "",
-		CookiePath:               "/",
-		CookieSecure:             false,
-		CookieSameSite:           http.SameSiteLaxMode,
 		RequireEmailVerification: false,
 		Logger:                   nil,
 	}
@@ -677,6 +693,41 @@ func TestOAuthCallback_RouterRegistersBothMethods(t *testing.T) {
 	mux.ServeHTTP(putW, putReq)
 	if putW.Code != http.StatusMethodNotAllowed {
 		t.Errorf("PUT via mux: expected 405, got %d", putW.Code)
+	}
+}
+
+// TestOAuthCallback_Link_DoesNotTouchSessionCookies guards against B3: a link
+// callback must never call writeCookieRedirect, because the linking user
+// already has a live session and Callback issues no new tokens for a link —
+// falling through would blank the caller's real session cookie with "".
+func TestOAuthCallback_Link_DoesNotTouchSessionCookies(t *testing.T) {
+	th := newOAuthTestHarness()
+	th.userRepo.Create(context.Background(), &domain.User{ID: "user-1", Email: "user1@example.com"})
+
+	state := th.createLinkStateToken("link-state-value", "user-1")
+
+	u := fmt.Sprintf("/auth/oauth/test/callback?code=auth-code&state=%s", state)
+	req := httptest.NewRequest(http.MethodGet, u, nil)
+	req.SetPathValue("provider", "test")
+	w := httptest.NewRecorder()
+
+	th.oauthHandlers.Callback(w, req)
+
+	res := w.Result()
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusFound {
+		t.Fatalf("expected 302, got %d", res.StatusCode)
+	}
+	loc := res.Header.Get("Location")
+	if loc != th.baseURL+"/auth/callback" {
+		t.Errorf("expected redirect to %s, got %s", th.baseURL+"/auth/callback", loc)
+	}
+
+	for _, c := range res.Cookies() {
+		if c.Name == "goauth_session" || c.Name == "goauth_refresh" {
+			t.Errorf("link callback must not set %s cookie, got value %q", c.Name, c.Value)
+		}
 	}
 }
 

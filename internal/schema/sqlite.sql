@@ -23,7 +23,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
-    parsed_ua TEXT,
     is_revoked INTEGER NOT NULL DEFAULT 0,
     expires_at DATETIME NOT NULL,
     refresh_expires_at DATETIME,

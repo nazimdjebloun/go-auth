@@ -67,7 +67,7 @@ func TestCreateOrg_Success(t *testing.T) {
 		t.Errorf("expected owner count 1, got %d", org.OwnerCount)
 	}
 
-	member, err := svc.GetMembership(ctx, org.ID, "user-1")
+	member, err := svc.GetMembership(ctx, GetOrgMembershipInput{OrgID: org.ID, UserID: "user-1"})
 	if err != nil {
 		t.Fatalf("GetMembership failed: %v", err)
 	}
@@ -148,9 +148,12 @@ func TestGetOrg_NotFound(t *testing.T) {
 	svc := newTestOrgService()
 	ctx := context.Background()
 
-	_, err := svc.GetByID(ctx, "nonexistent")
-	if err != domain.ErrOrgNotFound {
-		t.Errorf("expected ErrOrgNotFound, got %v", err)
+	// The org doesn't exist, so no actor has membership in it — this mirrors
+	// the HTTP layer, where RequireOrgMember already rejects the request
+	// before a handler could distinguish "no such org" from "not a member".
+	_, err := svc.GetByID(ctx, GetOrgInput{OrgID: "nonexistent", ActorID: "user-1"})
+	if err != domain.ErrOrgMemberNotFound {
+		t.Errorf("expected ErrOrgMemberNotFound, got %v", err)
 	}
 }
 
@@ -165,7 +168,7 @@ func TestGetBySlug(t *testing.T) {
 		t.Fatalf("create failed: %v", err)
 	}
 
-	org, err := svc.GetBySlug(ctx, "my-slug")
+	org, err := svc.GetBySlug(ctx, GetOrgBySlugInput{Slug: "my-slug", ActorID: "user-1"})
 	if err != nil {
 		t.Fatalf("GetBySlug failed: %v", err)
 	}
@@ -188,9 +191,10 @@ func TestUpdateOrg_NameAndSlug(t *testing.T) {
 	newName := "New Name"
 	newSlug := "new-slug"
 	updated, err := svc.UpdateOrg(ctx, UpdateOrgInput{
-		OrgID: created.ID,
-		Name:  &newName,
-		Slug:  &newSlug,
+		OrgID:   created.ID,
+		Name:    &newName,
+		Slug:    &newSlug,
+		ActorID: "user-1",
 	})
 	if err != nil {
 		t.Fatalf("UpdateOrg failed: %v", err)
@@ -210,15 +214,16 @@ func TestUpdateOrg_ConflictingSlug(t *testing.T) {
 	svc.CreateOrg(ctx, CreateOrgInput{Name: "A", Slug: "slug-a", OwnerID: "user-1"})
 	svc.CreateOrg(ctx, CreateOrgInput{Name: "B", Slug: "slug-b", OwnerID: "user-1"})
 
-	org, err := svc.GetBySlug(ctx, "slug-a")
+	org, err := svc.GetBySlug(ctx, GetOrgBySlugInput{Slug: "slug-a", ActorID: "user-1"})
 	if err != nil {
 		t.Fatalf("get slug-a failed: %v", err)
 	}
 
 	newSlug := "slug-b"
 	_, err = svc.UpdateOrg(ctx, UpdateOrgInput{
-		OrgID: org.ID,
-		Slug:  &newSlug,
+		OrgID:   org.ID,
+		Slug:    &newSlug,
+		ActorID: "user-1",
 	})
 	if err != domain.ErrOrgSlugExists {
 		t.Errorf("expected ErrOrgSlugExists, got %v", err)
@@ -236,11 +241,11 @@ func TestDeleteOrg(t *testing.T) {
 		t.Fatalf("create failed: %v", err)
 	}
 
-	if err := svc.DeleteOrg(ctx, created.ID); err != nil {
+	if err := svc.DeleteOrg(ctx, DeleteOrgInput{OrgID: created.ID, ActorID: "user-1"}); err != nil {
 		t.Fatalf("DeleteOrg failed: %v", err)
 	}
 
-	_, err = svc.GetByID(ctx, created.ID)
+	_, err = svc.GetByID(ctx, GetOrgInput{OrgID: created.ID, ActorID: "user-1"})
 	if err != domain.ErrOrgNotFound {
 		t.Errorf("expected ErrOrgNotFound after delete, got %v", err)
 	}
@@ -250,9 +255,12 @@ func TestDeleteOrg_NotFound(t *testing.T) {
 	svc := newTestOrgService()
 	ctx := context.Background()
 
-	err := svc.DeleteOrg(ctx, "nonexistent")
-	if err != domain.ErrOrgNotFound {
-		t.Errorf("expected ErrOrgNotFound, got %v", err)
+	// The org doesn't exist, so no actor has membership in it — see
+	// TestGetOrg_NotFound for why this is ErrOrgMemberNotFound, not
+	// ErrOrgNotFound.
+	err := svc.DeleteOrg(ctx, DeleteOrgInput{OrgID: "nonexistent", ActorID: "user-1"})
+	if err != domain.ErrOrgMemberNotFound {
+		t.Errorf("expected ErrOrgMemberNotFound, got %v", err)
 	}
 }
 
@@ -279,13 +287,13 @@ func TestAddMember_Success(t *testing.T) {
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "my-org", OwnerID: "owner-1"})
 
 	err := svc.AddMember(ctx, AddMemberInput{
-		OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember,
+		OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "owner-1",
 	})
 	if err != nil {
 		t.Fatalf("AddMember failed: %v", err)
 	}
 
-	member, _ := svc.GetMembership(ctx, org.ID, "user-2")
+	member, _ := svc.GetMembership(ctx, GetOrgMembershipInput{OrgID: org.ID, UserID: "user-2"})
 	if member == nil {
 		t.Fatal("expected member after add")
 	}
@@ -294,14 +302,27 @@ func TestAddMember_Success(t *testing.T) {
 	}
 }
 
+func TestAddMember_ActorNotAdmin_Forbidden(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "my-org", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	err := svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "member-1"})
+	if err != domain.ErrOrgForbidden {
+		t.Errorf("expected ErrOrgForbidden, got %v", err)
+	}
+}
+
 func TestAddMember_Duplicate(t *testing.T) {
 	svc := newTestOrgService()
 	ctx := context.Background()
 
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
-	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
 
-	err := svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember})
+	err := svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
 	if err != domain.ErrOrgMemberExists {
 		t.Errorf("expected ErrOrgMemberExists, got %v", err)
 	}
@@ -314,7 +335,7 @@ func TestAddMember_OwnerIncrementsCount(t *testing.T) {
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
 
 	err := svc.AddMember(ctx, AddMemberInput{
-		OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleOwner,
+		OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleOwner, ActorID: "owner-1",
 	})
 	if err != nil {
 		t.Fatalf("AddMember owner failed: %v", err)
@@ -340,14 +361,14 @@ func TestRemoveMember_Success(t *testing.T) {
 	ctx := context.Background()
 
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
-	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
 
-	err := svc.RemoveMember(ctx, org.ID, "user-2")
+	err := svc.RemoveMember(ctx, RemoveMemberInput{OrgID: org.ID, UserID: "user-2", ActorID: "owner-1"})
 	if err != nil {
 		t.Fatalf("RemoveMember failed: %v", err)
 	}
 
-	member, _ := svc.GetMembership(ctx, org.ID, "user-2")
+	member, _ := svc.GetMembership(ctx, GetOrgMembershipInput{OrgID: org.ID, UserID: "user-2"})
 	if member != nil {
 		t.Error("expected member to be removed")
 	}
@@ -357,7 +378,7 @@ func TestRemoveMember_NotFound(t *testing.T) {
 	svc := newTestOrgService()
 	ctx := context.Background()
 
-	err := svc.RemoveMember(ctx, "org-id", "nonexistent")
+	err := svc.RemoveMember(ctx, RemoveMemberInput{OrgID: "org-id", UserID: "nonexistent", ActorID: "admin-1"})
 	if err != domain.ErrOrgMemberNotFound {
 		t.Errorf("expected ErrOrgMemberNotFound, got %v", err)
 	}
@@ -369,9 +390,26 @@ func TestRemoveMember_CannotRemoveLastOwner(t *testing.T) {
 
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
 
-	err := svc.RemoveMember(ctx, org.ID, "owner-1")
+	// Self-removal (actorID == userID) skips the admin-role check.
+	err := svc.RemoveMember(ctx, RemoveMemberInput{OrgID: org.ID, UserID: "owner-1", ActorID: "owner-1"})
 	if err != domain.ErrCannotRemoveLastOwner {
 		t.Errorf("expected ErrCannotRemoveLastOwner, got %v", err)
+	}
+}
+
+func TestRemoveMember_ActorNotAdmin_Forbidden(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	// member-1 is only a Member, not an Admin, and is trying to remove
+	// someone else (member-2) rather than leaving themselves.
+	err := svc.RemoveMember(ctx, RemoveMemberInput{OrgID: org.ID, UserID: "member-2", ActorID: "member-1"})
+	if err != domain.ErrOrgForbidden {
+		t.Errorf("expected ErrOrgForbidden, got %v", err)
 	}
 }
 
@@ -380,7 +418,7 @@ func TestUpdateMemberRole_PromoteToOwner(t *testing.T) {
 	ctx := context.Background()
 
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
-	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
 
 	err := svc.UpdateMemberRole(ctx, UpdateMemberRoleInput{
 		OrgID: org.ID, UserID: "user-2", NewRole: domain.OrgRoleOwner, ActorID: "owner-1",
@@ -389,7 +427,7 @@ func TestUpdateMemberRole_PromoteToOwner(t *testing.T) {
 		t.Fatalf("UpdateMemberRole failed: %v", err)
 	}
 
-	member, _ := svc.GetMembership(ctx, org.ID, "user-2")
+	member, _ := svc.GetMembership(ctx, GetOrgMembershipInput{OrgID: org.ID, UserID: "user-2"})
 	if member.Role != domain.OrgRoleOwner {
 		t.Errorf("expected owner role, got %s", member.Role)
 	}
@@ -400,7 +438,7 @@ func TestUpdateMemberRole_DemoteFromOwner(t *testing.T) {
 	ctx := context.Background()
 
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
-	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleOwner})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleOwner, ActorID: "owner-1"})
 
 	err := svc.UpdateMemberRole(ctx, UpdateMemberRoleInput{
 		OrgID: org.ID, UserID: "owner-1", NewRole: domain.OrgRoleMember, ActorID: "user-2",
@@ -409,7 +447,7 @@ func TestUpdateMemberRole_DemoteFromOwner(t *testing.T) {
 		t.Fatalf("UpdateMemberRole demote failed: %v", err)
 	}
 
-	member, _ := svc.GetMembership(ctx, org.ID, "owner-1")
+	member, _ := svc.GetMembership(ctx, GetOrgMembershipInput{OrgID: org.ID, UserID: "owner-1"})
 	if member.Role != domain.OrgRoleMember {
 		t.Errorf("expected member role, got %s", member.Role)
 	}
@@ -446,14 +484,14 @@ func TestLeaveOrg(t *testing.T) {
 	ctx := context.Background()
 
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
-	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
 
-	err := svc.LeaveOrg(ctx, org.ID, "user-2")
+	err := svc.LeaveOrg(ctx, LeaveOrgInput{OrgID: org.ID, UserID: "user-2"})
 	if err != nil {
 		t.Fatalf("LeaveOrg failed: %v", err)
 	}
 
-	member, _ := svc.GetMembership(ctx, org.ID, "user-2")
+	member, _ := svc.GetMembership(ctx, GetOrgMembershipInput{OrgID: org.ID, UserID: "user-2"})
 	if member != nil {
 		t.Error("expected user to have left")
 	}
@@ -465,7 +503,7 @@ func TestLeaveOrg_LastOwnerBlocked(t *testing.T) {
 
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
 
-	err := svc.LeaveOrg(ctx, org.ID, "owner-1")
+	err := svc.LeaveOrg(ctx, LeaveOrgInput{OrgID: org.ID, UserID: "owner-1"})
 	if err != domain.ErrCannotRemoveLastOwner {
 		t.Errorf("expected ErrCannotRemoveLastOwner, got %v", err)
 	}
@@ -477,7 +515,7 @@ func TestSetActiveOrg_Success(t *testing.T) {
 
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "user-1"})
 
-	err := svc.SetActiveOrg(ctx, "session-1", "user-1", org.ID)
+	err := svc.SetActiveOrg(ctx, SetActiveOrgInput{SessionID: "session-1", UserID: "user-1", OrgID: org.ID})
 	if err != nil {
 		t.Fatalf("SetActiveOrg failed: %v", err)
 	}
@@ -489,9 +527,23 @@ func TestSetActiveOrg_NotMember(t *testing.T) {
 
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "user-1"})
 
-	err := svc.SetActiveOrg(ctx, "session-2", "user-2", org.ID)
+	err := svc.SetActiveOrg(ctx, SetActiveOrgInput{SessionID: "session-2", UserID: "user-2", OrgID: org.ID})
 	if err != domain.ErrOrgMemberNotFound {
 		t.Errorf("expected ErrOrgMemberNotFound, got %v", err)
+	}
+}
+
+func TestClearActiveOrg_Success(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	err := svc.ClearActiveOrg(ctx, ClearActiveOrgInput{SessionID: "session-1"})
+	if err != nil {
+		t.Fatalf("ClearActiveOrg failed: %v", err)
+	}
+	sessions := svc.sessions.(*testutil.MockSessionRepo)
+	if len(sessions.ClearActiveOrgCalls) != 1 || sessions.ClearActiveOrgCalls[0] != "session-1" {
+		t.Errorf("expected ClearActiveOrg to reach the repo with session-1, got %v", sessions.ClearActiveOrgCalls)
 	}
 }
 
@@ -502,10 +554,10 @@ func TestListMembers_Pagination(t *testing.T) {
 	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "user-1"})
 	for i := 0; i < 5; i++ {
 		uid := "user-" + string(rune('a'+i))
-		svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: uid, Role: domain.OrgRoleMember})
+		svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: uid, Role: domain.OrgRoleMember, ActorID: "user-1"})
 	}
 
-	members, total, err := svc.ListMembers(ctx, org.ID, 0, 2)
+	members, total, err := svc.ListMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "user-1", Offset: 0, Limit: 2})
 	if err != nil {
 		t.Fatalf("ListMembers failed: %v", err)
 	}
@@ -606,7 +658,7 @@ func TestResendOrgInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 		t.Fatalf("seed invite: %v", err)
 	}
 
-	err := inviteSvc.ResendOrgInviteEmail(ctx, invite.ID)
+	err := inviteSvc.ResendOrgInviteEmail(ctx, org.ID, invite.ID, "owner-1")
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
@@ -624,22 +676,42 @@ func TestDeleteOrgInvite_Success(t *testing.T) {
 		OrgID: org.ID, Email: "a@b.com", Role: domain.OrgRoleMember, InvitedBy: "owner-1",
 	})
 
-	err := inviteSvc.DeleteOrgInvite(ctx, invite.ID)
+	err := inviteSvc.DeleteOrgInvite(ctx, org.ID, invite.ID, "owner-1")
 	if err != nil {
 		t.Fatalf("DeleteOrgInvite failed: %v", err)
 	}
 }
 
 func TestDeleteOrgInvite_NotFound(t *testing.T) {
-	_, inviteSvc := newTestOrgInviteService()
+	orgSvc, inviteSvc := newTestOrgInviteService()
 	ctx := context.Background()
 
-	err := inviteSvc.DeleteOrgInvite(ctx, "nonexistent")
+	// A real org with an authorized actor, so the "not found" check for the
+	// invite itself is what's actually being exercised.
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+
+	err := inviteSvc.DeleteOrgInvite(ctx, org.ID, "nonexistent", "owner-1")
 	if err == nil {
 		t.Fatal("expected error for nonexistent invite")
 	}
 	if ae, ok := err.(*domain.AuthError); ok && authErrCode(ae) != "invite_not_found" {
 		t.Errorf("expected invite_not_found, got %s", authErrCode(ae))
+	}
+}
+
+func TestDeleteOrgInvite_ActorNotAdmin_Forbidden(t *testing.T) {
+	orgSvc, inviteSvc := newTestOrgInviteService()
+	ctx := context.Background()
+
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	orgSvc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+	invite, _ := inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{
+		OrgID: org.ID, Email: "a@b.com", Role: domain.OrgRoleMember, InvitedBy: "owner-1",
+	})
+
+	err := inviteSvc.DeleteOrgInvite(ctx, org.ID, invite.ID, "member-1")
+	if err != domain.ErrOrgForbidden {
+		t.Errorf("expected ErrOrgForbidden, got %v", err)
 	}
 }
 
@@ -655,12 +727,99 @@ func TestListOrgInvites(t *testing.T) {
 		OrgID: org.ID, Email: "c@d.com", Role: domain.OrgRoleAdmin, InvitedBy: "owner-1",
 	})
 
-	invites, err := inviteSvc.ListOrgInvites(ctx, org.ID)
+	invites, err := inviteSvc.ListOrgInvites(ctx, org.ID, "owner-1")
 	if err != nil {
 		t.Fatalf("ListOrgInvites failed: %v", err)
 	}
 	if len(invites) != 2 {
 		t.Errorf("expected 2 invites, got %d", len(invites))
+	}
+}
+
+func TestGetByID_ActorNotMember_Forbidden(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+
+	_, err := svc.GetByID(ctx, GetOrgInput{OrgID: org.ID, ActorID: "outsider"})
+	if err != domain.ErrOrgMemberNotFound {
+		t.Errorf("expected ErrOrgMemberNotFound, got %v", err)
+	}
+}
+
+func TestUpdateOrg_ActorNotAdmin_Forbidden(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	newName := "New Name"
+	_, err := svc.UpdateOrg(ctx, UpdateOrgInput{OrgID: org.ID, Name: &newName, ActorID: "member-1"})
+	if err != domain.ErrOrgForbidden {
+		t.Errorf("expected ErrOrgForbidden, got %v", err)
+	}
+}
+
+func TestDeleteOrg_ActorNotOwner_Forbidden(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "admin-1", Role: domain.OrgRoleAdmin, ActorID: "owner-1"})
+
+	// An Admin can manage members but must not be able to delete the org —
+	// that's Owner-only.
+	err := svc.DeleteOrg(ctx, DeleteOrgInput{OrgID: org.ID, ActorID: "admin-1"})
+	if err != domain.ErrOrgForbidden {
+		t.Errorf("expected ErrOrgForbidden, got %v", err)
+	}
+}
+
+func TestUpdateMemberRole_ActorNotAdmin_Forbidden(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	err := svc.UpdateMemberRole(ctx, UpdateMemberRoleInput{
+		OrgID: org.ID, UserID: "member-2", NewRole: domain.OrgRoleAdmin, ActorID: "member-1",
+	})
+	if err != domain.ErrOrgForbidden {
+		t.Errorf("expected ErrOrgForbidden, got %v", err)
+	}
+}
+
+func TestCreateOrgInvite_ActorNotAdmin_Forbidden(t *testing.T) {
+	orgSvc, inviteSvc := newTestOrgInviteService()
+	ctx := context.Background()
+
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	orgSvc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	_, err := inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{
+		OrgID: org.ID, Email: "a@b.com", Role: domain.OrgRoleMember, InvitedBy: "member-1",
+	})
+	if err != domain.ErrOrgForbidden {
+		t.Errorf("expected ErrOrgForbidden, got %v", err)
+	}
+}
+
+func TestCreateOrgInvite_AdminCannotInviteOwner_Forbidden(t *testing.T) {
+	orgSvc, inviteSvc := newTestOrgInviteService()
+	ctx := context.Background()
+
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	orgSvc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "admin-1", Role: domain.OrgRoleAdmin, ActorID: "owner-1"})
+
+	_, err := inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{
+		OrgID: org.ID, Email: "a@b.com", Role: domain.OrgRoleOwner, InvitedBy: "admin-1",
+	})
+	if err != domain.ErrOrgForbidden {
+		t.Errorf("expected ErrOrgForbidden, got %v", err)
 	}
 }
 

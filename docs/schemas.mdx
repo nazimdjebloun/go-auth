@@ -246,7 +246,6 @@ One row per active login: both tokens, the device fingerprint, and the active-or
 | `prev_refresh_token_hash` | `TEXT` | The previous one, kept so the grace window can accept it briefly after rotation |
 | `refresh_rotated_at` | `TIMESTAMPTZ` | When the last rotation happened — the grace window is measured from here |
 | `ip_address` / `user_agent` | `TEXT` | As seen at creation |
-| `parsed_ua` | `JSONB` | Browser/OS/device parsed from the user agent |
 | `is_revoked` / `revoked_at` | `BOOLEAN` / `TIMESTAMPTZ` | |
 | `expires_at` / `refresh_expires_at` | `TIMESTAMPTZ` | Absolute expiry for each token |
 | `last_active_at` | `TIMESTAMPTZ` | Updated on authenticated requests, subject to `TouchDebounce` |
@@ -267,7 +266,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
-    parsed_ua JSONB,
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at TIMESTAMPTZ NOT NULL,
     refresh_expires_at TIMESTAMPTZ,
@@ -299,7 +297,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
-    parsed_ua TEXT,
     is_revoked INTEGER NOT NULL DEFAULT 0,
     expires_at DATETIME NOT NULL,
     refresh_expires_at DATETIME,
@@ -330,7 +327,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
     ip_address TEXT NOT NULL DEFAULT '',
     user_agent TEXT NOT NULL DEFAULT '',
-    parsed_ua TEXT,
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at DATETIME NOT NULL,
     refresh_expires_at DATETIME,

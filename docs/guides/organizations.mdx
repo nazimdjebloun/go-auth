@@ -51,7 +51,7 @@ Three roles, compared by weight, not by name — `RequireOrgRole(min)` at the HT
   This is checked separately from the route-level `RequireOrgRole`, inside the service layer: [Change a member's role](#change-a-members-role--patch-authorgsorgidmembersuseridrole) and [Creating an invite](#creating-an-invite--post-authorgsorgidinvites) both special-case the `owner` role — an Admin can promote a Member to Admin (that's normal `RequireOrgRole(admin)` territory), but cannot self-escalate to Owner or hand Owner to anyone else. Only an existing Owner can create or remove another Owner. Attempting it as anything less returns `org_forbidden`, distinct from the route-level `403` you'd get for not being an Admin at all.
 </Callout>
 
-Every org-scoped route below runs through `RequireOrgMember` first (reads `{orgID}` from the path, `403` if you're not a member — indistinguishable from the org not existing, on purpose), then `RequireOrgRole` if the action needs more than plain membership.
+Every org-scoped route below runs through `RequireOrgMember` first (reads `{orgID}` from the path, `404 org_member_not_found` if you're not a member — indistinguishable from the org not existing, on purpose), then `RequireOrgRole` if the action needs more than plain membership.
 
 ## Creating and reading orgs
 
@@ -64,12 +64,12 @@ Auth: any authenticated user. Body: `{ "name", "slug" }`. The caller becomes the
   "id": "a1b2...",
   "name": "Acme Inc",
   "slug": "acme",
-  "created_by": "b3f1...",
-  "owner_count": 1,
-  "member_count": 1,
+  "createdBy": "b3f1...",
+  "ownerCount": 1,
+  "memberCount": 1,
   "metadata": {},
-  "created_at": "2026-08-09T12:00:00Z",
-  "updated_at": "2026-08-09T12:00:00Z"
+  "createdAt": "2026-08-09T12:00:00Z",
+  "updatedAt": "2026-08-09T12:00:00Z"
 }
 ```
 
@@ -152,7 +152,7 @@ Auth: org member. Same response shape as create.
 | Code | Status | Cause |
 |---|---|---|
 | `org_not_found` | 404 | Doesn't exist |
-| `forbidden` | 403 | Exists, but the caller isn't a member — same status either way, so membership can't be probed |
+| `org_member_not_found` | 404 | Exists, but the caller isn't a member — same status either way, so membership can't be probed |
 
 ---
 
@@ -167,7 +167,7 @@ curl https://api.myapp.com/auth/orgs/a1b2... -b cookies.txt -c cookies.txt
 #### Programmatic (Go)
 
 ```go
-org, err := auth.Services.Org.GetByID(ctx, orgID)
+org, err := auth.Services.Org.GetByID(ctx, service.GetOrgInput{OrgID: orgID, ActorID: callerUserID})
 ```
 
 ---
@@ -228,7 +228,7 @@ const org = await apiRequest(API_BASE, "PUT", `/auth/orgs/${orgId}`, { name: "Ac
 
 ### Delete an org — `DELETE /auth/orgs/{orgID}`
 
-Auth: org owner. Deletes the org outright — no soft-delete. Every member's `active_org_id` pointing at it is cleared first (their sessions survive; they're just no longer scoped to a now-gone org).
+Auth: org owner. Deletes the org outright — no soft-delete. Every member's `activeOrgId` pointing at it is cleared first (their sessions survive; they're just no longer scoped to a now-gone org).
 
 ```json
 { "message": "Organization deleted" }
@@ -251,7 +251,7 @@ curl -X DELETE https://api.myapp.com/auth/orgs/a1b2... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.DeleteOrg(ctx, orgID)
+err := auth.Services.Org.DeleteOrg(ctx, service.DeleteOrgInput{OrgID: orgID, ActorID: callerUserID})
 ```
 
 ---
@@ -272,10 +272,10 @@ Auth: org member. Query: `offset` (default `0`), `limit` (default `20`, max `100
 {
   "members": [
     {
-      "org_id": "a1b2...",
-      "user_id": "b3f1...",
+      "orgId": "a1b2...",
+      "userId": "b3f1...",
       "role": "owner",
-      "joined_at": "2026-08-01T09:00:00Z",
+      "joinedAt": "2026-08-01T09:00:00Z",
       "user": { "...": "the full domain.User for this member" }
     }
   ],
@@ -296,7 +296,9 @@ curl "https://api.myapp.com/auth/orgs/a1b2.../members?offset=0&limit=20" -b cook
 #### Programmatic (Go)
 
 ```go
-members, total, err := auth.Services.Org.ListMembers(ctx, orgID, 0, 20)
+members, total, err := auth.Services.Org.ListMembers(ctx, service.ListMembersInput{
+    OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: 20,
+})
 ```
 
 ---
@@ -311,7 +313,7 @@ const { members, total } = await apiRequest(
 
 ### Remove a member, or leave — `DELETE /auth/orgs/{orgID}/members/{userID}`, `POST /auth/orgs/{orgID}/leave`
 
-Two routes, one underlying operation: `LeaveOrg` is literally `RemoveMember(orgID, callerID)` — leaving is just removing yourself. Removing someone else requires org admin; leaving only requires being a member (you can always remove yourself).
+Two routes, one underlying operation: `LeaveOrg` is literally `RemoveMember` with your own ID — leaving is just removing yourself. Removing someone else requires org admin; leaving only requires being a member (you can always remove yourself).
 
 ```json
 { "message": "Member removed" }
@@ -347,9 +349,11 @@ curl -X POST https://api.myapp.com/auth/orgs/a1b2.../leave \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.RemoveMember(ctx, orgID, targetUserID)
-// leaving is the same call with your own ID:
-err = auth.Services.Org.LeaveOrg(ctx, orgID, callerUserID)
+err := auth.Services.Org.RemoveMember(ctx, service.RemoveMemberInput{
+    OrgID: orgID, UserID: targetUserID, ActorID: callerUserID,
+})
+// leaving is the same call with your own ID as UserID (the actor is you):
+err = auth.Services.Org.LeaveOrg(ctx, service.LeaveOrgInput{OrgID: orgID, UserID: callerUserID})
 ```
 
 ---
@@ -434,7 +438,7 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
   `middleware.GetOrgID(ctx)` and `middleware.GetOrgRole(ctx)` are a *different* mechanism — they're set by `RequireOrgMember`/`RequireOrgRole` from the `{orgID}` in the URL, for go-auth's own org-scoped routes on this page (everything above this section). `session.ActiveOrgID`/`ActiveOrgRole` from `GetSessionFromContext` is the user's session-level "current org," set via the two endpoints below, and it only means something to *your* routes — go-auth's own handlers never read it. A request to `GET /auth/orgs/{orgID}` and a request relying on the active org can legitimately disagree about which org they're talking about; they're independent.
 </Callout>
 
-**From a browser client**, there's no dedicated "what's my active org" endpoint — `/auth/me` returns the user, not the session. The active org is visible on the [session-listing](sessions.mdx#listing-sessions) responses (match `current_session_id` against the `sessions` array to find your own), but the simplest approach is usually to just track it as local state the moment you call `setActive`/`clearActive` below, rather than re-fetching to confirm it.
+**From a browser client**, there's no dedicated "what's my active org" endpoint — `/auth/me` returns the user, not the session. The active org is visible on the [session-listing](sessions.mdx#listing-sessions) responses (match `currentSessionId` against the `sessions` array to find your own), but the simplest approach is usually to just track it as local state the moment you call `setActive`/`clearActive` below, rather than re-fetching to confirm it.
 
 ### Set active org — `PUT /auth/orgs/active`
 
@@ -463,7 +467,7 @@ curl -X PUT https://api.myapp.com/auth/orgs/active \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.SetActiveOrg(ctx, sessionID, userID, orgID)
+err := auth.Services.Org.SetActiveOrg(ctx, service.SetActiveOrgInput{SessionID: sessionID, UserID: userID, OrgID: orgID})
 ```
 
 ---
@@ -496,7 +500,7 @@ curl -X DELETE https://api.myapp.com/auth/orgs/active \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.ClearActiveOrg(ctx, sessionID, orgID)
+err := auth.Services.Org.ClearActiveOrg(ctx, service.ClearActiveOrgInput{SessionID: sessionID})
 ```
 
 ---
@@ -518,13 +522,13 @@ Auth: org admin — except inviting someone directly as `owner`, which requires 
 ```json
 {
   "id": "c4d5...",
-  "org_id": "a1b2...",
+  "orgId": "a1b2...",
   "email": "new-hire@example.com",
   "role": "member",
   "rawCode": "the-raw-code",
-  "invited_by": "b3f1...",
-  "expires_at": "2026-08-16T12:00:00Z",
-  "created_at": "2026-08-09T12:00:00Z"
+  "invitedBy": "b3f1...",
+  "expiresAt": "2026-08-16T12:00:00Z",
+  "createdAt": "2026-08-09T12:00:00Z"
 }
 ```
 
@@ -701,4 +705,4 @@ await apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}/invites/${inviteId}`);
 - [Routes](../routes.mdx#organizations--requires-withorganizationsenable-true) — the full path/param table for every route on this page
 - [Schemas](../schemas.mdx#organizations) — the `organizations`, `organization_members`, and `organization_invites` tables
 - [Authentication](authentication.mdx) — the mailer requirement invites share with email verification
-- [Sessions](sessions.mdx#listing-sessions) — where `active_org_id`/`active_org_role` show up on a session
+- [Sessions](sessions.mdx#listing-sessions) — where `activeOrgId`/`activeOrgRole` show up on a session

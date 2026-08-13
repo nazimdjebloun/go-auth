@@ -16,13 +16,13 @@ import (
 func seedOrgUser(t *testing.T, th *testHarness) *domain.User {
 	t.Helper()
 	user := &domain.User{
-		ID:        "user-1",
-		Email:     "owner@test.com",
-		Name:      "Owner",
-		Role:      domain.RoleUser,
+		ID:         "user-1",
+		Email:      "owner@test.com",
+		Name:       "Owner",
+		Role:       domain.RoleUser,
 		IsVerified: true,
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
 	}
 	if err := th.users.Create(context.Background(), user); err != nil {
 		t.Fatal(err)
@@ -60,13 +60,13 @@ func seedOrg(t *testing.T, th *testHarness, userID string) *domain.Organization 
 func seedSecondUser(t *testing.T, th *testHarness) *domain.User {
 	t.Helper()
 	user := &domain.User{
-		ID:        "user-2",
-		Email:     "member@test.com",
-		Name:      "Member",
-		Role:      domain.RoleUser,
+		ID:         "user-2",
+		Email:      "member@test.com",
+		Name:       "Member",
+		Role:       domain.RoleUser,
 		IsVerified: true,
-		CreatedAt: time.Now().UTC(),
-		UpdatedAt: time.Now().UTC(),
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
 	}
 	if err := th.users.Create(context.Background(), user); err != nil {
 		t.Fatal(err)
@@ -134,6 +134,7 @@ func TestGetOrg_HappyPath(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/orgs/"+org.ID, nil)
 	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.GetOrg(w, req)
 
@@ -150,9 +151,11 @@ func TestGetOrg_HappyPath(t *testing.T) {
 
 func TestGetOrg_NotFound(t *testing.T) {
 	th := newTestHarness()
+	user := seedOrgUser(t, th)
 
 	req := httptest.NewRequest(http.MethodGet, "/orgs/nonexistent", nil)
 	req.SetPathValue("orgID", "nonexistent")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.GetOrg(w, req)
 
@@ -171,6 +174,7 @@ func TestUpdateOrg_HappyPath(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPatch, "/orgs/"+org.ID, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.UpdateOrg(w, req)
 
@@ -187,11 +191,13 @@ func TestUpdateOrg_HappyPath(t *testing.T) {
 
 func TestUpdateOrg_NotFound(t *testing.T) {
 	th := newTestHarness()
+	user := seedOrgUser(t, th)
 
 	body := `{"name":"Nope"}`
 	req := httptest.NewRequest(http.MethodPatch, "/orgs/bad-id", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.SetPathValue("orgID", "bad-id")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.UpdateOrg(w, req)
 
@@ -208,6 +214,7 @@ func TestDeleteOrg_HappyPath(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodDelete, "/orgs/"+org.ID, nil)
 	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.DeleteOrg(w, req)
 
@@ -224,9 +231,11 @@ func TestDeleteOrg_HappyPath(t *testing.T) {
 
 func TestDeleteOrg_NotFound(t *testing.T) {
 	th := newTestHarness()
+	user := seedOrgUser(t, th)
 
 	req := httptest.NewRequest(http.MethodDelete, "/orgs/bad-id", nil)
 	req.SetPathValue("orgID", "bad-id")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.DeleteOrg(w, req)
 
@@ -279,6 +288,7 @@ func TestListOrgMembers_HappyPath(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/orgs/"+org.ID+"/members", nil)
 	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.ListOrgMembers(w, req)
 
@@ -298,23 +308,20 @@ func TestListOrgMembers_HappyPath(t *testing.T) {
 
 func TestListOrgMembers_NotFound(t *testing.T) {
 	th := newTestHarness()
+	user := seedOrgUser(t, th)
 
+	// The org doesn't exist, so the requesting user has no membership in it
+	// either — this now 404s instead of silently returning an empty list,
+	// matching GetOrg's not-found behavior for the same nonexistent org.
 	req := httptest.NewRequest(http.MethodGet, "/orgs/bad-id/members", nil)
 	req.SetPathValue("orgID", "bad-id")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.ListOrgMembers(w, req)
 
 	res := w.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 with empty list, got %d", res.StatusCode)
-	}
-	var resp struct {
-		Members []domain.OrgMemberDetail `json:"members"`
-		Total   int                      `json:"total"`
-	}
-	json.NewDecoder(res.Body).Decode(&resp)
-	if resp.Total != 0 {
-		t.Errorf("expected 0 total, got %d", resp.Total)
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", res.StatusCode)
 	}
 }
 
@@ -333,6 +340,7 @@ func TestRemoveMember_HappyPath(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/orgs/"+org.ID+"/members/"+member.ID, nil)
 	req.SetPathValue("orgID", org.ID)
 	req.SetPathValue("userID", member.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), owner))
 	w := httptest.NewRecorder()
 	th.handler.RemoveMember(w, req)
 
@@ -355,6 +363,7 @@ func TestRemoveMember_NotFound(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/orgs/"+org.ID+"/members/nobody", nil)
 	req.SetPathValue("orgID", org.ID)
 	req.SetPathValue("userID", "nobody")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), owner))
 	w := httptest.NewRecorder()
 	th.handler.RemoveMember(w, req)
 
@@ -501,6 +510,11 @@ func TestClearActiveOrg_HappyPath(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
+	th.sessions.mu.Lock()
+	defer th.sessions.mu.Unlock()
+	if len(th.sessions.clearActiveOrgCalls) != 1 || th.sessions.clearActiveOrgCalls[0] != "sess-1" {
+		t.Errorf("expected ClearActiveOrg to be called with session id sess-1, got %v", th.sessions.clearActiveOrgCalls)
+	}
 }
 
 func TestCreateOrgInvite_HappyPath(t *testing.T) {
@@ -566,6 +580,7 @@ func TestListOrgInvites_HappyPath(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/orgs/"+org.ID+"/invites", nil)
 	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), owner))
 	w := httptest.NewRecorder()
 	th.handler.ListOrgInvites(w, req)
 
@@ -603,6 +618,7 @@ func TestDeleteOrgInvite_HappyPath(t *testing.T) {
 	req := httptest.NewRequest(http.MethodDelete, "/orgs/"+org.ID+"/invites/inv-1", nil)
 	req.SetPathValue("orgID", org.ID)
 	req.SetPathValue("inviteID", "inv-1")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), owner))
 	w := httptest.NewRecorder()
 	th.handler.DeleteOrgInvite(w, req)
 
@@ -619,10 +635,12 @@ func TestDeleteOrgInvite_HappyPath(t *testing.T) {
 
 func TestDeleteOrgInvite_NotFound(t *testing.T) {
 	th := newTestHarness()
+	user := seedOrgUser(t, th)
 
 	req := httptest.NewRequest(http.MethodDelete, "/orgs/x/invites/nonexistent", nil)
 	req.SetPathValue("orgID", "x")
 	req.SetPathValue("inviteID", "nonexistent")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.DeleteOrgInvite(w, req)
 

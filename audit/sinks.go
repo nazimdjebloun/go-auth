@@ -2,21 +2,58 @@ package audit
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/nazimdjebloun/go-auth/sqlstore"
+	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 )
 
 type SQLAuditSink struct {
-	db      *sqlstore.DB
-	dialect string
+	db *sqlstore.DB
 }
 
-func NewSQLAuditSink(db *sqlstore.DB) *SQLAuditSink {
-	return &SQLAuditSink{db: db}
+// NewSQLAuditSink builds an audit sink writing to the audit_log table over
+// db. driver identifies the SQL dialect ("postgres", "mysql", "sqlite3", ...)
+// and controls placeholder rebinding ($1 vs ?) the same way it does for
+// goauth.New's own database connection.
+func NewSQLAuditSink(db *sql.DB, driver string) *SQLAuditSink {
+	return &SQLAuditSink{db: sqlstore.NewDB(db, driver)}
+}
+
+// storedUserAgent is the audit_log.parsed_ua on-disk shape. Audit rows are
+// retained (see AuditServiceConfig.RetentionDays), not replaced the way a
+// session row is on its next refresh, so unlike Session.ParsedUA this can't
+// just be re-derived from the raw user agent on every read — a stored row is
+// a permanent historical record of what was understood at write time. It's
+// deliberately its own type with its own frozen tags, not domain.UserAgentInfo
+// directly, so a future change to that struct's wire-facing JSON tags (it's
+// also the shape of Session.ParsedUA in API responses) can never silently
+// change what's already on disk in this column. Add fields here explicitly
+// if domain.UserAgentInfo grows one worth persisting — don't switch this back
+// to embedding/aliasing that type.
+type storedUserAgent struct {
+	Browser        string `json:"browser"`
+	BrowserVersion string `json:"browserVersion,omitempty"`
+	OS             string `json:"os"`
+	OSVersion      string `json:"osVersion,omitempty"`
+	DeviceType     string `json:"deviceType"`
+}
+
+func newStoredUserAgent(u *domain.UserAgentInfo) *storedUserAgent {
+	if u == nil {
+		return nil
+	}
+	return &storedUserAgent{
+		Browser:        u.BrowserName,
+		BrowserVersion: u.BrowserVersion,
+		OS:             u.OS,
+		OSVersion:      u.OSVersion,
+		DeviceType:     u.DeviceType,
+	}
 }
 
 func (s *SQLAuditSink) Handle(ctx context.Context, event Event) error {
@@ -56,9 +93,9 @@ func (s *SQLAuditSink) HandleBatch(ctx context.Context, events []Event) error {
 		}
 
 		var parsedUARaw []byte
-		if e.ParsedUA != nil {
+		if stored := newStoredUserAgent(e.ParsedUA); stored != nil {
 			var err error
-			parsedUARaw, err = json.Marshal(e.ParsedUA)
+			parsedUARaw, err = json.Marshal(stored)
 			if err != nil {
 				return fmt.Errorf("marshal parsed_ua: %w", err)
 			}

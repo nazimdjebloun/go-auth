@@ -7,8 +7,16 @@ import (
 )
 
 // SetSessionCookie writes the session cookie for a newly issued or rotated
-// session token, using the session cookie settings in cfg.
+// session token, using the session cookie settings in cfg. A no-op when
+// token is empty, mirroring SetRefreshCookie — an empty token here almost
+// certainly means a caller forgot to check for a flow (like an OAuth link
+// callback) that doesn't issue a new session and shouldn't touch cookies at
+// all, and writing it anyway would silently blank the caller's live session
+// cookie. Use ClearSessionCookie to actually clear one.
 func SetSessionCookie(w http.ResponseWriter, cfg service.SessionConfig, token string) {
+	if token == "" {
+		return
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     cfg.CookieName,
 		Value:    token,
@@ -16,7 +24,7 @@ func SetSessionCookie(w http.ResponseWriter, cfg service.SessionConfig, token st
 		Path:     cfg.Path,
 		HttpOnly: true,
 		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
+		SameSite: cfg.SameSite,
 		MaxAge:   int(cfg.Duration.Seconds()),
 	})
 }
@@ -30,7 +38,7 @@ func ClearSessionCookie(w http.ResponseWriter, cfg service.SessionConfig) {
 		Path:     cfg.Path,
 		HttpOnly: true,
 		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
+		SameSite: cfg.SameSite,
 		MaxAge:   -1,
 	})
 }
@@ -49,7 +57,7 @@ func SetRefreshCookie(w http.ResponseWriter, cfg service.SessionConfig, token st
 		Path:     cfg.Path,
 		HttpOnly: true,
 		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
+		SameSite: cfg.SameSite,
 		MaxAge:   int(cfg.RefreshTTL.Seconds()),
 	})
 }
@@ -63,7 +71,7 @@ func ClearRefreshCookie(w http.ResponseWriter, cfg service.SessionConfig) {
 		Path:     cfg.Path,
 		HttpOnly: true,
 		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
+		SameSite: cfg.SameSite,
 		MaxAge:   -1,
 	})
 }

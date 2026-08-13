@@ -149,6 +149,7 @@ type ListSessionsResult struct {
 }
 
 type AdminListUsersInput struct {
+	ActorID        string // the admin performing this call
 	Offset         int
 	Limit          int // default 20, max 100
 	Email          *string
@@ -185,6 +186,7 @@ type EmailData struct {
 }
 
 type CreateUserInput struct {
+	ActorID  string // the admin performing this call
 	Email    string
 	Password string
 	Name     string
@@ -192,9 +194,10 @@ type CreateUserInput struct {
 }
 
 type AdminListUserSessionsInput struct {
-	UserID string
-	Offset int
-	Limit  int
+	ActorID string // the admin performing this call
+	UserID  string
+	Offset  int
+	Limit   int
 }
 
 type ConfirmDeleteAccountInput struct {

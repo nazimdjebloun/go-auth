@@ -473,7 +473,8 @@ func TestAuthMiddleware_ExpiredSession(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	users.Create(t.Context(), user)
 
-	_, rawToken, _, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	rawToken := sessResult.SessionToken
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,7 +536,8 @@ func TestAuthMiddleware_BannedUser(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: true}
 	users.Create(t.Context(), user)
 
-	_, rawToken, _, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	rawToken := sessResult.SessionToken
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -570,7 +572,8 @@ func TestAuthMiddleware_DeletedUser(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	users.Create(t.Context(), user)
 
-	_, rawToken, _, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	rawToken := sessResult.SessionToken
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -607,7 +610,8 @@ func TestRequireRole_CorrectRole(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", Role: domain.RoleAdmin}
 	users.Create(t.Context(), user)
 
-	_, rawToken, _, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	rawToken := sessResult.SessionToken
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -637,7 +641,8 @@ func TestRequireRole_WrongRole(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", Role: domain.RoleUser}
 	users.Create(t.Context(), user)
 
-	_, rawToken, _, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	rawToken := sessResult.SessionToken
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -675,7 +680,8 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	users.Create(t.Context(), user)
 
-	_, rawToken, rawRefreshToken, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
+	sessResult, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
+	rawToken, rawRefreshToken := sessResult.SessionToken, sessResult.RefreshToken
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -721,7 +727,8 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 	})
 
 	t.Run("concurrent requests with same token both succeed", func(t *testing.T) {
-		_, rawToken2, rawRefresh2, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
+		sessResult2, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
+		rawToken2, rawRefresh2 := sessResult2.SessionToken, sessResult2.RefreshToken
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -756,7 +763,8 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
-		_, rawToken3, rawRefresh3, err := shortSessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
+		shortResult, err := shortSessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
+		rawToken3, rawRefresh3 := shortResult.SessionToken, shortResult.RefreshToken
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -844,7 +852,8 @@ func TestAuthMiddleware_BannedUserLogsWarn(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: true}
 	users.Create(t.Context(), user)
 
-	_, rawToken, _, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
+	rawToken := sessResult.SessionToken
 	if err != nil {
 		t.Fatal(err)
 	}

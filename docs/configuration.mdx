@@ -397,7 +397,38 @@ func (myTemplates) Render(data port.TemplateData) (port.TemplateResult, error) {
 goauth.WithTemplates(myTemplates{})
 ```
 
-Three of the six types (`PasswordResetData`, `InviteData`, `OrgInviteData`) carry a URL and additionally implement `ValidateURLs(*port.URLValidator) error`. The built-in template provider calls this before rendering to enforce `https://`-only links (subject to `SecurityConfig.AllowHTTPURLs`) — **but a custom `TemplateProvider` bypasses that validation entirely**, since it's only wired up for the built-in provider. If you supply your own, you're responsible for whatever URL safety you want inside `Render` itself.
+Four of the eight types (`PasswordResetData`, `InviteData`, `OrgInviteData`, `TwoFactorSuspiciousData`) carry a URL and additionally implement `ValidateURLs(*port.URLValidator) error`. The built-in template provider calls this before rendering to enforce `https://`-only links (subject to `SecurityConfig.AllowHTTPURLs`) — **but a custom `TemplateProvider` bypasses that validation entirely**, since it's only wired up for the built-in provider. If you supply your own, you're responsible for whatever URL safety you want inside `Render` itself.
+
+#### Overriding a single template
+
+`WithTemplates` is all-or-nothing at the type level — implement `Render` and you own every template type, including the ones you don't actually want to change. To customize just one (say, password reset) without reimplementing the other seven, wrap the built-in provider (`emailtemplate.New`, which is exported) and delegate anything you don't override to it:
+
+```go
+type myTemplates struct {
+    fallback *emailtemplate.Provider
+}
+
+func newMyTemplates(v *port.URLValidator) (*myTemplates, error) {
+    fallback, err := emailtemplate.New(v)
+    if err != nil {
+        return nil, err
+    }
+    return &myTemplates{fallback: fallback}, nil
+}
+
+func (t *myTemplates) Render(data port.TemplateData) (port.TemplateResult, error) {
+    if d, ok := data.(port.PasswordResetData); ok {
+        return port.TemplateResult{
+            Subject: "Reset your " + d.AppName + " password",
+            HTML:    "<a href=\"" + d.ResetURL + "\">Reset password</a>",
+            Text:    "Reset your password: " + d.ResetURL,
+        }, nil
+    }
+    return t.fallback.Render(data) // everything else uses the built-in template
+}
+```
+
+`emailtemplate.New` takes the same `*port.URLValidator` you'd otherwise build yourself — construct one with `&port.URLValidator{AllowHTTP: ...}` matching your `SecurityConfig.AllowHTTPURLs` policy, since the fallback provider still enforces `ValidateURLs` even though your own override doesn't.
 
 ## `WithRateLimit` and its narrower variants — Optional, on by default
 
@@ -498,7 +529,7 @@ No validation errors — any non-nil logger is accepted as-is.
 goauth.WithAudit(goauth.AuditConfig{
     Enabled:       true,                    // optional, default false
     FailureMode:   audit.AuditFailureOpen,   // optional, default fail-open — or audit.AuditFailureClosed
-    RetentionDays: 90,                       // optional, default 90 (0 = forever)
+    RetentionDays: 0,                       // optional, default 0 — keep forever (0 = forever)
     QueueSize:     1000,                     // optional, default 1000
     Workers:       3,                        // optional, default 3
     BatchSize:     50,                       // optional, default 50
@@ -512,7 +543,7 @@ goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 |---|---|---|---|---|
 | `Enabled` | `bool` | Optional | `false` | |
 | `FailureMode` | `audit.AuditFailureMode` | Optional | fail-open | |
-| `RetentionDays` | `int` | Optional | `90` — `0` means forever | |
+| `RetentionDays` | `int` | Optional | `0` (keep forever) | |
 | `QueueSize` | `int` | Optional | `1000` | |
 | `Workers` | `int` | Optional | `3` | |
 | `BatchSize` | `int` | Optional | `50` | |

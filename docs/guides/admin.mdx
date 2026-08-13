@@ -133,9 +133,14 @@ if err != nil {
 // result.RequiresTwoFactor is always true here — result.TwoFactorChallenge is
 // the challenge id, result.BindingToken() is what the handler sets as a cookie.
 
-user, session, rawToken, refreshToken, err := auth.Services.TwoFactor.Verify(
+verified, err := auth.Services.TwoFactor.Verify(
     ctx, result.TwoFactorChallenge, result.BindingToken(), code, r.RemoteAddr, r.UserAgent(),
 )
+if err != nil {
+    // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
+}
+// verified.User is the admin; verified.SessionToken / verified.RefreshToken
+// are the raw values — set them as cookies yourself
 ```
 
 ---
@@ -259,7 +264,10 @@ curl https://api.myapp.com/admin/users/b3f1... \
 #### Programmatic (Go)
 
 ```go
-detail, err := auth.Services.Admin.GetUserDetail(ctx, userID)
+detail, err := auth.Services.Admin.GetUserDetail(ctx, service.GetUserDetailInput{
+    UserID:  userID,
+    ActorID: adminID, // the admin making this call
+})
 // detail.User, detail.ActiveSessionCount, detail.Providers
 ```
 
@@ -371,7 +379,11 @@ curl -X PATCH https://api.myapp.com/admin/users/b3f1.../role \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.UpdateUserRole(ctx, userID, "admin")
+err := auth.Services.Admin.UpdateUserRole(ctx, service.UpdateUserRoleInput{
+    UserID:  userID,
+    Role:    "admin",
+    ActorID: adminID, // the admin making this call
+})
 ```
 
 ---
@@ -412,8 +424,8 @@ curl -X PATCH https://api.myapp.com/admin/users/b3f1.../ban \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.BanUser(ctx, userID)
-err  = auth.Services.Admin.UnbanUser(ctx, userID)
+err := auth.Services.Admin.BanUser(ctx, service.BanUserInput{UserID: userID, ActorID: adminID})
+err  = auth.Services.Admin.UnbanUser(ctx, service.UnbanUserInput{UserID: userID, ActorID: adminID})
 ```
 
 ---
@@ -452,7 +464,7 @@ curl -X DELETE https://api.myapp.com/admin/users/b3f1... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.DeleteUser(ctx, userID)
+err := auth.Services.Admin.DeleteUser(ctx, service.DeleteUserInput{UserID: userID, ActorID: adminID})
 ```
 
 ---
@@ -489,8 +501,9 @@ curl "https://api.myapp.com/admin/users/b3f1.../sessions?limit=20" \
 
 ```go
 sessions, total, err := auth.Services.Admin.ListUserSessions(ctx, service.AdminListUserSessionsInput{
-    UserID: userID,
-    Limit:  20,
+    ActorID: adminID, // the admin making this call
+    UserID:  userID,
+    Limit:   20,
 })
 ```
 
@@ -530,8 +543,12 @@ curl -X DELETE https://api.myapp.com/admin/users/b3f1.../sessions \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.RevokeUserSession(ctx, userID, sessionID)
-err  = auth.Services.Admin.RevokeUserSessions(ctx, userID) // all of them
+err := auth.Services.Admin.RevokeUserSession(ctx, service.RevokeUserSessionInput{
+    UserID: userID, SessionID: sessionID, ActorID: adminID,
+})
+err  = auth.Services.Admin.RevokeUserSessions(ctx, service.RevokeUserSessionsInput{
+    UserID: userID, ActorID: adminID,
+}) // all of them
 ```
 
 ---
@@ -648,7 +665,7 @@ const { invites, total } = await apiRequest(API_BASE, "GET", "/admin/invites?sta
 
 ### Revoke an invite — `DELETE /admin/invites/{id}`
 
-Soft-cancels it — sets `status: "revoked"`. The row still exists, so it still shows up in [List invites](#list-invites--get-admininvites); an attempt to redeem it fails with `invite_revoked` instead of `invite_not_found`.
+Soft-cancels it — sets `status: "revoked"`. The row still exists, so it still shows up in [List invites](#list-invites--get-admininvites); an attempt to redeem it fails with `invite_already_used` instead of `invite_not_found`.
 
 **Response**: `{ "message": "Invite revoked" }`
 

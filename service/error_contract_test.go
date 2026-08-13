@@ -23,10 +23,10 @@ func TestSuccessPaths_ReturnTrueNilError(t *testing.T) {
 	t.Run("AdminService.BanUser", func(t *testing.T) {
 		users := testutil.NewMockUserRepo()
 		sessions := testutil.NewMockSessionRepo()
-		svc := newTestAdminService(users, sessions, &testutil.MockHasher{})
+		svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 		users.Create(context.Background(), &domain.User{ID: "u1", Email: "a@example.com"})
 
-		if err := svc.BanUser(context.Background(), "u1"); err != nil {
+		if err := svc.BanUser(context.Background(), BanUserInput{UserID: "u1", ActorID: actorID}); err != nil {
 			t.Fatalf("err == nil check failed: got %v (%T)", err, err)
 		}
 	})

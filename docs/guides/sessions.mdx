@@ -25,12 +25,12 @@ goauth.WithSession(goauth.SessionConfig{
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `TTL` | `time.Duration` | Optional | `30d` | Absolute hard expiry — the `expires_at` on every session in the [list responses](#listing-sessions) above. |
+| `TTL` | `time.Duration` | Optional | `30d` | Absolute hard expiry — the `expiresAt` on every session in the [list responses](#listing-sessions) above. |
 | `IdleTTL` | `time.Duration` | Optional | `7d` | Timeout since last activity. Must not exceed `TTL`. |
 | `RefreshTokenTTL` | `time.Duration` | Optional | `30d` | Must not be less than `TTL`. Governs how long the transparent refresh described in [the curl note above](#a-note-on-curl-and-sessions--read-this-if-something-isnt-working) keeps working after the session itself expires. |
 | `MaxLifetime` | `time.Duration` | Optional | `0` — no limit | If set, must be `>= TTL`. |
 | `GraceWindow` | `*time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh don't log the user out. `nil` (leave the field out) means "use the default"; set it with `goauth.Duration(...)` — `goauth.Duration(0)` turns it off. |
-| `TouchDebounce` | `*time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes — what makes `last_active_at` in the list responses a few minutes stale rather than exact. Same `nil`-vs-pointer rule as `GraceWindow`; `goauth.Duration(0)` writes on every authenticated request. |
+| `TouchDebounce` | `*time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes — what makes `lastActiveAt` in the list responses a few minutes stale rather than exact. Same `nil`-vs-pointer rule as `GraceWindow`; `goauth.Duration(0)` writes on every authenticated request. |
 
 `GraceWindow` and `TouchDebounce` are `*time.Duration`, not `time.Duration`, specifically so "left unset" (`nil`) and "explicitly off" (a pointer to `0`) can't collide the way they would on a plain value field.
 
@@ -225,7 +225,7 @@ const { user } = await apiRequest(API_BASE, "GET", "/auth/check");
 
 ## Listing sessions
 
-Both endpoints return the caller's **own** sessions only, plus `current_session_id` so the UI can highlight the device in use and disable its own revoke button.
+Both endpoints return the caller's **own** sessions only, plus `currentSessionId` so the UI can highlight the device in use and disable its own revoke button.
 
 ### Paginated — `GET /auth/sessions`
 
@@ -241,20 +241,20 @@ Both endpoints return the caller's **own** sessions only, plus `current_session_
   "sessions": [
     {
       "id": "9e2c...",
-      "user_id": "b3f1...",
-      "ip_address": "203.0.113.4",
-      "user_agent": "Mozilla/5.0 ...",
-      "parsed_ua": { "browser": "Chrome", "os": "Windows", "device_type": "desktop" },
-      "is_revoked": false,
-      "expires_at": "2026-09-08T12:00:00Z",
-      "last_active_at": "2026-08-09T11:55:00Z",
-      "created_at": "2026-08-01T09:00:00Z"
+      "userId": "b3f1...",
+      "ipAddress": "203.0.113.4",
+      "userAgent": "Mozilla/5.0 ...",
+      "parsedUA": { "browser": "Chrome", "os": "Windows", "deviceType": "desktop" },
+      "isRevoked": false,
+      "expiresAt": "2026-09-08T12:00:00Z",
+      "lastActiveAt": "2026-08-09T11:55:00Z",
+      "createdAt": "2026-08-01T09:00:00Z"
     }
   ],
   "total": 3,
   "limit": 20,
   "offset": 0,
-  "current_session_id": "9e2c..."
+  "currentSessionId": "9e2c..."
 }
 ```
 
@@ -284,7 +284,7 @@ sessions, total, err := auth.Services.Session.List(ctx, userID, 0, 20)
 #### Client
 
 ```ts
-const { sessions, total, current_session_id } = await apiRequest(
+const { sessions, total, currentSessionId } = await apiRequest(
   API_BASE, "GET", "/auth/sessions?offset=0&limit=20"
 );
 ```
@@ -298,7 +298,7 @@ No query params, no pagination — every active session in one response. Same pe
 ```json
 {
   "sessions": [ "...": "unpaginated array, same shape as above" ],
-  "current_session_id": "9e2c..."
+  "currentSessionId": "9e2c..."
 }
 ```
 
@@ -325,7 +325,7 @@ sessions, err := auth.Services.Session.ListAll(ctx, userID)
 #### Client
 
 ```ts
-const { sessions, current_session_id } = await apiRequest(API_BASE, "GET", "/auth/sessions/all");
+const { sessions, currentSessionId } = await apiRequest(API_BASE, "GET", "/auth/sessions/all");
 ```
 
 ## Revoking sessions
@@ -378,7 +378,7 @@ await apiRequest(API_BASE, "DELETE", `/auth/sessions/${sessionId}`);
 
 ### Revoke several — `POST /auth/sessions/revoke`
 
-Body: `{ "session_ids": ["...", "..."] }` — 1 to 100 IDs. IDs that don't exist or don't belong to the caller are silently skipped rather than erroring individually.
+Body: `{ "sessionIds": ["...", "..."] }` — 1 to 100 IDs. IDs that don't exist or don't belong to the caller are silently skipped rather than erroring individually.
 
 ```json
 { "revoked": 2 }
@@ -388,7 +388,7 @@ Body: `{ "session_ids": ["...", "..."] }` — 1 to 100 IDs. IDs that don't exist
 
 | Code | Status | Cause |
 |---|---|---|
-| `invalid_input` | 400 | `session_ids` empty, or more than 100 entries |
+| `invalid_input` | 400 | `sessionIds` empty, or more than 100 entries |
 | `invalid_json` | 400 | Malformed body |
 | `internal_error` | 500 | Database failure |
 
@@ -401,7 +401,7 @@ curl -X POST https://api.myapp.com/auth/sessions/revoke \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt -c cookies.txt \
-  -d '{"session_ids":["9e2c...","a71f..."]}'
+  -d '{"sessionIds":["9e2c...","a71f..."]}'
 ```
 
 ---
@@ -418,7 +418,7 @@ revoked, err := auth.Services.Session.RevokeManyForUser(ctx, []string{"9e2c...",
 
 ```ts
 const { revoked } = await apiRequest(API_BASE, "POST", "/auth/sessions/revoke", {
-  session_ids: [id1, id2],
+  sessionIds: [id1, id2],
 });
 ```
 

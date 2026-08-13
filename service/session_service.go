@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,7 +29,7 @@ type SessionConfig struct {
 	Domain            string
 	Path              string
 	Secure            bool
-	SameSite          int
+	SameSite          http.SameSite
 	Duration          time.Duration
 	IdleTTL           time.Duration
 	RefreshTTL        time.Duration
@@ -45,10 +46,11 @@ func DefaultSessionConfig() SessionConfig {
 		RefreshCookieName: "goauth_refresh",
 		Path:              "/",
 		Secure:            true,
-		SameSite:          2,
+		SameSite:          http.SameSiteLaxMode,
 		Duration:          7 * 24 * time.Hour,
 		IdleTTL:           7 * 24 * time.Hour,
 		RefreshTTL:        30 * 24 * time.Hour,
+		GraceWindow:       5 * time.Second,
 		TouchDebounce:     5 * time.Minute,
 	}
 }
@@ -61,15 +63,26 @@ func NewSessionService(repo port.SessionRepository, tokenGen port.TokenGenerator
 	return &SessionService{repo: repo, tokenGen: tokenGen, config: config, log: logger, audit: config.Audit}
 }
 
-func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*domain.Session, string, string, error) {
+// SessionResult bundles a session with the raw tokens issued alongside it.
+// Only the hashes are ever persisted, so Create and RefreshSession are the
+// only places the raw SessionToken/RefreshToken values exist — this is how
+// they reach the caller (an HTTP handler that cookies them, or a
+// programmatic caller that stores them directly).
+type SessionResult struct {
+	Session      *domain.Session
+	SessionToken string
+	RefreshToken string
+}
+
+func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*SessionResult, error) {
 	sessionToken, err := s.tokenGen.Generate()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("session create token: %w", err)
+		return nil, fmt.Errorf("session create token: %w", err)
 	}
 
 	refreshToken, err := s.tokenGen.Generate()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("session create refresh: %w", err)
+		return nil, fmt.Errorf("session create refresh: %w", err)
 	}
 
 	now := time.Now().UTC()
@@ -89,7 +102,7 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 	}
 
 	if err := s.repo.Create(ctx, session); err != nil {
-		return nil, "", "", fmt.Errorf("session create: %w", err)
+		return nil, fmt.Errorf("session create: %w", err)
 	}
 
 	s.log.Info("session created", "user_id", userID, "session_id", session.ID)
@@ -98,20 +111,20 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 		s.audit.Publish(ctx, audit.NewSessionEvent(audit.EventSessionCreated, userID, session.ID, net.ParseIP(ip), userAgent))
 	}
 
-	return session, sessionToken, refreshToken, nil
+	return &SessionResult{Session: session, SessionToken: sessionToken, RefreshToken: refreshToken}, nil
 }
 
-func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken string) (*domain.Session, string, string, error) {
+func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken string) (*SessionResult, error) {
 	hash := hashToken(rawRefreshToken)
 
 	newSessionToken, err := s.tokenGen.Generate()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("refresh gen session: %w", err)
+		return nil, fmt.Errorf("refresh gen session: %w", err)
 	}
 
 	newRefreshToken, err := s.tokenGen.Generate()
 	if err != nil {
-		return nil, "", "", fmt.Errorf("refresh gen refresh: %w", err)
+		return nil, fmt.Errorf("refresh gen refresh: %w", err)
 	}
 
 	now := time.Now().UTC()
@@ -125,11 +138,11 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 		GraceWindow:    s.config.GraceWindow,
 	})
 	if err != nil {
-		return nil, "", "", err
+		return nil, err
 	}
 
 	s.log.Info("refresh token rotated", "user_id", session.UserID, "session_id", session.ID)
-	return session, newSessionToken, newRefreshToken, nil
+	return &SessionResult{Session: session, SessionToken: newSessionToken, RefreshToken: newRefreshToken}, nil
 }
 
 func (s *SessionService) Validate(ctx context.Context, token string) (*domain.Session, error) {

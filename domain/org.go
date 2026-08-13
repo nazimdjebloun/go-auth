@@ -36,19 +36,19 @@ type Organization struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
 	Slug        string                 `json:"slug"`
-	CreatedBy   *string                `json:"created_by,omitempty"`
-	OwnerCount  int                    `json:"owner_count"`
-	MemberCount int                    `json:"member_count"`
+	CreatedBy   *string                `json:"createdBy,omitempty"`
+	OwnerCount  int                    `json:"ownerCount"`
+	MemberCount int                    `json:"memberCount"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt   time.Time              `json:"created_at"`
-	UpdatedAt   time.Time              `json:"updated_at"`
+	CreatedAt   time.Time              `json:"createdAt"`
+	UpdatedAt   time.Time              `json:"updatedAt"`
 }
 
 type OrgMember struct {
-	OrgID    string    `json:"org_id"`
-	UserID   string    `json:"user_id"`
+	OrgID    string    `json:"orgId"`
+	UserID   string    `json:"userId"`
 	Role     OrgRole   `json:"role"`
-	JoinedAt time.Time `json:"joined_at"`
+	JoinedAt time.Time `json:"joinedAt"`
 }
 
 type OrgMemberDetail struct {
@@ -58,14 +58,14 @@ type OrgMemberDetail struct {
 
 type OrgInvite struct {
 	ID        string    `json:"id"`
-	OrgID     string    `json:"org_id"`
+	OrgID     string    `json:"orgId"`
 	Email     string    `json:"email"`
 	Role      OrgRole   `json:"role"`
 	CodeHash  string    `json:"-"`
 	RawCode   string    `json:"rawCode,omitempty"` // populated once on creation, omitted in list
-	InvitedBy string    `json:"invited_by"`
-	ExpiresAt time.Time `json:"expires_at"`
-	CreatedAt time.Time `json:"created_at"`
+	InvitedBy string    `json:"invitedBy"`
+	ExpiresAt time.Time `json:"expiresAt"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 var ReservedOrgSlugs = map[string]bool{

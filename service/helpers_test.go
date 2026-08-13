@@ -23,6 +23,16 @@ func authErrCode(err error) string {
 	return ae.Code
 }
 
+// authErrMessage is authErrCode's counterpart for the Message field.
+func authErrMessage(err error) string {
+	var ae *domain.AuthError
+	errors.As(err, &ae)
+	if ae == nil {
+		return ""
+	}
+	return ae.Message
+}
+
 func defaultTestConfig() Config {
 	return Config{
 		AppName:                  "TestApp",
@@ -41,4 +51,14 @@ func defaultTestConfig() Config {
 
 func newTestSessionService(repo port.SessionRepository, gen port.TokenGenerator) *SessionService {
 	return NewSessionService(repo, gen, DefaultSessionConfig())
+}
+
+// newTestSessionServiceNoGrace is for tests that specifically exercise
+// refresh-token reuse detection: DefaultSessionConfig's GraceWindow (5s)
+// deliberately tolerates reusing the just-rotated token, which would mask
+// the hard-revocation path these tests are checking.
+func newTestSessionServiceNoGrace(repo port.SessionRepository, gen port.TokenGenerator) *SessionService {
+	cfg := DefaultSessionConfig()
+	cfg.GraceWindow = 0
+	return NewSessionService(repo, gen, cfg)
 }

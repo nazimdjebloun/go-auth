@@ -48,8 +48,9 @@ Reach for `errors.Is` when you only care about one specific outcome (`domain.Err
 Two places in the library don't go through the JSON envelope above:
 
 - **CSRF origin/token middleware** (`middleware.OriginCheck`, `middleware.CSRFToken`) responds with a plain-text body via `http.Error` — e.g. `Forbidden - CSRF headers missing` (403) — not JSON. It runs ahead of your handlers and has no domain error to format.
-- **Organization membership middleware** (`middleware.RequireOrgMember`, `RequireOrgRole`) writes JSON, but a narrower one — only `{"error": "..."}`, no `message` key.
 - **OAuth callback errors** are never returned as a JSON body at all — the browser is mid-redirect at that point. They come back as a redirect to `{BaseURL}/auth/callback?error={code}&provider={provider}`, and your frontend reads `error` from the query string.
+
+Organization membership middleware (`middleware.RequireOrgMember`, `RequireOrgRole`) uses the normal envelope too — a non-member gets the same `org_member_not_found` (404) an equivalent direct call to `OrgService` would return, and an under-privileged member gets `org_forbidden` (403), so the response is identical whether a request is rejected by the middleware or would have been rejected by the service layer underneath it.
 
 Everything else below — every service-layer and handler-layer error — uses the `{"error", "message"}` envelope.
 
@@ -59,7 +60,7 @@ Everything else below — every service-layer and handler-layer error — uses t
 |---|---|---|
 | `internal_error` | 500 | Internal server error |
 | `invalid_json` | 400 | Invalid request body — malformed JSON on any endpoint that decodes one |
-| `invalid_input` | 400 | Generic input validation failure (exact message varies, e.g. `session_ids must not be empty`) |
+| `invalid_input` | 400 | Generic input validation failure (exact message varies, e.g. `sessionIds must not be empty`) |
 | `forbidden` | 403 | You do not have permission / Insufficient permissions |
 | `rate_limit_exceeded` | 429 | Too many requests, please try again later |
 | `method_disabled` | 405 | This registration method is not available |
@@ -105,7 +106,7 @@ Everything else below — every service-layer and handler-layer error — uses t
 | `max_lifetime_exceeded` | 401 | Session lifetime exceeded, please re-authenticate | Only reachable when `SessionConfig.MaxLifetime` is set. |
 | `invalid_refresh` | 401 | No refresh token provided | |
 | `missing_token` | 400 | Token is required | |
-| `invalid_input` | 400 | `session_ids must not be empty` / `cannot revoke more than 100 sessions at once` | From bulk session revoke. |
+| `invalid_input` | 400 | `sessionIds must not be empty` / `cannot revoke more than 100 sessions at once` | From bulk session revoke. |
 
 ## Password
 
@@ -154,7 +155,6 @@ Everything else below — every service-layer and handler-layer error — uses t
 | Code | Status | Message | Hint |
 |---|---|---|---|
 | `provider_not_found` | 404 | Unrecognized provider | The `{provider}` path segment doesn't match any registered `WithProvider`. |
-| `provider_email_unverified` | 403 | Provider email is not verified | The provider returned an email the library doesn't trust as verified. |
 | `provider_already_linked` / `already_linked` | 409 | This provider is already linked to another account | Two codes for the same condition at different call sites — treat them the same. |
 | `provider_not_linked` | 404 | This provider is not linked to your account | |
 | `cannot_unlink_last_provider` | 400 | Cannot unlink last login method — set a password first | Prevents locking yourself out of an OAuth-only account. |
@@ -163,6 +163,7 @@ Everything else below — every service-layer and handler-layer error — uses t
 | `state_expired` | 400 | OAuth state token has expired | |
 | `provider_error` | 502 | Failed to authenticate with provider | The provider's own API rejected the exchange — not something the caller can fix. |
 | `unauthorized` | 401 | Authentication required | Link/unlink require an existing session. |
+| `email_already_exists` | 409 | An account with this email already exists | Logging in via OAuth when a password account already exists for that email — go-auth never auto-links the two; the user has to log in with the password and use [Link](#oauth) explicitly. See [OAuth guide](guides/oauth.mdx#logging-in-with-an-email-that-already-has-a-password-account). |
 
 Callback errors don't arrive as JSON — see [Not every layer uses this shape](#not-every-layer-uses-this-shape) above.
 
@@ -173,7 +174,7 @@ Callback errors don't arrive as JSON — see [Not every layer uses this shape](#
 | `org_not_found` | 404 | Organization not found | |
 | `org_slug_exists` | 409 | Organization slug already in use | |
 | `org_slug_reserved` | 400 | Organization slug is reserved | |
-| `org_member_not_found` | 404 | User is not a member of this organization | |
+| `org_member_not_found` | 404 | User is not a member of this organization | Also returned by `RequireOrgMember` when the membership lookup comes back empty — but only for *missing* membership; a lookup that fails outright (e.g. the database is down) returns `internal_error` 500 instead, so a server problem never masquerades as a not-a-member 404. |
 | `org_member_exists` | 409 | User is already a member of this organization | |
 | `cannot_remove_last_owner` | 400 | Cannot remove or demote the last owner of an organization | |
 | `org_limit_reached` | 400 | Maximum organization limit reached for user | `OrganizationConfig.MaxOrgsPerUser`. |
@@ -187,7 +188,7 @@ Callback errors don't arrive as JSON — see [Not every layer uses this shape](#
 | `invalid_role` | 400 | Invalid organization role | |
 | `invite_not_found` | 404 | Invite not found | Same code as the self-service invite system above — org invites reuse it. |
 
-The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) returns its own narrower JSON — see [Not every layer uses this shape](#not-every-layer-uses-this-shape).
+The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) uses the normal envelope too — see [Not every layer uses this shape](#not-every-layer-uses-this-shape) above: a non-member gets the same `org_member_not_found` 404 a direct `OrgService` call returns, and an under-privileged member gets `org_forbidden` 403.
 
 ## Admin
 

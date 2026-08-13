@@ -18,7 +18,7 @@ icon: "Download"
 go get github.com/nazimdjebloun/go-auth
 ```
 
-go-auth's own `go.mod` only depends on the PostgreSQL driver (`pgx/v5`). Whichever database you use, your program needs to blank-import that driver's package so it registers itself with `database/sql`:
+go-auth's own `go.mod` requires `pgx/v5` (PostgreSQL) and `modernc.org/sqlite` (SQLite) directly, plus the libraries it uses. The library imports the pgx stdlib driver itself, so Postgres registers out of the box. For the driver you actually use, your program needs to blank-import that driver's package so it registers itself with `database/sql`:
 
 | Database | Package |
 |---|---|

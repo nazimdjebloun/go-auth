@@ -31,7 +31,7 @@ func (h *OAuthHandlers) disabled() bool {
 	return h.oauth == nil
 }
 
-// GET /auth/{provider}
+// GET /auth/oauth/{provider}
 func (h *OAuthHandlers) Initiate(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
 		writeError(w, domain.ErrProviderNotFound)
@@ -46,7 +46,7 @@ func (h *OAuthHandlers) Initiate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
-// POST /auth/link/{provider} — requires auth
+// POST /auth/oauth/{provider}/link — requires auth
 func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
 		writeError(w, domain.ErrProviderNotFound)
@@ -67,7 +67,7 @@ func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
-// GET /auth/{provider}/callback
+// GET /auth/oauth/{provider}/callback, POST /auth/oauth/{provider}/callback
 func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
 		writeError(w, domain.ErrProviderNotFound)
@@ -82,7 +82,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionToken, refreshToken, _, requiresVerification, _, err := h.oauth.Callback(r.Context(), provider, code, state, extractIP(r.RemoteAddr), r.UserAgent())
+	result, err := h.oauth.Callback(r.Context(), provider, code, state, extractIP(r.RemoteAddr), r.UserAgent())
 	if err != nil {
 		errCode := "internal_error"
 		var authErr *domain.AuthError
@@ -95,14 +95,23 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 
-	if requiresVerification {
+	if result.IsLink {
+		// The caller already had a valid session before starting the link
+		// flow — Callback issued no new one, so there's nothing to write.
+		// Must not fall through to writeCookieRedirect: an empty
+		// SessionToken there would blank the caller's live session cookie.
+		http.Redirect(w, r, h.baseURL+"/auth/callback", http.StatusFound)
+		return
+	}
+
+	if result.RequiresVerification {
 		redirectURL := h.baseURL + "/auth/callback?requiresVerification=true&provider=" + provider
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
 
 	redirectURL := h.baseURL + "/auth/callback"
-	h.writeCookieRedirect(w, sessionToken, refreshToken, redirectURL)
+	h.writeCookieRedirect(w, result.SessionToken, result.RefreshToken, redirectURL)
 }
 
 // writeCookieRedirect returns a small HTML page that sets cookies via Set-Cookie headers
@@ -123,7 +132,7 @@ func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, sessionToken,
 	)
 }
 
-// POST /auth/unlink/{provider} — requires auth
+// POST /auth/oauth/{provider}/unlink — requires auth
 func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
 		writeError(w, domain.ErrProviderNotFound)
@@ -143,7 +152,7 @@ func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Provider unlinked"})
 }
 
-// GET /auth/providers — requires auth
+// GET /auth/oauth/providers — requires auth
 func (h *OAuthHandlers) ListConnected(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
 		writeError(w, domain.ErrProviderNotFound)
@@ -166,8 +175,8 @@ func (h *OAuthHandlers) ListConnected(w http.ResponseWriter, r *http.Request) {
 		Provider      string `json:"provider"`
 		ProviderEmail string `json:"email"`
 		ProviderName  string `json:"name"`
-		AvatarURL     string `json:"avatar_url"`
-		CreatedAt     string `json:"created_at"`
+		AvatarURL     string `json:"avatarUrl"`
+		CreatedAt     string `json:"createdAt"`
 	}
 	safe := make([]safeAccount, len(accounts))
 	for i, a := range accounts {

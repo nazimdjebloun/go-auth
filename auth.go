@@ -14,7 +14,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/emailtemplate"
-	"github.com/nazimdjebloun/go-auth/handler"
+	"github.com/nazimdjebloun/go-auth/internal/handler"
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/internal/crypto"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
@@ -23,7 +23,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 	"github.com/nazimdjebloun/go-auth/service"
-	"github.com/nazimdjebloun/go-auth/sqlstore"
+	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/token"
 )
 
@@ -312,7 +312,7 @@ func New(config config) (*Auth, error) {
 			RetentionDays: config.audit.RetentionDays,
 		}
 		auditSvc = audit.NewAuditService(auditCfg, config.logger)
-		auditSvc.AddSink(audit.NewSQLAuditSink(sqlDB))
+		auditSvc.AddSink(audit.NewSQLAuditSink(sqlDB.DB, sqlDB.Driver()))
 		auditSvc.AddSink(audit.NewLoggerSink(config.logger))
 		for _, sink := range append(append([]audit.EventSink(nil), config.audit.Sinks...), config.auditSinks...) {
 			auditSvc.AddSink(sink)
@@ -361,7 +361,7 @@ func New(config config) (*Auth, error) {
 	sessionCfg.Domain = config.cookie.Domain
 	sessionCfg.Path = config.cookie.Path
 	sessionCfg.Secure = config.cookieSecure
-	sessionCfg.SameSite = int(config.cookie.SameSite)
+	sessionCfg.SameSite = config.cookie.SameSite
 	sessionCfg.Logger = config.logger
 	sessionCfg.Audit = auditPub
 
@@ -415,11 +415,6 @@ func New(config config) (*Auth, error) {
 			BaseURL:                  config.baseURL,
 			SessionTTL:               config.sessionTTL,
 			TokenTTL:                 config.tokenTTL,
-			CookieName:               config.cookie.Name,
-			CookieDomain:             config.cookie.Domain,
-			CookiePath:               config.cookie.Path,
-			CookieSecure:             config.cookieSecure,
-			CookieSameSite:           config.cookie.SameSite,
 			RequireEmailVerification: config.registration.RequireEmailVerification,
 			EnableOAuth:              config.registration.EnableOAuth,
 			InviteOnly:               !config.registration.AllowPublic,
@@ -646,6 +641,15 @@ type routeEntry struct {
 	handler http.Handler
 }
 
+// Mount registers every enabled route onto mux. It requires a real
+// *http.ServeMux (Go 1.22+'s pattern syntax, e.g. "GET /admin/users/{id}")
+// because route handlers read path parameters with r.PathValue, which only
+// ServeMux populates — mounting the same handlers on chi, gin, echo, or any
+// router that doesn't call r.SetPathValue itself will 404 or read an empty
+// ID on every parameterized route, with no error at mount time. Bridge to
+// another router by having it populate PathValue before calling into these
+// handlers, or use Auth.RequireAuth/RequireAdmin/RequireOrg plus
+// auth.Services.* directly and write your own routing layer.
 func (a *Auth) Mount(mux *http.ServeMux) {
 	// All middleware (CORS, rate limit, csrf token, origin check, auth, admin)
 	// is already baked into a.Handlers — CORS outermost so preflight OPTIONS

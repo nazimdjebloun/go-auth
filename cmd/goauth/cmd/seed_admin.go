@@ -17,7 +17,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/port"
-	"github.com/nazimdjebloun/go-auth/sqlstore"
+	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -181,7 +181,9 @@ func resolveAdminEmail(envEmail string, nonInteractive, isTTY bool, prompt func(
 // auto-generate outright when non-interactive or no TTY.
 func resolveAdminPassword(envPassword string, nonInteractive, isTTY bool, policy domain.PasswordPolicy, promptHiddenFn func(label string) (string, error)) (password string, generated bool, err error) {
 	if envPassword != "" {
-		if authErr := policy.Validate(envPassword); authErr != nil {
+		if err := policy.Validate(envPassword); err != nil {
+			var authErr *domain.AuthError
+			errors.As(err, &authErr)
 			return "", false, fmt.Errorf("seed-admin: ADMIN_PASSWORD does not meet the password policy: %s", authErr.Message)
 		}
 		return envPassword, false, nil
@@ -199,7 +201,9 @@ func resolveAdminPassword(envPassword string, nonInteractive, isTTY bool, policy
 		pw, genErr := generatePassword()
 		return pw, true, genErr
 	}
-	if authErr := policy.Validate(typed); authErr != nil {
+	if err := policy.Validate(typed); err != nil {
+		var authErr *domain.AuthError
+		errors.As(err, &authErr)
 		return "", false, fmt.Errorf("seed-admin: password does not meet the password policy: %s", authErr.Message)
 	}
 	return typed, false, nil

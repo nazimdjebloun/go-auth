@@ -854,24 +854,24 @@ func TestPasswordPolicyErrorMessages(t *testing.T) {
 	if authErrCode(err) != "weak_password" {
 		t.Fatalf("expected weak_password code, got %s", authErrCode(err))
 	}
-	if err.Message != "Password must be at least 8 characters" {
-		t.Fatalf("unexpected message: %s", err.Message)
+	if authErrMessage(err) != "Password must be at least 8 characters" {
+		t.Fatalf("unexpected message: %s", authErrMessage(err))
 	}
 
 	err = p.Validate("12345678")
 	if err == nil {
 		t.Fatal("expected error for no letter")
 	}
-	if err.Message != "Password must be at least 8 characters with a letter" {
-		t.Fatalf("unexpected message: %s", err.Message)
+	if authErrMessage(err) != "Password must be at least 8 characters with a letter" {
+		t.Fatalf("unexpected message: %s", authErrMessage(err))
 	}
 
 	err = p.Validate("abcdefgh")
 	if err == nil {
 		t.Fatal("expected error for no digit")
 	}
-	if err.Message != "Password must be at least 8 characters with a digit" {
-		t.Fatalf("unexpected message: %s", err.Message)
+	if authErrMessage(err) != "Password must be at least 8 characters with a digit" {
+		t.Fatalf("unexpected message: %s", authErrMessage(err))
 	}
 
 	p2 := domain.PasswordPolicy{MinLength: 10, RequireUppercase: true, RequireSpecial: true, RequireDigit: true}
@@ -879,7 +879,7 @@ func TestPasswordPolicyErrorMessages(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if err.Message != "Password must be at least 10 characters with an uppercase letter, a special character" {
-		t.Fatalf("unexpected message: %s", err.Message)
+	if authErrMessage(err) != "Password must be at least 10 characters with an uppercase letter, a special character" {
+		t.Fatalf("unexpected message: %s", authErrMessage(err))
 	}
 }

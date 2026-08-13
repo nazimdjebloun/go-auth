@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -16,11 +17,11 @@ func TestCreateSession_ReturnsRefreshToken(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	_, _, refreshToken, err := svc.Create(context.Background(), "user-1", "", "")
+	result, err := svc.Create(context.Background(), "user-1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refreshToken == "" {
+	if result.RefreshToken == "" {
 		t.Fatal("expected non-empty refresh token")
 	}
 }
@@ -30,26 +31,25 @@ func TestRefreshSession_HappyPath(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	_, sessionToken, refreshToken, err := svc.Create(context.Background(), "user-1", "127.0.0.1", "test-agent")
+	createResult, err := svc.Create(context.Background(), "user-1", "127.0.0.1", "test-agent")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = sessionToken
 
-	newSession, newSessionToken, newRefreshToken, err := svc.RefreshSession(context.Background(), refreshToken)
+	refreshResult, err := svc.RefreshSession(context.Background(), createResult.RefreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if newSession == nil {
+	if refreshResult.Session == nil {
 		t.Fatal("expected session, got nil")
 	}
-	if newSession.UserID != "user-1" {
-		t.Fatalf("expected user-1, got %s", newSession.UserID)
+	if refreshResult.Session.UserID != "user-1" {
+		t.Fatalf("expected user-1, got %s", refreshResult.Session.UserID)
 	}
-	if newSessionToken == "" {
+	if refreshResult.SessionToken == "" {
 		t.Fatal("expected new session token")
 	}
-	if newRefreshToken == "" {
+	if refreshResult.RefreshToken == "" {
 		t.Fatal("expected new refresh token")
 	}
 }
@@ -59,7 +59,7 @@ func TestRefreshSession_InvalidToken(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	_, _, _, err := svc.RefreshSession(context.Background(), "garbage-token")
+	_, err := svc.RefreshSession(context.Background(), "garbage-token")
 	if err != domain.ErrInvalidRefreshToken {
 		t.Fatalf("expected ErrInvalidRefreshToken, got %v", err)
 	}
@@ -76,15 +76,15 @@ func TestRefreshSession_ExpiredSession(t *testing.T) {
 		RefreshTTL:        -1 * time.Hour,
 		Path:              "/",
 		Secure:            false,
-		SameSite:          2,
+		SameSite:          http.SameSiteLaxMode,
 	})
 
-	_, _, refreshToken, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), "user-1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, _, _, err = svc.RefreshSession(context.Background(), refreshToken)
+	_, err = svc.RefreshSession(context.Background(), createResult.RefreshToken)
 	if err != domain.ErrRefreshExpired {
 		t.Fatalf("expected ErrRefreshExpired, got %v", err)
 	}
@@ -101,15 +101,15 @@ func TestRefreshSession_ExpiredRefreshToken(t *testing.T) {
 		RefreshTTL:        -1 * time.Hour,
 		Path:              "/",
 		Secure:            false,
-		SameSite:          2,
+		SameSite:          http.SameSiteLaxMode,
 	})
 
-	_, _, refreshToken, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), "user-1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	_, _, _, err = svc.RefreshSession(context.Background(), refreshToken)
+	_, err = svc.RefreshSession(context.Background(), createResult.RefreshToken)
 	if err != domain.ErrRefreshExpired {
 		t.Fatalf("expected ErrRefreshExpired, got %v", err)
 	}
@@ -118,27 +118,29 @@ func TestRefreshSession_ExpiredRefreshToken(t *testing.T) {
 func TestRefreshSession_ReuseDetection(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
-	svc := newTestSessionService(sessions, gen)
+	svc := newTestSessionServiceNoGrace(sessions, gen)
 
-	_, _, refreshToken, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), "user-1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	refreshToken := createResult.RefreshToken
 
 	// First refresh succeeds
-	_, _, newRefreshToken, err := svc.RefreshSession(context.Background(), refreshToken)
+	firstRefresh, err := svc.RefreshSession(context.Background(), refreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
+	newRefreshToken := firstRefresh.RefreshToken
 
 	// Second refresh with old token triggers reuse detection
-	_, _, _, err = svc.RefreshSession(context.Background(), refreshToken)
+	_, err = svc.RefreshSession(context.Background(), refreshToken)
 	if err != domain.ErrSessionRevoked {
 		t.Fatalf("expected ErrSessionRevoked for reuse, got %v", err)
 	}
 
 	// Session was revoked (deleted) — new token also fails
-	_, _, _, err = svc.RefreshSession(context.Background(), newRefreshToken)
+	_, err = svc.RefreshSession(context.Background(), newRefreshToken)
 	if err == nil {
 		t.Fatal("expected error after session revoked")
 	}
@@ -147,27 +149,29 @@ func TestRefreshSession_ReuseDetection(t *testing.T) {
 func TestRefreshSession_RotatesTokens(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
-	svc := newTestSessionService(sessions, gen)
+	svc := newTestSessionServiceNoGrace(sessions, gen)
 
-	_, _, refreshToken, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), "user-1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	refreshToken := createResult.RefreshToken
 
 	// First refresh with current token succeeds
-	_, _, newRefreshToken, err := svc.RefreshSession(context.Background(), refreshToken)
+	firstRefresh, err := svc.RefreshSession(context.Background(), refreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
+	newRefreshToken := firstRefresh.RefreshToken
 
 	// Old token is now a previous hash — triggers reuse detection
-	_, _, _, err = svc.RefreshSession(context.Background(), refreshToken)
+	_, err = svc.RefreshSession(context.Background(), refreshToken)
 	if err != domain.ErrSessionRevoked {
 		t.Fatalf("expected reuse detection for old token, got %v", err)
 	}
 
 	// New token no longer works (session was revoked by reuse detection)
-	_, _, _, err = svc.RefreshSession(context.Background(), newRefreshToken)
+	_, err = svc.RefreshSession(context.Background(), newRefreshToken)
 	if err == nil {
 		t.Fatal("expected error after session revoked")
 	}
@@ -178,17 +182,21 @@ func TestRefreshSession_UpdatedSessionFields(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	origSession, origSessionToken, refreshToken, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), "user-1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	origSession := createResult.Session
+	origSessionToken := createResult.SessionToken
 
 	origTokenHash := origSession.TokenHash
 
-	newSession, newSessionToken, _, err := svc.RefreshSession(context.Background(), refreshToken)
+	refreshResult, err := svc.RefreshSession(context.Background(), createResult.RefreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
+	newSession := refreshResult.Session
+	newSessionToken := refreshResult.SessionToken
 
 	if newSession.ID != origSession.ID {
 		t.Fatal("session ID should stay the same")
@@ -221,16 +229,16 @@ func TestRefreshSession_DeletedSession(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	session, _, refreshToken, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), "user-1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := svc.RevokeByID(context.Background(), session.ID); err != nil {
+	if err := svc.RevokeByID(context.Background(), createResult.Session.ID); err != nil {
 		t.Fatal(err)
 	}
 
-	_, _, _, err = svc.RefreshSession(context.Background(), refreshToken)
+	_, err = svc.RefreshSession(context.Background(), createResult.RefreshToken)
 	if err == nil {
 		t.Fatal("expected error after session deleted")
 	}
@@ -242,10 +250,11 @@ func TestRefreshSession_ConcurrentRace(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	_, _, refreshToken, err := svc.Create(ctx, "user-1", "", "")
+	createResult, err := svc.Create(ctx, "user-1", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
+	refreshToken := createResult.RefreshToken
 
 	var (
 		wg   sync.WaitGroup
@@ -258,7 +267,7 @@ func TestRefreshSession_ConcurrentRace(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _, _, err := svc.RefreshSession(ctx, refreshToken)
+			_, err := svc.RefreshSession(ctx, refreshToken)
 			if err == nil {
 				atomic.AddInt32(&ok, 1)
 			} else {

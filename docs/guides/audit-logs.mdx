@@ -14,7 +14,7 @@ Audit logging is **off by default**. When it's on, every significant thing that 
 goauth.WithAudit(goauth.AuditConfig{
     Enabled:       true,                    // optional, default false
     FailureMode:   audit.AuditFailureOpen,   // optional, default fail-open — or audit.AuditFailureClosed
-    RetentionDays: 90,                       // optional, default 90 (0 = forever)
+    RetentionDays: 0,                       // optional, default 0 — keep forever (0 = forever)
     QueueSize:     1000,                     // optional, default 1000
     Workers:       3,                        // optional, default 3
     BatchSize:     50,                       // optional, default 50
@@ -28,7 +28,7 @@ goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 |---|---|---|---|
 | `Enabled` | `bool` | `false` | The two endpoints below return `404 audit_not_configured` while this is off. |
 | `FailureMode` | `audit.AuditFailureMode` | fail-open | Fail-open: if publishing an event errors, the request that triggered it still succeeds. Fail-closed: that request fails instead — use this only if you have a compliance requirement that an action must not happen without a corresponding log entry. |
-| `RetentionDays` | `int` | `90` | `0` means keep forever. |
+| `RetentionDays` | `int` | `0` | `0` means keep forever. |
 | `QueueSize` | `int` | `1000` | Events are published async onto this queue; if it's full, behavior follows `FailureMode`. |
 | `Workers` | `int` | `3` | Background goroutines draining the queue. |
 | `BatchSize` | `int` | `50` | Events per batch write to the store. |

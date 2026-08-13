@@ -263,26 +263,35 @@ func (s *TwoFactorService) checkBinding(challengeID, supplied string) bool {
 
 // ─── Verify ─────────────────────────────────────────────────
 
+// TwoFactorVerifyResult is Verify's outcome — the authenticated user, the
+// newly issued session, and the raw tokens that go with it.
+type TwoFactorVerifyResult struct {
+	User         *domain.User
+	Session      *domain.Session
+	SessionToken string
+	RefreshToken string
+}
+
 // Verify exchanges a challenge id and code for a session.
 //
 // The cap is enforced by the guarded writes, not by a pre-read: a read-then-
 // branch would let a concurrent burst all observe the same pre-increment count
 // and all pass the check before any write landed. One consequence is that a
 // correct code arriving on an already-capped lineage is rejected too.
-func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken, code, ip, userAgent string) (*domain.User, *domain.Session, string, string, error) {
+func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken, code, ip, userAgent string) (*TwoFactorVerifyResult, error) {
 	if !s.checkBinding(challengeID, bindingToken) {
-		return nil, nil, "", "", domain.ErrTwoFactorCodeInvalid
+		return nil, domain.ErrTwoFactorCodeInvalid
 	}
 
 	token, err := s.tokens.GetByID(ctx, challengeID)
 	if err != nil || token == nil || token.Type != domain.TokenTwoFactor || token.UserID == nil {
-		return nil, nil, "", "", domain.ErrTwoFactorCodeInvalid
+		return nil, domain.ErrTwoFactorCodeInvalid
 	}
 	if token.UsedAt != nil {
-		return nil, nil, "", "", domain.ErrTwoFactorCodeAlreadyUsed
+		return nil, domain.ErrTwoFactorCodeAlreadyUsed
 	}
 	if time.Now().UTC().After(token.ExpiresAt) {
-		return nil, nil, "", "", domain.ErrTwoFactorCodeExpired
+		return nil, domain.ErrTwoFactorCodeExpired
 	}
 
 	if subtle.ConstantTimeCompare([]byte(hashToken(code)), []byte(token.TokenHash)) != 1 {
@@ -293,7 +302,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 			s.log.Error("failed to record 2fa attempt", "err", err, "token_id", token.ID)
 		}
 		s.recordFailure(ctx, *token.UserID, token.Email, ip, userAgent)
-		return nil, nil, "", "", domain.ErrTwoFactorCodeInvalid
+		return nil, domain.ErrTwoFactorCodeInvalid
 	}
 
 	// Correct code, but claim the lineage under the same cap: a concurrent
@@ -301,21 +310,21 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 	ok, err := s.tokens.MarkUsedIfUnderCap(ctx, token.ID, maxAttemptsPerChallenge)
 	if err != nil {
 		s.log.Error("failed to consume 2fa token", "err", err, "token_id", token.ID)
-		return nil, nil, "", "", domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 	if !ok {
-		return nil, nil, "", "", domain.ErrTwoFactorCodeInvalid
+		return nil, domain.ErrTwoFactorCodeInvalid
 	}
 
 	user, err := s.users.GetByID(ctx, *token.UserID)
 	if err != nil || user == nil {
-		return nil, nil, "", "", domain.ErrUserNotFound
+		return nil, domain.ErrUserNotFound
 	}
 
-	session, rawToken, refreshToken, err := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
+	sessResult, err := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
-		return nil, nil, "", "", domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.NewError("internal_error", "Internal server error", 500)
 	}
 
 	if err := s.users.UpdateLastLoginAt(ctx, user.ID, time.Now().UTC()); err != nil {
@@ -323,10 +332,15 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewTwoFactorVerifiedEvent(user.ID, session.ID, net.ParseIP(ip), userAgent))
+		s.audit.Publish(ctx, audit.NewTwoFactorVerifiedEvent(user.ID, sessResult.Session.ID, net.ParseIP(ip), userAgent))
 	}
 
-	return user, session, rawToken, refreshToken, nil
+	return &TwoFactorVerifyResult{
+		User:         user,
+		Session:      sessResult.Session,
+		SessionToken: sessResult.SessionToken,
+		RefreshToken: sessResult.RefreshToken,
+	}, nil
 }
 
 // recordFailure publishes the per-attempt audit event and advances the

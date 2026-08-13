@@ -75,6 +75,18 @@ window.location.href = url;
 
 There's no separate curl/Go/Client section for the callback itself — it's a browser redirect the provider calls, not something your frontend calls directly. Read `error`/`provider` off `{BaseURL}/auth/callback`'s query string to show a message.
 
+### Logging in with an email that already has a password account
+
+This isn't a linking flow at all — it's what happens on a **plain sign-in**
+(`GET /auth/oauth/{provider}` with no existing session) when the email the
+provider returns already belongs to an email/password account. go-auth never
+auto-links the two on your behalf: the callback fails with
+`email_already_exists` (409) rather than silently attaching the OAuth
+identity to a possibly-different person's account. The user needs to log in
+with their password first, then use [Start a link](#linking-a-provider)
+above to connect the provider explicitly. There's no special UI for this
+built in — show the error and point the user at your login form.
+
 ## Unlinking a provider
 
 ### Unlink — `POST /auth/oauth/{provider}/unlink`
@@ -136,8 +148,8 @@ Auth required. Only ever returns the safe, display-oriented fields — access an
       "provider": "github",
       "email": "ada@example.com",
       "name": "Ada Lovelace",
-      "avatar_url": "https://avatars.githubusercontent.com/...",
-      "created_at": "2026-08-09T12:00:00Z"
+      "avatarUrl": "https://avatars.githubusercontent.com/...",
+      "createdAt": "2026-08-09T12:00:00Z"
     }
   ]
 }
