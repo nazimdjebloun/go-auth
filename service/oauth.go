@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"log/slog"
 	"net"
 	"time"
@@ -325,6 +326,9 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	}
 
 	if err := s.userRepo.Create(ctx, newUser); err != nil {
+		if errors.Is(err, port.ErrDuplicateKey) {
+			return nil, domain.ErrEmailAlreadyExists
+		}
 		s.log.Error("failed to create user", "err", err, "email", info.Email)
 		return nil, domain.ErrInternal
 	}
@@ -435,6 +439,9 @@ func (s *OAuthService) createProviderAccount(ctx context.Context, userID string,
 		UpdatedAt:      now,
 	}
 	if err := s.providerRepo.Create(ctx, pa); err != nil {
+		if errors.Is(err, port.ErrDuplicateKey) {
+			return nil, domain.ErrProviderAccountExists
+		}
 		s.log.Error("failed to store provider account", "err", err, "user_id", userID, "provider", info.Provider)
 		return nil, domain.ErrInternal
 	}

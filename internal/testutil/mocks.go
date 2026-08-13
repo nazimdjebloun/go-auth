@@ -27,10 +27,13 @@ func NewMockUserRepo() *MockUserRepo {
 func (m *MockUserRepo) Create(_ context.Context, user *domain.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	// Check for duplicate email
+	// Check for duplicate email — mirrors sqlstore's unique-constraint
+	// translation (port.ErrDuplicateKey), not a pre-built domain error, so a
+	// test against this mock exercises the same contract the real
+	// UserRepository.Create honors.
 	for _, u := range m.users {
 		if u.Email == user.Email && u.ID != user.ID {
-			return domain.NewError("email_already_exists", "A user with this email already exists")
+			return port.ErrDuplicateKey
 		}
 	}
 	m.users[user.ID] = user

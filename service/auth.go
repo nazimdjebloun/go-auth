@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net"
 	"net/mail"
@@ -168,6 +169,13 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
+		if errors.Is(err, port.ErrDuplicateKey) {
+			// The GetByEmail check above lost a race — another request
+			// created this email between the check and this Create. The
+			// unique constraint is the real backstop; this just makes the
+			// loser's response match what GetByEmail would have found.
+			return nil, domain.ErrEmailAlreadyExists
+		}
 		s.log.Error("failed to create user", "err", err, "email", input.Email)
 		return nil, domain.ErrInternal
 	}

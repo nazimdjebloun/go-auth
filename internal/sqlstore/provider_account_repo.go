@@ -29,7 +29,7 @@ func (r *ProviderAccountRepository) Create(ctx context.Context, pa *domain.Provi
 	_, err := r.db.ExecContext(ctx, providerAccountCreateQuery,
 		pa.ID, pa.UserID, pa.Provider, pa.ProviderUserID, pa.ProviderEmail, pa.ProviderName, pa.AvatarURL,
 		nullIfEmpty(pa.AccessToken), nullIfEmpty(pa.RefreshToken), expiresAt, pa.CreatedAt, pa.UpdatedAt)
-	return err
+	return wrapCreateErr(r.db.Driver(), err)
 }
 
 func (r *ProviderAccountRepository) GetByProvider(ctx context.Context, provider, providerUserID string) (*domain.ProviderAccount, error) {

@@ -128,7 +128,7 @@ Alongside this body, a binding cookie is set (`_2fa_challenge` by default) — s
 | `invalid_json` | 400 | Malformed request body |
 | `name_required` | 400 | `name` was empty after trimming |
 | `weak_password` | 400 | Fails `PasswordPolicy` — the message names exactly what's missing, e.g. `Password must be at least 8 characters with an uppercase letter` |
-| `email_already_exists` | 409 | An account with that email already exists |
+| `email_already_exists` | 409 | An account with that email already exists — including the loser of a race between two concurrent registrations for the same email |
 | `method_disabled` | 405 | `EnableEmailPassword` is `false` |
 | `forbidden` | 403 | `AllowPublic` is `false` — registration is invite-only |
 | `internal_error` | 500 | Hashing or database failure |

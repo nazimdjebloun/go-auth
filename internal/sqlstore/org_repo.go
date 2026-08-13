@@ -54,7 +54,7 @@ func (r *OrgRepository) Create(ctx context.Context, org *domain.Organization) er
 	_, err := r.db.ExecContext(ctx, orgCreateQuery,
 		org.ID, org.Name, org.Slug, org.CreatedBy, org.OwnerCount, org.MemberCount,
 		"{}", org.CreatedAt, org.UpdatedAt)
-	return err
+	return wrapCreateErr(r.db.Driver(), err)
 }
 
 func (r *OrgRepository) GetByID(ctx context.Context, id string) (*domain.Organization, error) {

@@ -57,7 +57,7 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 		user.ID, user.Email, user.PasswordHash, user.Name, user.Role,
 		user.IsVerified, user.VerifiedAt, user.IsBanned, user.TwoFactorEnabled,
 		user.OrgOwnerCount, user.CreatedAt, user.UpdatedAt)
-	return err
+	return wrapCreateErr(r.db.Driver(), err)
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {

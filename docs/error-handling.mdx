@@ -71,7 +71,7 @@ Everything else below — every service-layer and handler-layer error — uses t
 
 | Code | Status | Message | Hint |
 |---|---|---|---|
-| `email_already_exists` / `account_already_exists` | 409 | An account with this email already exists | Both codes mean the same thing; register uses the first. |
+| `email_already_exists` / `account_already_exists` | 409 | An account with this email already exists | Both codes mean the same thing; register uses the first. Also returned to the loser of a race between two concurrent registrations for the same email — the database's unique constraint is the real backstop, and the loser gets this code, not a 500. |
 | `invalid_credentials` | 401 | Invalid email or password | Deliberately the same message whether the email doesn't exist or the password is wrong — no account enumeration. |
 | `user_banned` | 403 | This account has been banned | Returned on login and on every authenticated request once a session resolves to a banned user. |
 | `email_not_verified` | 403 | Please verify your email first | Only when `RequireEmailVerification` is on. |

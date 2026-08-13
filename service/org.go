@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -123,6 +124,11 @@ func (s *OrgService) CreateOrg(ctx context.Context, input CreateOrgInput) (*doma
 		}
 
 		if err := s.orgs.Create(txCtx, org); err != nil {
+			if errors.Is(err, port.ErrDuplicateKey) {
+				// The GetBySlug check above lost a race — another request
+				// created this slug between the check and this Create.
+				return domain.ErrOrgSlugExists
+			}
 			return err
 		}
 

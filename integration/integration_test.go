@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1680,6 +1681,58 @@ func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
 	}
 	if attempts != 5 {
 		t.Errorf("expected exactly 5 recorded attempts after a %d-request concurrent burst, got %d", n, attempts)
+	}
+}
+
+// TestRegister_ConcurrentSameEmail_OneWinsOneGetsEmailAlreadyExists exercises
+// the race that motivated sqlstore's unique-constraint translation
+// (port.ErrDuplicateKey -> domain.ErrEmailAlreadyExists): two requests for
+// the same email both pass the GetByEmail existence check before either
+// Create lands. Before that translation existed, the loser of the race got
+// a generic 500 internal_error instead of the correct 409
+// email_already_exists — this asserts the fix against the real SQLite
+// repository, not a mock.
+func TestRegister_ConcurrentSameEmail_OneWinsOneGetsEmailAlreadyExists(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	mailer := &testMailer{}
+	a := openAuth(t, db, mailer)
+	defer a.Close()
+	ctx := context.Background()
+
+	var wg sync.WaitGroup
+	var succeeded, duplicates, other int32
+	n := 10
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := a.Register(ctx, goauth.RegisterInput{
+				Email:    "race@example.com",
+				Password: "V@lidPswd1",
+				Name:     "Race Condition",
+			})
+			switch {
+			case err == nil:
+				atomic.AddInt32(&succeeded, 1)
+			case errors.Is(err, domain.ErrEmailAlreadyExists):
+				atomic.AddInt32(&duplicates, 1)
+			default:
+				t.Errorf("unexpected error: %v", err)
+				atomic.AddInt32(&other, 1)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if succeeded != 1 {
+		t.Errorf("expected exactly 1 successful registration out of %d concurrent attempts, got %d", n, succeeded)
+	}
+	if duplicates != int32(n)-1 {
+		t.Errorf("expected %d losers to get email_already_exists, got %d (other=%d)", n-1, duplicates, other)
+	}
+	if other != 0 {
+		t.Errorf("expected zero unexpected errors, got %d", other)
 	}
 }
 

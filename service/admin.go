@@ -351,9 +351,8 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
-		var authErr *domain.AuthError
-		if errors.As(err, &authErr) && authErr.Code == "email_already_exists" {
-			return nil, authErr
+		if errors.Is(err, port.ErrDuplicateKey) {
+			return nil, domain.ErrEmailAlreadyExists
 		}
 		s.log.Error("failed to create user", "err", err, "email", input.Email)
 		return nil, domain.ErrInternal
