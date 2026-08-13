@@ -13,6 +13,13 @@ type PasswordPolicy struct {
 	RequireSpecial   bool
 }
 
+// bcryptMaxBytes is bcrypt's real input limit — golang.org/x/crypto/bcrypt
+// rejects any password whose byte length exceeds 72 with ErrPasswordTooLong,
+// regardless of what this policy allows. Validate enforces this limit itself
+// so a rejection surfaces as 400 weak_password before Hash ever runs, not as
+// a generic 500 from a hasher error every caller treats identically.
+const bcryptMaxBytes = 72
+
 // Validate returns error, not *AuthError, so a caller assigning the result to
 // a plain `var err error` (the natural thing to do, since PasswordPolicy is
 // exported and consumer-settable via WithSecurity) can't hit the typed-nil
@@ -26,8 +33,13 @@ func (p PasswordPolicy) Validate(password string) error {
 		return NewError("weak_password",
 			fmt.Sprintf("Password must be at least %d characters", p.MinLength))
 	}
-	if len(password) > 128 {
-		return NewError("weak_password", "Password must be no more than 128 characters")
+	// len(password) is already a byte count, not a rune count — Go strings
+	// are UTF-8 byte sequences — so this is the same measure bcrypt itself
+	// uses; a multi-byte passphrase (non-Latin scripts, emoji) hits the
+	// limit at fewer characters than an all-ASCII one, which is correct.
+	if len(password) > bcryptMaxBytes {
+		return NewError("weak_password",
+			fmt.Sprintf("Password must be no more than %d bytes", bcryptMaxBytes))
 	}
 
 	var hasLetter, hasUpper, hasDigit, hasSpecial bool

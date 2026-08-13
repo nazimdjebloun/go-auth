@@ -123,6 +123,8 @@ goauth.WithSecurity(goauth.SecurityConfig{
 
 `PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default — if you set `RequireUppercase: true` without repeating `MinLength` or `RequireDigit`, those two are no longer applied.
 
+`Validate` also rejects any password over **72 bytes**, regardless of `MinLength` — that's bcrypt's real input limit (measured in bytes, not characters, so a multi-byte passphrase hits it sooner than an all-ASCII one of the same length), and the check runs before hashing so a too-long password gets a clear `400 weak_password` instead of a generic `500`. Don't set `MinLength` above 72.
+
 The double-submit token layer is **on in every deployment**. `WithSecret` is
 mandatory at 32+ bytes, and `New` creates a `CSRFTokenConfig` with the defaults
 below whenever you leave the field `nil` — so passing the struct overrides those

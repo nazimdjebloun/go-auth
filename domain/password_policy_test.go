@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -19,15 +20,56 @@ func TestPasswordPolicy_DefaultMinLength(t *testing.T) {
 	}
 }
 
-func TestPasswordPolicy_MaxLength(t *testing.T) {
+func TestPasswordPolicy_MaxLength_BcryptBoundary(t *testing.T) {
 	p := PasswordPolicy{MinLength: 8}
-	b := make([]byte, 129)
-	for i := range b {
-		b[i] = 'a'
+
+	at := strings.Repeat("a", 72)
+	if err := p.Validate(at); err != nil {
+		t.Errorf("expected exactly 72 bytes to pass Validate, got %v", err)
 	}
-	err := p.Validate(string(b))
+
+	over := strings.Repeat("a", 73)
+	err := p.Validate(over)
 	if err == nil {
-		t.Fatal("expected error for password over 128 characters")
+		t.Fatal("expected error for a 73-byte password")
+	}
+	ae, ok := err.(*AuthError)
+	if !ok {
+		t.Fatalf("expected *AuthError, got %T", err)
+	}
+	if ae.Code != "weak_password" {
+		t.Errorf("expected weak_password, got %s", ae.Code)
+	}
+}
+
+// TestPasswordPolicy_MaxLength_MultiByte asserts the limit is measured in
+// bytes, not runes: a password well under 128 *characters* can still exceed
+// bcrypt's 72-*byte* limit if it contains multi-byte characters, and must be
+// rejected by Validate (400 weak_password) rather than reaching hasher.Hash
+// and failing with bcrypt.ErrPasswordTooLong (which every caller maps to a
+// generic 500).
+func TestPasswordPolicy_MaxLength_MultiByte(t *testing.T) {
+	p := PasswordPolicy{MinLength: 8}
+	// 25 "é" (2 bytes each in UTF-8) = 50 bytes, 25 runes — well under 128
+	// characters, but combined with the ASCII prefix below it crosses 72
+	// bytes while staying under 100 characters.
+	password := strings.Repeat("a", 47) + strings.Repeat("é", 25) // 47 + 50 = 97 bytes, 72 runes
+	if len([]rune(password)) >= 128 {
+		t.Fatalf("test setup bug: password has %d runes, want under 128", len([]rune(password)))
+	}
+	if len(password) <= bcryptMaxBytes {
+		t.Fatalf("test setup bug: password has %d bytes, want over %d", len(password), bcryptMaxBytes)
+	}
+	err := p.Validate(password)
+	if err == nil {
+		t.Fatal("expected error for a password over 72 bytes despite being under 128 runes")
+	}
+	ae, ok := err.(*AuthError)
+	if !ok {
+		t.Fatalf("expected *AuthError, got %T", err)
+	}
+	if ae.Code != "weak_password" {
+		t.Errorf("expected weak_password, got %s", ae.Code)
 	}
 }
 

@@ -12,6 +12,8 @@ go-auth is self-hosted: there's no vendor patching a shared multi-tenant system 
 
 Passwords are hashed with **bcrypt**, cost 12, via `golang.org/x/crypto/bcrypt` — never stored or logged in plaintext. The configurable `PasswordPolicy` (`MinLength`, `RequireUppercase`, `RequireDigit`, `RequireSpecial`) is enforced at registration and password-change time, defaulting to `MinLength: 8, RequireDigit: true`.
 
+`PasswordPolicy.Validate` also caps passwords at bcrypt's own hard limit — **72 bytes**, not characters, since bcrypt truncates/rejects on byte length and a multi-byte passphrase crosses that threshold at fewer characters than an all-ASCII one. The cap is enforced before hashing so a too-long password gets a clear `400 weak_password`, not a generic `500` from the hasher.
+
 Login is timing-safe against email enumeration: when the email doesn't exist, the service still runs a dummy bcrypt comparison against a fixed hash before returning `invalid_credentials` — so a non-existent email and a wrong password take roughly the same time and return the identical error, code, and status. Whether it's the email or the password that's wrong is never revealed.
 
 ## Sessions and tokens

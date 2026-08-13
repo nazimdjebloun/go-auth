@@ -52,7 +52,7 @@ The double-submit token layer is **on in every deployment** — `New` creates a 
 
 | Code | Status | Cause |
 |---|---|---|
-| `weak_password` | 400 | Too short, too long (over 128 chars), or missing a required character class — the message names exactly what's missing, e.g. `Password must be at least 12 characters with an uppercase letter` |
+| `weak_password` | 400 | Too short, too long (over 72 bytes — bcrypt's own limit, not a policy choice), or missing a required character class — the message names exactly what's missing, e.g. `Password must be at least 12 characters with an uppercase letter` |
 
 **Expected `WithSecurity` errors**
 
