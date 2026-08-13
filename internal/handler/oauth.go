@@ -54,7 +54,7 @@ func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
 	}
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeError(w, domain.NewError("unauthorized", "Authentication required", 401))
+		writeError(w, domain.NewError("unauthorized", "Authentication required"))
 		return
 	}
 
@@ -142,7 +142,7 @@ func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 	}
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeError(w, domain.NewError("unauthorized", "Authentication required", 401))
+		writeError(w, domain.NewError("unauthorized", "Authentication required"))
 		return
 	}
 
@@ -162,7 +162,7 @@ func (h *OAuthHandlers) ListConnected(w http.ResponseWriter, r *http.Request) {
 	}
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeError(w, domain.NewError("unauthorized", "Authentication required", 401))
+		writeError(w, domain.NewError("unauthorized", "Authentication required"))
 		return
 	}
 

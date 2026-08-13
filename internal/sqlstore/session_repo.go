@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
@@ -283,12 +282,10 @@ func (r *SessionRepository) UpdateRefreshToken(ctx context.Context, input port.U
 	// the new hash, so rotation writes the same hash back) or token-type
 	// confusion (NewRefreshHash == NewTokenHash).
 	if input.NewRefreshHash == input.OldRefreshHash {
-		return nil, domain.NewError("internal_error",
-			"Refresh token collision: new hash equals old hash", http.StatusInternalServerError)
+		return nil, domain.NewError("internal_error", "Refresh token collision: new hash equals old hash")
 	}
 	if input.NewRefreshHash == input.NewTokenHash {
-		return nil, domain.NewError("internal_error",
-			"Token hash collision: refresh hash equals access token hash", http.StatusInternalServerError)
+		return nil, domain.NewError("internal_error", "Token hash collision: refresh hash equals access token hash")
 	}
 
 	var maxLifetimeCut time.Time
@@ -366,8 +363,7 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 			"now", now,
 			"max_lifetime_cut", maxLifetimeCut,
 		)
-		return nil, domain.NewError("internal_error",
-			"Session rotation failed due to internal state conflict", http.StatusInternalServerError)
+		return nil, domain.NewError("internal_error", "Session rotation failed due to internal state conflict")
 	}
 
 	// Old hash not current — check previous hash

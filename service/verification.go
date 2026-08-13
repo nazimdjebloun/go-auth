@@ -48,23 +48,23 @@ func NewVerificationService(
 func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*domain.User, error) {
 	token, err := s.tokens.GetByHash(ctx, hashToken(code))
 	if err != nil || token == nil {
-		return nil, domain.NewError("code_invalid", "Invalid verification code", 400)
+		return nil, domain.NewError("code_invalid", "Invalid verification code")
 	}
 
 	if token.Type != domain.TokenVerifyEmail {
-		return nil, domain.NewError("code_invalid", "Invalid verification code", 400)
+		return nil, domain.NewError("code_invalid", "Invalid verification code")
 	}
 
 	if token.UsedAt != nil {
-		return nil, domain.NewError("code_already_used", "This code has already been used", 410)
+		return nil, domain.NewError("code_already_used", "This code has already been used")
 	}
 
 	if time.Now().UTC().After(token.ExpiresAt) {
-		return nil, domain.NewError("code_expired", "Verification code has expired", 410)
+		return nil, domain.NewError("code_expired", "Verification code has expired")
 	}
 
 	if token.UserID == nil {
-		return nil, domain.NewError("code_invalid", "Invalid verification code", 400)
+		return nil, domain.NewError("code_invalid", "Invalid verification code")
 	}
 
 	// Not attempt-capped, and it cannot be with this lookup: VerifyEmail
@@ -85,12 +85,12 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 
 	if err := s.users.Update(ctx, user); err != nil {
 		s.log.Error("failed to update user", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
 		s.log.Error("failed to mark token used", "err", err, "token_id", token.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	s.log.Info("email verified", "user_id", user.ID, "email", user.Email)
@@ -107,7 +107,7 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 // a nil error alone does not mean an email left the building.
 func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) (*VerificationResult, error) {
 	if s.mailer == nil {
-		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return nil, domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	// One read answers both skip questions, the way TwoFactorService.Challenge
@@ -134,7 +134,7 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	raw, err := otp.Generate(8)
 	if err != nil {
 		s.log.Error("failed to generate verification code", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
@@ -152,7 +152,7 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 
 	if err := s.tokens.Create(ctx, token); err != nil {
 		s.log.Error("failed to store verification token", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	ttl := s.config.VerificationCodeTTL
@@ -163,7 +163,7 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	})
 	if err != nil {
 		s.log.Error("failed to render verification email template", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
@@ -177,7 +177,7 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		if derr := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenVerifyEmail); derr != nil {
 			s.log.Error("failed to clear undelivered verification token", "err", derr, "user_id", user.ID)
 		}
-		return nil, domain.NewError("email_failed", "Failed to send verification email", 500)
+		return nil, domain.NewError("email_failed", "Failed to send verification email")
 	}
 
 	if s.audit != nil {
@@ -194,7 +194,7 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 	}
 
 	if user.IsVerified {
-		return nil, domain.NewError("already_verified", "Email is already verified", 400)
+		return nil, domain.NewError("already_verified", "Email is already verified")
 	}
 
 	return s.SendVerification(ctx, user)
@@ -207,11 +207,11 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) (*VerificationResult, error) {
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil || user == nil {
-		return nil, domain.NewError("email_not_found", "If an account exists, a verification email has been sent", 200)
+		return nil, domain.NewError("email_not_found", "If an account exists, a verification email has been sent")
 	}
 
 	if user.IsVerified {
-		return nil, domain.NewError("email_not_found", "If an account exists, a verification email has been sent", 200)
+		return nil, domain.NewError("email_not_found", "If an account exists, a verification email has been sent")
 	}
 
 	return s.SendVerification(ctx, user)

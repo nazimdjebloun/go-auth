@@ -163,8 +163,8 @@ result, err := auth.Services.Auth.Register(ctx, service.RegisterInput{
 })
 if err != nil {
     // err is always a *domain.AuthError under the hood — extract it with
-    // errors.As(err, &authErr) for authErr.Code/.Message/.HTTPStatus, or
-    // match a specific one with errors.Is(err, domain.ErrEmailAlreadyExists)
+    // errors.As(err, &authErr) for authErr.Code/.Message, or match a
+    // specific one with errors.Is(err, domain.ErrEmailAlreadyExists)
     // — see Error Handling → Handling errors programmatically.
 }
 

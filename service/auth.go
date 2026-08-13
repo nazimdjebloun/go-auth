@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net"
-	"net/http"
 	"net/mail"
 	"strings"
 	"time"
@@ -139,7 +138,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		return nil, err
 	}
 	if strings.TrimSpace(input.Name) == "" {
-		return nil, domain.NewError("name_required", "Name is required", 400)
+		return nil, domain.NewError("name_required", "Name is required")
 	}
 	input.Name = strings.TrimSpace(input.Name)
 
@@ -151,7 +150,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	hash, err := s.hasher.Hash(input.Password)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
@@ -170,7 +169,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 
 	if err := s.users.Create(ctx, user); err != nil {
 		s.log.Error("failed to create user", "err", err, "email", input.Email)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	s.log.Info("user registered", "user_id", user.ID, "email", user.Email)
@@ -212,7 +211,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	return &RegisterResult{
@@ -285,7 +284,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	if err := s.users.UpdateLastLoginAt(ctx, user.ID, time.Now().UTC()); err != nil {
@@ -358,7 +357,7 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	if err := s.users.UpdateLastLoginAt(ctx, user.ID, time.Now().UTC()); err != nil {
@@ -399,7 +398,7 @@ func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*do
 func (s *AuthService) Logout(ctx context.Context, sessionID string) error {
 	if err := s.sessionSvc.RevokeByID(ctx, sessionID); err != nil {
 		s.log.Error("failed to revoke session", "err", err, "session_id", sessionID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 	if s.audit != nil {
 		s.audit.Publish(ctx, audit.NewLogoutEvent("", sessionID, nil, ""))
@@ -413,13 +412,13 @@ func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) er
 		return domain.ErrUserNotFound
 	}
 	if newName == "" {
-		return domain.NewError("validation_error", "Name cannot be empty", 400)
+		return domain.NewError("validation_error", "Name cannot be empty")
 	}
 	user.Name = newName
 	user.UpdatedAt = time.Now().UTC()
 	if err := s.users.Update(ctx, user); err != nil {
 		s.log.Error("failed to update name", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 	s.log.Info("name changed", "user_id", userID)
 	return nil
@@ -435,17 +434,17 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 		return domain.ErrPasswordRequired
 	}
 	if err := s.hasher.Compare(password, *user.PasswordHash); err != nil {
-		return domain.NewError("wrong_password", "Password is incorrect", http.StatusBadRequest)
+		return domain.NewError("wrong_password", "Password is incorrect")
 	}
 
 	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
 		s.log.Error("failed to revoke sessions", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if err := s.users.Delete(ctx, userID); err != nil {
 		s.log.Error("failed to delete user", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("account deleted", "user_id", userID)
@@ -459,11 +458,11 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 	}
 
 	if user.HasPassword() {
-		return domain.NewError("password_account", "Use DELETE /auth/account with password to delete your account", http.StatusBadRequest)
+		return domain.NewError("password_account", "Use DELETE /auth/account with password to delete your account")
 	}
 
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	hasValid, err := s.tokens.HasValidByUserAndType(ctx, userID, domain.TokenDeleteAccount)
@@ -474,7 +473,7 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 	raw, err := otp.Generate(8)
 	if err != nil {
 		s.log.Error("failed to generate deletion code", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
@@ -489,7 +488,7 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 
 	if err := s.tokens.Create(ctx, token); err != nil {
 		s.log.Error("failed to store deletion token", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	result, err := s.templates.Render(port.DeleteAccountData{
@@ -499,12 +498,12 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 	})
 	if err != nil {
 		s.log.Error("failed to render deletion email template", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send deletion email", "err", err, "user_id", userID)
-		return domain.NewError("email_failed", "Failed to send deletion email", 500)
+		return domain.NewError("email_failed", "Failed to send deletion email")
 	}
 
 	return nil
@@ -539,17 +538,17 @@ func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDel
 
 	if err := s.sessions.DeleteAllForUser(ctx, input.UserID); err != nil {
 		s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if err := s.users.Delete(ctx, input.UserID); err != nil {
 		s.log.Error("failed to delete user", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
 		s.log.Error("failed to mark token used", "err", err, "token_id", token.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("account deleted via code", "user_id", input.UserID)

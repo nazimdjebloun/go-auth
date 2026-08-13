@@ -90,7 +90,7 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 	users, total, err := s.users.List(ctx, filter)
 	if err != nil {
 		s.log.Error("failed to list users", "err", err)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	if users == nil {
@@ -120,7 +120,7 @@ func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 	}
 
 	if user.IsBanned {
-		return domain.NewError("already_banned", "User is already banned", 400)
+		return domain.NewError("already_banned", "User is already banned")
 	}
 
 	// Prevent banning the last admin.
@@ -129,23 +129,23 @@ func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
 		if err != nil {
 			s.log.Error("failed to check admin count", "err", err)
-			return domain.NewError("internal_error", "Internal server error", 500)
+			return domain.ErrInternal
 		}
 		if total <= 1 {
 			s.log.Warn("last admin ban blocked", "user_id", input.UserID)
-			return domain.NewError("last_admin", "Cannot ban the last admin", 400)
+			return domain.NewError("last_admin", "Cannot ban the last admin")
 		}
 	}
 
 	now := time.Now().UTC()
 	if err := s.users.SetBanStatus(ctx, input.UserID, true, &now, now); err != nil {
 		s.log.Error("failed to ban user", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
 		s.log.Error("failed to revoke sessions after ban", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("user banned", "user_id", input.UserID)
@@ -172,13 +172,13 @@ func (s *AdminService) UnbanUser(ctx context.Context, input UnbanUserInput) erro
 	}
 
 	if !user.IsBanned {
-		return domain.NewError("not_banned", "User is not banned", 400)
+		return domain.NewError("not_banned", "User is not banned")
 	}
 
 	now := time.Now().UTC()
 	if err := s.users.SetBanStatus(ctx, input.UserID, false, nil, now); err != nil {
 		s.log.Error("failed to unban user", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("user unbanned", "user_id", input.UserID)
@@ -201,7 +201,7 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 		return err
 	}
 	if input.Role != "user" && input.Role != "admin" {
-		return domain.NewError("invalid_role", "Role must be 'user' or 'admin'", 400)
+		return domain.NewError("invalid_role", "Role must be 'user' or 'admin'")
 	}
 
 	user, err := s.users.GetByID(ctx, input.UserID)
@@ -215,11 +215,11 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
 		if err != nil {
 			s.log.Error("failed to check admin count", "err", err)
-			return domain.NewError("internal_error", "Internal server error", 500)
+			return domain.ErrInternal
 		}
 		if total <= 1 {
 			s.log.Warn("last admin demotion blocked", "user_id", input.UserID)
-			return domain.NewError("last_admin", "Cannot demote the last admin", 400)
+			return domain.NewError("last_admin", "Cannot demote the last admin")
 		}
 	}
 
@@ -228,7 +228,7 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 
 	if err := s.users.Update(ctx, user); err != nil {
 		s.log.Error("failed to update role", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("user role updated", "user_id", input.UserID, "new_role", input.Role)
@@ -260,22 +260,22 @@ func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) er
 		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
 		if err != nil {
 			s.log.Error("failed to check admin count", "err", err)
-			return domain.NewError("internal_error", "Internal server error", 500)
+			return domain.ErrInternal
 		}
 		if total <= 1 {
 			s.log.Warn("last admin deletion blocked", "user_id", input.UserID)
-			return domain.NewError("last_admin", "Cannot delete the last admin", 400)
+			return domain.NewError("last_admin", "Cannot delete the last admin")
 		}
 	}
 
 	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
 		s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if err := s.users.Delete(ctx, input.UserID); err != nil {
 		s.log.Error("failed to delete user", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("user deleted by admin", "user_id", input.UserID)
@@ -303,7 +303,7 @@ func (s *AdminService) RevokeUserSessions(ctx context.Context, input RevokeUserS
 
 	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
 		s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("user sessions revoked by admin", "user_id", input.UserID)
@@ -322,7 +322,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 		return nil, err
 	}
 	if strings.TrimSpace(input.Name) == "" {
-		return nil, domain.NewError("name_required", "Name is required", 400)
+		return nil, domain.NewError("name_required", "Name is required")
 	}
 	input.Name = strings.TrimSpace(input.Name)
 
@@ -334,7 +334,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	hash, err := s.hasher.Hash(input.Password)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
@@ -356,7 +356,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 			return nil, authErr
 		}
 		s.log.Error("failed to create user", "err", err, "email", input.Email)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	s.log.Info("user created by admin", "user_id", user.ID, "email", user.Email, "role", role)
@@ -380,7 +380,7 @@ func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUser
 	sessions, total, err := s.sessions.ListByUserID(ctx, input.UserID, input.Offset, input.Limit)
 	if err != nil {
 		s.log.Error("failed to list user sessions", "err", err, "user_id", input.UserID)
-		return nil, 0, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, 0, domain.ErrInternal
 	}
 
 	return sessions, total, nil
@@ -404,10 +404,10 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, input RevokeUserSe
 	revoked, err := s.sessions.RevokeByIDForUser(ctx, input.SessionID, input.UserID)
 	if err != nil {
 		s.log.Error("failed to revoke session", "err", err, "user_id", input.UserID, "session_id", input.SessionID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 	if !revoked {
-		return domain.NewError("session_not_found", "Session not found", 404)
+		return domain.NewError("session_not_found", "Session not found")
 	}
 
 	s.log.Info("user session revoked by admin", "user_id", input.UserID, "session_id", input.SessionID)
@@ -437,13 +437,13 @@ func (s *AdminService) GetUserDetail(ctx context.Context, input GetUserDetailInp
 	_, activeSessionCount, err := s.sessions.ListByUserID(ctx, input.UserID, 0, 1)
 	if err != nil {
 		s.log.Error("failed to count sessions", "err", err, "user_id", input.UserID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	providers, err := s.providers.ListByUserID(ctx, input.UserID)
 	if err != nil {
 		s.log.Error("failed to list providers", "err", err, "user_id", input.UserID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	return &AdminUserDetail{

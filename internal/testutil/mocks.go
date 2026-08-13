@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -31,7 +30,7 @@ func (m *MockUserRepo) Create(_ context.Context, user *domain.User) error {
 	// Check for duplicate email
 	for _, u := range m.users {
 		if u.Email == user.Email && u.ID != user.ID {
-			return domain.NewError("email_already_exists", "A user with this email already exists", http.StatusConflict)
+			return domain.NewError("email_already_exists", "A user with this email already exists")
 		}
 	}
 	m.users[user.ID] = user
@@ -364,12 +363,10 @@ func (m *MockSessionRepo) UpdateRefreshToken(_ context.Context, input port.Updat
 
 	// Collision guard
 	if input.NewRefreshHash == input.OldRefreshHash {
-		return nil, domain.NewError("internal_error",
-			"Refresh token collision: new hash equals old hash", 500)
+		return nil, domain.NewError("internal_error", "Refresh token collision: new hash equals old hash")
 	}
 	if input.NewRefreshHash == input.NewTokenHash {
-		return nil, domain.NewError("internal_error",
-			"Token hash collision: refresh hash equals access token hash", 500)
+		return nil, domain.NewError("internal_error", "Token hash collision: refresh hash equals access token hash")
 	}
 
 	now := input.RotatedAt

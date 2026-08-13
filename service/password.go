@@ -66,13 +66,13 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	}
 
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate token", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
@@ -81,7 +81,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	// most recent request is valid.
 	if err := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenResetPass); err != nil {
 		s.log.Error("failed to invalidate previous tokens", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	token := &domain.VerificationToken{
@@ -95,7 +95,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 
 	if err := s.tokens.Create(ctx, token); err != nil {
 		s.log.Error("failed to store reset token", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if s.mailer == nil {
@@ -110,12 +110,12 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	})
 	if err != nil {
 		s.log.Error("failed to render reset email template", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send reset email", "err", err, "user_id", user.ID)
-		return domain.NewError("email_failed", "Failed to send reset email", 500)
+		return domain.NewError("email_failed", "Failed to send reset email")
 	}
 
 	s.log.Info("password reset requested", "user_id", user.ID)
@@ -161,7 +161,7 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 	hash, err := s.hasher.Hash(input.NewPassword)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	user.PasswordHash = &hash
@@ -169,19 +169,19 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 
 	if err := s.users.Update(ctx, user); err != nil {
 		s.log.Error("failed to update password", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
 		s.log.Error("failed to mark token used", "err", err, "token_id", token.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	// Invalidate every session after a password reset so a stolen session
 	// cookie cannot outlive credential recovery.
 	if err := s.sessions.DeleteAllForUser(ctx, user.ID); err != nil {
 		s.log.Error("failed to revoke sessions after password reset", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("password reset completed", "user_id", user.ID)
@@ -200,24 +200,24 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 	}
 
 	if user.HasPassword() {
-		return domain.NewError("already_set", "User already has a password", 400)
+		return domain.NewError("already_set", "User already has a password")
 	}
 
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	raw, err := otp.Generate(8)
 	if err != nil {
 		s.log.Error("failed to generate OTP", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
 
 	if err := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenSetPass); err != nil {
 		s.log.Error("failed to invalidate previous tokens", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	token := &domain.VerificationToken{
@@ -231,7 +231,7 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 
 	if err := s.tokens.Create(ctx, token); err != nil {
 		s.log.Error("failed to store set-password token", "err", err, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	result, tplErr := s.templates.Render(port.SetPasswordData{
@@ -241,11 +241,11 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 	})
 	if tplErr != nil {
 		s.log.Error("failed to render set-password email template", "err", tplErr, "user_id", userID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send set-password email", "err", err, "user_id", userID)
-		return domain.NewError("email_failed", "Failed to send email", 500)
+		return domain.NewError("email_failed", "Failed to send email")
 	}
 
 	return nil
@@ -258,7 +258,7 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 	}
 
 	if user.HasPassword() {
-		return domain.NewError("already_set", "User already has a password", 400)
+		return domain.NewError("already_set", "User already has a password")
 	}
 
 	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
@@ -267,15 +267,15 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 
 	token, err := s.tokens.GetByHash(ctx, hashToken(input.Code))
 	if err != nil || token == nil {
-		return domain.NewError("invalid_code", "Invalid set password code", 400)
+		return domain.NewError("invalid_code", "Invalid set password code")
 	}
 
 	if token.Type != domain.TokenSetPass {
-		return domain.NewError("invalid_code", "Invalid set password code", 400)
+		return domain.NewError("invalid_code", "Invalid set password code")
 	}
 
 	if token.UsedAt != nil {
-		return domain.NewError("code_used", "Set password code has already been used", 400)
+		return domain.NewError("code_used", "Set password code has already been used")
 	}
 
 	if time.Now().UTC().After(token.ExpiresAt) {
@@ -283,18 +283,18 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 	}
 
 	if token.UserID == nil || *token.UserID != input.UserID {
-		return domain.NewError("invalid_code", "Invalid set password code", 400)
+		return domain.NewError("invalid_code", "Invalid set password code")
 	}
 
 	hash, err := s.hasher.Hash(input.NewPassword)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if err := s.users.SetPasswordAndVerify(ctx, input.UserID, hash, token.ID); err != nil {
 		s.log.Error("failed to set password", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("password set via code", "user_id", input.UserID)
@@ -308,10 +308,10 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 	}
 
 	if !user.HasPassword() {
-		return domain.NewError("no_password", "No password set. Use set-password instead.", 400)
+		return domain.NewError("no_password", "No password set. Use set-password instead.")
 	}
 	if err := s.hasher.Compare(input.OldPassword, *user.PasswordHash); err != nil {
-		return domain.NewError("wrong_password", "Current password is incorrect", 400)
+		return domain.NewError("wrong_password", "Current password is incorrect")
 	}
 
 	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
@@ -321,7 +321,7 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 	hash, err := s.hasher.Hash(input.NewPassword)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	user.PasswordHash = &hash
@@ -329,18 +329,18 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 
 	if err := s.users.Update(ctx, user); err != nil {
 		s.log.Error("failed to update password", "err", err, "user_id", input.UserID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if input.ExceptSessionID != "" {
 		if err := s.sessions.DeleteAllForUserExcept(ctx, input.UserID, input.ExceptSessionID); err != nil {
 			s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
-			return domain.NewError("internal_error", "Internal server error", 500)
+			return domain.ErrInternal
 		}
 	} else {
 		if err := s.sessions.DeleteAllForUser(ctx, input.UserID); err != nil {
 			s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
-			return domain.NewError("internal_error", "Internal server error", 500)
+			return domain.ErrInternal
 		}
 	}
 

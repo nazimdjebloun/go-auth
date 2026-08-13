@@ -2,8 +2,9 @@
 // Invite, ProviderAccount, and their supporting enums — plus AuthError, the
 // single error type every public method returns.
 //
-// AuthError carries a stable Code (safe to match on — see AuthError.Is),
-// a user-facing Message, and the HTTPStatus the HTTP layer maps it to. The
+// AuthError carries a stable Code (safe to match on — see AuthError.Is) and
+// a user-facing Message; it has no notion of HTTP status — that mapping
+// lives in internal/httperr, the one place that needs it. The
 // sentinel Err* variables in errors.go are pre-built AuthErrors for common
 // conditions (ErrUserNotFound, ErrSessionExpired, ...); compare against them
 // with errors.Is, not equality, since a wrapped or independently-constructed

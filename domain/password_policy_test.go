@@ -1,7 +1,6 @@
 package domain
 
 import (
-	"net/http"
 	"testing"
 )
 
@@ -14,9 +13,6 @@ func TestPasswordPolicy_DefaultMinLength(t *testing.T) {
 	ae, ok := err.(*AuthError)
 	if !ok {
 		t.Fatalf("expected *AuthError, got %T", err)
-	}
-	if ae.HTTPStatus != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", ae.HTTPStatus)
 	}
 	if ae.Code != "weak_password" {
 		t.Errorf("expected weak_password, got %s", ae.Code)

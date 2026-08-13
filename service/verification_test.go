@@ -126,7 +126,7 @@ func TestSendVerification_MailerError(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{
 		SendFn: func(_ context.Context, _, _, _, _ string) error {
-			return domain.NewError("email_failed", "smtp error", 500)
+			return domain.NewError("email_failed", "smtp error")
 		},
 	}
 	cfg := newVerificationConfig()
@@ -270,7 +270,7 @@ func TestSendVerification_FailedSendLeavesNoOutstandingCode(t *testing.T) {
 	mailer := &testutil.MockMailer{
 		SendFn: func(_ context.Context, _, _, _, _ string) error {
 			if failing {
-				return domain.NewError("email_failed", "smtp auth rejected", 500)
+				return domain.NewError("email_failed", "smtp auth rejected")
 			}
 			return nil
 		},

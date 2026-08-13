@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/httperr"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
@@ -426,7 +427,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	sessResult, sessionErr := h.services.Session.Create(r.Context(), user.ID, extractIP(r.RemoteAddr), r.UserAgent())
 	if sessionErr != nil {
 		h.log.Error("failed to create session after verification", "err", sessionErr, "user_id", user.ID)
-		writeError(w, domain.NewError("internal_error", "Internal server error", 500))
+		writeError(w, domain.ErrInternal)
 		return
 	}
 
@@ -443,7 +444,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeError(w, domain.NewError("forbidden", "Not authenticated", 403))
+		writeError(w, domain.NewError("forbidden", "Not authenticated"))
 		return
 	}
 
@@ -491,7 +492,7 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	cfg := h.services.Session.Config()
 	cookie, err := r.Cookie(cfg.RefreshCookieName)
 	if err != nil || cookie.Value == "" {
-		writeError(w, domain.NewError("invalid_refresh", "No refresh token provided", 401))
+		writeError(w, domain.NewError("invalid_refresh", "No refresh token provided"))
 		return
 	}
 
@@ -589,7 +590,7 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !revoked {
-		writeError(w, domain.NewError("session_not_found", "Session not found", http.StatusNotFound))
+		writeError(w, domain.NewError("session_not_found", "Session not found"))
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
@@ -609,11 +610,11 @@ func (h *Handler) RevokeManySessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body.SessionIDs) == 0 {
-		writeError(w, domain.NewError("invalid_input", "sessionIds must not be empty", http.StatusBadRequest))
+		writeError(w, domain.NewError("invalid_input", "sessionIds must not be empty"))
 		return
 	}
 	if len(body.SessionIDs) > 100 {
-		writeError(w, domain.NewError("invalid_input", "cannot revoke more than 100 sessions at once", http.StatusBadRequest))
+		writeError(w, domain.NewError("invalid_input", "cannot revoke more than 100 sessions at once"))
 		return
 	}
 
@@ -655,7 +656,7 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetInviteInfo(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
-		writeError(w, domain.NewError("missing_token", "Token is required", 400))
+		writeError(w, domain.NewError("missing_token", "Token is required"))
 		return
 	}
 
@@ -1299,19 +1300,16 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 // writeError writes err as the HTTP response. When err is (or wraps) a
-// *domain.AuthError, its Code/Message/HTTPStatus drive the response —
-// every service method's error return is expected to be one. Anything
-// else reaching here is a bug in the service layer's error contract, not
-// a normal failure mode: it's logged and answered as a generic 500 rather
-// than leaking an unexpected error's text to the client.
+// *domain.AuthError, its Code/Message drive the response, and
+// httperr.StatusFor(authErr.Code) picks the status — every service method's
+// error return is expected to be one. Anything else reaching here is a bug
+// in the service layer's error contract, not a normal failure mode: it's
+// logged and answered as a generic 500 rather than leaking an unexpected
+// error's text to the client.
 func writeError(w http.ResponseWriter, err error) {
 	var authErr *domain.AuthError
 	if errors.As(err, &authErr) {
-		status := authErr.HTTPStatus
-		if status == 0 {
-			status = http.StatusInternalServerError
-		}
-		writeJSON(w, status, map[string]string{
+		writeJSON(w, httperr.StatusFor(authErr.Code), map[string]string{
 			"error":   authErr.Code,
 			"message": authErr.Message,
 		})

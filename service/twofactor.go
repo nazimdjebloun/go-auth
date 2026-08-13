@@ -144,7 +144,7 @@ func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*Chall
 
 	if err := s.tokens.DeleteUnusedByUserAndType(ctx, userID, domain.TokenTwoFactor); err != nil {
 		s.log.Error("failed to clear stale 2fa tokens", "err", err, "user_id", userID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	return s.issue(ctx, user)
@@ -153,13 +153,13 @@ func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*Chall
 // issue mints a fresh challenge row and mails the code.
 func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*ChallengeResult, error) {
 	if s.mailer == nil {
-		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return nil, domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	raw, err := otp.GenerateNumeric(twoFactorCodeLength)
 	if err != nil {
 		s.log.Error("failed to generate 2fa code", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
@@ -174,7 +174,7 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 	}
 	if err := s.tokens.Create(ctx, token); err != nil {
 		s.log.Error("failed to store 2fa token", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	if aerr := s.send(ctx, user, raw); aerr != nil {
@@ -210,7 +210,7 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 
 func (s *TwoFactorService) send(ctx context.Context, user *domain.User, code string) error {
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 	result, err := s.templates.Render(port.TwoFactorData{
 		AppName:   s.config.AppName,
@@ -219,11 +219,11 @@ func (s *TwoFactorService) send(ctx context.Context, user *domain.User, code str
 	})
 	if err != nil {
 		s.log.Error("failed to render 2fa email template", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send 2fa email", "err", err, "user_id", user.ID)
-		return domain.NewError("email_failed", "Failed to send two-factor code", 500)
+		return domain.NewError("email_failed", "Failed to send two-factor code")
 	}
 	return nil
 }
@@ -310,7 +310,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 	ok, err := s.tokens.MarkUsedIfUnderCap(ctx, token.ID, maxAttemptsPerChallenge)
 	if err != nil {
 		s.log.Error("failed to consume 2fa token", "err", err, "token_id", token.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 	if !ok {
 		return nil, domain.ErrTwoFactorCodeInvalid
@@ -324,7 +324,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 	sessResult, err := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	if err := s.users.UpdateLastLoginAt(ctx, user.ID, time.Now().UTC()); err != nil {
@@ -405,7 +405,7 @@ func (s *TwoFactorService) notifySuspicious(ctx context.Context, email string, c
 // The separate resend ceiling bounds how many times one lineage's code can be
 // refreshed, which also stops this being an email-bombing amplifier.
 func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken string) (*ChallengeResult, error) {
-	vague := domain.NewError("challenge_not_found", "If the challenge is valid, a new code has been sent", 200)
+	vague := domain.NewError("challenge_not_found", "If the challenge is valid, a new code has been sent")
 
 	if !s.checkBinding(challengeID, bindingToken) {
 		return nil, vague
@@ -421,13 +421,13 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 		return nil, vague
 	}
 	if s.mailer == nil {
-		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return nil, domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	raw, err := otp.GenerateNumeric(twoFactorCodeLength)
 	if err != nil {
 		s.log.Error("failed to generate 2fa code", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	expiresAt := time.Now().UTC().Add(s.config.TwoFactorCodeTTL)
@@ -435,7 +435,7 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 		maxCodeRefreshesPerChallenge, maxAttemptsPerChallenge)
 	if err != nil {
 		s.log.Error("failed to refresh 2fa token", "err", err, "token_id", token.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 	if !ok {
 		// Used, capped, or out of refreshes. Starting over works — Challenge
@@ -483,7 +483,7 @@ func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, 
 
 	if err := s.users.SetTwoFactorEnabled(ctx, user.ID, true, time.Now().UTC()); err != nil {
 		s.log.Error("failed to enable 2fa", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	// Borrow ChangePassword's call, not its control flow: there, an empty
@@ -493,7 +493,7 @@ func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, 
 	if !keepOtherSessions && callerSessionID != "" {
 		if err := s.sessions.DeleteAllForUserExcept(ctx, user.ID, callerSessionID); err != nil {
 			s.log.Error("failed to revoke sessions", "err", err, "user_id", user.ID)
-			return domain.NewError("internal_error", "Internal server error", 500)
+			return domain.ErrInternal
 		}
 	}
 
@@ -516,7 +516,7 @@ func (s *TwoFactorService) Disable(ctx context.Context, userID, password string)
 
 	if err := s.users.SetTwoFactorEnabled(ctx, user.ID, false, time.Now().UTC()); err != nil {
 		s.log.Error("failed to disable 2fa", "err", err, "user_id", user.ID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	if s.audit != nil {

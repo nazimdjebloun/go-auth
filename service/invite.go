@@ -91,13 +91,13 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	}
 
 	if s.mailer == nil {
-		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return nil, domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate invite code", "err", err, "email", input.Email)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
@@ -114,7 +114,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 
 	if err := s.invites.Create(ctx, invite); err != nil {
 		s.log.Error("failed to create invite", "err", err, "email", input.Email)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	inviteURL := s.config.BaseURL + "/invite?token=" + raw
@@ -125,11 +125,11 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	})
 	if tplErr != nil {
 		s.log.Error("failed to render invite email template", "err", tplErr, "email", input.Email)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 	if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send invite email", "err", err, "email", input.Email)
-		return nil, domain.NewError("email_failed", "Failed to send invite email", 500)
+		return nil, domain.NewError("email_failed", "Failed to send invite email")
 	}
 
 	invite.RawCode = ""
@@ -156,12 +156,12 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}
 
 	if strings.TrimSpace(input.Name) == "" {
-		return nil, domain.NewError("name_required", "Name is required", 400)
+		return nil, domain.NewError("name_required", "Name is required")
 	}
 	input.Name = strings.TrimSpace(input.Name)
 
 	if input.Password != input.ConfirmPassword {
-		return nil, domain.NewError("password_mismatch", "Passwords do not match", 400)
+		return nil, domain.NewError("password_mismatch", "Passwords do not match")
 	}
 
 	if err := s.config.PasswordPolicy.Validate(input.Password); err != nil {
@@ -171,7 +171,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	hash, err := s.hasher.Hash(input.Password)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "invite_id", invite.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
@@ -192,7 +192,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 
 	if err := s.users.Create(ctx, user); err != nil {
 		s.log.Error("failed to create user from invite", "err", err, "email", invite.Email)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	invite.Status = domain.InviteAccepted
@@ -226,7 +226,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	s.log.Info("invite registered", "user_id", user.ID, "email", user.Email, "invite_id", invite.ID)
@@ -261,7 +261,7 @@ func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput)
 	})
 	if err != nil {
 		s.log.Error("failed to list invites", "err", err)
-		return nil, 0, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, 0, domain.ErrInternal
 	}
 	return invites, total, nil
 }
@@ -269,7 +269,7 @@ func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput)
 func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID string) error {
 	if err := s.invites.Delete(ctx, inviteID); err != nil {
 		s.log.Error("failed to delete invite", "err", err, "invite_id", inviteID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 	s.log.Info("invite deleted", "invite_id", inviteID)
 	return nil
@@ -284,7 +284,7 @@ func (s *InviteService) RevokeInvite(ctx context.Context, inviteID string) error
 	invite.Status = domain.InviteRevoked
 	if err := s.invites.Update(ctx, invite); err != nil {
 		s.log.Error("failed to revoke invite", "err", err, "invite_id", inviteID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 	s.log.Info("invite revoked", "invite_id", inviteID)
 	return nil
@@ -297,13 +297,13 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 	}
 
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate invite code", "err", err, "invite_id", inviteID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	invite.Code = hashToken(raw)
@@ -311,7 +311,7 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 
 	if err := s.invites.Update(ctx, invite); err != nil {
 		s.log.Error("failed to update invite", "err", err, "invite_id", inviteID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	url := s.config.BaseURL + "/invite?token=" + raw
@@ -322,11 +322,11 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID string) 
 	})
 	if tplErr != nil {
 		s.log.Error("failed to render invite email template", "err", tplErr, "invite_id", inviteID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 	if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send invite email", "err", err, "invite_id", inviteID)
-		return domain.NewError("email_failed", "Failed to send invite email", 500)
+		return domain.NewError("email_failed", "Failed to send invite email")
 	}
 
 	s.log.Info("invite resent", "invite_id", inviteID, "email", invite.Email)

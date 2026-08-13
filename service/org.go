@@ -87,10 +87,10 @@ func (s *OrgService) CreateOrg(ctx context.Context, input CreateOrgInput) (*doma
 		return nil, domain.ErrOrgSlugReserved
 	}
 	if len([]byte(input.Slug)) > 255 {
-		return nil, domain.NewError("invalid_slug", "Slug must be 255 characters or less", 400)
+		return nil, domain.NewError("invalid_slug", "Slug must be 255 characters or less")
 	}
 	if input.Name == "" {
-		return nil, domain.NewError("invalid_name", "Organization name is required", 400)
+		return nil, domain.NewError("invalid_name", "Organization name is required")
 	}
 
 	var org *domain.Organization
@@ -314,7 +314,7 @@ type AddMemberInput struct {
 // requirement as the other org-mutating methods.
 func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error {
 	if !input.Role.IsValid() {
-		return domain.NewError("invalid_role", "Invalid organization role", 400)
+		return domain.NewError("invalid_role", "Invalid organization role")
 	}
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return err
@@ -422,7 +422,7 @@ type UpdateMemberRoleInput struct {
 
 func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRoleInput) error {
 	if !input.NewRole.IsValid() {
-		return domain.NewError("invalid_role", "Invalid organization role", 400)
+		return domain.NewError("invalid_role", "Invalid organization role")
 	}
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return err

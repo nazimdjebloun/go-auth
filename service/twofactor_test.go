@@ -110,7 +110,7 @@ func TestChallenge_FailedSendDoesNotLockOutTheNextLogin(t *testing.T) {
 	mailer := &testutil.MockMailer{
 		SendFn: func(_ context.Context, _, _, _, _ string) error {
 			if failing {
-				return domain.NewError("email_failed", "smtp auth rejected", 500)
+				return domain.NewError("email_failed", "smtp auth rejected")
 			}
 			return nil
 		},

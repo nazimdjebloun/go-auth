@@ -21,7 +21,7 @@ This page covers **runtime** errors returned by the mounted HTTP handlers. Confi
 
 ## Handling errors programmatically
 
-Calling the library directly — `auth.Register(...)`, `auth.Services.Auth.Login(...)`, `auth.Services.Admin.BanUser(...)`, and so on — skips the JSON envelope above entirely: you get back a plain Go `error`. Every error the library returns is a `*domain.AuthError` under the hood (the same `Code`/`Message`/HTTP-status triple the JSON envelope serializes), so the two idiomatic `errors` package patterns both work as expected:
+Calling the library directly — `auth.Register(...)`, `auth.Services.Auth.Login(...)`, `auth.Services.Admin.BanUser(...)`, and so on — skips the JSON envelope above entirely: you get back a plain Go `error`. Every error the library returns is a `*domain.AuthError` under the hood — `Code` and `Message` only; `AuthError` has no HTTP-status field of its own, since it's meant to be usable from non-HTTP callers too, and the built-in handlers derive the response status from `Code` internally — so the two idiomatic `errors` package patterns both work as expected:
 
 ```go
 result, err := auth.Services.Auth.Login(ctx, service.LoginInput{Email: email, Password: password})
@@ -34,9 +34,9 @@ if err != nil {
 
     var authErr *domain.AuthError
     if errors.As(err, &authErr) {
-        // authErr.Code, authErr.Message, authErr.HTTPStatus — the same
-        // triple you'd get from the JSON envelope's "error"/"message"
-        // fields plus the response status
+        // authErr.Code, authErr.Message — the same pair you'd get from the
+        // JSON envelope's "error"/"message" fields. If you need the HTTP
+        // status too, this page's tables give the mapping per code.
     }
 }
 ```

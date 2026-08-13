@@ -2,7 +2,6 @@ package domain
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 	"unicode"
 )
@@ -25,11 +24,10 @@ func (p PasswordPolicy) Validate(password string) error {
 	}
 	if len(password) < p.MinLength {
 		return NewError("weak_password",
-			fmt.Sprintf("Password must be at least %d characters", p.MinLength),
-			http.StatusBadRequest)
+			fmt.Sprintf("Password must be at least %d characters", p.MinLength))
 	}
 	if len(password) > 128 {
-		return NewError("weak_password", "Password must be no more than 128 characters", http.StatusBadRequest)
+		return NewError("weak_password", "Password must be no more than 128 characters")
 	}
 
 	var hasLetter, hasUpper, hasDigit, hasSpecial bool
@@ -65,7 +63,7 @@ func (p PasswordPolicy) Validate(password string) error {
 
 	if len(missing) > 0 {
 		msg := fmt.Sprintf("Password must be at least %d characters with %s", p.MinLength, strings.Join(missing, ", "))
-		return NewError("weak_password", msg, http.StatusBadRequest)
+		return NewError("weak_password", msg)
 	}
 
 	return nil

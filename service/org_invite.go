@@ -125,11 +125,11 @@ type AcceptInviteInput struct {
 
 func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgInviteInput) (*domain.OrgInvite, error) {
 	if !input.Role.IsValid() {
-		return nil, domain.NewError("invalid_role", "Invalid organization role", 400)
+		return nil, domain.NewError("invalid_role", "Invalid organization role")
 	}
 
 	if s.inviteTTL <= 0 {
-		return nil, domain.NewError("internal_error", "Organization invites are not configured", 500)
+		return nil, domain.NewError("internal_error", "Organization invites are not configured")
 	}
 
 	actor, err := s.orgs.GetMembership(ctx, input.OrgID, input.InvitedBy)
@@ -150,13 +150,13 @@ func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgI
 	}
 
 	if s.mailer == nil {
-		return nil, domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return nil, domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate org invite code", "err", err)
-		return nil, domain.NewError("internal_error", "Internal server error", 500)
+		return nil, domain.ErrInternal
 	}
 
 	now := time.Now().UTC()
@@ -179,7 +179,7 @@ func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgI
 
 	if err := s.sendOrgInviteEmail(ctx, invite); err != nil {
 		s.log.Error("failed to send org invite email", "err", err, "invite_id", invite.ID, "email", input.Email)
-		return nil, domain.NewError("email_failed", "Failed to send invite email", 500)
+		return nil, domain.NewError("email_failed", "Failed to send invite email")
 	}
 
 	s.log.Info("org invite created", "org_id", input.OrgID, "email", input.Email, "role", input.Role, "invited_by", input.InvitedBy)
@@ -269,7 +269,7 @@ func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, orgID, inviteID,
 		return err
 	}
 	if invite == nil || invite.OrgID != orgID {
-		return domain.NewError("invite_not_found", "Invite not found", 404)
+		return domain.NewError("invite_not_found", "Invite not found")
 	}
 	if err := s.orgInvites.Delete(ctx, inviteID); err != nil {
 		s.log.Error("failed to delete org invite", "err", err, "invite_id", inviteID)
@@ -293,17 +293,17 @@ func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, orgID, invi
 		return err
 	}
 	if invite == nil || invite.OrgID != orgID {
-		return domain.NewError("invite_not_found", "Invite not found", 404)
+		return domain.NewError("invite_not_found", "Invite not found")
 	}
 
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured", 500)
+		return domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate org invite code", "err", err, "invite_id", inviteID)
-		return domain.NewError("internal_error", "Internal server error", 500)
+		return domain.ErrInternal
 	}
 
 	invite.CodeHash = hashToken(raw)
@@ -317,7 +317,7 @@ func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, orgID, invi
 
 	if err := s.sendOrgInviteEmail(ctx, invite); err != nil {
 		s.log.Error("failed to resend org invite email", "err", err, "invite_id", inviteID)
-		return domain.NewError("email_failed", "Failed to send invite email", 500)
+		return domain.NewError("email_failed", "Failed to send invite email")
 	}
 
 	s.log.Info("org invite resent", "invite_id", inviteID, "email", invite.Email)
