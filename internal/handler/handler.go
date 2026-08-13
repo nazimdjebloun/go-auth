@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -1323,15 +1322,6 @@ func writeError(w http.ResponseWriter, err error) {
 		"error":   "internal_error",
 		"message": "Internal server error",
 	})
-}
-
-// Deprecated: use middleware.GetUserFromContext instead.
-func GetUserID(ctx context.Context) string {
-	user := middleware.GetUserFromContext(ctx)
-	if user == nil {
-		return ""
-	}
-	return user.ID
 }
 
 func extractIP(remoteAddr string) string {

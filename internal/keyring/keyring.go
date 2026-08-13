@@ -24,6 +24,8 @@ func Derive(secret []byte) Keys {
 func deriveKey(secret, info []byte) []byte {
 	h := hkdf.New(sha256.New, secret, []byte("goauth-v1"), info)
 	key := make([]byte, 32)
-	io.ReadFull(h, key)
+	if _, err := io.ReadFull(h, key); err != nil {
+		panic("goauth: hkdf key derivation failed: " + err.Error())
+	}
 	return key
 }

@@ -39,6 +39,8 @@ OAuth uses **PKCE** (S256) on every provider, including ones that don't strictly
 
 An OAuth-provided email is only treated as verified when the provider guarantees it — for GitHub, a non-empty public profile email specifically, since GitHub only allows verified addresses to be set as public. Linking a new provider to an existing account requires that account to already be authenticated (`unauthorized` otherwise), and unlinking is blocked (`cannot_unlink_last_provider`) if it would leave the account with no way to log in at all — no password and no remaining linked provider.
 
+**The OAuth callback is the one HTML response in an otherwise all-JSON API** — it sets cookies via `Set-Cookie` (unreliable on cross-origin 302 redirects in some browsers) and then redirects client-side via a small inline script. Every other endpoint's headers are left entirely to the host application, but this response carries its own `X-Content-Type-Options: nosniff` and `Content-Security-Policy` since it's the only place go-auth renders markup rather than JSON.
+
 ## Two-factor authentication
 
 Email-based 2FA (`SecurityConfig.RequireEmail2FA` / per-user `TwoFactorEnabled`) sits on top of the mechanisms above, with four trade-offs worth stating explicitly rather than leaving implicit.

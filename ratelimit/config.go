@@ -57,6 +57,7 @@ func DefaultRateLimitConfig() *Config {
 			routes.Glob(routes.ConfirmDeleteAccount):     {Requests: 3, Window: time.Hour},
 			// Invites / refresh
 			routes.Glob(routes.InviteRegister): {Requests: 10, Window: time.Minute},
+			routes.Glob(routes.InviteInfo):     {Requests: 30, Window: time.Minute},
 			routes.Glob(routes.RefreshToken):   {Requests: 3, Window: time.Minute},
 			// Two-factor
 			routes.Glob(routes.TwoFactorVerify):  {Requests: 5, Window: time.Minute},

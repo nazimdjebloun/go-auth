@@ -270,6 +270,27 @@ func TestOAuthCallback_GET_Success(t *testing.T) {
 	}
 }
 
+func TestOAuthCallback_GET_Success_SecurityHeaders(t *testing.T) {
+	th := newOAuthTestHarness()
+
+	u := fmt.Sprintf("/auth/oauth/test/callback?code=auth-code&state=%s", th.stateToken)
+	req := httptest.NewRequest(http.MethodGet, u, nil)
+	req.SetPathValue("provider", "test")
+	w := httptest.NewRecorder()
+
+	th.oauthHandlers.Callback(w, req)
+
+	res := w.Result()
+	defer res.Body.Close()
+
+	if got := res.Header.Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options: nosniff, got %q", got)
+	}
+	if got := res.Header.Get("Content-Security-Policy"); got == "" {
+		t.Error("expected a non-empty Content-Security-Policy header")
+	}
+}
+
 func TestOAuthCallback_POST_Success(t *testing.T) {
 	th := newOAuthTestHarness()
 

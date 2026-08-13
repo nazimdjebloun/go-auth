@@ -559,7 +559,7 @@ func New(config config) (*Auth, error) {
 			ResendTwoFactor:      corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendTwoFactor))))).ServeHTTP,
 			Enable2FA:            corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Enable2FA)))))).ServeHTTP,
 			Disable2FA:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Disable2FA)))))).ServeHTTP,
-			GetInviteInfo:        corsMW(http.HandlerFunc(h.GetInviteInfo)).ServeHTTP,
+			GetInviteInfo:        corsMW(rateLimitMW(http.HandlerFunc(h.GetInviteInfo))).ServeHTTP,
 			GetMe:                corsMW(authMW(http.HandlerFunc(h.GetMe))).ServeHTTP,
 			CheckSession:         corsMW(http.HandlerFunc(h.CheckAuth)).ServeHTTP,
 			RefreshToken:         corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.RefreshToken))))).ServeHTTP,

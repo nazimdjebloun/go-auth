@@ -121,6 +121,8 @@ func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, sessionToken,
 	middleware.SetSessionCookie(w, h.session.Config(), sessionToken)
 	middleware.SetRefreshCookie(w, h.session.Config(), refreshToken)
 
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `<!DOCTYPE html><html><head><title>Redirecting...</title></head><body>
