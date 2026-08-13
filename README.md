@@ -70,17 +70,18 @@ func main() {
 }
 ```
 
-Apply the schema for your database before starting the app for the first time:
+The schema ships embedded in the library — there is no `.sql` file to find on disk after `go get`. Apply it before starting the app for the first time with the `goauth` CLI:
 
 ```bash
-psql "$DATABASE_URL" -f schema/postgres.sql   # or schema/sqlite.sql / schema/mysql.sql
+go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
+  --driver postgres --dsn "$DATABASE_URL"
 ```
 
 Every operation is also reachable without HTTP — `auth.Services.Auth.Register(ctx, ...)`, `auth.Services.Admin.BanUser(ctx, ...)`, and so on — since the service layer never imports `net/http`.
 
 ## Documentation
 
-Full documentation, including every route, config option, and error code, is in [`docs/`](./docs/) in this repo, and rendered as a browsable site at [go-auth-docs](https://github.com/nazimdjebloun/go-auth-docs).
+Full documentation, including every route, config option, and error code, is in [`docs/`](./docs/) in this repo, and rendered as a browsable site at [go-auth.nimirixlabs.com](https://go-auth.nimirixlabs.com) — source in [go-auth-docs](https://github.com/nazimdjebloun/go-auth-docs).
 
 - [Installation](docs/installation.mdx) — prerequisites and setup
 - [Configuration](docs/configuration.mdx) — every `With*` option, field by field
