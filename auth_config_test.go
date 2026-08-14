@@ -302,11 +302,6 @@ func TestNewConfig_RateLimitValidation(t *testing.T) {
 		rejectErr string
 	}{
 		{
-			name:      "enabled with nil store",
-			rateLimit: ratelimit.Config{Enabled: true},
-			wantErr:   "store is nil",
-		},
-		{
 			name: "enabled with invalid default requests",
 			rateLimit: func() ratelimit.Config {
 				cfg := validEnabledRateLimit()
@@ -443,6 +438,46 @@ func TestNewConfig_RateLimitValidation(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+	}
+}
+
+// TestNewConfig_RateLimitStoreIsOptional replaces a case that asserted
+// "enabled with a nil Store" was a validation error. It no longer is:
+// applyDefaults fills in the in-memory store, which is what makes it safe
+// for DefaultRateLimitConfig to leave Store nil — building one there started
+// a cleanup goroutine on every WithRateLimit* call that nothing could close.
+func TestNewConfig_RateLimitStoreIsOptional(t *testing.T) {
+	cfg, err := NewConfig(append(validConfigOpts(), WithRateLimit(ratelimit.Config{
+		Enabled:    true,
+		Default:    ratelimit.Rate{Requests: 60, Window: time.Minute},
+		IPv6Subnet: 64,
+	}))...)
+	if err != nil {
+		t.Fatalf("expected a nil Store to be filled in, got %v", err)
+	}
+	if cfg.rateLimit.Store == nil {
+		t.Fatal("expected applyDefaults to supply the in-memory store")
+	}
+	if cfg.rateLimitStoreExplicit {
+		t.Error("a library-built store must not be marked consumer-owned, or Close() will leak its cleanup goroutine")
+	}
+}
+
+func TestNewConfig_RateLimitRouteCanBeDisabledWithZeroRequests(t *testing.T) {
+	// Rate{Requests: 0} has always meant "don't limit this route" in the
+	// middleware and in the docs, but validate rejected it outright, so the
+	// documented per-route opt-out was unreachable.
+	if _, err := NewConfig(append(validConfigOpts(),
+		WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 0}),
+	)...); err != nil {
+		t.Fatalf("expected Rate{Requests: 0} to disable a route, got %v", err)
+	}
+	// The Default has no such reading — a zero there would silently disable
+	// limiting on every unlisted route.
+	if _, err := NewConfig(append(validConfigOpts(),
+		WithRateLimitDefault(ratelimit.Rate{Requests: 0}),
+	)...); err == nil {
+		t.Error("expected a zero Default to be rejected")
 	}
 }
 

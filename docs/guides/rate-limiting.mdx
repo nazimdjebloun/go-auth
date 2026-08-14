@@ -18,7 +18,7 @@ goauth.WithRateLimit(ratelimit.Config{
     Routes: map[string]ratelimit.Rate{ // optional, default: the built-in table below
         "POST /auth/login": {Requests: 10, Window: time.Minute},
     },
-    Store:           ratelimit.NewMemoryStore(), // required if Enabled; optional otherwise
+    Store:           nil,                        // optional, default: a bounded in-memory store
     DisabledPaths:   nil,                        // optional, default none
     TrustedIPs:      []string{"10.0.0.0/8"},     // optional, default none — required if IPAddressHeader is set
     IPv6Subnet:      64,                         // optional, default 64
@@ -34,7 +34,7 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 10, Windo
 | `Enabled` | `bool` | `true` | Disabling it logs a warning at startup — it's flagged as insecure for production. |
 | `Default` | `ratelimit.Rate` | `60/min` | Applied to any route not listed in `Routes` (and not matched by a prefix pattern — see below). |
 | `Routes` | `map[string]ratelimit.Rate` | the built-in table | Keyed by `"METHOD /path"`, or `"METHOD /path/*"` with a `*` standing in for one path segment (see [How a request is matched to a limit](#how-a-request-is-matched-to-a-limit)). A `Rate{Requests: 0}` entry disables limiting for that specific route without touching `DisabledPaths`. |
-| `Store` | `ratelimit.Store` | in-memory | See [A note on the default store](#a-note-on-the-default-store) below. |
+| `Store` | `ratelimit.Store` | a bounded in-memory store | Leave it `nil` and one is created for you (and closed by `Auth.Close()`). See [A note on the default store](#a-note-on-the-default-store) below. |
 | `DisabledPaths` | `[]string` | none | Exact path matches, exempted entirely — no counting, no headers. |
 | `TrustedIPs` | `[]string` | none | CIDR ranges. Required for `IPAddressHeader` to have any effect — see below. |
 | `IPv6Subnet` | `int` | `64` | IPv6 addresses are masked to this prefix length before being used as a rate-limit key, so a client rotating addresses within their own `/64` still shares one bucket. |
@@ -54,17 +54,56 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 10, Windo
 
 ### A note on the default store
 
-`ratelimit.NewMemoryStore()` is a fixed-window counter held in a process-local map — it works out of the box with zero setup, but it's **per-instance**: run two copies of your app behind a load balancer and each one enforces the limit independently, so the effective limit is `N × instance count`. For a real multi-instance deployment, implement `ratelimit.Store` (two methods: `Increment(key, window)`, `Reset(key)`) against Redis or similar and pass it to `WithRateLimitStore` — see [Architecture → Extension points](../architecture.mdx#extension-points).
+`ratelimit.NewMemoryStore()` is a fixed-window counter held in a sharded, process-local map. It works out of the box with zero setup, but it's **per-instance**: run two copies of your app behind a load balancer and each one enforces the limit independently, so the effective limit is `N × instance count`. For a real multi-instance deployment, implement `ratelimit.Store` — one method, `Allow(ctx, key, Rate) (Result, error)` — against Redis or similar and pass it to `WithRateLimitStore` — see [Architecture → Extension points](../architecture.mdx#extension-points). The store *decides*, rather than returning a raw count for the caller to compare, so a distributed backend can make the decision atomically with the increment instead of racing between a round-trip and a local comparison.
 
 `New()` logs a one-time startup warning when rate limiting is enabled and still on this default store — it's a reminder, not a diagnosis (the library has no way to detect "multiple instances" directly), so it fires in single-instance deployments too. Pass any other `ratelimit.Store` implementation via `WithRateLimitStore` to silence it.
 
+**It is bounded.** The store holds at most 100,000 counters. Once full, an insert drops one existing counter: an expired one if the bounded sample it looks at contains one, otherwise the sampled counter with the most of its budget left. That ranking is deliberate — a counter close to tripping is the expensive one to lose, and a flood of one-hit counters is made to evict itself rather than the login limit it would rather you forgot. Raise the ceiling if a single instance legitimately serves more distinct clients than that inside one window:
+
+```go
+goauth.WithRateLimitStore(ratelimit.NewMemoryStore(ratelimit.WithMaxEntries(500_000)))
+```
+
+Treat that number as a ceiling, not an occupancy target. The cap is enforced per shard (32 of them, keys assigned by hash), so a value that isn't a multiple of 32 is rounded down, and in practice a hot shard starts evicting while others still have room — steady-state occupancy sits below the ceiling. It can never go above it, which is the direction that matters for a memory bound. `Stats().Capacity` reports what's actually enforced rather than what you asked for.
+
+Eviction is otherwise silent, so the store logs a warning (at most once a minute) the first time it evicts a live counter, and exposes a snapshot:
+
+```go
+store := ratelimit.NewMemoryStore()
+// ...
+if s, ok := store.(interface{ Stats() ratelimit.Stats }); ok {
+    st := s.Stats() // Entries, Capacity, Evictions, Expired
+}
+```
+
 ## How a request is matched to a limit
 
-For each request, the key checked against `Routes` is `"METHOD /exact/path"` first. If nothing matches, every key containing a `*` is tried as a **segment-wildcard match**: the key and the request path are split on `/`, and it's a match only when both have the same number of segments and every non-`*` segment is equal (e.g. `"POST /auth/orgs/*/invites"` matches `POST /auth/orgs/abc123/invites` but not `POST /auth/orgs/abc123/invites/xyz/resend` — that's a different, deeper route with its own key). If more than one wildcard key matches — not the case in the built-in table, which has one key per route, but possible in a replacement `Routes` map — the one with the fewest `*` segments wins. If still nothing matches, `Default` applies. The counter itself is keyed by `method + path + client IP`, so the same IP hitting two different routes (or two different IPs hitting the same route) never share a bucket.
+For each request, the key checked against `Routes` is `"METHOD /exact/path"` first. If nothing matches, every key containing a `*` is tried as a **segment-wildcard match**: the key and the request path are split on `/`, and it's a match only when both have the same number of segments and every non-`*` segment is equal (e.g. `"POST /auth/orgs/*/invites"` matches `POST /auth/orgs/abc123/invites` but not `POST /auth/orgs/abc123/invites/xyz/resend` — that's a different, deeper route with its own key). If more than one wildcard key matches — not the case in the built-in table, which has one key per route, but possible in a replacement `Routes` map — the one with the fewest `*` segments wins. If still nothing matches, `Default` applies.
 
 `*` always stands for exactly one path segment — never "the rest of the path" — so a wildcard entry only ever covers the one route it's shaped for, not an entire subtree beneath it. Each route that needs its own limit gets its own key.
 
-The client IP is `RemoteAddr` by default. If `IPAddressHeader` is set **and** the immediate connection is from an address in `TrustedIPs` (e.g. your own reverse proxy or CDN), the header value is used instead — otherwise it's ignored outright, specifically so a direct, untrusted client can't set `CF-Connecting-IP: 1.2.3.4` itself to dodge the limit.
+### What the counter is keyed on
+
+`method + matched route pattern + client IP`, with every part of that bounded — the **pattern**, not the request path; a normalized IP, never a raw header value; and the method folded to the nine standard HTTP methods, with anything else sharing one `OTHER` bucket (`net/http` doesn't limit how long a method can be, and an entry cap is only a memory bound if entries are a bounded size). `POST /auth/orgs/abc/invites` and `POST /auth/orgs/xyz/invites` share one counter, because they're the same route. The same IP hitting two different routes, or two different IPs hitting the same route, never share one.
+
+This matters beyond tidiness: fourteen of the built-in rate-limited routes carry a path parameter, so a counter keyed on the raw path would hand any caller a brand-new counter on every request just by varying that segment — the limit would never trip, and the store would grow for as long as the requests kept coming.
+
+For a route that isn't in `Routes`, the pattern comes from `http.Request.Pattern`, which `net/http`'s `ServeMux` fills in with the registered pattern (Go 1.23+). Routers that don't populate it — chi, gorilla/mux, echo — leave those routes sharing a single fallback counter per client. That's a tighter limit, not a looser one, but if you want per-route granularity back, name the route:
+
+```go
+r.Post("/widgets/{id}/publish",
+    auth.RateLimitWithPattern("POST /widgets/{id}/publish")(publishHandler).ServeHTTP)
+```
+
+The string only has to be stable and one-per-route; it isn't parsed. To give the route its own *limit* as well as its own counter, add the same string to the table with `WithRateLimitRoute`.
+
+### What the client IP is
+
+`RemoteAddr` by default. If `IPAddressHeader` is set **and** the immediate connection is from an address in `TrustedIPs` (e.g. your own reverse proxy or CDN), the header is used instead — otherwise it's ignored outright, specifically so a direct, untrusted client can't set `CF-Connecting-IP: 1.2.3.4` itself to dodge the limit.
+
+When the header carries a chain (`X-Forwarded-For: a, b, c`), the address used is the **rightmost entry that isn't itself in `TrustedIPs`**. Appending proxies add the address they saw to the end, so everything to the right of that entry was written by infrastructure you trust and everything to the left is whatever the client sent — a client opening with an `X-Forwarded-For` of its own prepends a hop you have no reason to believe. If the header can't be parsed as an IP at all, or every hop in it is one of your own proxies, the transport address is used; a header value is never used as a key as-is.
+
+IPv6 addresses are masked to `IPv6Subnet` bits (default 64) before being used, so a client rotating within its own `/64` still shares one counter. Note the ceiling on that: a routed `/48` is 65,536 distinct `/64`s from one host, and a `/32` is four billion. If you're being targeted rather than merely crawled, `WithIPv6Subnet(48)` — or lower — buys real headroom at the cost of bucketing unrelated customers of the same ISP allocation together.
 
 ## The default rate table
 
@@ -129,7 +168,7 @@ Two distinct outcomes both return `429`, and it matters which one you're looking
 | `rate_limit_exceeded` | Normal case — the caller genuinely exceeded their limit. |
 | `rate_limit_error` | The rate-limit **store itself** failed (e.g. Redis unreachable). This is fail-**closed**, not fail-open — a store outage rejects the request rather than letting it through, since the alternative is silently disabling rate limiting under exactly the conditions (infrastructure trouble) when abuse is most likely. |
 
-Both set a `Retry-After` header (seconds); the normal case additionally sets `X-RateLimit-Limit` and `X-RateLimit-Remaining: 0`.
+Every rate-limited response carries `X-RateLimit-Limit` and `X-RateLimit-Remaining`, not just the ones that fail, so a client can back off before it trips. Both 429 cases also set `Retry-After` in seconds, rounded up and never below `1`.
 
 ```json
 { "error": "rate_limit_exceeded", "message": "Too many requests, please try again later" }

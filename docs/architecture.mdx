@@ -101,7 +101,7 @@ Everywhere the library needs to talk to the outside world, it does so through a 
 | `port.Mailer` | SMTP via `WithEmail`, or none | Resend, Postmark, SES, or any transactional email API — see [Configuration](configuration.mdx) |
 | `port.TemplateProvider` | `emailtemplate` (embedded HTML/text templates) | Your own branded email templates |
 | `port.OAuthProvider` | `provider/google`, `provider/github` | Any OAuth2 provider — `Name()`, `AuthURL()`, `Exchange()` |
-| `ratelimit.Store` | in-memory | A distributed store (Redis, etc.) for multi-instance deployments |
+| `ratelimit.Store` | bounded in-memory | A distributed store (Redis, etc.) for multi-instance deployments — one method, `Allow(ctx, key, Rate) (Result, error)` |
 | `audit.EventSink` | the SQL sink (persists to the `audit_log` table) | Kafka, NATS, a webhook — added via `WithAuditSink` alongside the built-in one |
 | `port.Hasher` | bcrypt (`hasher` package) | Not currently swappable via a `With*` option — it's constructed internally with a fixed cost |
 

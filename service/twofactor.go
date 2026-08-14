@@ -45,12 +45,15 @@ const (
 // round-trip. It is NOT the brute-force control — per-IP rate limiting is, with
 // the residual distributed case accepted and documented in docs/security.mdx.
 type TwoFactorService struct {
-	users      port.UserRepository
-	sessions   port.SessionRevoker // DeleteAllForUserExcept (Enable/Disable revoke other sessions)
-	tokens     port.TokenRepository
-	hasher     port.Hasher
-	mailer     port.Mailer
-	templates  port.TemplateProvider
+	users     port.UserRepository
+	sessions  port.SessionRevoker // DeleteAllForUserExcept (Enable/Disable revoke other sessions)
+	tokens    port.TokenRepository
+	hasher    port.Hasher
+	mailer    port.Mailer
+	templates port.TemplateProvider
+	// store backs the account-scoped notify counter only. Auth.New hands it
+	// a dedicated non-evicting store, never the rate limiter's: an evicted
+	// counter here is a suspicious-activity email that silently never sends.
 	store      ratelimit.Store
 	config     Config
 	log        *slog.Logger
@@ -360,21 +363,41 @@ func (s *TwoFactorService) recordFailure(ctx context.Context, userID, email, ip,
 		return
 	}
 
-	res, err := s.store.Increment("2fa:fail:"+userID, notifyWindowPerAccount)
+	// Requests is threshold-1 because Allow permits exactly Requests calls
+	// per window: the call that comes back disallowed is the threshold-th
+	// failure, which is the one worth telling the account owner about.
+	failures := ratelimit.Rate{Requests: notifyThresholdPerAccount - 1, Window: notifyWindowPerAccount}
+	res, err := s.store.Allow(ctx, "2fa:fail:"+userID, failures)
 	if err != nil {
 		// Notification is best-effort: it must never fail a login attempt.
 		s.log.Error("failed to record 2fa failure count", "err", err, "user_id", userID)
 		return
 	}
-	// Fire once per window, on the crossing itself, not on every later failure.
-	if res.Count != notifyThresholdPerAccount {
+	if res.Allowed {
+		return // still under the threshold
+	}
+
+	// Fire once per window, on the crossing — but latch it on a second
+	// counter rather than testing the first for equality with the threshold.
+	// "count == 20" only fires if the counter is observed at exactly 20, so a
+	// single lost increment (a store error swallowed above, a Reset, an
+	// eviction in a store that has one) skips the value and suppresses the
+	// alert for the rest of the window. A 1-per-window counter can't miss:
+	// it advances only when a notification actually goes out.
+	latch := ratelimit.Rate{Requests: 1, Window: notifyWindowPerAccount}
+	first, err := s.store.Allow(ctx, "2fa:notified:"+userID, latch)
+	if err != nil {
+		s.log.Error("failed to record 2fa notification latch", "err", err, "user_id", userID)
 		return
+	}
+	if !first.Allowed {
+		return // already notified this account within the window
 	}
 
 	if s.audit != nil {
 		s.audit.Publish(ctx, audit.NewTwoFactorSuspiciousEvent(userID, net.ParseIP(ip), userAgent))
 	}
-	s.notifySuspicious(ctx, email, res.Count)
+	s.notifySuspicious(ctx, email, notifyThresholdPerAccount)
 }
 
 func (s *TwoFactorService) notifySuspicious(ctx context.Context, email string, count int) {

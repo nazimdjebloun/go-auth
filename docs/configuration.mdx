@@ -444,7 +444,7 @@ goauth.WithRateLimit(ratelimit.Config{
     Routes: map[string]ratelimit.Rate{ // optional, default: a built-in table of sensitive routes
         "POST /auth/login": {Requests: 10, Window: time.Minute},
     },
-    Store:           ratelimit.NewMemoryStore(), // required if Enabled; optional otherwise
+    Store:           nil,                        // optional, default: a bounded in-memory store
     DisabledPaths:   nil,                        // optional, default none
     TrustedIPs:      []string{"10.0.0.0/8"},     // optional, default none — required if IPAddressHeader is set
     IPv6Subnet:      64,                         // optional, default 64
@@ -474,8 +474,8 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
 |---|---|---|---|---|
 | `Enabled` | `bool` | Optional | `true` | Disabling it logs a warning at startup — it's flagged as insecure for production. |
 | `Default` | `ratelimit.Rate` | Optional | `60 requests / minute` | Fallback for any route not in `Routes`. |
-| `Routes` | `map[string]ratelimit.Rate` | Optional | a built-in table covering login, register, password reset, verification, invites, etc. | Keyed by `"METHOD /path"`. |
-| `Store` | `ratelimit.Store` | Required if `Enabled` | in-memory | Swap for a distributed store (Redis, etc.) across multiple instances. |
+| `Routes` | `map[string]ratelimit.Rate` | Optional | a built-in table covering login, register, password reset, verification, invites, etc. | Keyed by `"METHOD /path"`. A `Rate{Requests: 0}` entry disables limiting for that one route. |
+| `Store` | `ratelimit.Store` | Optional | a bounded in-memory store | Left `nil`, one is created for you and closed by `Auth.Close()`. Supply one to swap in a distributed store (Redis, etc.) across multiple instances — then it's yours to close. |
 | `DisabledPaths` | `[]string` | Optional | none | |
 | `TrustedIPs` | `[]string` | Optional | none | IPs/CIDRs. Required if `IPAddressHeader` is set. |
 | `IPv6Subnet` | `int` | Optional | `64` | Subnet prefix length used to bucket IPv6 clients. Must be 1–128. |
@@ -483,8 +483,7 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
 
 **Expected errors** (only reachable when `Enabled: true`)
 
-- `rate_limit: store is nil but enabled is true - provide ratelimit.NewMemoryStore() or a distributed store`.
-- `rate_limit: route "..." requests must be positive, got N` / `... window must be positive, got ...` — from `Default` or any entry in `Routes`.
+- `rate_limit: route "..." requests must be positive, got N` / `... window must be positive, got ...` — from `Default` or any entry in `Routes`. A `Routes` entry may be exactly `0` (that's the per-route opt-out); `Default` may not.
 - `rate_limit: ipv6_subnet must be between 1 and 128, got N`.
 - `rate_limit: trusted_ips contains invalid IP/CIDR "..."`.
 - `rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can be spoofed to bypass rate limiting` — hint: call `WithTrustedIPs` alongside `WithIPAddressHeader`.

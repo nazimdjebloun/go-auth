@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -28,7 +29,32 @@ func TestExtractIP_RemoteAddr(t *testing.T) {
 	}
 }
 
-func TestExtractIP_XForwardedFor(t *testing.T) {
+// TestExtractIP_XForwardedFor_TakesRightmostUntrustedHop replaces an earlier
+// test that asserted the *leftmost* entry. Leftmost is the entry the client
+// itself can write: with an appending proxy (nginx's
+// proxy_add_x_forwarded_for, every CDN), a client that opens with
+// "X-Forwarded-For: <anything>" prepends a hop of its own choosing, so
+// reading leftmost lets it pick its own rate-limit key — a bypass and an
+// unbounded key space at once. The rightmost hop not in TrustedIPs is the
+// closest thing to a real client address: everything past it was written by
+// infrastructure we trust.
+func TestExtractIP_XForwardedFor_TakesRightmostUntrustedHop(t *testing.T) {
+	cfg := &ratelimit.Config{
+		IPv6Subnet:      64,
+		IPAddressHeader: "X-Forwarded-For",
+		TrustedIPs:      []string{"192.168.1.1", "10.0.0.0/8"},
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "192.168.1.1:34567"
+	// 203.0.113.7 is the real client; 10.0.0.x are our own proxies.
+	r.Header.Set("X-Forwarded-For", "203.0.113.7, 10.0.0.1, 10.0.0.2")
+	ip := extractIP(r, cfg)
+	if ip != "203.0.113.7" {
+		t.Errorf("expected 203.0.113.7, got %s", ip)
+	}
+}
+
+func TestExtractIP_XForwardedFor_IgnoresClientPrependedHop(t *testing.T) {
 	cfg := &ratelimit.Config{
 		IPv6Subnet:      64,
 		IPAddressHeader: "X-Forwarded-For",
@@ -36,10 +62,55 @@ func TestExtractIP_XForwardedFor(t *testing.T) {
 	}
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "192.168.1.1:34567"
-	r.Header.Set("X-Forwarded-For", "10.0.0.1, 10.0.0.2")
+	// The trusted proxy appended what it saw (198.51.100.4); everything to
+	// the left of that is the client's own invention.
+	r.Header.Set("X-Forwarded-For", "1.2.3.4, 198.51.100.4")
 	ip := extractIP(r, cfg)
-	if ip != "10.0.0.1" {
-		t.Errorf("expected 10.0.0.1, got %s", ip)
+	if ip != "198.51.100.4" {
+		t.Errorf("expected the proxy-observed address 198.51.100.4, got %s — a client-prepended hop was used as the key", ip)
+	}
+}
+
+// TestExtractIP_UnparseableHeaderFallsBackToPeer closes a hole that survived
+// the route-pattern fix: extractIP used to return whatever it couldn't parse,
+// verbatim. Behind a proxy that forwards the header without validating it,
+// that put arbitrary client-chosen bytes straight into the map key — a fresh
+// counter per request, and unbounded key material, from a single IP.
+func TestExtractIP_UnparseableHeaderFallsBackToPeer(t *testing.T) {
+	cfg := &ratelimit.Config{
+		IPv6Subnet:      64,
+		IPAddressHeader: "X-Forwarded-For",
+		TrustedIPs:      []string{"192.168.1.1"},
+	}
+	for _, junk := range []string{
+		strings.Repeat("A", 4096),
+		"not-an-ip",
+		"999.999.999.999",
+		"; drop",
+	} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = "192.168.1.1:34567"
+		r.Header.Set("X-Forwarded-For", junk)
+		if ip := extractIP(r, cfg); ip != "192.168.1.1" {
+			t.Errorf("junk header %.20q: expected fallback to the peer address, got %q", junk, ip)
+		}
+	}
+}
+
+// TestExtractIP_AllHopsTrustedFallsBackToPeer covers a header whose every
+// entry is one of our own proxies: it names no client, so the transport
+// address is the only honest answer.
+func TestExtractIP_AllHopsTrustedFallsBackToPeer(t *testing.T) {
+	cfg := &ratelimit.Config{
+		IPv6Subnet:      64,
+		IPAddressHeader: "X-Forwarded-For",
+		TrustedIPs:      []string{"10.0.0.0/8"},
+	}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.0.5:34567"
+	r.Header.Set("X-Forwarded-For", "10.0.0.1, 10.0.0.2")
+	if ip := extractIP(r, cfg); ip != "10.0.0.5" {
+		t.Errorf("expected fallback to RemoteAddr, got %s", ip)
 	}
 }
 
@@ -152,11 +223,9 @@ func TestRateLimit_SpoofedHeaderCannotBypass(t *testing.T) {
 
 type failingStore struct{}
 
-func (failingStore) Increment(string, time.Duration) (ratelimit.StoreResult, error) {
-	return ratelimit.StoreResult{}, errors.New("store down")
+func (failingStore) Allow(context.Context, string, ratelimit.Rate) (ratelimit.Result, error) {
+	return ratelimit.Result{}, errors.New("store down")
 }
-
-func (failingStore) Reset(string) error { return nil }
 
 func TestRateLimit_StoreErrorLogsStructured(t *testing.T) {
 	var buf bytes.Buffer

@@ -501,14 +501,14 @@ func (c *config) validate() error {
 
 	if c.rateLimit != nil && c.rateLimit.Enabled {
 		rl := c.rateLimit
-		if rl.Store == nil {
-			errs = append(errs, errors.New("rate_limit: store is nil but enabled is true - provide ratelimit.NewMemoryStore() or a distributed store"))
-		}
-		if err := validateRate("default", rl.Default); err != nil {
+		// Store is not checked: applyDefaults runs first and fills in the
+		// in-memory default whenever it's nil, so "enabled with no store" is
+		// no longer a reachable configuration.
+		if err := validateRate("default", rl.Default, false); err != nil {
 			errs = append(errs, err)
 		}
 		for route, rate := range rl.Routes {
-			if err := validateRate(route, rate); err != nil {
+			if err := validateRate(route, rate, true); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -547,9 +547,20 @@ func (c *config) validate() error {
 	return errors.Join(errs...)
 }
 
-func validateRate(name string, r ratelimit.Rate) error {
-	if r.Requests <= 0 {
+// validateRate checks one entry of the rate table.
+//
+// allowZero exists because Requests == 0 has always meant "don't limit this
+// route" in the middleware and in the docs, but validate rejected it outright
+// — so the documented per-route opt-out was unreachable. It's accepted for a
+// Routes entry and still rejected for Default, where a zero has no such
+// reading: it would silently disable limiting on every unlisted route, which
+// is what WithRateLimitEnabled(false) is for.
+func validateRate(name string, r ratelimit.Rate, allowZero bool) error {
+	if r.Requests < 0 || (r.Requests == 0 && !allowZero) {
 		return fmt.Errorf("rate_limit: route %q requests must be positive, got %d", name, r.Requests)
+	}
+	if r.Requests == 0 {
+		return nil // explicitly disabled; Window is irrelevant
 	}
 	if r.Window <= 0 {
 		return fmt.Errorf("rate_limit: route %q window must be positive, got %s", name, r.Window)
@@ -663,6 +674,17 @@ func (c *config) applyDefaults() {
 
 	if c.rateLimit == nil {
 		c.rateLimit = ratelimit.DefaultRateLimitConfig()
+	}
+	// The Store is created here rather than in DefaultRateLimitConfig: that
+	// function is called lazily by every WithRateLimit* option to seed a
+	// config, so building a store inside it started a cleanup goroutine per
+	// option call that nothing owned and Close could never reach. Building
+	// it once, here, also means Store is genuinely optional — a consumer
+	// passing WithRateLimit(ratelimit.Config{...}) without one gets the
+	// in-memory default instead of a validation error.
+	if c.rateLimit.Store == nil {
+		c.rateLimit.Store = ratelimit.NewMemoryStore(ratelimit.WithStoreLogger(c.logger))
+		c.rateLimitStoreExplicit = false // we built it, so Close owns it
 	}
 
 	c.allowHTTPURLs = c.resolveAllowHTTPURLs()
@@ -850,7 +872,10 @@ func WithRateLimit(cfg ratelimit.Config) Option {
 		// Store and Logger are deliberately shared: they are live objects the
 		// consumer owns, not data to be snapshotted.
 		c.rateLimit = &clone
-		c.rateLimitStoreExplicit = true
+		// Only a Store the consumer actually supplied is theirs to own. A
+		// zero Store here means applyDefaults will build one, and that one
+		// is ours to close.
+		c.rateLimitStoreExplicit = cfg.Store != nil
 	}
 }
 
@@ -894,7 +919,7 @@ func WithRateLimitStore(s ratelimit.Store) Option {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
 		}
 		c.rateLimit.Store = s
-		c.rateLimitStoreExplicit = true
+		c.rateLimitStoreExplicit = s != nil
 	}
 }
 

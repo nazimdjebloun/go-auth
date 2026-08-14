@@ -169,10 +169,9 @@ func TestLogin_PersistsIPAndUserAgent(t *testing.T) {
 // type-based rather than firing unconditionally whenever rate limiting is on.
 type fakeRateLimitStore struct{}
 
-func (fakeRateLimitStore) Increment(_ string, _ time.Duration) (ratelimit.StoreResult, error) {
-	return ratelimit.StoreResult{}, nil
+func (fakeRateLimitStore) Allow(_ context.Context, _ string, _ ratelimit.Rate) (ratelimit.Result, error) {
+	return ratelimit.Result{Allowed: true}, nil
 }
-func (fakeRateLimitStore) Reset(_ string) error { return nil }
 
 func TestNew_WarnsWhenRateLimitUsesDefaultStore(t *testing.T) {
 	var buf bytes.Buffer
@@ -218,11 +217,10 @@ type closeTrackingStore struct {
 	closed *bool
 }
 
-func (closeTrackingStore) Increment(_ string, _ time.Duration) (ratelimit.StoreResult, error) {
-	return ratelimit.StoreResult{}, nil
+func (closeTrackingStore) Allow(_ context.Context, _ string, _ ratelimit.Rate) (ratelimit.Result, error) {
+	return ratelimit.Result{Allowed: true}, nil
 }
-func (closeTrackingStore) Reset(_ string) error { return nil }
-func (s closeTrackingStore) Close()             { *s.closed = true }
+func (s closeTrackingStore) Close() { *s.closed = true }
 
 func TestClose_DoesNotCloseConsumerSuppliedRateLimitStore(t *testing.T) {
 	closed := false

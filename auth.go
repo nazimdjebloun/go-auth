@@ -51,6 +51,10 @@ type Auth struct {
 	orgInviteService *service.OrgInviteService
 	auditService     *audit.AuditService
 	auditLogRepo     port.AuditLogRepository
+
+	// twoFactorStore is always library-constructed (see New), so unlike the
+	// rate-limit Store it is unconditionally ours to close.
+	twoFactorStore ratelimit.Store
 }
 
 type Services struct {
@@ -373,13 +377,23 @@ func New(config config) (*Auth, error) {
 
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, serviceCfg)
 
-	// The 2FA failure counter shares the rate-limit Store so it inherits
-	// whatever backend the consumer configured. A nil store disables the
-	// notification only — it never gates verification.
-	var twoFactorStore ratelimit.Store
-	if config.rateLimit != nil {
-		twoFactorStore = config.rateLimit.Store
-	}
+	// The 2FA failure counter gets its own store, deliberately not the
+	// rate-limit one.
+	//
+	// The rate-limit store evicts under pressure — that is what keeps it
+	// bounded — and an evicted 2FA counter is a suspicious-activity email
+	// that silently never sends, which is exactly the outcome someone
+	// grinding second-factor codes wants. Sharing the store would also mean
+	// any Redis backend a consumer swaps in has to be reachable for a
+	// notification that was never allowed to block a login.
+	//
+	// Eviction is off here because the key space is closed: one key per
+	// account with a 2FA failure in the last hour, keyed by a user ID read
+	// from the database, not by anything a caller supplies.
+	twoFactorStore := ratelimit.NewMemoryStore(
+		ratelimit.WithoutEviction(),
+		ratelimit.WithStoreLogger(config.logger),
+	)
 	twoFactorSvc := service.NewTwoFactorService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
 
 	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
@@ -524,6 +538,7 @@ func New(config config) (*Auth, error) {
 		orgInviteService: orgInviteSvc,
 		auditService:     auditSvc,
 		auditLogRepo:     auditLogRepo,
+		twoFactorStore:   twoFactorStore,
 		Services: Services{
 			Auth:      authSvc,
 			Password:  passSvc,
@@ -639,6 +654,10 @@ func (a *Auth) Close() {
 		if closer, ok := a.cfg.rateLimit.Store.(ratelimit.StoreCloser); ok {
 			closer.Close()
 		}
+	}
+	// The 2FA notify store has no such caveat — New always builds it.
+	if closer, ok := a.twoFactorStore.(ratelimit.StoreCloser); ok {
+		closer.Close()
 	}
 	if a.cfg.database.poolOpened && a.pool != nil {
 		a.pool.Close()
@@ -810,6 +829,30 @@ func (a *Auth) RequireAdmin(next http.Handler) http.Handler {
 // your own routes only.
 func (a *Auth) RateLimit(next http.Handler) http.Handler {
 	return a.rateLimitMW(next)
+}
+
+// RateLimitWithPattern is RateLimit for a consumer route mounted on a router
+// that doesn't populate http.Request.Pattern — chi, gorilla/mux, echo, and
+// anything that isn't net/http's ServeMux.
+//
+// Counters are keyed on the route pattern, not the request path, so a route
+// with a path parameter can't be turned into an unlimited supply of fresh
+// counters. Where the pattern isn't discoverable, every such route shares one
+// fallback counter per client; naming it here gives the route its own:
+//
+//	r.Post("/widgets/{id}/publish",
+//	    auth.RateLimitWithPattern("POST /widgets/{id}/publish")(publish).ServeHTTP)
+//
+// The string only has to be stable and one-per-route — it isn't parsed. To
+// give the route its own limit as well as its own counter, add the same
+// string to the rate table with WithRateLimitRoute.
+//
+// Don't reuse a pattern that already names one of the mounted routes: the
+// pattern picks the counter, but the rate still comes from matching this
+// request's own method and path, so the route would share the other route's
+// counter while being charged the default rate.
+func (a *Auth) RateLimitWithPattern(pattern string) func(http.Handler) http.Handler {
+	return middleware.RateLimitWithPattern(a.cfg.rateLimit, pattern)
 }
 
 // CORS applies the configured CORS middleware to a consumer route. The

@@ -168,14 +168,22 @@ func requestSchemeHost(r *http.Request, trustedIPs []string) (scheme, host strin
 // matches; entries with "/" are CIDRs. An empty list trusts nobody, so
 // forwarded headers are ignored.
 func peerIsTrusted(r *http.Request, trustedIPs []string) bool {
-	if len(trustedIPs) == 0 {
-		return false
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return false
 	}
-	peer := net.ParseIP(host)
+	return ipIsTrusted(host, trustedIPs)
+}
+
+// ipIsTrusted is peerIsTrusted for an address that didn't come from
+// RemoteAddr — the rate limiter walks a forwarding header hop by hop asking
+// this of each entry, so it can tell "an address our own proxies wrote" from
+// "an address the client wrote".
+func ipIsTrusted(host string, trustedIPs []string) bool {
+	if len(trustedIPs) == 0 {
+		return false
+	}
+	peer := net.ParseIP(strings.TrimSpace(host))
 	if peer == nil {
 		return false
 	}
