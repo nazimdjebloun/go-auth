@@ -1,0 +1,15 @@
+---
+title: "v0.1.0"
+description: "First tagged release — email/password and OAuth, two-token sessions, organizations, the admin API, and CI with govulncheck."
+date: "2026-08-16"
+---
+
+First tagged release.
+
+- Email/password and OAuth (GitHub, Google) authentication
+- Two-token sessions: refresh rotation, idle timeout, and a grace window
+- Multi-tenant organizations — owner/admin/member roles, invites
+- Admin API: list, ban, role-change, and session-revoke any user, with a full audit trail
+- Origin checking, double-submit CSRF, and per-route rate limiting on by default
+- PostgreSQL, MySQL, and SQLite support
+- CI on every push: build, vet, race-enabled tests, `govulncheck`

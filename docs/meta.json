@@ -11,6 +11,7 @@
     "routes",
     "error-handling",
     "architecture",
-    "security"
+    "security",
+    "changelog"
   ]
 }
