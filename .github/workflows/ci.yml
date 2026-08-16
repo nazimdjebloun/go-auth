@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lib:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: goauth
+          POSTGRES_PASSWORD: goauth
+          POSTGRES_DB: goauth
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+      - run: go build ./...
+      - run: go vet ./...
+      - run: go test -count=1 -race ./...
+        env:
+          GOAUTH_POSTGRES_DSN: postgres://goauth:goauth@localhost:5432/goauth?sslmode=disable
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+      - working-directory: cmd/goauth
+        run: go build ./...
+      - working-directory: cmd/goauth
+        run: go vet ./...
+      - working-directory: cmd/goauth
+        run: go test -count=1 -race ./...
+      - working-directory: cmd/goauth
+        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
