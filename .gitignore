@@ -12,6 +12,9 @@
 
 # Output of go coverage
 *.out
+.agents/
+PLANS/
+
 
 # IDE
 .idea/
