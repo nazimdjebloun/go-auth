@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -36,12 +37,6 @@ Supported drivers: postgres, sqlite, mysql`,
 			os.Exit(1)
 		}
 
-		schemaSQL, err := goauth.GetSchema(driver)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
 		sqlDriver := sqlDriverName(driver)
 		db, err := sql.Open(sqlDriver, dsn)
 		if err != nil {
@@ -53,14 +48,30 @@ Supported drivers: postgres, sqlite, mysql`,
 			log.Fatalf("goauth: ping failed: %v", err)
 		}
 
-		for _, stmt := range schema.SplitSQL(schemaSQL) {
-			if _, err := db.Exec(stmt); err != nil {
-				log.Fatalf("goauth: migration failed: %v\nStatement: %s", err, stmt)
-			}
-			fmt.Println("OK:", stmt)
+		if err := applySchema(context.Background(), db, driver); err != nil {
+			log.Fatal(err)
 		}
 		fmt.Println("goauth: migration complete!")
 	},
+}
+
+// applySchema fetches the embedded schema for driver and applies it to db
+// one statement at a time. Every statement in the embedded schemas is
+// written as CREATE ... IF NOT EXISTS, so a second call against an
+// already-migrated database is expected to succeed as a no-op rather than
+// error.
+func applySchema(ctx context.Context, db *sql.DB, driver string) error {
+	schemaSQL, err := goauth.GetSchema(driver)
+	if err != nil {
+		return err
+	}
+	for _, stmt := range schema.SplitSQL(schemaSQL) {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("goauth: migration failed: %w\nStatement: %s", err, stmt)
+		}
+		fmt.Println("OK:", stmt)
+	}
+	return nil
 }
 
 func sqlDriverName(driver string) string {
