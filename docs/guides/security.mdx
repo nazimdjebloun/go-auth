@@ -48,6 +48,16 @@ goauth.WithSecurity(goauth.SecurityConfig{
 
 The double-submit token layer is **on in every deployment** — `New` creates a `CSRFTokenConfig` with the defaults shown whenever you leave the field `nil`, so passing the struct overrides those defaults rather than switching the layer on. Turn it off with `DisableCSRFToken: true`, which is meant for deployments with no browser clients at all. See [Configuration → `WithSecurity`](../configuration.mdx#withsecurity--required-allowedorigins) for the full treatment.
 
+<Callout type="info" title="Protecting your own routes with the same check">
+  `Auth.RequireCSRF` applies this exact double-submit verification — the real HMAC-signed token, not a naive cookie/header string compare — to a route you write and mount yourself:
+
+  ```go
+  mux.Handle("POST /widgets", auth.CORS(auth.RequireCSRF(auth.RequireAuth(http.HandlerFunc(createWidget)))))
+  ```
+
+  It's a no-op passthrough when `DisableCSRFToken: true`. The routes mounted by `Auth.Mount` already have this baked in — reach for `RequireCSRF` only for routes you register on the mux yourself.
+</Callout>
+
 **`PasswordPolicy`** (`domain.PasswordPolicy`) — `MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`. All fields are individually optional, but the struct as a whole replaces the default: setting `RequireUppercase: true` without repeating `MinLength`/`RequireDigit` means those two are no longer enforced. Every violation comes back as the same error code:
 
 | Code | Status | Cause |

@@ -115,18 +115,38 @@ const org = await apiRequest(API_BASE, "POST", "/auth/orgs", { name: "Acme Inc",
 
 ### List your orgs — `GET /auth/orgs`
 
-Auth: any authenticated user. No params — every org the caller belongs to, any role.
+Auth: any authenticated user. Every org the caller belongs to, any role. Query params, all optional:
+
+| Param | Values | Default | Notes |
+|---|---|---|---|
+| `search` | any string | — (no filter) | Substring match on org name. |
+| `orderBy` | `name`, `created_at`, `member_count` | `name` | Unrecognized values silently fall back to the default rather than erroring. |
+| `orderDirection` | `asc`, `desc` | `asc` | Same fallback behavior. |
+| `offset` | integer | `0` | |
+| `limit` | integer | `20` | **Omit entirely** for the default page of 20. **`limit=0`** explicitly means unlimited — every org the caller belongs to, in one response. Any other value is capped at `100`. This distinction only exists because the param was left off vs. sent as `0` — see the callout below. |
+
+<Callout type="info" title="Why limit=0 means something different from omitting it">
+  `ListUserOrgsInput.Limit` is `*int`, not `int`, specifically so the service can tell "the caller didn't say" (`nil` → default 20) apart from "the caller explicitly wants everything" (`&0` → unlimited). A plain `int` can't make that distinction — Go's zero value is `0` either way. The HTTP handler mirrors this by checking whether the `limit` query param is *present*, not just parsing it: an absent or unparsable `limit` becomes `nil`, `limit=0` becomes a pointer to `0`. The same semantics apply to [members](#list-members--get-authorgsorgidmembers) and [invites](#listing-invites--get-authorgsorgidinvites) below — but not to the admin `GET /admin/users` listing, which has no unlimited escape hatch.
+</Callout>
 
 ```json
-{ "orgs": [ { "...": "same shape as create, one per org" } ] }
+{
+  "orgs": [ { "...": "same shape as create, one per org" } ],
+  "total": 1,
+  "limit": 20,
+  "offset": 0
+}
 ```
+
+`total` is the count of orgs matching `search` (ignoring `limit`/`offset`), so it's what you paginate against, not `orgs.length`.
 
 ---
 
 #### curl
 
 ```bash
-curl https://api.myapp.com/auth/orgs -b cookies.txt -c cookies.txt
+curl "https://api.myapp.com/auth/orgs?search=acme&orderBy=created_at&orderDirection=desc&limit=20&offset=0" \
+  -b cookies.txt -c cookies.txt
 ```
 
 ---
@@ -134,7 +154,11 @@ curl https://api.myapp.com/auth/orgs -b cookies.txt -c cookies.txt
 #### Programmatic (Go)
 
 ```go
-orgs, err := auth.Services.Org.ListUserOrgs(ctx, userID)
+result, err := auth.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
+    UserID: userID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
+    OrderBy: "created_at", OrderDirection: "desc",
+})
+// result.Orgs, result.Total, result.Limit, result.Offset
 ```
 
 ---
@@ -142,7 +166,9 @@ orgs, err := auth.Services.Org.ListUserOrgs(ctx, userID)
 #### Client
 
 ```ts
-const { orgs } = await apiRequest(API_BASE, "GET", "/auth/orgs");
+const { orgs, total } = await apiRequest(
+  API_BASE, "GET", "/auth/orgs?search=acme&orderBy=created_at&orderDirection=desc&limit=20&offset=0"
+);
 ```
 
 ### Get one org — `GET /auth/orgs/{orgID}`
@@ -266,7 +292,16 @@ await apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}`);
 
 ### List members — `GET /auth/orgs/{orgID}/members`
 
-Auth: org member. Query: `offset` (default `0`), `limit` (default `20`, max `100` — same clamping as every other list endpoint on this site, applied in `OrgService.ListMembers`).
+Auth: org member. Query params, all optional:
+
+| Param | Values | Default | Notes |
+|---|---|---|---|
+| `role` | `owner`, `admin`, `member` | — (no filter) | Anything else is ignored, not rejected. |
+| `search` | any string | — (no filter) | Substring match on the member's name or email. |
+| `orderBy` | `joined_at`, `role`, `name`, `email` | `joined_at` | Unrecognized values fall back to the default. |
+| `orderDirection` | `asc`, `desc` | `asc` | Same fallback behavior. |
+| `offset` | integer | `0` | |
+| `limit` | integer | `20` | Omit for the default page of 20. **`limit=0`** is explicit unlimited — every member of the org, in one response. Other values are capped at `100`. See the `limit=0` callout under [List your orgs](#list-your-orgs--get-authorgs) — same semantics here. |
 
 ```json
 {
@@ -279,7 +314,9 @@ Auth: org member. Query: `offset` (default `0`), `limit` (default `20`, max `100
       "user": { "...": "the full domain.User for this member" }
     }
   ],
-  "total": 1
+  "total": 1,
+  "limit": 20,
+  "offset": 0
 }
 ```
 
@@ -288,7 +325,8 @@ Auth: org member. Query: `offset` (default `0`), `limit` (default `20`, max `100
 #### curl
 
 ```bash
-curl "https://api.myapp.com/auth/orgs/a1b2.../members?offset=0&limit=20" -b cookies.txt -c cookies.txt
+curl "https://api.myapp.com/auth/orgs/a1b2.../members?role=admin&search=jane&orderBy=name&orderDirection=asc&offset=0&limit=20" \
+  -b cookies.txt -c cookies.txt
 ```
 
 ---
@@ -296,9 +334,11 @@ curl "https://api.myapp.com/auth/orgs/a1b2.../members?offset=0&limit=20" -b cook
 #### Programmatic (Go)
 
 ```go
-members, total, err := auth.Services.Org.ListMembers(ctx, service.ListMembersInput{
-    OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: 20,
+result, err := auth.Services.Org.ListMembers(ctx, service.ListMembersInput{
+    OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
+    OrderBy: "name", OrderDirection: "asc",
 })
+// result.Members, result.Total, result.Limit, result.Offset
 ```
 
 ---
@@ -307,7 +347,7 @@ members, total, err := auth.Services.Org.ListMembers(ctx, service.ListMembersInp
 
 ```ts
 const { members, total } = await apiRequest(
-  API_BASE, "GET", `/auth/orgs/${orgId}/members?offset=0&limit=20`
+  API_BASE, "GET", `/auth/orgs/${orgId}/members?role=admin&search=jane&orderBy=name&orderDirection=asc&offset=0&limit=20`
 );
 ```
 
@@ -434,8 +474,16 @@ func myHandler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+That check — "is there an active org, and is its role high enough" — is common enough that it doesn't need hand-rolling. `Auth.RequireActiveOrg(role)` does exactly this and stores the resolved org ID/role in context under the same keys `RequireOrgMember` uses, so `middleware.GetOrgID`/`GetOrgRole` read back identically either way:
+
+```go
+mux.Handle("GET /projects", auth.CORS(auth.RequireAuth(auth.RequireActiveOrg(domain.OrgRoleMember)(http.HandlerFunc(listProjects)))))
+```
+
+Returns `no_active_org` (400) if the session has no active org, `org_forbidden` (403) if its role is below `role`. This is `RequireOrg`'s counterpart for routes that operate on "the org I'm currently working in" rather than one named by an `{orgID}` path segment — reach for `RequireOrg` when the org is explicit in the URL, `RequireActiveOrg` when it isn't.
+
 <Callout type="info" title="Don't confuse this with GetOrgID / GetOrgRole">
-  `middleware.GetOrgID(ctx)` and `middleware.GetOrgRole(ctx)` are a *different* mechanism — they're set by `RequireOrgMember`/`RequireOrgRole` from the `{orgID}` in the URL, for go-auth's own org-scoped routes on this page (everything above this section). `session.ActiveOrgID`/`ActiveOrgRole` from `GetSessionFromContext` is the user's session-level "current org," set via the two endpoints below, and it only means something to *your* routes — go-auth's own handlers never read it. A request to `GET /auth/orgs/{orgID}` and a request relying on the active org can legitimately disagree about which org they're talking about; they're independent.
+  `middleware.GetOrgID(ctx)` and `middleware.GetOrgRole(ctx)` are a *different* mechanism — they're set by `RequireOrgMember`/`RequireOrgRole` from the `{orgID}` in the URL, for go-auth's own org-scoped routes on this page (everything above this section). `session.ActiveOrgID`/`ActiveOrgRole` from `GetSessionFromContext` is the user's session-level "current org," set via the two endpoints below, and it only means something to *your* routes — go-auth's own handlers never read it. A request to `GET /auth/orgs/{orgID}` and a request relying on the active org can legitimately disagree about which org they're talking about; they're independent. (`RequireActiveOrg` bridges the two: it reads the session-level active org but writes it into the same context keys `RequireOrgMember` uses, so downstream code doesn't need to care which one ran.)
 </Callout>
 
 **From a browser client**, there's no dedicated "what's my active org" endpoint — `/auth/me` returns the user, not the session. The active org is visible on the [session-listing](sessions.mdx#listing-sessions) responses (match `currentSessionId` against the `sessions` array to find your own), but the simplest approach is usually to just track it as local state the moment you call `setActive`/`clearActive` below, rather than re-fetching to confirm it.
@@ -624,10 +672,25 @@ await apiRequest(API_BASE, "POST", "/auth/orgs/invites/accept", { code });
 
 ### Listing invites — `GET /auth/orgs/{orgID}/invites`
 
-Auth: org admin. No pagination — every invite for the org, regardless of status, in one response. `rawCode` is never present here (see [Creating an invite](#creating-an-invite--post-authorgsorgidinvites)).
+Auth: org admin. `rawCode` is never present here (see [Creating an invite](#creating-an-invite--post-authorgsorgidinvites)). Query params, all optional:
+
+| Param | Values | Default | Notes |
+|---|---|---|---|
+| `role` | `owner`, `admin`, `member` | — (no filter) | The role the invite grants on acceptance, not the caller's own role. |
+| `status` | `pending`, `expired` | — (both) | Derived from `expiresAt` vs. the current time — there's no stored status column. A claimed invite's row is deleted outright, so it never shows up here as anything. |
+| `search` | any string | — (no filter) | Substring match on the invited email. |
+| `orderBy` | `created_at`, `expires_at`, `email`, `role` | `created_at` | Unrecognized values fall back to the default. |
+| `orderDirection` | `asc`, `desc` | `desc` | Note the default direction here is `desc` (newest first), unlike orgs/members above — matches the previous fixed ordering. |
+| `offset` | integer | `0` | |
+| `limit` | integer | `20` | Omit for the default page of 20. **`limit=0`** is explicit unlimited — every invite for the org, in one response. Other values are capped at `100`. See the `limit=0` callout under [List your orgs](#list-your-orgs--get-authorgs) — same semantics here. |
 
 ```json
-{ "invites": [ { "...": "same shape as create, minus rawCode" } ] }
+{
+  "invites": [ { "...": "same shape as create, minus rawCode" } ],
+  "total": 1,
+  "limit": 20,
+  "offset": 0
+}
 ```
 
 ---
@@ -635,7 +698,8 @@ Auth: org admin. No pagination — every invite for the org, regardless of statu
 #### curl
 
 ```bash
-curl https://api.myapp.com/auth/orgs/a1b2.../invites -b cookies.txt -c cookies.txt
+curl "https://api.myapp.com/auth/orgs/a1b2.../invites?status=pending&search=new-hire&orderBy=created_at&orderDirection=desc&offset=0&limit=20" \
+  -b cookies.txt -c cookies.txt
 ```
 
 ---
@@ -643,7 +707,11 @@ curl https://api.myapp.com/auth/orgs/a1b2.../invites -b cookies.txt -c cookies.t
 #### Programmatic (Go)
 
 ```go
-invites, err := auth.Services.OrgInvite.ListOrgInvites(ctx, orgID)
+result, err := auth.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{
+    OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
+    Status: statusPtr("pending"), OrderBy: "created_at", OrderDirection: "desc",
+})
+// result.Invites, result.Total, result.Limit, result.Offset
 ```
 
 ---
@@ -651,7 +719,9 @@ invites, err := auth.Services.OrgInvite.ListOrgInvites(ctx, orgID)
 #### Client
 
 ```ts
-const { invites } = await apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/invites`);
+const { invites, total } = await apiRequest(
+  API_BASE, "GET", `/auth/orgs/${orgId}/invites?status=pending&search=new-hire&orderBy=created_at&orderDirection=desc&offset=0&limit=20`
+);
 ```
 
 ### Resending or deleting an invite — `POST .../invites/{inviteID}/resend`, `DELETE .../invites/{inviteID}`

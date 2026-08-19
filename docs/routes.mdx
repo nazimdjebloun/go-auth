@@ -100,11 +100,11 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
 | `POST /auth/orgs` | Auth | Body: `` `{name, slug}` `` | Creates an org owned by the caller. |
-| `GET /auth/orgs` | Auth | none | Lists the orgs the caller belongs to. |
+| `GET /auth/orgs` | Auth | Query: `search`, `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists the orgs the caller belongs to. |
 | `GET /auth/orgs/{orgID}` | Org member | Path: `orgID` | Fetches one org. |
 | `PUT /auth/orgs/{orgID}` | Org admin | Path: `orgID`; body: `` `{name?, slug?}` `` (both pointers — omit a field to leave it unchanged) | Partial update of org name/slug. |
 | `DELETE /auth/orgs/{orgID}` | Org owner | Path: `orgID` | Deletes the org. |
-| `GET /auth/orgs/{orgID}/members` | Org member | Path: `orgID`; query: `offset`, `limit` (default `20`, max `100`, same clamping as other list endpoints — applied in `OrgService.ListMembers`, not the handler) | Lists org members. |
+| `GET /auth/orgs/{orgID}/members` | Org member | Path: `orgID`; query: `role`, `search`, `orderBy` (`joined_at` default, `role`, `name`, `email`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists org members. |
 | `DELETE /auth/orgs/{orgID}/members/{userID}` | Org admin | Path: `orgID`, `userID` | Removes a member. |
 | `PATCH /auth/orgs/{orgID}/members/{userID}/role` | Org admin | Path: `orgID`, `userID`; body: `` `{role}` `` | Changes a member's role. |
 | `POST /auth/orgs/{orgID}/leave` | Org member | Path: `orgID` | The caller leaves the org. |
@@ -112,7 +112,7 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | `DELETE /auth/orgs/active` | Auth | none | Clears the active-org setting for the current session. |
 | `POST /auth/orgs/{orgID}/invites` | Org admin | Path: `orgID`; body: `` `{email, role}` `` | Creates an invite to join the org. |
 | `POST /auth/orgs/invites/accept` | Auth | Body: `` `{code}` `` | Accepts an org invite by code. No path segment — the invite is resolved from the code. |
-| `GET /auth/orgs/{orgID}/invites` | Org admin | Path: `orgID` | Lists an org's invites. |
+| `GET /auth/orgs/{orgID}/invites` | Org admin | Path: `orgID`; query: `role`, `status` (`pending`/`expired`, default both), `search`, `orderBy` (`created_at` default, `expires_at`, `email`, `role`), `orderDirection` (`desc` default, `asc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists an org's invites. |
 | `POST /auth/orgs/{orgID}/invites/{inviteID}/resend` | Org admin | Path: `orgID`, `inviteID` (`orgID` is only used for the authorization check, not read again inside the handler) | Resends an org invite email. |
 | `DELETE /auth/orgs/{orgID}/invites/{inviteID}` | Org admin | Path: `orgID`, `inviteID` (same note as above) | Deletes an org invite. |
 

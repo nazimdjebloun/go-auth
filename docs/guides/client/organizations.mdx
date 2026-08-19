@@ -17,7 +17,26 @@ export const orgApi = {
   create: (input: { name: string; slug: string }) =>
     apiRequest(API_BASE, "POST", "/auth/orgs", input),
 
-  listMine: () => apiRequest(API_BASE, "GET", "/auth/orgs"),
+  // limit is `number | undefined`, checked with `!== undefined` below rather
+  // than truthiness — `limit: 0` is the explicit "unlimited" signal the
+  // service supports, and a truthy check would silently drop it since 0 is
+  // falsy. Omitting `limit` entirely gets the default page of 20 server-side.
+  listMine: (params: {
+    search?: string;
+    orderBy?: "name" | "created_at" | "member_count";
+    orderDirection?: "asc" | "desc";
+    limit?: number;
+    offset?: number;
+  } = {}) => {
+    const query = new URLSearchParams();
+    if (params.search) query.set("search", params.search);
+    if (params.orderBy) query.set("orderBy", params.orderBy);
+    if (params.orderDirection) query.set("orderDirection", params.orderDirection);
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    if (params.offset) query.set("offset", String(params.offset));
+    const qs = query.toString();
+    return apiRequest(API_BASE, "GET", `/auth/orgs${qs ? `?${qs}` : ""}`);
+  },
 
   get: (orgId: string) => apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}`),
 
@@ -26,8 +45,24 @@ export const orgApi = {
 
   delete: (orgId: string) => apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}`),
 
-  listMembers: (orgId: string, offset = 0, limit = 20) =>
-    apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/members?offset=${offset}&limit=${limit}`),
+  listMembers: (orgId: string, params: {
+    role?: "owner" | "admin" | "member";
+    search?: string;
+    orderBy?: "joined_at" | "role" | "name" | "email";
+    orderDirection?: "asc" | "desc";
+    limit?: number;
+    offset?: number;
+  } = {}) => {
+    const query = new URLSearchParams();
+    if (params.role) query.set("role", params.role);
+    if (params.search) query.set("search", params.search);
+    if (params.orderBy) query.set("orderBy", params.orderBy);
+    if (params.orderDirection) query.set("orderDirection", params.orderDirection);
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    if (params.offset) query.set("offset", String(params.offset));
+    const qs = query.toString();
+    return apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/members${qs ? `?${qs}` : ""}`);
+  },
 
   removeMember: (orgId: string, userId: string) =>
     apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}/members/${userId}`),
@@ -47,7 +82,26 @@ export const orgApi = {
   acceptInvite: (code: string) =>
     apiRequest(API_BASE, "POST", "/auth/orgs/invites/accept", { code }),
 
-  listInvites: (orgId: string) => apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/invites`),
+  listInvites: (orgId: string, params: {
+    role?: "owner" | "admin" | "member";
+    status?: "pending" | "expired";
+    search?: string;
+    orderBy?: "created_at" | "expires_at" | "email" | "role";
+    orderDirection?: "asc" | "desc";
+    limit?: number;
+    offset?: number;
+  } = {}) => {
+    const query = new URLSearchParams();
+    if (params.role) query.set("role", params.role);
+    if (params.status) query.set("status", params.status);
+    if (params.search) query.set("search", params.search);
+    if (params.orderBy) query.set("orderBy", params.orderBy);
+    if (params.orderDirection) query.set("orderDirection", params.orderDirection);
+    if (params.limit !== undefined) query.set("limit", String(params.limit));
+    if (params.offset) query.set("offset", String(params.offset));
+    const qs = query.toString();
+    return apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/invites${qs ? `?${qs}` : ""}`);
+  },
 
   resendInvite: (orgId: string, inviteId: string) =>
     apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/invites/${inviteId}/resend`),
