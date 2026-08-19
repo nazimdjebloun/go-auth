@@ -69,6 +69,7 @@ var (
 	ErrOrgLimitReached          = NewError("org_limit_reached", "Maximum organization limit reached for user")
 	ErrOrgMemberLimitReached    = NewError("org_member_limit_reached", "Organization member limit reached")
 	ErrOrgForbidden             = NewError("org_forbidden", "Insufficient organization permissions")
+	ErrNoActiveOrg              = NewError("no_active_org", "Select an active organization first")
 	ErrOrgInviteExpired         = NewError("org_invite_expired", "Organization invite link has expired")
 	ErrOrgInviteEmailMismatch   = NewError("org_invite_email_mismatch", "Authenticated email does not match invite recipient")
 	ErrOrgMetadataTooLarge      = NewError("org_metadata_too_large", "Organization metadata exceeds 16KB limit")

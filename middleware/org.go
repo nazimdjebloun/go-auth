@@ -87,3 +87,33 @@ func RequireOrgRole(minRole domain.OrgRole) func(http.Handler) http.Handler {
 		})
 	}
 }
+
+// RequireActiveOrg requires the authenticated session to have an active org
+// (set via SetActiveOrg), with a role at least minRole — for routes that
+// operate implicitly on "the org I'm currently working in" rather than one
+// named by an {orgID} path segment. Must run after AuthMiddleware, which is
+// what puts the session in context.
+//
+// On success it stores the active org's ID and role in context under the
+// same keys RequireOrgMember uses, so GetOrgID/GetOrgRole read back
+// identically regardless of which of the two resolved the org.
+func RequireActiveOrg(minRole domain.OrgRole) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			session := GetSessionFromContext(r.Context())
+			if session == nil || session.ActiveOrgID == nil || session.ActiveOrgRole == nil {
+				writeAuthError(w, domain.ErrNoActiveOrg)
+				return
+			}
+			role := domain.OrgRole(*session.ActiveOrgRole)
+			if role.Weight() < minRole.Weight() {
+				writeAuthError(w, domain.ErrOrgForbidden)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), orgIDKey, *session.ActiveOrgID)
+			ctx = context.WithValue(ctx, orgRoleKey, role)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}

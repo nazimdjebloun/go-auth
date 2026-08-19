@@ -1,7 +1,8 @@
 // Package middleware provides the net/http middleware go-auth's built-in
 // routes are wrapped in (auth.go's Mount), and exposes the same pieces for
 // protecting a consumer's own routes via Auth.RequireAuth, Auth.RequireAdmin,
-// Auth.RequireOrg, Auth.RateLimit, and Auth.CORS.
+// Auth.RequireOrg, Auth.RequireActiveOrg, Auth.RequireCSRF, Auth.RateLimit,
+// and Auth.CORS.
 //
 // AuthMiddleware validates the session cookie (transparently refreshing an
 // expired session via the refresh cookie when possible) and places the
@@ -13,5 +14,7 @@
 // resolves the org ID from r.PathValue("orgID") (falling back to the
 // org_id query parameter), which only ServeMux populates from a route
 // pattern like "GET /auth/orgs/{orgID}". See Auth.Mount's doc comment for
-// the same constraint on the built-in routes.
+// the same constraint on the built-in routes. RequireActiveOrg has no such
+// constraint — it resolves the org from the session's active org instead of
+// a path segment, so it works with any router.
 package middleware

@@ -200,3 +200,89 @@ func TestRequireOrgRole_SufficientRole(t *testing.T) {
 		t.Fatalf("expected 200, got %d", rec.Code)
 	}
 }
+
+func TestRequireActiveOrg_NoSession(t *testing.T) {
+	handler := RequireActiveOrg(domain.OrgRoleMember)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("inner handler should not be called")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+	body := decodeErrorBody(t, rec)
+	if body["error"] != "no_active_org" {
+		t.Errorf("expected no_active_org, got %s", body["error"])
+	}
+}
+
+func TestRequireActiveOrg_SessionWithoutActiveOrg(t *testing.T) {
+	handler := RequireActiveOrg(domain.OrgRoleMember)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("inner handler should not be called")
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	ctx := ContextWithSession(req.Context(), &domain.Session{ID: "sess-1"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req.WithContext(ctx))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rec.Code)
+	}
+	body := decodeErrorBody(t, rec)
+	if body["error"] != "no_active_org" {
+		t.Errorf("expected no_active_org, got %s", body["error"])
+	}
+}
+
+func TestRequireActiveOrg_InsufficientRole(t *testing.T) {
+	handler := RequireActiveOrg(domain.OrgRoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("inner handler should not be called")
+	}))
+
+	orgID := "org-1"
+	role := string(domain.OrgRoleMember)
+	req := httptest.NewRequest("GET", "/", nil)
+	ctx := ContextWithSession(req.Context(), &domain.Session{ID: "sess-1", ActiveOrgID: &orgID, ActiveOrgRole: &role})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req.WithContext(ctx))
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", rec.Code)
+	}
+	body := decodeErrorBody(t, rec)
+	if body["error"] != "org_forbidden" {
+		t.Errorf("expected org_forbidden, got %s", body["error"])
+	}
+}
+
+func TestRequireActiveOrg_Success(t *testing.T) {
+	called := false
+	handler := RequireActiveOrg(domain.OrgRoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		if GetOrgID(r.Context()) != "org-1" {
+			t.Errorf("expected org-1 in context, got %q", GetOrgID(r.Context()))
+		}
+		if GetOrgRole(r.Context()) != domain.OrgRoleOwner {
+			t.Errorf("expected owner role in context, got %q", GetOrgRole(r.Context()))
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	orgID := "org-1"
+	role := string(domain.OrgRoleOwner)
+	req := httptest.NewRequest("GET", "/", nil)
+	ctx := ContextWithSession(req.Context(), &domain.Session{ID: "sess-1", ActiveOrgID: &orgID, ActiveOrgRole: &role})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req.WithContext(ctx))
+
+	if !called {
+		t.Fatal("expected inner handler to be called")
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}

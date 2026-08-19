@@ -890,6 +890,44 @@ func (a *Auth) RequireOrg(role domain.OrgRole) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireActiveOrg protects a consumer route with an org membership check
+// plus a minimum role, same as RequireOrg, but resolves the org from the
+// caller's session (session.ActiveOrgID/ActiveOrgRole, set via SetActiveOrg)
+// instead of an {orgID} path segment. Use this for routes that operate
+// implicitly on "the org I'm currently working in" — most of an app's own
+// business routes (projects, tasks, and the like) — reserving RequireOrg for
+// routes that name a specific org explicitly. Must run after RequireAuth.
+//
+// When organizations are disabled the returned middleware rejects every
+// request with 503 — add goauth.WithOrganizations(goauth.OrganizationConfig{
+// Enable: true}) to enable them.
+func (a *Auth) RequireActiveOrg(role domain.OrgRole) func(http.Handler) http.Handler {
+	if !role.IsValid() {
+		panic(fmt.Sprintf(
+			"goauth: invalid org role %q — use domain.OrgRoleMember, domain.OrgRoleAdmin, or domain.OrgRoleOwner",
+			role,
+		))
+	}
+	if a.orgService == nil {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Error(w, `{"error":"organizations_disabled","message":"Organizations are not enabled — add goauth.WithOrganizations(goauth.OrganizationConfig{Enable: true})"}`, http.StatusServiceUnavailable)
+			})
+		}
+	}
+	return middleware.RequireActiveOrg(role)
+}
+
+// RequireCSRF applies the same double-submit CSRF verification the built-in
+// mutating routes use to a consumer route — checks the X-CSRF-Token header
+// against the signed _csrf cookie set by the priming GET request. A no-op
+// (passthrough) if the double-submit CSRF layer is disabled
+// (SecurityConfig.DisableCSRFToken). The routes mounted by Mount already have
+// this baked in — this is for your own routes only.
+func (a *Auth) RequireCSRF(next http.Handler) http.Handler {
+	return middleware.CSRFToken(a.cfg.csrfToken)(next)
+}
+
 // ─── Session cookie accessors ───────────────────────────────
 
 // SetSessionCookies writes the session and refresh cookies for a newly

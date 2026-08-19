@@ -50,6 +50,7 @@ var byCode = map[string]int{
 	"org_limit_reached":            http.StatusBadRequest,
 	"org_member_limit_reached":     http.StatusBadRequest,
 	"org_forbidden":                http.StatusForbidden,
+	"no_active_org":                http.StatusBadRequest,
 	"org_invite_expired":           http.StatusBadRequest,
 	"org_invite_email_mismatch":    http.StatusBadRequest,
 	"org_metadata_too_large":       http.StatusBadRequest,
