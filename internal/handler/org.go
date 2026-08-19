@@ -121,12 +121,39 @@ func (h *Handler) ListUserOrgs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orgs, err := h.services.Org.ListUserOrgs(r.Context(), user.ID)
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	var limit *int
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = &n
+		}
+	}
+
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	orderBy := r.URL.Query().Get("orderBy")
+	if orderBy != "name" && orderBy != "created_at" && orderBy != "member_count" {
+		orderBy = "name"
+	}
+
+	orderDirection := r.URL.Query().Get("orderDirection")
+	if orderDirection != "asc" && orderDirection != "desc" {
+		orderDirection = "asc"
+	}
+
+	result, err := h.services.Org.ListUserOrgs(r.Context(), service.ListUserOrgsInput{
+		UserID: user.ID, Offset: offset, Limit: limit, Search: search,
+		OrderBy: orderBy, OrderDirection: orderDirection,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"orgs": orgs})
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
@@ -141,19 +168,44 @@ func (h *Handler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID := r.PathValue("orgID")
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
-	members, total, err := h.services.Org.ListMembers(r.Context(), service.ListMembersInput{
+	var limit *int
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = &n
+		}
+	}
+
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	var role *domain.OrgRole
+	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
+		r := domain.OrgRole(rl)
+		role = &r
+	}
+
+	orderBy := r.URL.Query().Get("orderBy")
+	if orderBy != "joined_at" && orderBy != "role" && orderBy != "name" && orderBy != "email" {
+		orderBy = "joined_at"
+	}
+
+	orderDirection := r.URL.Query().Get("orderDirection")
+	if orderDirection != "asc" && orderDirection != "desc" {
+		orderDirection = "asc"
+	}
+
+	result, err := h.services.Org.ListMembers(r.Context(), service.ListMembersInput{
 		OrgID: orgID, ActorID: user.ID, Offset: offset, Limit: limit,
+		Role: role, Search: search, OrderBy: orderBy, OrderDirection: orderDirection,
 	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"members": members,
-		"total":   total,
-	})
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
@@ -344,12 +396,51 @@ func (h *Handler) ListOrgInvites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID := r.PathValue("orgID")
-	invites, err := h.services.OrgInvite.ListOrgInvites(r.Context(), orgID, user.ID)
+
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	var limit *int
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = &n
+		}
+	}
+
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	var role *domain.OrgRole
+	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
+		r := domain.OrgRole(rl)
+		role = &r
+	}
+
+	var status *string
+	if s := r.URL.Query().Get("status"); s == "pending" || s == "expired" {
+		status = &s
+	}
+
+	orderBy := r.URL.Query().Get("orderBy")
+	if orderBy != "created_at" && orderBy != "expires_at" && orderBy != "email" && orderBy != "role" {
+		orderBy = "created_at"
+	}
+
+	orderDirection := r.URL.Query().Get("orderDirection")
+	if orderDirection != "asc" && orderDirection != "desc" {
+		orderDirection = "desc"
+	}
+
+	result, err := h.services.OrgInvite.ListOrgInvites(r.Context(), service.ListOrgInvitesInput{
+		OrgID: orgID, ActorID: user.ID, Offset: offset, Limit: limit,
+		Role: role, Status: status, Search: search, OrderBy: orderBy, OrderDirection: orderDirection,
+	})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"invites": invites})
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) ResendOrgInvite(w http.ResponseWriter, r *http.Request) {

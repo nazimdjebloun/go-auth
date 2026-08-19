@@ -164,9 +164,13 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
 			op = "LIKE"
 		}
-		where = append(where, fmt.Sprintf("(name %s $%d OR email %s $%d)", op, argIdx, op, argIdx))
-		args = append(args, searchTerm)
-		argIdx++
+		// Two distinct placeholders, not one reused twice: DB.Rebind rewrites
+		// every textual "$N" occurrence to "?" positionally for mysql/sqlite,
+		// so a placeholder used twice in the query text must still be backed
+		// by two separate (equal-valued) entries in args, one per occurrence.
+		where = append(where, fmt.Sprintf("(name %s $%d OR email %s $%d)", op, argIdx, op, argIdx+1))
+		args = append(args, searchTerm, searchTerm)
+		argIdx += 2
 	}
 
 	whereClause := strings.Join(where, " AND ")

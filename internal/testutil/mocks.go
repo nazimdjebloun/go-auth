@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -765,6 +766,11 @@ type MockOrgRepo struct {
 	mu      sync.Mutex
 	orgs    map[string]*domain.Organization
 	members map[string]*domain.OrgMember // key: "orgID:userID"
+	// users resolves a member's User for ListMembers (name/email search and
+	// populating OrgMemberDetail.User) — optional, set via SetUsers. Tests
+	// that don't call SetUsers get the pre-existing behavior (no User
+	// populated, no search match).
+	users port.UserRepository
 	// GetMembershipErr, when non-nil, is returned by GetMembership before
 	// any lookup — lets tests exercise repository-failure paths.
 	GetMembershipErr error
@@ -775,6 +781,13 @@ func NewMockOrgRepo() *MockOrgRepo {
 		orgs:    make(map[string]*domain.Organization),
 		members: make(map[string]*domain.OrgMember),
 	}
+}
+
+// SetUsers wires a user repository into the mock so ListMembers can
+// populate OrgMemberDetail.User and evaluate OrgMemberFilter.Search against
+// real name/email values, matching what the real sqlstore join does.
+func (m *MockOrgRepo) SetUsers(users port.UserRepository) {
+	m.users = users
 }
 
 func (m *MockOrgRepo) Create(_ context.Context, org *domain.Organization) error {
@@ -859,39 +872,157 @@ func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*d
 	return mem, nil
 }
 
-func (m *MockOrgRepo) ListMembers(_ context.Context, orgID string, offset, limit int) ([]domain.OrgMemberDetail, int, error) {
+func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, int, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	var all []domain.OrgMemberDetail
-	for key, mem := range m.members {
-		if len(key) > len(orgID) && key[:len(orgID)] == orgID && key[len(orgID):len(orgID)+1] == ":" {
-			all = append(all, domain.OrgMemberDetail{
-				OrgMember: *mem,
-			})
-		}
-	}
-	if offset > len(all) {
-		offset = len(all)
-	}
-	end := offset + limit
-	if end > len(all) {
-		end = len(all)
-	}
-	return all[offset:end], len(all), nil
-}
-
-func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string) ([]domain.Organization, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	var result []domain.Organization
 	for _, mem := range m.members {
-		if mem.UserID == userID {
-			if org, ok := m.orgs[mem.OrgID]; ok {
-				result = append(result, *org)
+		if mem.OrgID != orgID {
+			continue
+		}
+		md := domain.OrgMemberDetail{OrgMember: *mem}
+		if m.users != nil {
+			if u, err := m.users.GetByID(ctx, mem.UserID); err == nil && u != nil {
+				md.User = u
 			}
 		}
+		all = append(all, md)
 	}
-	return result, nil
+	m.mu.Unlock()
+
+	if filter.Role != nil {
+		filtered := all[:0:0]
+		for _, md := range all {
+			if md.Role == *filter.Role {
+				filtered = append(filtered, md)
+			}
+		}
+		all = filtered
+	}
+	if filter.Search != nil && *filter.Search != "" {
+		term := strings.ToLower(*filter.Search)
+		filtered := all[:0:0]
+		for _, md := range all {
+			if md.User != nil && (strings.Contains(strings.ToLower(md.User.Name), term) || strings.Contains(strings.ToLower(md.User.Email), term)) {
+				filtered = append(filtered, md)
+			}
+		}
+		all = filtered
+	}
+
+	sort.SliceStable(all, func(i, j int) bool {
+		var less bool
+		switch filter.OrderBy {
+		case "role":
+			less = string(all[i].Role) < string(all[j].Role)
+		case "name":
+			ni, nj := "", ""
+			if all[i].User != nil {
+				ni = all[i].User.Name
+			}
+			if all[j].User != nil {
+				nj = all[j].User.Name
+			}
+			less = ni < nj
+		case "email":
+			ei, ej := "", ""
+			if all[i].User != nil {
+				ei = all[i].User.Email
+			}
+			if all[j].User != nil {
+				ej = all[j].User.Email
+			}
+			less = ei < ej
+		default:
+			less = all[i].JoinedAt.Before(all[j].JoinedAt)
+		}
+		if strings.EqualFold(filter.OrderDirection, "asc") {
+			return less
+		}
+		return !less
+	})
+
+	total := len(all)
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if filter.Limit > 0 {
+		end = offset + filter.Limit
+		if end > total {
+			end = total
+		}
+	}
+	page := all[offset:end]
+	if page == nil {
+		page = []domain.OrgMemberDetail{}
+	}
+	return page, total, nil
+}
+
+func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, int, error) {
+	m.mu.Lock()
+	var all []domain.Organization
+	for _, mem := range m.members {
+		if mem.UserID != userID {
+			continue
+		}
+		if org, ok := m.orgs[mem.OrgID]; ok {
+			all = append(all, *org)
+		}
+	}
+	m.mu.Unlock()
+
+	if filter.Search != nil && *filter.Search != "" {
+		term := strings.ToLower(*filter.Search)
+		filtered := all[:0:0]
+		for _, o := range all {
+			if strings.Contains(strings.ToLower(o.Name), term) || strings.Contains(strings.ToLower(o.Slug), term) {
+				filtered = append(filtered, o)
+			}
+		}
+		all = filtered
+	}
+
+	sort.SliceStable(all, func(i, j int) bool {
+		var less bool
+		switch filter.OrderBy {
+		case "created_at":
+			less = all[i].CreatedAt.Before(all[j].CreatedAt)
+		case "member_count":
+			less = all[i].MemberCount < all[j].MemberCount
+		default:
+			less = all[i].Name < all[j].Name
+		}
+		if strings.EqualFold(filter.OrderDirection, "asc") {
+			return less
+		}
+		return !less
+	})
+
+	total := len(all)
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if filter.Limit > 0 {
+		end = offset + filter.Limit
+		if end > total {
+			end = total
+		}
+	}
+	page := all[offset:end]
+	if page == nil {
+		page = []domain.Organization{}
+	}
+	return page, total, nil
 }
 
 func (m *MockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID string, maxOrgs int) error {
@@ -983,18 +1114,87 @@ func (m *MockOrgInviteRepo) GetByCodeHash(_ context.Context, codeHash string) (*
 	return inv, nil
 }
 
-func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string) ([]domain.OrgInvite, error) {
+func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, int, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	var result []domain.OrgInvite
+	var all []domain.OrgInvite
 	seen := make(map[string]bool)
 	for _, inv := range m.invites {
 		if inv.OrgID == orgID && inv.ID != "" && !seen[inv.ID] {
-			result = append(result, *inv)
+			all = append(all, *inv)
 			seen[inv.ID] = true
 		}
 	}
-	return result, nil
+	m.mu.Unlock()
+
+	if filter.Role != nil {
+		filtered := all[:0:0]
+		for _, inv := range all {
+			if inv.Role == *filter.Role {
+				filtered = append(filtered, inv)
+			}
+		}
+		all = filtered
+	}
+	if filter.Status != nil {
+		now := time.Now().UTC()
+		filtered := all[:0:0]
+		for _, inv := range all {
+			expired := !inv.ExpiresAt.After(now)
+			if (*filter.Status == "expired") == expired {
+				filtered = append(filtered, inv)
+			}
+		}
+		all = filtered
+	}
+	if filter.Search != nil && *filter.Search != "" {
+		term := strings.ToLower(*filter.Search)
+		filtered := all[:0:0]
+		for _, inv := range all {
+			if strings.Contains(strings.ToLower(inv.Email), term) {
+				filtered = append(filtered, inv)
+			}
+		}
+		all = filtered
+	}
+
+	sort.SliceStable(all, func(i, j int) bool {
+		var less bool
+		switch filter.OrderBy {
+		case "expires_at":
+			less = all[i].ExpiresAt.Before(all[j].ExpiresAt)
+		case "email":
+			less = all[i].Email < all[j].Email
+		case "role":
+			less = string(all[i].Role) < string(all[j].Role)
+		default:
+			less = all[i].CreatedAt.Before(all[j].CreatedAt)
+		}
+		if strings.EqualFold(filter.OrderDirection, "asc") {
+			return less
+		}
+		return !less
+	})
+
+	total := len(all)
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if filter.Limit > 0 {
+		end = offset + filter.Limit
+		if end > total {
+			end = total
+		}
+	}
+	page := all[offset:end]
+	if page == nil {
+		page = []domain.OrgInvite{}
+	}
+	return page, total, nil
 }
 
 func (m *MockOrgInviteRepo) Update(_ context.Context, invite *domain.OrgInvite) error {

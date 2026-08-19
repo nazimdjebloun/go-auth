@@ -128,6 +128,7 @@ CREATE INDEX idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token
 
 CREATE INDEX idx_org_members_user ON organization_members(user_id);
 CREATE INDEX idx_org_members_org_role ON organization_members(org_id, role);
+CREATE INDEX idx_org_members_org_joined ON organization_members(org_id, joined_at);
 CREATE INDEX idx_org_invites_org ON organization_invites(org_id);
 CREATE INDEX idx_org_invites_email ON organization_invites(email);
 CREATE INDEX idx_sessions_user_active_org ON sessions(user_id, active_org_id);

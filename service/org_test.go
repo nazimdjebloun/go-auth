@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 func newTestOrgService() *OrgService {
 	orgs := testutil.NewMockOrgRepo()
 	users := testutil.NewMockUserRepo()
+	orgs.SetUsers(users)
 	sessions := testutil.NewMockSessionRepo()
 	tx := &testutil.MockTxManager{}
 
@@ -22,10 +24,45 @@ func newTestOrgService() *OrgService {
 	})
 }
 
+// newTestOrgServiceWithMaxOrgs is like newTestOrgService but with a much
+// higher per-user org cap, for tests that need to seed more than the
+// default 3 orgs (e.g. proving default-vs-unlimited Limit behavior needs
+// more than 20 rows to be a meaningful distinction).
+func newTestOrgServiceWithMaxOrgs(maxOrgs int) *OrgService {
+	orgs := testutil.NewMockOrgRepo()
+	users := testutil.NewMockUserRepo()
+	orgs.SetUsers(users)
+	sessions := testutil.NewMockSessionRepo()
+	tx := &testutil.MockTxManager{}
+
+	return NewOrgService(orgs, users, sessions, tx, OrgServiceConfig{
+		MaxOrgsPerUser: maxOrgs,
+		Logger:         nil,
+	})
+}
+
+// newTestOrgServiceWithUsers is like newTestOrgService but also returns the
+// underlying MockUserRepo, for tests that need real User records (name/email)
+// to exercise ListMembers' Search/OrderBy against name/email.
+func newTestOrgServiceWithUsers() (*OrgService, *testutil.MockUserRepo) {
+	orgs := testutil.NewMockOrgRepo()
+	users := testutil.NewMockUserRepo()
+	orgs.SetUsers(users)
+	sessions := testutil.NewMockSessionRepo()
+	tx := &testutil.MockTxManager{}
+
+	svc := NewOrgService(orgs, users, sessions, tx, OrgServiceConfig{
+		MaxOrgsPerUser: 3,
+		Logger:         nil,
+	})
+	return svc, users
+}
+
 func newTestOrgInviteService() (*OrgService, *OrgInviteService) {
 	orgs := testutil.NewMockOrgRepo()
 	invites := testutil.NewMockOrgInviteRepo()
 	users := testutil.NewMockUserRepo()
+	orgs.SetUsers(users)
 	sessions := testutil.NewMockSessionRepo()
 	tx := &testutil.MockTxManager{}
 	gen := &testutil.MockTokenGen{}
@@ -271,12 +308,98 @@ func TestListUserOrgs(t *testing.T) {
 	svc.CreateOrg(ctx, CreateOrgInput{Name: "A", Slug: "org-a", OwnerID: "user-1"})
 	svc.CreateOrg(ctx, CreateOrgInput{Name: "B", Slug: "org-b", OwnerID: "user-1"})
 
-	orgs, err := svc.ListUserOrgs(ctx, "user-1")
+	result, err := svc.ListUserOrgs(ctx, ListUserOrgsInput{UserID: "user-1"})
 	if err != nil {
 		t.Fatalf("ListUserOrgs failed: %v", err)
 	}
-	if len(orgs) != 2 {
-		t.Errorf("expected 2 orgs, got %d", len(orgs))
+	if len(result.Orgs) != 2 {
+		t.Errorf("expected 2 orgs, got %d", len(result.Orgs))
+	}
+	if result.Total != 2 {
+		t.Errorf("expected total 2, got %d", result.Total)
+	}
+}
+
+func TestListUserOrgs_Search(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme Corp", Slug: "acme-corp", OwnerID: "user-1"})
+	svc.CreateOrg(ctx, CreateOrgInput{Name: "Widgets Inc", Slug: "widgets-inc", OwnerID: "user-1"})
+
+	search := "acme"
+	result, err := svc.ListUserOrgs(ctx, ListUserOrgsInput{UserID: "user-1", Search: &search})
+	if err != nil {
+		t.Fatalf("ListUserOrgs failed: %v", err)
+	}
+	if len(result.Orgs) != 1 || result.Orgs[0].Name != "Acme Corp" {
+		t.Errorf("expected only Acme Corp, got %+v", result.Orgs)
+	}
+}
+
+func TestListUserOrgs_Sort(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	svc.CreateOrg(ctx, CreateOrgInput{Name: "Zeta", Slug: "zeta", OwnerID: "user-1"})
+	svc.CreateOrg(ctx, CreateOrgInput{Name: "Alpha", Slug: "alpha", OwnerID: "user-1"})
+
+	result, err := svc.ListUserOrgs(ctx, ListUserOrgsInput{UserID: "user-1", OrderBy: "name", OrderDirection: "asc"})
+	if err != nil {
+		t.Fatalf("ListUserOrgs failed: %v", err)
+	}
+	if len(result.Orgs) != 2 || result.Orgs[0].Name != "Alpha" || result.Orgs[1].Name != "Zeta" {
+		t.Fatalf("expected [Alpha, Zeta] ascending, got %+v", result.Orgs)
+	}
+
+	result, err = svc.ListUserOrgs(ctx, ListUserOrgsInput{UserID: "user-1", OrderBy: "name", OrderDirection: "desc"})
+	if err != nil {
+		t.Fatalf("ListUserOrgs failed: %v", err)
+	}
+	if len(result.Orgs) != 2 || result.Orgs[0].Name != "Zeta" || result.Orgs[1].Name != "Alpha" {
+		t.Fatalf("expected [Zeta, Alpha] descending, got %+v", result.Orgs)
+	}
+}
+
+func TestListUserOrgs_DefaultLimit(t *testing.T) {
+	svc := newTestOrgServiceWithMaxOrgs(30)
+	ctx := context.Background()
+
+	for i := 0; i < 25; i++ {
+		slug := "org-" + string(rune('a'+i))
+		svc.CreateOrg(ctx, CreateOrgInput{Name: slug, Slug: slug, OwnerID: "user-1"})
+	}
+
+	// Limit left nil (not set) — must default to 20, not return everything.
+	result, err := svc.ListUserOrgs(ctx, ListUserOrgsInput{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("ListUserOrgs failed: %v", err)
+	}
+	if len(result.Orgs) != 20 || result.Limit != 20 {
+		t.Errorf("expected 20 orgs (default limit), got %d orgs, limit=%d", len(result.Orgs), result.Limit)
+	}
+	if result.Total != 25 {
+		t.Errorf("expected total 25, got %d", result.Total)
+	}
+}
+
+func TestListUserOrgs_Unlimited(t *testing.T) {
+	svc := newTestOrgServiceWithMaxOrgs(30)
+	ctx := context.Background()
+
+	for i := 0; i < 25; i++ {
+		slug := "org-" + string(rune('a'+i))
+		svc.CreateOrg(ctx, CreateOrgInput{Name: slug, Slug: slug, OwnerID: "user-1"})
+	}
+
+	// Explicit Limit: 0 must return every row, not the default 20.
+	zero := 0
+	result, err := svc.ListUserOrgs(ctx, ListUserOrgsInput{UserID: "user-1", Limit: &zero})
+	if err != nil {
+		t.Fatalf("ListUserOrgs failed: %v", err)
+	}
+	if len(result.Orgs) != 25 || result.Limit != 0 {
+		t.Errorf("expected all 25 orgs (unlimited), got %d orgs, limit=%d", len(result.Orgs), result.Limit)
 	}
 }
 
@@ -557,15 +680,136 @@ func TestListMembers_Pagination(t *testing.T) {
 		svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: uid, Role: domain.OrgRoleMember, ActorID: "user-1"})
 	}
 
-	members, total, err := svc.ListMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "user-1", Offset: 0, Limit: 2})
+	two := 2
+	result, err := svc.ListMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "user-1", Offset: 0, Limit: &two})
 	if err != nil {
 		t.Fatalf("ListMembers failed: %v", err)
 	}
-	if len(members) > 2 {
-		t.Errorf("expected at most 2 members, got %d", len(members))
+	if len(result.Members) > 2 {
+		t.Errorf("expected at most 2 members, got %d", len(result.Members))
 	}
-	if total < 5 {
-		t.Errorf("expected total >= 5, got %d", total)
+	if result.Total < 5 {
+		t.Errorf("expected total >= 5, got %d", result.Total)
+	}
+}
+
+func TestListMembers_DefaultLimit(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "user-1"})
+	for i := 0; i < 25; i++ {
+		uid := "user-" + string(rune('a'+i))
+		svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: uid, Role: domain.OrgRoleMember, ActorID: "user-1"})
+	}
+
+	// Limit left nil (not set) — must default to 20, not return everything.
+	result, err := svc.ListMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "user-1"})
+	if err != nil {
+		t.Fatalf("ListMembers failed: %v", err)
+	}
+	if len(result.Members) != 20 || result.Limit != 20 {
+		t.Errorf("expected 20 members (default limit), got %d members, limit=%d", len(result.Members), result.Limit)
+	}
+	if result.Total != 26 { // 25 added members + the owner
+		t.Errorf("expected total 26, got %d", result.Total)
+	}
+}
+
+func TestListMembers_Unlimited(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "user-1"})
+	for i := 0; i < 25; i++ {
+		uid := "user-" + string(rune('a'+i))
+		svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: uid, Role: domain.OrgRoleMember, ActorID: "user-1"})
+	}
+
+	// Explicit Limit: 0 must return every row, not the default 20.
+	zero := 0
+	result, err := svc.ListMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "user-1", Limit: &zero})
+	if err != nil {
+		t.Fatalf("ListMembers failed: %v", err)
+	}
+	if len(result.Members) != 26 || result.Limit != 0 {
+		t.Errorf("expected all 26 members (unlimited), got %d members, limit=%d", len(result.Members), result.Limit)
+	}
+}
+
+func TestListMembers_RoleFilter(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "admin-1", Role: domain.OrgRoleAdmin, ActorID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	role := domain.OrgRoleMember
+	result, err := svc.ListMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "owner-1", Role: &role})
+	if err != nil {
+		t.Fatalf("ListMembers failed: %v", err)
+	}
+	if result.Total != 2 {
+		t.Fatalf("expected 2 members, got %d", result.Total)
+	}
+	for _, m := range result.Members {
+		if m.Role != domain.OrgRoleMember {
+			t.Errorf("expected only member role, got %s for %s", m.Role, m.UserID)
+		}
+	}
+}
+
+func TestListMembers_Search(t *testing.T) {
+	svc, users := newTestOrgServiceWithUsers()
+	ctx := context.Background()
+
+	users.Create(ctx, &domain.User{ID: "owner-1", Email: "owner@example.com", Name: "Owner One"})
+	users.Create(ctx, &domain.User{ID: "user-2", Email: "alice@example.com", Name: "Alice Anderson"})
+	users.Create(ctx, &domain.User{ID: "user-3", Email: "bob@example.com", Name: "Bob Baker"})
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-3", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	search := "alice"
+	result, err := svc.ListMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "owner-1", Search: &search})
+	if err != nil {
+		t.Fatalf("ListMembers failed: %v", err)
+	}
+	if len(result.Members) != 1 || result.Members[0].UserID != "user-2" {
+		t.Fatalf("expected only user-2 (Alice), got %+v", result.Members)
+	}
+}
+
+func TestListMembers_Sort(t *testing.T) {
+	svc, users := newTestOrgServiceWithUsers()
+	ctx := context.Background()
+
+	users.Create(ctx, &domain.User{ID: "owner-1", Email: "owner@example.com", Name: "Owner One"})
+	users.Create(ctx, &domain.User{ID: "admin-1", Email: "admin@example.com", Name: "Admin One"})
+	users.Create(ctx, &domain.User{ID: "member-1", Email: "member@example.com", Name: "Member One"})
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "admin-1", Role: domain.OrgRoleAdmin, ActorID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	// Sorting by "role" is alphabetical on the raw string column
+	// (admin < member < owner) — NOT by OrgRole.Weight() seniority — so
+	// ascending order here is admin, member, owner, not owner-first.
+	result, err := svc.ListMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "owner-1", OrderBy: "role", OrderDirection: "asc"})
+	if err != nil {
+		t.Fatalf("ListMembers failed: %v", err)
+	}
+	if len(result.Members) != 3 {
+		t.Fatalf("expected 3 members, got %d", len(result.Members))
+	}
+	wantOrder := []domain.OrgRole{domain.OrgRoleAdmin, domain.OrgRoleMember, domain.OrgRoleOwner}
+	for i, want := range wantOrder {
+		if result.Members[i].Role != want {
+			t.Errorf("position %d: expected role %s, got %s", i, want, result.Members[i].Role)
+		}
 	}
 }
 
@@ -602,6 +846,7 @@ func newTestOrgInviteServiceNoMailer() (*OrgService, *OrgInviteService, *testuti
 	orgs := testutil.NewMockOrgRepo()
 	invites := testutil.NewMockOrgInviteRepo()
 	users := testutil.NewMockUserRepo()
+	orgs.SetUsers(users)
 	sessions := testutil.NewMockSessionRepo()
 	tx := &testutil.MockTxManager{}
 	gen := &testutil.MockTokenGen{}
@@ -727,12 +972,114 @@ func TestListOrgInvites(t *testing.T) {
 		OrgID: org.ID, Email: "c@d.com", Role: domain.OrgRoleAdmin, InvitedBy: "owner-1",
 	})
 
-	invites, err := inviteSvc.ListOrgInvites(ctx, org.ID, "owner-1")
+	result, err := inviteSvc.ListOrgInvites(ctx, ListOrgInvitesInput{OrgID: org.ID, ActorID: "owner-1"})
 	if err != nil {
 		t.Fatalf("ListOrgInvites failed: %v", err)
 	}
-	if len(invites) != 2 {
-		t.Errorf("expected 2 invites, got %d", len(invites))
+	if len(result.Invites) != 2 {
+		t.Errorf("expected 2 invites, got %d", len(result.Invites))
+	}
+	if result.Total != 2 || result.Limit != 20 {
+		t.Errorf("expected total 2, limit 20 (default), got total %d, limit %d", result.Total, result.Limit)
+	}
+}
+
+func TestListOrgInvites_StatusFilter(t *testing.T) {
+	orgSvc, inviteSvc := newTestOrgInviteService()
+	ctx := context.Background()
+
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	pending, _ := inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{
+		OrgID: org.ID, Email: "pending@test.com", Role: domain.OrgRoleMember, InvitedBy: "owner-1",
+	})
+	expired, _ := inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{
+		OrgID: org.ID, Email: "expired@test.com", Role: domain.OrgRoleMember, InvitedBy: "owner-1",
+	})
+	// Backdate the second invite directly — the service won't let you create
+	// an already-expired one, so mutate it post-creation via the repo.
+	expired.ExpiresAt = time.Now().UTC().Add(-time.Hour)
+	if err := inviteSvc.orgInvites.Update(ctx, expired); err != nil {
+		t.Fatal(err)
+	}
+
+	pendingStatus := "pending"
+	result, err := inviteSvc.ListOrgInvites(ctx, ListOrgInvitesInput{OrgID: org.ID, ActorID: "owner-1", Status: &pendingStatus})
+	if err != nil {
+		t.Fatalf("ListOrgInvites failed: %v", err)
+	}
+	if len(result.Invites) != 1 || result.Invites[0].ID != pending.ID {
+		t.Fatalf("expected only the pending invite, got %+v", result.Invites)
+	}
+
+	expiredStatus := "expired"
+	result, err = inviteSvc.ListOrgInvites(ctx, ListOrgInvitesInput{OrgID: org.ID, ActorID: "owner-1", Status: &expiredStatus})
+	if err != nil {
+		t.Fatalf("ListOrgInvites failed: %v", err)
+	}
+	if len(result.Invites) != 1 || result.Invites[0].ID != expired.ID {
+		t.Fatalf("expected only the expired invite, got %+v", result.Invites)
+	}
+}
+
+func TestListOrgInvites_Search(t *testing.T) {
+	orgSvc, inviteSvc := newTestOrgInviteService()
+	ctx := context.Background()
+
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{OrgID: org.ID, Email: "alice@test.com", Role: domain.OrgRoleMember, InvitedBy: "owner-1"})
+	inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{OrgID: org.ID, Email: "bob@test.com", Role: domain.OrgRoleMember, InvitedBy: "owner-1"})
+
+	search := "alice"
+	result, err := inviteSvc.ListOrgInvites(ctx, ListOrgInvitesInput{OrgID: org.ID, ActorID: "owner-1", Search: &search})
+	if err != nil {
+		t.Fatalf("ListOrgInvites failed: %v", err)
+	}
+	if len(result.Invites) != 1 || result.Invites[0].Email != "alice@test.com" {
+		t.Fatalf("expected only alice@test.com, got %+v", result.Invites)
+	}
+}
+
+func TestListOrgInvites_DefaultLimit(t *testing.T) {
+	orgSvc, inviteSvc := newTestOrgInviteService()
+	ctx := context.Background()
+
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	for i := 0; i < 25; i++ {
+		inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{
+			OrgID: org.ID, Email: fmt.Sprintf("invite%d@test.com", i), Role: domain.OrgRoleMember, InvitedBy: "owner-1",
+		})
+	}
+
+	result, err := inviteSvc.ListOrgInvites(ctx, ListOrgInvitesInput{OrgID: org.ID, ActorID: "owner-1"})
+	if err != nil {
+		t.Fatalf("ListOrgInvites failed: %v", err)
+	}
+	if len(result.Invites) != 20 || result.Limit != 20 {
+		t.Errorf("expected 20 invites (default limit), got %d, limit=%d", len(result.Invites), result.Limit)
+	}
+	if result.Total != 25 {
+		t.Errorf("expected total 25, got %d", result.Total)
+	}
+}
+
+func TestListOrgInvites_Unlimited(t *testing.T) {
+	orgSvc, inviteSvc := newTestOrgInviteService()
+	ctx := context.Background()
+
+	org, _ := orgSvc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
+	for i := 0; i < 25; i++ {
+		inviteSvc.CreateOrgInvite(ctx, CreateOrgInviteInput{
+			OrgID: org.ID, Email: fmt.Sprintf("invite%d@test.com", i), Role: domain.OrgRoleMember, InvitedBy: "owner-1",
+		})
+	}
+
+	zero := 0
+	result, err := inviteSvc.ListOrgInvites(ctx, ListOrgInvitesInput{OrgID: org.ID, ActorID: "owner-1", Limit: &zero})
+	if err != nil {
+		t.Fatalf("ListOrgInvites failed: %v", err)
+	}
+	if len(result.Invites) != 25 || result.Limit != 0 {
+		t.Errorf("expected all 25 invites (unlimited), got %d, limit=%d", len(result.Invites), result.Limit)
 	}
 }
 

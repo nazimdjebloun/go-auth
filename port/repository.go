@@ -197,6 +197,27 @@ type ProviderAccountRepository interface {
 	Delete(ctx context.Context, userID, provider string) error
 }
 
+// OrgMemberFilter narrows and orders OrgCRUD.ListMembers within one org.
+// orgID stays a separate positional argument on ListMembers rather than a
+// field here — it's a hard scoping boundary, not an optional filter.
+type OrgMemberFilter struct {
+	Role           *domain.OrgRole
+	Search         *string // matches member's name or email
+	OrderBy        string  // "joined_at" (default), "role", "name", or "email"
+	OrderDirection string  // "asc" or "desc"
+	Offset         int
+	Limit          int // 0 means unlimited
+}
+
+// UserOrgFilter narrows and orders OrgCRUD.ListUserOrgs for one user.
+type UserOrgFilter struct {
+	Search         *string // matches org name or slug
+	OrderBy        string  // "name" (default), "created_at", or "member_count"
+	OrderDirection string  // "asc" or "desc"
+	Offset         int
+	Limit          int // 0 means unlimited
+}
+
 // OrgCRUD covers organization and membership records themselves — creating,
 // reading, updating, and deleting orgs and their members.
 type OrgCRUD interface {
@@ -210,8 +231,8 @@ type OrgCRUD interface {
 	RemoveMember(ctx context.Context, orgID, userID string) error
 	UpdateMemberRole(ctx context.Context, orgID, userID string, role domain.OrgRole) error
 	GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error)
-	ListMembers(ctx context.Context, orgID string, offset, limit int) ([]domain.OrgMemberDetail, int, error)
-	ListUserOrgs(ctx context.Context, userID string) ([]domain.Organization, error)
+	ListMembers(ctx context.Context, orgID string, filter OrgMemberFilter) ([]domain.OrgMemberDetail, int, error)
+	ListUserOrgs(ctx context.Context, userID string, filter UserOrgFilter) ([]domain.Organization, int, error)
 }
 
 // OrgLimitCounters maintains the denormalized owner/member counts that back
@@ -236,11 +257,24 @@ type OrgRepository interface {
 	OrgLimitCounters
 }
 
+// OrgInviteFilter narrows and orders OrgInviteRepository.ListByOrgID for one
+// org. Status is derived from ExpiresAt vs the query time, not a stored
+// column — there is no persisted invite status.
+type OrgInviteFilter struct {
+	Role           *domain.OrgRole
+	Status         *string // "pending" or "expired"; nil means both
+	Search         *string // matches invite email
+	OrderBy        string  // "created_at" (default), "expires_at", "email", "role"
+	OrderDirection string  // "asc" or "desc"
+	Offset         int
+	Limit          int // 0 means unlimited
+}
+
 type OrgInviteRepository interface {
 	Create(ctx context.Context, invite *domain.OrgInvite) error
 	GetByID(ctx context.Context, id string) (*domain.OrgInvite, error)
 	GetByCodeHash(ctx context.Context, codeHash string) (*domain.OrgInvite, error)
-	ListByOrgID(ctx context.Context, orgID string) ([]domain.OrgInvite, error)
+	ListByOrgID(ctx context.Context, orgID string, filter OrgInviteFilter) ([]domain.OrgInvite, int, error)
 	Update(ctx context.Context, invite *domain.OrgInvite) error
 	Delete(ctx context.Context, id string) error
 	ClaimInvite(ctx context.Context, id string) (bool, error)

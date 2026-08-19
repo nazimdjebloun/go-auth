@@ -247,11 +247,54 @@ func (s *OrgInviteService) AcceptInvite(ctx context.Context, input AcceptInviteI
 
 // ─── ListOrgInvites ─────────────────────────────────────────────────
 
-func (s *OrgInviteService) ListOrgInvites(ctx context.Context, orgID, actorID string) ([]domain.OrgInvite, error) {
-	if err := s.requireRole(ctx, orgID, actorID, domain.OrgRoleAdmin); err != nil {
+type ListOrgInvitesInput struct {
+	OrgID          string
+	ActorID        string
+	Role           *domain.OrgRole
+	Status         *string
+	Search         *string
+	OrderBy        string
+	OrderDirection string
+	Offset         int
+	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
+}
+
+type ListOrgInvitesResult struct {
+	Invites []domain.OrgInvite `json:"invites"`
+	Total   int                `json:"total"`
+	Limit   int                `json:"limit"`
+	Offset  int                `json:"offset"`
+}
+
+func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input ListOrgInvitesInput) (*ListOrgInvitesResult, error) {
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return nil, err
 	}
-	return s.orgInvites.ListByOrgID(ctx, orgID)
+	limit := 20
+	if input.Limit != nil {
+		limit = *input.Limit
+		if limit < 0 {
+			limit = 20
+		} else if limit > 100 {
+			limit = 100
+		}
+	}
+	invites, total, err := s.orgInvites.ListByOrgID(ctx, input.OrgID, port.OrgInviteFilter{
+		Role:           input.Role,
+		Status:         input.Status,
+		Search:         input.Search,
+		OrderBy:        input.OrderBy,
+		OrderDirection: input.OrderDirection,
+		Offset:         input.Offset,
+		Limit:          limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if invites == nil {
+		invites = []domain.OrgInvite{}
+	}
+	return &ListOrgInvitesResult{Invites: invites, Total: total, Limit: limit, Offset: input.Offset}, nil
 }
 
 // ─── DeleteOrgInvite ────────────────────────────────────────────────

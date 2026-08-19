@@ -285,8 +285,46 @@ func (s *OrgService) DeleteOrg(ctx context.Context, input DeleteOrgInput) error 
 	return nil
 }
 
-func (s *OrgService) ListUserOrgs(ctx context.Context, userID string) ([]domain.Organization, error) {
-	return s.orgs.ListUserOrgs(ctx, userID)
+type ListUserOrgsInput struct {
+	UserID         string
+	Search         *string
+	OrderBy        string
+	OrderDirection string
+	Offset         int
+	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
+}
+
+type ListUserOrgsResult struct {
+	Orgs   []domain.Organization `json:"orgs"`
+	Total  int                   `json:"total"`
+	Limit  int                   `json:"limit"`
+	Offset int                   `json:"offset"`
+}
+
+func (s *OrgService) ListUserOrgs(ctx context.Context, input ListUserOrgsInput) (*ListUserOrgsResult, error) {
+	limit := 20
+	if input.Limit != nil {
+		limit = *input.Limit
+		if limit < 0 {
+			limit = 20
+		} else if limit > 100 {
+			limit = 100
+		}
+	}
+	orgs, total, err := s.orgs.ListUserOrgs(ctx, input.UserID, port.UserOrgFilter{
+		Search:         input.Search,
+		OrderBy:        input.OrderBy,
+		OrderDirection: input.OrderDirection,
+		Offset:         input.Offset,
+		Limit:          limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if orgs == nil {
+		orgs = []domain.Organization{}
+	}
+	return &ListUserOrgsResult{Orgs: orgs, Total: total, Limit: limit, Offset: input.Offset}, nil
 }
 
 type GetOrgMembershipInput struct {
@@ -506,23 +544,51 @@ func (s *OrgService) LeaveOrg(ctx context.Context, input LeaveOrgInput) error {
 }
 
 type ListMembersInput struct {
-	OrgID   string
-	ActorID string
-	Offset  int
-	Limit   int
+	OrgID          string
+	ActorID        string
+	Role           *domain.OrgRole
+	Search         *string
+	OrderBy        string
+	OrderDirection string
+	Offset         int
+	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
 }
 
-func (s *OrgService) ListMembers(ctx context.Context, input ListMembersInput) ([]domain.OrgMemberDetail, int, error) {
+type ListMembersResult struct {
+	Members []domain.OrgMemberDetail `json:"members"`
+	Total   int                      `json:"total"`
+	Limit   int                      `json:"limit"`
+	Offset  int                      `json:"offset"`
+}
+
+func (s *OrgService) ListMembers(ctx context.Context, input ListMembersInput) (*ListMembersResult, error) {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	limit := input.Limit
-	if limit <= 0 {
-		limit = 20
-	} else if limit > 100 {
-		limit = 100
+	limit := 20
+	if input.Limit != nil {
+		limit = *input.Limit
+		if limit < 0 {
+			limit = 20
+		} else if limit > 100 {
+			limit = 100
+		}
 	}
-	return s.orgs.ListMembers(ctx, input.OrgID, input.Offset, limit)
+	members, total, err := s.orgs.ListMembers(ctx, input.OrgID, port.OrgMemberFilter{
+		Role:           input.Role,
+		Search:         input.Search,
+		OrderBy:        input.OrderBy,
+		OrderDirection: input.OrderDirection,
+		Offset:         input.Offset,
+		Limit:          limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if members == nil {
+		members = []domain.OrgMemberDetail{}
+	}
+	return &ListMembersResult{Members: members, Total: total, Limit: limit, Offset: input.Offset}, nil
 }
 
 type SetActiveOrgInput struct {

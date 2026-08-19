@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -268,6 +269,113 @@ func TestListUserOrgs_HappyPath(t *testing.T) {
 	}
 }
 
+func TestListUserOrgs_OrderByWhitelist(t *testing.T) {
+	th := newTestHarness()
+	user := seedOrgUser(t, th)
+	org := seedOrg(t, th, user.ID)
+
+	// A bogus orderBy must fall back to the default ("name") rather than
+	// erroring — the whitelist substitution guards against it ever reaching
+	// raw SQL.
+	req := httptest.NewRequest(http.MethodGet, "/orgs?orderBy=DROP+TABLE+organizations&orderDirection=bogus", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
+	w := httptest.NewRecorder()
+	th.handler.ListUserOrgs(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var resp struct {
+		Orgs   []domain.Organization `json:"orgs"`
+		Total  int                   `json:"total"`
+		Limit  int                   `json:"limit"`
+		Offset int                   `json:"offset"`
+	}
+	json.NewDecoder(res.Body).Decode(&resp)
+	if len(resp.Orgs) != 1 || resp.Orgs[0].ID != org.ID {
+		t.Errorf("expected [%s], got %+v", org.ID, resp.Orgs)
+	}
+	if resp.Total != 1 || resp.Limit != 20 {
+		t.Errorf("expected total 1, limit 20 (default), got total %d, limit %d", resp.Total, resp.Limit)
+	}
+}
+
+func TestListUserOrgs_SearchParam(t *testing.T) {
+	th := newTestHarness()
+	user := seedOrgUser(t, th)
+	seedOrg(t, th, user.ID) // name "TestOrg", slug "test-org"
+
+	req := httptest.NewRequest(http.MethodGet, "/orgs?search=nomatch", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
+	w := httptest.NewRecorder()
+	th.handler.ListUserOrgs(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var resp struct {
+		Orgs []domain.Organization `json:"orgs"`
+	}
+	json.NewDecoder(res.Body).Decode(&resp)
+	if len(resp.Orgs) != 0 {
+		t.Errorf("expected no orgs for non-matching search, got %+v", resp.Orgs)
+	}
+}
+
+func TestListUserOrgs_ExplicitZeroLimit(t *testing.T) {
+	th := newTestHarness()
+	user := seedOrgUser(t, th)
+	for i := 0; i < 25; i++ {
+		org := &domain.Organization{
+			ID: fmt.Sprintf("org-%d", i), Name: fmt.Sprintf("Org %d", i), Slug: fmt.Sprintf("org-%d", i),
+			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+		}
+		if err := th.orgs.Create(context.Background(), org); err != nil {
+			t.Fatal(err)
+		}
+		if err := th.orgs.AddMember(context.Background(), &domain.OrgMember{
+			OrgID: org.ID, UserID: user.ID, Role: domain.OrgRoleOwner, JoinedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// No limit param — must default to 20.
+	req := httptest.NewRequest(http.MethodGet, "/orgs", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
+	w := httptest.NewRecorder()
+	th.handler.ListUserOrgs(w, req)
+
+	var defaultResp struct {
+		Orgs  []domain.Organization `json:"orgs"`
+		Total int                   `json:"total"`
+		Limit int                   `json:"limit"`
+	}
+	json.NewDecoder(w.Result().Body).Decode(&defaultResp)
+	if len(defaultResp.Orgs) != 20 || defaultResp.Limit != 20 || defaultResp.Total != 25 {
+		t.Errorf("expected 20 orgs, limit=20, total=25 by default, got %d orgs, limit=%d, total=%d",
+			len(defaultResp.Orgs), defaultResp.Limit, defaultResp.Total)
+	}
+
+	// ?limit=0 — must return everything.
+	req = httptest.NewRequest(http.MethodGet, "/orgs?limit=0", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
+	w = httptest.NewRecorder()
+	th.handler.ListUserOrgs(w, req)
+
+	var unlimitedResp struct {
+		Orgs  []domain.Organization `json:"orgs"`
+		Limit int                   `json:"limit"`
+	}
+	json.NewDecoder(w.Result().Body).Decode(&unlimitedResp)
+	if len(unlimitedResp.Orgs) != 25 || unlimitedResp.Limit != 0 {
+		t.Errorf("expected all 25 orgs with limit=0 (unlimited), got %d orgs, limit=%d",
+			len(unlimitedResp.Orgs), unlimitedResp.Limit)
+	}
+}
+
 func TestListUserOrgs_Unauthenticated(t *testing.T) {
 	th := newTestHarness()
 
@@ -303,6 +411,113 @@ func TestListOrgMembers_HappyPath(t *testing.T) {
 	json.NewDecoder(res.Body).Decode(&resp)
 	if resp.Total != 1 || len(resp.Members) != 1 {
 		t.Errorf("expected 1 member, got %d total, %d in list", resp.Total, len(resp.Members))
+	}
+}
+
+func TestListOrgMembers_OrderByWhitelist(t *testing.T) {
+	th := newTestHarness()
+	user := seedOrgUser(t, th)
+	org := seedOrg(t, th, user.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/orgs/"+org.ID+"/members?orderBy=DROP+TABLE+users&orderDirection=bogus", nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
+	w := httptest.NewRecorder()
+	th.handler.ListOrgMembers(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var resp struct {
+		Members []domain.OrgMemberDetail `json:"members"`
+		Total   int                      `json:"total"`
+		Limit   int                      `json:"limit"`
+		Offset  int                      `json:"offset"`
+	}
+	json.NewDecoder(res.Body).Decode(&resp)
+	if resp.Total != 1 || len(resp.Members) != 1 || resp.Limit != 20 {
+		t.Errorf("expected 1 member, limit 20 (default), got total %d, len %d, limit %d", resp.Total, len(resp.Members), resp.Limit)
+	}
+}
+
+func TestListOrgMembers_RoleFilterParam(t *testing.T) {
+	th := newTestHarness()
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+	member := seedSecondUser(t, th)
+	if err := th.orgs.AddMember(context.Background(), &domain.OrgMember{
+		OrgID: org.ID, UserID: member.ID, Role: domain.OrgRoleMember, JoinedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/orgs/"+org.ID+"/members?role=owner", nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), owner))
+	w := httptest.NewRecorder()
+	th.handler.ListOrgMembers(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var resp struct {
+		Members []domain.OrgMemberDetail `json:"members"`
+		Total   int                      `json:"total"`
+	}
+	json.NewDecoder(res.Body).Decode(&resp)
+	if resp.Total != 1 || len(resp.Members) != 1 || resp.Members[0].UserID != owner.ID {
+		t.Errorf("expected only the owner, got %+v", resp.Members)
+	}
+}
+
+func TestListOrgMembers_ExplicitZeroLimit(t *testing.T) {
+	th := newTestHarness()
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+	for i := 0; i < 24; i++ { // + the owner = 25 members total
+		if err := th.orgs.AddMember(context.Background(), &domain.OrgMember{
+			OrgID: org.ID, UserID: fmt.Sprintf("member-%d", i), Role: domain.OrgRoleMember, JoinedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// No limit param — must default to 20.
+	req := httptest.NewRequest(http.MethodGet, "/orgs/"+org.ID+"/members", nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), owner))
+	w := httptest.NewRecorder()
+	th.handler.ListOrgMembers(w, req)
+
+	var defaultResp struct {
+		Members []domain.OrgMemberDetail `json:"members"`
+		Total   int                      `json:"total"`
+		Limit   int                      `json:"limit"`
+	}
+	json.NewDecoder(w.Result().Body).Decode(&defaultResp)
+	if len(defaultResp.Members) != 20 || defaultResp.Limit != 20 || defaultResp.Total != 25 {
+		t.Errorf("expected 20 members, limit=20, total=25 by default, got %d members, limit=%d, total=%d",
+			len(defaultResp.Members), defaultResp.Limit, defaultResp.Total)
+	}
+
+	// ?limit=0 — must return everything.
+	req = httptest.NewRequest(http.MethodGet, "/orgs/"+org.ID+"/members?limit=0", nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), owner))
+	w = httptest.NewRecorder()
+	th.handler.ListOrgMembers(w, req)
+
+	var unlimitedResp struct {
+		Members []domain.OrgMemberDetail `json:"members"`
+		Total   int                      `json:"total"`
+		Limit   int                      `json:"limit"`
+	}
+	json.NewDecoder(w.Result().Body).Decode(&unlimitedResp)
+	if len(unlimitedResp.Members) != 25 || unlimitedResp.Limit != 0 {
+		t.Errorf("expected all 25 members with limit=0 (unlimited), got %d members, limit=%d",
+			len(unlimitedResp.Members), unlimitedResp.Limit)
 	}
 }
 
@@ -590,10 +805,74 @@ func TestListOrgInvites_HappyPath(t *testing.T) {
 	}
 	var resp struct {
 		Invites []domain.OrgInvite `json:"invites"`
+		Total   int                `json:"total"`
+		Limit   int                `json:"limit"`
+		Offset  int                `json:"offset"`
+	}
+	json.NewDecoder(res.Body).Decode(&resp)
+	if len(resp.Invites) != 1 || resp.Total != 1 || resp.Limit != 20 {
+		t.Errorf("expected 1 invite, total 1, limit 20 (default), got %d invites, total=%d, limit=%d",
+			len(resp.Invites), resp.Total, resp.Limit)
+	}
+}
+
+func TestListOrgInvites_OrderByWhitelist(t *testing.T) {
+	th := newTestHarness()
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	if err := th.orgInvites.Create(context.Background(), &domain.OrgInvite{
+		ID: "inv-1", OrgID: org.ID, Email: "pending@test.com", Role: domain.OrgRoleMember,
+		CodeHash: "hash", InvitedBy: owner.ID, ExpiresAt: time.Now().UTC().Add(time.Hour), CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/orgs/"+org.ID+"/invites?orderBy=DROP+TABLE+organization_invites&orderDirection=bogus", nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), owner))
+	w := httptest.NewRecorder()
+	th.handler.ListOrgInvites(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var resp struct {
+		Invites []domain.OrgInvite `json:"invites"`
 	}
 	json.NewDecoder(res.Body).Decode(&resp)
 	if len(resp.Invites) != 1 {
-		t.Errorf("expected 1 invite, got %d", len(resp.Invites))
+		t.Errorf("expected 1 invite (bogus orderBy/orderDirection should fall back to defaults, not error), got %d", len(resp.Invites))
+	}
+}
+
+func TestListOrgInvites_ExplicitZeroLimit(t *testing.T) {
+	th := newTestHarness()
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+	for i := 0; i < 25; i++ {
+		if err := th.orgInvites.Create(context.Background(), &domain.OrgInvite{
+			ID: fmt.Sprintf("inv-%d", i), OrgID: org.ID, Email: fmt.Sprintf("invite%d@test.com", i), Role: domain.OrgRoleMember,
+			CodeHash: fmt.Sprintf("hash-%d", i), InvitedBy: owner.ID, ExpiresAt: time.Now().UTC().Add(time.Hour), CreatedAt: time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/orgs/"+org.ID+"/invites?limit=0", nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), owner))
+	w := httptest.NewRecorder()
+	th.handler.ListOrgInvites(w, req)
+
+	var resp struct {
+		Invites []domain.OrgInvite `json:"invites"`
+		Limit   int                `json:"limit"`
+	}
+	json.NewDecoder(w.Result().Body).Decode(&resp)
+	if len(resp.Invites) != 25 || resp.Limit != 0 {
+		t.Errorf("expected all 25 invites with limit=0 (unlimited), got %d, limit=%d", len(resp.Invites), resp.Limit)
 	}
 }
 

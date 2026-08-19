@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -11,6 +13,36 @@ import (
 )
 
 var _ port.OrgRepository = (*OrgRepository)(nil)
+
+// orgMemberOrderByWhitelist and orgOrderByWhitelist map caller-supplied
+// OrderBy strings to the real (table-qualified) SQL column they're allowed
+// to sort by. An unrecognized OrderBy falls back to the map's zero value
+// being handled by the caller (see ListMembers/ListUserOrgs) rather than
+// ever reaching raw SQL — column names can't be bind parameters, so this
+// whitelist-then-substitute is the injection guard, exactly like
+// orderByWhitelist in user_repo.go.
+//
+// Sorting members by "role" orders alphabetically (admin < member < owner)
+// since role is a plain string column — NOT by OrgRole.Weight() seniority.
+var orgMemberOrderByWhitelist = map[string]string{
+	"joined_at": "om.joined_at",
+	"role":      "om.role",
+	"name":      "u.name",
+	"email":     "u.email",
+}
+
+var orgOrderByWhitelist = map[string]string{
+	"name":         "o.name",
+	"created_at":   "o.created_at",
+	"member_count": "o.member_count",
+}
+
+var orgInviteOrderByWhitelist = map[string]string{
+	"created_at": "created_at",
+	"expires_at": "expires_at",
+	"email":      "email",
+	"role":       "role",
+}
 
 type OrgRepository struct {
 	db *DB
@@ -124,14 +156,63 @@ func (r *OrgRepository) GetMembership(ctx context.Context, orgID, userID string)
 	return m, nil
 }
 
-func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, offset, limit int) ([]domain.OrgMemberDetail, int, error) {
+func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, int, error) {
+	where := []string{"om.org_id = $1"}
+	args := []any{orgID}
+	argIdx := 2
+
+	if filter.Role != nil {
+		where = append(where, fmt.Sprintf("om.role = $%d", argIdx))
+		args = append(args, string(*filter.Role))
+		argIdx++
+	}
+	if filter.Search != nil && *filter.Search != "" {
+		searchTerm := "%" + *filter.Search + "%"
+		op := "ILIKE"
+		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+			op = "LIKE"
+		}
+		// Two distinct placeholders, not one reused twice: DB.Rebind rewrites
+		// every textual "$N" occurrence to "?" positionally for mysql/sqlite,
+		// so a placeholder used twice in the query text must still be backed
+		// by two separate (equal-valued) entries in args, one per occurrence.
+		where = append(where, fmt.Sprintf("(u.name %s $%d OR u.email %s $%d)", op, argIdx, op, argIdx+1))
+		args = append(args, searchTerm, searchTerm)
+		argIdx += 2
+	}
+	whereClause := strings.Join(where, " AND ")
+
 	var total int
-	err := r.db.QueryRowContext(ctx, orgListMembersCountQuery, orgID).Scan(&total)
-	if err != nil {
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM organization_members om
+		JOIN users u ON u.id = om.user_id
+		WHERE %s`, whereClause)
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
-	rows, err := r.db.QueryContext(ctx, orgListMembersQuery, orgID, limit, offset)
+	orderCol := orgMemberOrderByWhitelist[filter.OrderBy]
+	if orderCol == "" {
+		orderCol = "om.joined_at"
+	}
+	orderDir := "DESC"
+	if strings.EqualFold(filter.OrderDirection, "asc") {
+		orderDir = "ASC"
+	}
+
+	base := fmt.Sprintf(`
+		SELECT %s
+		FROM organization_members om
+		JOIN users u ON u.id = om.user_id
+		WHERE %s ORDER BY %s %s`, orgMemberSelectCols, whereClause, orderCol, orderDir)
+
+	query := base
+	if filter.Limit > 0 {
+		query = fmt.Sprintf("%s LIMIT $%d OFFSET $%d", base, argIdx, argIdx+1)
+		args = append(args, filter.Limit, filter.Offset)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -156,10 +237,58 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, offset, l
 	return members, total, rows.Err()
 }
 
-func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string) ([]domain.Organization, error) {
-	rows, err := r.db.QueryContext(ctx, orgListUserOrgsQuery, userID)
+func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, int, error) {
+	where := []string{"om.user_id = $1"}
+	args := []any{userID}
+	argIdx := 2
+
+	if filter.Search != nil && *filter.Search != "" {
+		searchTerm := "%" + *filter.Search + "%"
+		op := "ILIKE"
+		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+			op = "LIKE"
+		}
+		// See the identical comment in ListMembers: two distinct
+		// placeholders, each backed by its own arg entry.
+		where = append(where, fmt.Sprintf("(o.name %s $%d OR o.slug %s $%d)", op, argIdx, op, argIdx+1))
+		args = append(args, searchTerm, searchTerm)
+		argIdx += 2
+	}
+	whereClause := strings.Join(where, " AND ")
+
+	var total int
+	countQuery := fmt.Sprintf(`
+		SELECT COUNT(*) FROM organizations o
+		JOIN organization_members om ON om.org_id = o.id
+		WHERE %s`, whereClause)
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	orderCol := orgOrderByWhitelist[filter.OrderBy]
+	if orderCol == "" {
+		orderCol = "o.name"
+	}
+	orderDir := "DESC"
+	if strings.EqualFold(filter.OrderDirection, "asc") {
+		orderDir = "ASC"
+	}
+
+	base := fmt.Sprintf(`
+		SELECT %s
+		FROM organizations o
+		JOIN organization_members om ON om.org_id = o.id
+		WHERE %s ORDER BY %s %s`, orgSelectColsAliased, whereClause, orderCol, orderDir)
+
+	query := base
+	if filter.Limit > 0 {
+		query = fmt.Sprintf("%s LIMIT $%d OFFSET $%d", base, argIdx, argIdx+1)
+		args = append(args, filter.Limit, filter.Offset)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -167,14 +296,14 @@ func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string) ([]doma
 	for rows.Next() {
 		o, err := scanOrg(rows)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		orgs = append(orgs, *o)
 	}
 	if orgs == nil {
 		orgs = []domain.Organization{}
 	}
-	return orgs, rows.Err()
+	return orgs, total, rows.Err()
 }
 
 func (r *OrgRepository) IncrementUserOrgOwnerCount(ctx context.Context, userID string, maxOrgs int) error {
@@ -281,10 +410,70 @@ func (r *OrgInviteRepository) GetByCodeHash(ctx context.Context, codeHash string
 	return i, err
 }
 
-func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string) ([]domain.OrgInvite, error) {
-	rows, err := r.db.QueryContext(ctx, orgInviteListByOrgIDQuery, orgID)
+func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, int, error) {
+	where := []string{"org_id = $1"}
+	args := []any{orgID}
+	argIdx := 2
+
+	if filter.Role != nil {
+		where = append(where, fmt.Sprintf("role = $%d", argIdx))
+		args = append(args, string(*filter.Role))
+		argIdx++
+	}
+	if filter.Status != nil {
+		now := time.Now().UTC()
+		if *filter.Status == "expired" {
+			where = append(where, fmt.Sprintf("expires_at <= $%d", argIdx))
+		} else {
+			where = append(where, fmt.Sprintf("expires_at > $%d", argIdx))
+		}
+		args = append(args, now)
+		argIdx++
+	}
+	if filter.Search != nil && *filter.Search != "" {
+		searchTerm := "%" + *filter.Search + "%"
+		op := "ILIKE"
+		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+			op = "LIKE"
+		}
+		// Single column (email) — no reused-placeholder risk here. If a
+		// second search column is ever added, give each OR branch its own
+		// placeholder (see the identical comment in OrgRepository.ListMembers)
+		// rather than reusing one — DB.Rebind rewrites every textual "$N" to
+		// "?" positionally for mysql/sqlite, so a reused placeholder silently
+		// desyncs args from the generated "?" count on those drivers.
+		where = append(where, fmt.Sprintf("email %s $%d", op, argIdx))
+		args = append(args, searchTerm)
+		argIdx++
+	}
+	whereClause := strings.Join(where, " AND ")
+
+	var total int
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM organization_invites WHERE %s", whereClause)
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	orderCol := orgInviteOrderByWhitelist[filter.OrderBy]
+	if orderCol == "" {
+		orderCol = "created_at"
+	}
+	orderDir := "DESC"
+	if strings.EqualFold(filter.OrderDirection, "asc") {
+		orderDir = "ASC"
+	}
+
+	base := fmt.Sprintf("SELECT %s FROM organization_invites WHERE %s ORDER BY %s %s", orgInviteCols, whereClause, orderCol, orderDir)
+
+	query := base
+	if filter.Limit > 0 {
+		query = fmt.Sprintf("%s LIMIT $%d OFFSET $%d", base, argIdx, argIdx+1)
+		args = append(args, filter.Limit, filter.Offset)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
@@ -292,14 +481,14 @@ func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string) ([]
 	for rows.Next() {
 		i, err := scanOrgInvite(rows)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		invites = append(invites, *i)
 	}
 	if invites == nil {
 		invites = []domain.OrgInvite{}
 	}
-	return invites, rows.Err()
+	return invites, total, rows.Err()
 }
 
 func (r *OrgInviteRepository) Update(ctx context.Context, invite *domain.OrgInvite) error {

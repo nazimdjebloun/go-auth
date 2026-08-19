@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -491,15 +492,146 @@ func TestOrg_ListMembers(t *testing.T) {
 		}
 	}
 
-	members, total, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Offset: 0, Limit: 2})
+	two := 2
+	result, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Offset: 0, Limit: &two})
 	if err != nil {
 		t.Fatalf("ListMembers failed: %v", err)
 	}
-	if len(members) > 2 {
-		t.Errorf("expected <=2, got %d", len(members))
+	if len(result.Members) > 2 {
+		t.Errorf("expected <=2, got %d", len(result.Members))
 	}
-	if total < 4 {
-		t.Errorf("total=%d, want >=4", total)
+	if result.Total < 4 {
+		t.Errorf("total=%d, want >=4", result.Total)
+	}
+
+	// Exact-order assertion: default sort is joined_at ascending, and the
+	// owner is added first (during CreateOrg), so with Limit:2 the first
+	// page must start with the owner.
+	ordered, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{
+		OrgID: org.ID, ActorID: owner.User.ID, OrderBy: "joined_at", OrderDirection: "asc",
+	})
+	if err != nil {
+		t.Fatalf("ListMembers (ordered) failed: %v", err)
+	}
+	if len(ordered.Members) == 0 || ordered.Members[0].UserID != owner.User.ID {
+		t.Fatalf("expected owner (%s) first in joined_at asc order, got %+v", owner.User.ID, ordered.Members)
+	}
+}
+
+func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openOrgAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+
+	owner, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+		Name: "LimitTest", Slug: "limit-test", OwnerID: owner.User.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 24; i++ { // + the owner = 25 members total
+		u, rerr := a.Register(ctx, goauth.RegisterInput{
+			Email: fmt.Sprintf("m%d@test.com", i), Password: "V@lidPswd1", Name: "M",
+		})
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
+			OrgID: org.ID, UserID: u.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Limit left nil (not set) — must default to 20, proving the repo's
+	// real SQL LIMIT clause actually gets applied, not just the mock.
+	defaultResult, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID})
+	if err != nil {
+		t.Fatalf("ListMembers (default) failed: %v", err)
+	}
+	if len(defaultResult.Members) != 20 || defaultResult.Limit != 20 {
+		t.Errorf("expected 20 members (default limit), got %d, limit=%d", len(defaultResult.Members), defaultResult.Limit)
+	}
+	if defaultResult.Total != 25 {
+		t.Errorf("expected total 25, got %d", defaultResult.Total)
+	}
+
+	// Explicit Limit: 0 — must return everything, proving the repo's real
+	// SQL genuinely omits LIMIT/OFFSET rather than defaulting.
+	zero := 0
+	unlimited, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Limit: &zero})
+	if err != nil {
+		t.Fatalf("ListMembers (unlimited) failed: %v", err)
+	}
+	if len(unlimited.Members) != 25 || unlimited.Limit != 0 {
+		t.Errorf("expected all 25 members (unlimited), got %d, limit=%d", len(unlimited.Members), unlimited.Limit)
+	}
+}
+
+func TestOrg_ListMembers_Search(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openOrgAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+
+	owner, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+		Name: "SearchOrg", Slug: "search-org", OwnerID: owner.User.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	alice, rerr := a.Register(ctx, goauth.RegisterInput{
+		Email: "alice@test.com", Password: "V@lidPswd1", Name: "Alice Anderson",
+	})
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
+		OrgID: org.ID, UserID: alice.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	bob, rerr := a.Register(ctx, goauth.RegisterInput{
+		Email: "bob@test.com", Password: "V@lidPswd1", Name: "Bob Baker",
+	})
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
+		OrgID: org.ID, UserID: bob.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	search := "alice"
+	result, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Search: &search})
+	if err != nil {
+		t.Fatalf("ListMembers failed: %v", err)
+	}
+	if len(result.Members) != 1 || result.Members[0].UserID != alice.User.ID {
+		t.Fatalf("expected only Alice, got %+v", result.Members)
 	}
 }
 
@@ -525,20 +657,71 @@ func TestOrg_ListUserOrgs(t *testing.T) {
 		Name: "B", Slug: "org-b", OwnerID: owner.User.ID,
 	})
 
-	orgs, err := a.Services.Org.ListUserOrgs(ctx, owner.User.ID)
+	result, err := a.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{UserID: owner.User.ID})
 	if err != nil {
 		t.Fatalf("ListUserOrgs failed: %v", err)
 	}
-	if len(orgs) != 2 {
-		t.Errorf("expected 2, got %d", len(orgs))
+	if len(result.Orgs) != 2 {
+		t.Errorf("expected 2, got %d", len(result.Orgs))
+	}
+	if result.Total != 2 {
+		t.Errorf("expected total 2, got %d", result.Total)
 	}
 
 	ids := map[string]bool{org1.ID: true, org2.ID: true}
-	for _, o := range orgs {
+	for _, o := range result.Orgs {
 		delete(ids, o.ID)
 	}
 	if len(ids) != 0 {
 		t.Error("returned orgs don't match")
+	}
+
+	// Exact-order assertion: sort by name descending, "B" before "A".
+	descResult, err := a.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
+		UserID: owner.User.ID, OrderBy: "name", OrderDirection: "desc",
+	})
+	if err != nil {
+		t.Fatalf("ListUserOrgs (desc) failed: %v", err)
+	}
+	if len(descResult.Orgs) != 2 || descResult.Orgs[0].Name != "B" || descResult.Orgs[1].Name != "A" {
+		t.Fatalf("expected [B, A] descending, got %+v", descResult.Orgs)
+	}
+}
+
+func TestOrg_ListUserOrgs_Search(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openOrgAuth(t, db, &testMailer{})
+	defer a.Close()
+
+	ctx := context.Background()
+
+	owner, aerr := a.Register(ctx, goauth.RegisterInput{
+		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+	})
+	if aerr != nil {
+		t.Fatal(aerr)
+	}
+
+	acme, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+		Name: "Acme Corp", Slug: "acme-corp", OwnerID: owner.User.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+		Name: "Widgets Inc", Slug: "widgets-inc", OwnerID: owner.User.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	search := "acme"
+	result, err := a.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{UserID: owner.User.ID, Search: &search})
+	if err != nil {
+		t.Fatalf("ListUserOrgs failed: %v", err)
+	}
+	if len(result.Orgs) != 1 || result.Orgs[0].ID != acme.ID {
+		t.Fatalf("expected only Acme Corp, got %+v", result.Orgs)
 	}
 }
 
@@ -580,20 +763,24 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 		t.Errorf("email=%q role=%q", dbEmail, dbRole)
 	}
 
-	invites, err := a.Services.OrgInvite.ListOrgInvites(ctx, org.ID, owner.User.ID)
+	result, err := a.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
 	if err != nil {
 		t.Fatalf("ListOrgInvites failed: %v", err)
 	}
-	if len(invites) != 1 {
-		t.Errorf("expected 1, got %d", len(invites))
+	if len(result.Invites) != 1 {
+		t.Errorf("expected 1, got %d", len(result.Invites))
 	}
 
 	if err := a.Services.OrgInvite.DeleteOrgInvite(ctx, org.ID, invite.ID, owner.User.ID); err != nil {
 		t.Fatalf("DeleteOrgInvite failed: %v", err)
 	}
 
-	if _, err := a.Services.OrgInvite.ListOrgInvites(ctx, org.ID, owner.User.ID); err != nil {
+	afterDelete, err := a.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
+	if err != nil {
 		t.Fatal(err)
+	}
+	if len(afterDelete.Invites) != 0 || afterDelete.Total != 0 {
+		t.Errorf("expected 0 invites after delete, got %d (total=%d)", len(afterDelete.Invites), afterDelete.Total)
 	}
 }
 
@@ -621,12 +808,12 @@ func TestOrg_MaxOrgLimit(t *testing.T) {
 		}
 	}
 
-	orgs, err := a.Services.Org.ListUserOrgs(ctx, owner.User.ID)
+	result, err := a.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{UserID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(orgs) != 3 {
-		t.Errorf("expected 3, got %d", len(orgs))
+	if len(result.Orgs) != 3 {
+		t.Errorf("expected 3, got %d", len(result.Orgs))
 	}
 }
 
@@ -693,12 +880,12 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 	}
 
 	// Invite is claimed (no longer listed)
-	invites, err := a.Services.OrgInvite.ListOrgInvites(ctx, org.ID, owner.User.ID)
+	result, err := a.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(invites) != 0 {
-		t.Errorf("expected 0 pending invites, got %d", len(invites))
+	if len(result.Invites) != 0 {
+		t.Errorf("expected 0 pending invites, got %d", len(result.Invites))
 	}
 }
 
