@@ -140,7 +140,7 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
-| `GET /admin/audit-logs` | Admin | Query (all optional): `offset`, `limit` (default `50`, max `200`); `event_type`, `actor_id`, `target_user_id`, `session_id`, `org_id`, `search`; `from`, `to` (RFC3339 timestamps — silently ignored if unparsable); `success` (`true` \| `false`) | Filtered, paginated audit events. `404 audit_not_configured` if audit logging isn't enabled. |
+| `GET /admin/audit-logs` | Admin | Query (all optional): `offset`, `limit` (default `50`, max `200`); `event_type` (comma-separated, matches any); `actor_id`/`actorEmail`, `target_user_id`/`targetEmail` (email resolved to ID server-side, `404 user_not_found` if none), `session_id`, `org_id`, `deviceType` (`mobile`/`desktop`/`tablet`/`bot`), `ip`, `search` (substring across metadata/user agent/IP/event type); `from`, `to` (RFC3339, independently optional, silently ignored if unparsable); `success` (`true` \| `false`) | Filtered, paginated audit events. Empty (not an error) if audit logging isn't enabled. |
 | `GET /admin/users/{id}/audit-logs` | Admin | Path: `id`; same query params as above | Same as above, pre-filtered to that user. |
 
 ## Admin — stats and activity

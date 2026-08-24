@@ -26,7 +26,7 @@ goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `Enabled` | `bool` | `false` | The two endpoints below return `404 audit_not_configured` while this is off. |
+| `Enabled` | `bool` | `false` | The two endpoints below still work while this is off — they just return no events, since none were ever published. |
 | `FailureMode` | `audit.AuditFailureMode` | fail-open | Fail-open: if publishing an event errors, the request that triggered it still succeeds. Fail-closed: that request fails instead — use this only if you have a compliance requirement that an action must not happen without a corresponding log entry. |
 | `RetentionDays` | `int` | `0` | `0` means keep forever. |
 | `QueueSize` | `int` | `1000` | Events are published async onto this queue; if it's full, behavior follows `FailureMode`. |
@@ -73,14 +73,22 @@ This list can grow across versions — treat `event_type` as an opaque string in
 |---|---|---|
 | `offset` | int | Default `0` |
 | `limit` | int | Default `50`, max `200` |
-| `event_type` | string | Exact match against `type` |
-| `actor_id` | string | Who performed the action |
-| `target_user_id` | string | Who the action was performed on |
+| `event_type` | comma-separated string | Matches any of the listed types — `event_type=login.success,logout`. A single value still works exactly like before. |
+| `actor_id` | string | Who performed the action, by ID |
+| `actorEmail` | string | Who performed the action, by email — resolved to an ID server-side. `404 user_not_found` if no user has it. If both `actor_id` and `actorEmail` are given, `actorEmail` wins. |
+| `target_user_id` | string | Who the action was performed on, by ID |
+| `targetEmail` | string | Who the action was performed on, by email — same resolve-and-win rule as `actorEmail` |
 | `session_id` | string | |
 | `org_id` | string | |
-| `search` | string | Matches metadata and user agent |
-| `from`, `to` | RFC3339 datetime | Silently ignored if the value doesn't parse — no error, just no filter applied |
+| `deviceType` | string | Exact match against the parsed user agent's device type — `mobile`, `desktop`, `tablet`, or `bot` |
+| `ip` | string | Exact match against the stored IP |
+| `search` | string | Substring match across metadata, user agent, IP, and event type — a general free-text box, composes with every field filter above via AND |
+| `from`, `to` | RFC3339 datetime | Independently optional — either, both, or neither. Silently ignored if the value doesn't parse — no error, just no filter applied |
 | `success` | `true` \| `false` | Anything else is ignored |
+
+<Callout type="info" title="actorEmail/targetEmail only find currently-existing users">
+  Both resolve against the *current* `users` table by email. If the user was later deleted or changed their email, you can't look up their historical events this way — filter by `actor_id`/`target_user_id` instead if you already have it (e.g. from a linked event).
+</Callout>
 
 **Response** (`200 OK`)
 
@@ -93,7 +101,9 @@ This list can grow across versions — treat `event_type` as an opaque string in
       "severity": "warning",
       "success": false,
       "actorId": null,
+      "actorEmail": null,
       "targetUserId": null,
+      "targetEmail": null,
       "sessionId": null,
       "orgId": null,
       "ip": "192.168.1.1",
@@ -109,12 +119,19 @@ This list can grow across versions — treat `event_type` as an opaque string in
 }
 ```
 
+`actorEmail`/`targetEmail` are resolved server-side from `actorId`/`targetUserId` for the returned page — not stored, and `null` if the corresponding `*Id` is `null` or that user no longer exists.
+
 **Errors**
 
 | Code | Status | Cause |
 |---|---|---|
-| `audit_not_configured` | 404 | `WithAudit(AuditConfig{Enabled: true})` was never set |
+| `user_not_found` | 404 | `actorEmail`/`targetEmail` given but no user has that email |
+| `forbidden` | 403 | Caller isn't an admin |
 | `internal_error` | 500 | Query failure against the store |
+
+<Callout type="info" title="Empty, not an error, if audit logging was never enabled">
+  `WithAudit(AuditConfig{Enabled: true})` being unset just means no events were ever published — the query still runs, it just returns `{"events": [], "total": 0, ...}`.
+</Callout>
 
 #### curl
 
@@ -129,13 +146,15 @@ curl "https://api.myapp.com/admin/audit-logs?event_type=login.failed&limit=50" \
 #### Programmatic (Go)
 
 ```go
-events, total, err := auth.Services.AuditLog.List(ctx, port.AuditLogFilter{
-    Type:  goauth.String("login.failed"),
-    Limit: 50,
+result, err := auth.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+    ActorID:    adminID, // the admin making this call
+    EventTypes: []string{"login.failed"},
+    Limit:      50,
 })
+// result.Events, result.Total
 ```
 
-`auth.Services.AuditLog` is `nil` when audit logging isn't enabled — check that before calling into it directly the way the handler does, rather than relying on a panic.
+`AdminService.ListAuditLogs` — not `auth.Services.AuditLog.List` directly — is the supported programmatic path: it's what resolves `EventActorEmail`/`TargetEmail` to IDs and enforces the calling actor is an admin, same as every other `auth.Services.Admin.*` method.
 
 ---
 
@@ -151,7 +170,7 @@ const { events, total } = await apiRequest(
 
 ### List one user's audit logs — `GET /admin/users/{id}/audit-logs`
 
-Identical query params and response shape to the endpoint above — this one just forces `target_user_id` to the `{id}` in the path, overriding anything passed in the query string for that field.
+Identical query params and response shape to the endpoint above — this one just forces `target_user_id` to the `{id}` in the path, overriding anything passed in the query string for `target_user_id`/`targetEmail`.
 
 #### curl
 
@@ -166,7 +185,8 @@ curl "https://api.myapp.com/admin/users/b3f1.../audit-logs?limit=50" \
 #### Programmatic (Go)
 
 ```go
-events, total, err := auth.Services.AuditLog.List(ctx, port.AuditLogFilter{
+result, err := auth.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+    ActorID:      adminID,
     TargetUserID: &userID,
     Limit:        50,
 })

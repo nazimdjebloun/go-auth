@@ -140,6 +140,15 @@ func (r *UserRepository) buildWhere(filter port.UserFilter) (string, []any) {
 	args := []any{}
 	argIdx := 1
 
+	if len(filter.IDs) > 0 {
+		placeholders := make([]string, len(filter.IDs))
+		for i, id := range filter.IDs {
+			placeholders[i] = fmt.Sprintf("$%d", argIdx)
+			args = append(args, id)
+			argIdx++
+		}
+		where = append(where, fmt.Sprintf("id IN (%s)", strings.Join(placeholders, ", ")))
+	}
 	if filter.Email != nil {
 		where = append(where, fmt.Sprintf("email LIKE $%d", argIdx))
 		args = append(args, "%"+*filter.Email+"%")

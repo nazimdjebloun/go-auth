@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -156,6 +158,9 @@ func (m *MockUserRepo) CountByDay(_ context.Context, filter port.UserFilter) ([]
 }
 
 func userMatchesFilter(u *domain.User, filter port.UserFilter) bool {
+	if len(filter.IDs) > 0 && !slices.Contains(filter.IDs, u.ID) {
+		return false
+	}
 	if filter.Email != nil && !strings.Contains(strings.ToLower(u.Email), strings.ToLower(*filter.Email)) {
 		return false
 	}
@@ -344,7 +349,7 @@ func (m *MockAuditLogRepo) CountByDay(_ context.Context, filter port.AuditLogFil
 }
 
 func auditEntryMatchesFilter(e port.AuditLogEntry, filter port.AuditLogFilter) bool {
-	if filter.Type != nil && e.Type != *filter.Type {
+	if len(filter.Types) > 0 && !slices.Contains(filter.Types, e.Type) {
 		return false
 	}
 	if filter.ActorID != nil && (e.ActorID == nil || *e.ActorID != *filter.ActorID) {
@@ -359,6 +364,15 @@ func auditEntryMatchesFilter(e port.AuditLogEntry, filter port.AuditLogFilter) b
 	if filter.OrgID != nil && (e.OrgID == nil || *e.OrgID != *filter.OrgID) {
 		return false
 	}
+	if filter.DeviceType != nil && *filter.DeviceType != "" {
+		var ua domain.UserAgentInfo
+		if err := json.Unmarshal(e.ParsedUA, &ua); err != nil || ua.DeviceType != *filter.DeviceType {
+			return false
+		}
+	}
+	if filter.IP != nil && *filter.IP != "" && e.IP != *filter.IP {
+		return false
+	}
 	if filter.Success != nil && e.Success != *filter.Success {
 		return false
 	}
@@ -370,7 +384,11 @@ func auditEntryMatchesFilter(e port.AuditLogEntry, filter port.AuditLogFilter) b
 	}
 	if filter.Search != nil && *filter.Search != "" {
 		s := strings.ToLower(*filter.Search)
-		if !strings.Contains(strings.ToLower(e.UserAgent), s) && !strings.Contains(strings.ToLower(string(e.Metadata)), s) {
+		matches := strings.Contains(strings.ToLower(e.UserAgent), s) ||
+			strings.Contains(strings.ToLower(string(e.Metadata)), s) ||
+			strings.Contains(strings.ToLower(e.IP), s) ||
+			strings.Contains(strings.ToLower(e.Type), s)
+		if !matches {
 			return false
 		}
 	}

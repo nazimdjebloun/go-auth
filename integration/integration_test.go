@@ -1244,7 +1244,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 
 	// Regression: event-type filter must bind correctly.
 	loginType := "login.success"
-	typed, _, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Type: &loginType})
+	typed, _, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
 	if err != nil {
 		t.Fatalf("event-type filter must not fail: %v", err)
 	}
@@ -1252,7 +1252,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 		deadline = time.Now().Add(5 * time.Second)
 		for len(typed) == 0 && !time.Now().After(deadline) {
 			time.Sleep(50 * time.Millisecond)
-			typed, _, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Type: &loginType})
+			typed, _, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
 			if err != nil {
 				t.Fatalf("event-type filter must not fail: %v", err)
 			}

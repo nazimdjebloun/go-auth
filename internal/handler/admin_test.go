@@ -801,3 +801,140 @@ func TestBulkRevokeUserSessions(t *testing.T) {
 		t.Errorf("expected 1 succeeded, got %+v", result.Succeeded)
 	}
 }
+
+// ─── AdminListAuditLogs / AdminListUserAuditLogs ────────────────────
+
+func TestAdminListAuditLogs_MultiEventType(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	now := time.Now().UTC()
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", CreatedAt: now})
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.failed", CreatedAt: now})
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e3", Type: "logout", CreatedAt: now})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/audit-logs?event_type=login.success,logout", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListAuditLogs(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body service.AdminListAuditLogsResult
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 2 {
+		t.Errorf("expected 2 events, got %d: %+v", body.Total, body.Events)
+	}
+}
+
+func TestAdminListAuditLogs_ActorEmail(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	th.users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"})
+	alice := "alice-id"
+	now := time.Now().UTC()
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/audit-logs?actorEmail=alice@example.com", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListAuditLogs(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body service.AdminListAuditLogsResult
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 1 {
+		t.Errorf("expected 1 event, got %d: %+v", body.Total, body.Events)
+	}
+}
+
+func TestAdminListAuditLogs_ActorEmail_NotFound(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/audit-logs?actorEmail=nobody@example.com", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListAuditLogs(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 user_not_found, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminListUserAuditLogs_ScopesToPathUser(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	target, other := "target-id", "other-id"
+	now := time.Now().UTC()
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", TargetUserID: &target, CreatedAt: now})
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", TargetUserID: &other, CreatedAt: now})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/users/target-id/audit-logs", nil)
+	req.SetPathValue("id", "target-id")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListUserAuditLogs(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body service.AdminListAuditLogsResult
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 1 || body.Events[0].ID != "e1" {
+		t.Errorf("expected 1 event for target-id, got %+v", body.Events)
+	}
+}
+
+func TestAdminListAuditLogs_ResolvesEmails(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	th.users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"})
+	alice := "alice-id"
+	now := time.Now().UTC()
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/audit-logs", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListAuditLogs(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body service.AdminListAuditLogsResult
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Events) != 1 || body.Events[0].ActorEmail == nil || *body.Events[0].ActorEmail != "alice@example.com" {
+		t.Fatalf("expected 1 event with ActorEmail alice@example.com, got %+v", body.Events)
+	}
+}
+
+func TestAdminListAuditLogs_Unauthenticated(t *testing.T) {
+	th := newTestHarness()
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/audit-logs", nil)
+	w := httptest.NewRecorder()
+	th.handler.AdminListAuditLogs(w, req)
+
+	if w.Result().StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Result().StatusCode)
+	}
+}

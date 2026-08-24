@@ -252,9 +252,8 @@ func (s *AdminService) GetLoginActivity(ctx context.Context, input LoginActivity
 	if err := rangeInput.validate(); err != nil {
 		return nil, err
 	}
-	loginSuccess := string(audit.EventLoginSuccess)
 	counts, err := s.auditLogs.CountByDay(ctx, port.AuditLogFilter{
-		Type:     &loginSuccess,
+		Types:    []string{string(audit.EventLoginSuccess)},
 		ActorID:  input.UserID,
 		FromDate: &input.From,
 		ToDate:   &input.To,
@@ -264,6 +263,180 @@ func (s *AdminService) GetLoginActivity(ctx context.Context, input LoginActivity
 		return nil, domain.ErrInternal
 	}
 	return counts, nil
+}
+
+// AdminListAuditLogsInput scopes an audit-log query. ActorID is the calling
+// admin (for requireAdmin), distinct from EventActorID/EventActorEmail,
+// which filter the logged events themselves.
+type AdminListAuditLogsInput struct {
+	ActorID string
+
+	EventTypes []string
+	// EventActorID/EventActorEmail filter by who performed the logged
+	// action. If both are set, EventActorEmail wins — it's resolved to a
+	// user ID first and that replaces EventActorID.
+	EventActorID    *string
+	EventActorEmail *string
+	// TargetUserID/TargetEmail filter by who the logged action was done
+	// to, same email-wins-if-both rule as the actor pair above.
+	TargetUserID *string
+	TargetEmail  *string
+	SessionID    *string
+	OrgID        *string
+	DeviceType   *string
+	IP           *string
+	Success      *bool
+	Search       *string
+	FromDate     *time.Time
+	ToDate       *time.Time
+	Offset       int
+	Limit        int
+}
+
+// AdminAuditLogEntry adds resolved actor/target emails to a raw audit row —
+// the row itself only stores IDs, and an admin reading a log wants to know
+// *who*, not just a UUID. Both are nil if the corresponding *_id is nil, or
+// if that user no longer exists (deleted since the event was recorded) —
+// the row's IDs are the durable record either way.
+type AdminAuditLogEntry struct {
+	port.AuditLogEntry
+	ActorEmail  *string `json:"actorEmail,omitempty"`
+	TargetEmail *string `json:"targetEmail,omitempty"`
+}
+
+type AdminListAuditLogsResult struct {
+	Events []AdminAuditLogEntry `json:"events"`
+	Total  int                  `json:"total"`
+	Limit  int                  `json:"limit"`
+	Offset int                  `json:"offset"`
+}
+
+// resolveEmailsForEntries batch-looks-up every distinct actor/target ID
+// across a page of audit entries in one query, rather than one query per
+// row — a page can reference up to 2*len(entries) distinct users.
+func (s *AdminService) resolveEmailsForEntries(ctx context.Context, entries []port.AuditLogEntry) ([]AdminAuditLogEntry, error) {
+	idSet := make(map[string]struct{})
+	for _, e := range entries {
+		if e.ActorID != nil {
+			idSet[*e.ActorID] = struct{}{}
+		}
+		if e.TargetUserID != nil {
+			idSet[*e.TargetUserID] = struct{}{}
+		}
+	}
+
+	emailByID := make(map[string]string, len(idSet))
+	if len(idSet) > 0 {
+		ids := make([]string, 0, len(idSet))
+		for id := range idSet {
+			ids = append(ids, id)
+		}
+		users, _, err := s.users.List(ctx, port.UserFilter{IDs: ids})
+		if err != nil {
+			s.log.Error("failed to resolve audit log actor/target emails", "err", err)
+			return nil, domain.ErrInternal
+		}
+		for _, u := range users {
+			emailByID[u.ID] = u.Email
+		}
+	}
+
+	enriched := make([]AdminAuditLogEntry, len(entries))
+	for i, e := range entries {
+		enriched[i] = AdminAuditLogEntry{AuditLogEntry: e}
+		if e.ActorID != nil {
+			if email, ok := emailByID[*e.ActorID]; ok {
+				enriched[i].ActorEmail = &email
+			}
+		}
+		if e.TargetUserID != nil {
+			if email, ok := emailByID[*e.TargetUserID]; ok {
+				enriched[i].TargetEmail = &email
+			}
+		}
+	}
+	return enriched, nil
+}
+
+// resolveUserEmail turns an email into a user ID for an identity-based audit
+// filter — "which events did alice@example.com cause" instead of requiring
+// the admin to already know her UUID. Returns (nil, nil) for an empty/nil
+// email (no filter), or a "user_not_found" AuthError if no user has it.
+func (s *AdminService) resolveUserEmail(ctx context.Context, email *string) (*string, error) {
+	if email == nil || strings.TrimSpace(*email) == "" {
+		return nil, nil
+	}
+	user, err := s.users.GetByEmail(ctx, strings.ToLower(strings.TrimSpace(*email)))
+	if err != nil {
+		s.log.Error("failed to resolve email for audit log filter", "err", err)
+		return nil, domain.ErrInternal
+	}
+	if user == nil {
+		return nil, domain.ErrUserNotFound
+	}
+	return &user.ID, nil
+}
+
+// ListAuditLogs returns audit events matching the given filter — the
+// backend for both GET /admin/audit-logs and GET /admin/users/{id}/audit-logs
+// (the latter just pre-sets TargetUserID). Empty results, not an error, if
+// audit logging was never turned on (WithAudit(Enabled: true)) — the table
+// simply has no rows in that case.
+func (s *AdminService) ListAuditLogs(ctx context.Context, input AdminListAuditLogsInput) (*AdminListAuditLogsResult, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return nil, err
+	}
+
+	eventActorID := input.EventActorID
+	if input.EventActorEmail != nil {
+		resolved, err := s.resolveUserEmail(ctx, input.EventActorEmail)
+		if err != nil {
+			return nil, err
+		}
+		eventActorID = resolved
+	}
+
+	targetUserID := input.TargetUserID
+	if input.TargetEmail != nil {
+		resolved, err := s.resolveUserEmail(ctx, input.TargetEmail)
+		if err != nil {
+			return nil, err
+		}
+		targetUserID = resolved
+	}
+
+	limit := input.Limit
+	if limit <= 0 {
+		limit = 50
+	} else if limit > 200 {
+		limit = 200
+	}
+
+	events, total, err := s.auditLogs.List(ctx, port.AuditLogFilter{
+		Types:        input.EventTypes,
+		ActorID:      eventActorID,
+		TargetUserID: targetUserID,
+		SessionID:    input.SessionID,
+		OrgID:        input.OrgID,
+		DeviceType:   input.DeviceType,
+		IP:           input.IP,
+		Success:      input.Success,
+		Search:       input.Search,
+		FromDate:     input.FromDate,
+		ToDate:       input.ToDate,
+		Offset:       input.Offset,
+		Limit:        limit,
+	})
+	if err != nil {
+		s.log.Error("failed to list audit logs", "err", err)
+		return nil, domain.ErrInternal
+	}
+	enriched, err := s.resolveEmailsForEntries(ctx, events)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AdminListAuditLogsResult{Events: enriched, Total: total, Limit: limit, Offset: input.Offset}, nil
 }
 
 type BanUserInput struct {

@@ -282,3 +282,103 @@ func TestAdmin_BulkBanUsers(t *testing.T) {
 		t.Error("expected u1 to be banned in the database")
 	}
 }
+
+func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+	ctx := context.Background()
+
+	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin6@example.com", Password: "Passw0rd!", Name: "Admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "mobileuser@example.com", Password: "Passw0rd!", Name: "Mobile"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "deskuser@example.com", Password: "Passw0rd!", Name: "Desk"}); err != nil {
+		t.Fatal(err)
+	}
+
+	mobileUA := "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+	desktopUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+	if _, err := a.Login(ctx, goauth.LoginInput{Email: "mobileuser@example.com", Password: "Passw0rd!", UserAgent: mobileUA}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Login(ctx, goauth.LoginInput{Email: "deskuser@example.com", Password: "Passw0rd!", UserAgent: desktopUA}); err != nil {
+		t.Fatal(err)
+	}
+	// Audit events flush asynchronously (AuditServiceConfig's default
+	// FlushInterval is 100ms).
+	time.Sleep(200 * time.Millisecond)
+
+	deviceType := "mobile"
+	result, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+		ActorID: admin.User.ID, EventTypes: []string{"login.success"}, DeviceType: &deviceType,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 {
+		t.Fatalf("expected 1 mobile login.success event, got %d: %+v", result.Total, result.Events)
+	}
+
+	// Multi-value event type: registrations (3) + logins (2) in one call,
+	// nothing else.
+	multi, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+		ActorID: admin.User.ID, EventTypes: []string{"user.registered", "login.success"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if multi.Total != 5 {
+		t.Fatalf("expected 5 events (3 registrations + 2 logins), got %d: %+v", multi.Total, multi.Events)
+	}
+}
+
+func TestAdmin_ListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+	ctx := context.Background()
+
+	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin7@example.com", Password: "Passw0rd!", Name: "Admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	target, err := a.Register(ctx, goauth.RegisterInput{Email: "bantarget@example.com", Password: "Passw0rd!", Name: "Target"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Services.Admin.BanUser(ctx, service.BanUserInput{UserID: target.User.ID, ActorID: admin.User.ID}); err != nil {
+		t.Fatal(err)
+	}
+	// Audit events flush asynchronously (AuditServiceConfig's default
+	// FlushInterval is 100ms).
+	time.Sleep(200 * time.Millisecond)
+
+	bannedType := "admin.user.banned"
+	result, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+		ActorID: admin.User.ID, EventTypes: []string{bannedType},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 admin.user.banned event, got %d: %+v", len(result.Events), result.Events)
+	}
+	if result.Events[0].TargetEmail == nil || *result.Events[0].TargetEmail != "bantarget@example.com" {
+		t.Fatalf("expected TargetEmail bantarget@example.com, got %+v", result.Events[0].TargetEmail)
+	}
+}

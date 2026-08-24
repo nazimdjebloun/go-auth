@@ -107,15 +107,19 @@ const { logins: userLogins } = await adminApi.getLoginActivity(from, to, userId)
 
 ```ts
 const { events, total } = await adminApi.listAuditLogs({ event_type: "login.failed", limit: 50 });
+
+// event_type takes a comma-separated list — matches any of them
+const failures = await adminApi.listAuditLogs({ event_type: "login.failed,login.locked" });
+
+// actorEmail/targetEmail resolve to a user ID server-side — no need to
+// already know the UUID. 404 user_not_found if no user has that email.
+const byActor = await adminApi.listAuditLogs({ actorEmail: "ada@example.com" });
+
+// deviceType filters on the parsed user agent: mobile, desktop, tablet, bot
+const mobileLogins = await adminApi.listAuditLogs({ event_type: "login.success", deviceType: "mobile" });
 ```
 
-```ts
-try {
-  await adminApi.listAuditLogs();
-} catch (err) {
-  // 404 audit_not_configured if WithAudit was never enabled server-side
-}
-```
+`listAuditLogs()` with no filters returns everything in the audit log, paginated — it's never a 404, even if audit logging was never enabled server-side (that just means the table is empty).
 
 ## Platform invites
 

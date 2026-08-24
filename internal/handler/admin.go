@@ -3,11 +3,11 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
-	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 )
 
@@ -419,85 +419,101 @@ func (h *Handler) AdminListUserAuditLogs(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request, userID *string) {
-	if h.services.AuditLog == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "audit_not_configured", "message": "Audit logging is not enabled"})
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 
-	filter := port.AuditLogFilter{
-		Offset: 0,
-		Limit:  50,
-	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 
-	if v := r.URL.Query().Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			filter.Offset = n
-		}
-	}
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			filter.Limit = n
-		}
-	}
-	if filter.Limit <= 0 {
-		filter.Limit = 50
-	} else if filter.Limit > 200 {
-		filter.Limit = 200
-	}
-
+	var eventTypes []string
 	if v := r.URL.Query().Get("event_type"); v != "" {
-		filter.Type = &v
+		eventTypes = strings.Split(v, ",")
 	}
+
+	var actorID, actorEmail, targetUserID, targetEmail, sessionID, orgID, deviceType, ip, search *string
 	if v := r.URL.Query().Get("actor_id"); v != "" {
-		filter.ActorID = &v
+		actorID = &v
+	}
+	if v := r.URL.Query().Get("actorEmail"); v != "" {
+		actorEmail = &v
 	}
 	if v := r.URL.Query().Get("target_user_id"); v != "" {
-		filter.TargetUserID = &v
+		targetUserID = &v
+	}
+	if v := r.URL.Query().Get("targetEmail"); v != "" {
+		targetEmail = &v
 	}
 	if v := r.URL.Query().Get("session_id"); v != "" {
-		filter.SessionID = &v
+		sessionID = &v
 	}
 	if v := r.URL.Query().Get("org_id"); v != "" {
-		filter.OrgID = &v
+		orgID = &v
+	}
+	if v := r.URL.Query().Get("deviceType"); v != "" {
+		deviceType = &v
+	}
+	if v := r.URL.Query().Get("ip"); v != "" {
+		ip = &v
 	}
 	if v := r.URL.Query().Get("search"); v != "" {
-		filter.Search = &v
+		search = &v
 	}
+
+	var fromDate, toDate *time.Time
 	if v := r.URL.Query().Get("from"); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			filter.FromDate = &t
+			fromDate = &t
 		}
 	}
 	if v := r.URL.Query().Get("to"); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			filter.ToDate = &t
+			toDate = &t
 		}
 	}
+
+	var success *bool
 	if v := r.URL.Query().Get("success"); v == "true" {
 		b := true
-		filter.Success = &b
-	} else if v := r.URL.Query().Get("success"); v == "false" {
+		success = &b
+	} else if v == "false" {
 		b := false
-		filter.Success = &b
+		success = &b
 	}
 
+	// The per-user route ({id} in the path) always wins over any
+	// target_user_id/targetEmail passed in the query string.
 	if userID != nil {
-		filter.TargetUserID = userID
+		targetUserID = userID
+		targetEmail = nil
 	}
 
-	events, total, err := h.services.AuditLog.List(r.Context(), filter)
+	result, err := h.services.Admin.ListAuditLogs(r.Context(), service.AdminListAuditLogsInput{
+		ActorID:         actor.ID,
+		EventTypes:      eventTypes,
+		EventActorID:    actorID,
+		EventActorEmail: actorEmail,
+		TargetUserID:    targetUserID,
+		TargetEmail:     targetEmail,
+		SessionID:       sessionID,
+		OrgID:           orgID,
+		DeviceType:      deviceType,
+		IP:              ip,
+		Success:         success,
+		Search:          search,
+		FromDate:        fromDate,
+		ToDate:          toDate,
+		Offset:          offset,
+		Limit:           limit,
+	})
 	if err != nil {
-		h.log.ErrorContext(r.Context(), "failed to list audit logs", "err", err)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Failed to list audit logs"})
+		writeError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"events": events,
-		"total":  total,
-		"limit":  filter.Limit,
-		"offset": filter.Offset,
-	})
+	writeJSON(w, http.StatusOK, result)
 }
 
 // GetAdminStats returns platform-wide counts for an admin dashboard —

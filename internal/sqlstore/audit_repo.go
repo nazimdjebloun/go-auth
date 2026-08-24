@@ -158,15 +158,33 @@ func (r *AuditLogRepository) GetByID(ctx context.Context, id string) (*port.Audi
 	return &e, err
 }
 
+// deviceTypeExpr is the driver-conditional JSON path into parsed_ua's
+// deviceType field — the same three-way branch used for day-bucketing in
+// UserRepository.CountByDay, applied to a different column.
+func (r *AuditLogRepository) deviceTypeExpr() string {
+	switch r.db.Driver() {
+	case "mysql":
+		return "JSON_UNQUOTE(JSON_EXTRACT(parsed_ua, '$.deviceType'))"
+	case "sqlite", "sqlite3":
+		return "json_extract(parsed_ua, '$.deviceType')"
+	default: // postgres
+		return "parsed_ua->>'deviceType'"
+	}
+}
+
 func (r *AuditLogRepository) buildWhere(filter port.AuditLogFilter) (string, []any) {
 	var conditions []string
 	var args []any
 	argIdx := 1
 
-	if filter.Type != nil {
-		conditions = append(conditions, fmt.Sprintf("event_type = $%d", argIdx))
-		args = append(args, *filter.Type)
-		argIdx++
+	if len(filter.Types) > 0 {
+		placeholders := make([]string, len(filter.Types))
+		for i, t := range filter.Types {
+			placeholders[i] = fmt.Sprintf("$%d", argIdx)
+			args = append(args, t)
+			argIdx++
+		}
+		conditions = append(conditions, fmt.Sprintf("event_type IN (%s)", strings.Join(placeholders, ", ")))
 	}
 	if filter.ActorID != nil {
 		conditions = append(conditions, fmt.Sprintf("actor_id = $%d", argIdx))
@@ -188,23 +206,42 @@ func (r *AuditLogRepository) buildWhere(filter port.AuditLogFilter) (string, []a
 		args = append(args, *filter.OrgID)
 		argIdx++
 	}
+	if filter.DeviceType != nil && *filter.DeviceType != "" {
+		conditions = append(conditions, fmt.Sprintf("%s = $%d", r.deviceTypeExpr(), argIdx))
+		args = append(args, *filter.DeviceType)
+		argIdx++
+	}
+	if filter.IP != nil && *filter.IP != "" {
+		conditions = append(conditions, fmt.Sprintf("ip = $%d", argIdx))
+		args = append(args, *filter.IP)
+		argIdx++
+	}
 	if filter.Success != nil {
 		conditions = append(conditions, fmt.Sprintf("success = $%d", argIdx))
 		args = append(args, *filter.Success)
 		argIdx++
 	}
-	if filter.Search != nil {
+	if filter.Search != nil && *filter.Search != "" {
 		searchPattern := "%" + *filter.Search + "%"
 		switch r.db.Driver() {
 		case "mysql":
-			conditions = append(conditions, fmt.Sprintf("(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$')) LIKE $%d OR user_agent LIKE $%d)", argIdx, argIdx+1))
+			conditions = append(conditions, fmt.Sprintf(
+				"(JSON_UNQUOTE(JSON_EXTRACT(metadata, '$')) LIKE $%d OR user_agent LIKE $%d OR ip LIKE $%d OR event_type LIKE $%d)",
+				argIdx, argIdx+1, argIdx+2, argIdx+3))
 		case "sqlite", "sqlite3":
-			conditions = append(conditions, fmt.Sprintf("(metadata LIKE $%d OR user_agent LIKE $%d)", argIdx, argIdx+1))
+			conditions = append(conditions, fmt.Sprintf(
+				"(metadata LIKE $%d OR user_agent LIKE $%d OR ip LIKE $%d OR event_type LIKE $%d)",
+				argIdx, argIdx+1, argIdx+2, argIdx+3))
 		default:
-			conditions = append(conditions, fmt.Sprintf("(metadata::text ILIKE $%d OR user_agent ILIKE $%d)", argIdx, argIdx+1))
+			conditions = append(conditions, fmt.Sprintf(
+				"(metadata::text ILIKE $%d OR user_agent ILIKE $%d OR ip ILIKE $%d OR event_type ILIKE $%d)",
+				argIdx, argIdx+1, argIdx+2, argIdx+3))
 		}
-		args = append(args, searchPattern, searchPattern)
-		argIdx += 2
+		// Four distinct placeholders, not one reused: DB.Rebind rewrites
+		// every textual "$N" positionally for mysql/sqlite, so each textual
+		// occurrence needs its own (equal-valued) args entry.
+		args = append(args, searchPattern, searchPattern, searchPattern, searchPattern)
+		argIdx += 4
 	}
 	if filter.FromDate != nil {
 		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argIdx))
