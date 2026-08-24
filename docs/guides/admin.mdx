@@ -565,6 +565,91 @@ await apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions`);
 
 ---
 
+## Sessions across every user — `GET /admin/sessions`
+
+The incident-response view: active sessions platform-wide, not scoped to one user. Same base condition as `ListUserSessions` (not revoked, not yet expired), plus optional filters.
+
+Query (all optional): `offset`, `limit` (default `20`, max `100`); `userId`, `ip`, `search` (substring-matches `ip`/user agent); `createdAfter`, `createdBefore`, `expiresAfter`, `expiresBefore`, `lastActiveAfter`, `lastActiveBefore` (RFC3339); `orderBy` (`created_at` default, `expires_at`, `last_active_at`); `orderDirection` (`desc` default, `asc`).
+
+**Response**: `{ "sessions": [...], "total": 5, "limit": 20, "offset": 0 }`
+
+#### curl
+
+```bash
+curl "https://api.myapp.com/admin/sessions?ip=203.0.113.9" \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+ip := "203.0.113.9"
+result, err := auth.Services.Admin.ListSessions(ctx, service.AdminListSessionsInput{
+    ActorID: adminID,
+    IP:      &ip,
+    Limit:   20,
+})
+```
+
+---
+
+#### Client
+
+```ts
+const { sessions, total } = await apiRequest(API_BASE, "GET", "/admin/sessions?ip=203.0.113.9");
+```
+
+---
+
+## Bulk user actions — `POST /admin/users/bulk/{ban,unban,delete,revoke-sessions}`
+
+Each endpoint applies the same single-user action (`BanUser`, `UnbanUser`, `DeleteUser`, `RevokeUserSessions`) to a list of user IDs. This is **not atomic** — go-auth has no batch primitive, so each ID is a separate sequential call under the hood. One user's failure (already banned, last admin, not found) doesn't stop or roll back the rest; read `succeeded`/`failed` rather than treating a `200` as "all succeeded."
+
+Body: `{ "userIds": ["id1", "id2", ...] }` — 1 to 100 IDs.
+
+**Response**: `{ "succeeded": ["id1"], "failed": [{ "userId": "id2", "code": "last_admin", "message": "Cannot ban the last admin" }] }`
+
+`code` is the same stable `AuthError` code a single-user call would return — safe to match on.
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/admin/users/bulk/ban \
+  -H "Origin: https://myapp.com" -H "Content-Type: application/json" \
+  -H "X-CSRF-Token: $CSRF_TOKEN" \
+  -b admin-cookies.txt \
+  -d '{"userIds": ["b3f1...", "9e2c..."]}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+result, err := auth.Services.Admin.BulkBanUsers(ctx, service.BulkUserActionInput{
+    UserIDs: []string{"b3f1...", "9e2c..."},
+    ActorID: adminID,
+})
+// result.Succeeded, result.Failed
+```
+
+The same shape applies to `BulkUnbanUsers`, `BulkDeleteUsers`, and `BulkRevokeUserSessions`.
+
+---
+
+#### Client
+
+```ts
+const result = await apiRequest(API_BASE, "POST", "/admin/users/bulk/ban", {
+  userIds: ["b3f1...", "9e2c..."],
+});
+```
+
+---
+
 ## Stats and activity
 
 Three read-only endpoints for an admin dashboard — an overview snapshot, a registrations-over-time trend, and a GitHub-commit-style daily login-activity heatmap. All three read from data go-auth already tracks (`users.last_login_at`, `users.created_at`, and the audit log) — nothing new is stored just for this.

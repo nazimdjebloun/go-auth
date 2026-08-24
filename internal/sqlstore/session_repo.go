@@ -150,9 +150,19 @@ func (r *SessionRepository) ListByUserID(ctx context.Context, userID string, off
 	return sessions, total, rows.Err()
 }
 
-func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
-	now := time.Now().UTC()
+// sessionOrderByWhitelist maps a caller-supplied OrderBy to the actual
+// column — never interpolate the raw value into SQL.
+var sessionOrderByWhitelist = map[string]string{
+	"created_at":     "created_at",
+	"expires_at":     "expires_at",
+	"last_active_at": "last_active_at",
+}
 
+// buildAllWhere is ListAll's filter->SQL translation. The base condition
+// (not revoked, not yet expired) always applies — ListAll lists *active*
+// sessions, admin-wide; a caller wanting to look back at expired/revoked
+// sessions needs a different method, not a filter flag here.
+func (r *SessionRepository) buildAllWhere(filter port.SessionFilter, now time.Time) (string, []any) {
 	where := []string{"is_revoked = false", "expires_at > $1"}
 	args := []any{now}
 	argIdx := 2
@@ -162,8 +172,61 @@ func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilt
 		args = append(args, *filter.UserID)
 		argIdx++
 	}
+	if filter.IP != nil && *filter.IP != "" {
+		where = append(where, fmt.Sprintf("ip_address = $%d", argIdx))
+		args = append(args, *filter.IP)
+		argIdx++
+	}
+	if filter.Search != nil && *filter.Search != "" {
+		searchTerm := "%" + *filter.Search + "%"
+		op := "ILIKE"
+		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+			op = "LIKE"
+		}
+		// Two placeholders, not one reused twice — see UserRepository.buildWhere
+		// for why (DB.Rebind rewrites positionally for mysql/sqlite).
+		where = append(where, fmt.Sprintf("(ip_address %s $%d OR user_agent %s $%d)", op, argIdx, op, argIdx+1))
+		args = append(args, searchTerm, searchTerm)
+		argIdx += 2
+	}
+	if filter.CreatedAfter != nil {
+		where = append(where, fmt.Sprintf("created_at >= $%d", argIdx))
+		args = append(args, *filter.CreatedAfter)
+		argIdx++
+	}
+	if filter.CreatedBefore != nil {
+		where = append(where, fmt.Sprintf("created_at <= $%d", argIdx))
+		args = append(args, *filter.CreatedBefore)
+		argIdx++
+	}
+	if filter.ExpiresAfter != nil {
+		where = append(where, fmt.Sprintf("expires_at >= $%d", argIdx))
+		args = append(args, *filter.ExpiresAfter)
+		argIdx++
+	}
+	if filter.ExpiresBefore != nil {
+		where = append(where, fmt.Sprintf("expires_at <= $%d", argIdx))
+		args = append(args, *filter.ExpiresBefore)
+		argIdx++
+	}
+	if filter.LastActiveAfter != nil {
+		where = append(where, fmt.Sprintf("last_active_at >= $%d", argIdx))
+		args = append(args, *filter.LastActiveAfter)
+		argIdx++
+	}
+	if filter.LastActiveBefore != nil {
+		where = append(where, fmt.Sprintf("last_active_at <= $%d", argIdx))
+		args = append(args, *filter.LastActiveBefore)
+		argIdx++
+	}
 
-	whereClause := strings.Join(where, " AND ")
+	return strings.Join(where, " AND "), args
+}
+
+func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
+	now := time.Now().UTC()
+	whereClause, args := r.buildAllWhere(filter, now)
+	argIdx := len(args) + 1
 
 	var total int
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM sessions WHERE %s", whereClause)
@@ -171,8 +234,17 @@ func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilt
 		return nil, 0, err
 	}
 
-	query := fmt.Sprintf("SELECT %s FROM sessions WHERE %s ORDER BY created_at DESC",
-		sessionCols, whereClause)
+	orderCol := sessionOrderByWhitelist[filter.OrderBy]
+	if orderCol == "" {
+		orderCol = "created_at"
+	}
+	orderDir := "DESC"
+	if strings.EqualFold(filter.OrderDirection, "asc") {
+		orderDir = "ASC"
+	}
+
+	query := fmt.Sprintf("SELECT %s FROM sessions WHERE %s ORDER BY %s %s",
+		sessionCols, whereClause, orderCol, orderDir)
 	if filter.Limit > 0 {
 		query = fmt.Sprintf("%s LIMIT $%d OFFSET $%d", query, argIdx, argIdx+1)
 		args = append(args, filter.Limit, filter.Offset)

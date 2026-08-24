@@ -130,6 +130,11 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | `GET /admin/users/{id}/sessions` | Admin | Path: `id`; query: `offset`, `limit` (default `20`, max `100`) | Paginated sessions for a specific user. |
 | `DELETE /admin/users/{id}/sessions/{sessionId}` | Admin | Path: `id`, `sessionId` | Revokes one specific session belonging to a specific user. |
 | `DELETE /admin/users/{id}/sessions` | Admin | Path: `id` | Revokes all of a user's sessions. |
+| `GET /admin/sessions` | Admin | Query (all optional): `offset`, `limit` (default `20`, max `100`); `userId`, `ip`, `search` (substring-matches `ip`/user agent); `createdAfter`, `createdBefore`, `expiresAfter`, `expiresBefore`, `lastActiveAfter`, `lastActiveBefore` (RFC3339); `orderBy` (`created_at` default, `expires_at`, `last_active_at`); `orderDirection` (`desc` default, `asc`) | Active sessions across every user — the incident-response view ("who's logged in right now", "every session from this IP"). |
+| `POST /admin/users/bulk/ban` | Admin | Body: `` `{userIds: string[]}` `` (max 100) | Bans each user independently — not atomic. Response: `` `{succeeded: string[], failed: [{userId, code, message}]}` ``. |
+| `POST /admin/users/bulk/unban` | Admin | Body: `` `{userIds: string[]}` `` (max 100) | Same shape as bulk ban, for unbanning. |
+| `POST /admin/users/bulk/delete` | Admin | Body: `` `{userIds: string[]}` `` (max 100) | Same shape as bulk ban, for deletion. Blocked per-user for the last admin. |
+| `POST /admin/users/bulk/revoke-sessions` | Admin | Body: `` `{userIds: string[]}` `` (max 100) | Same shape as bulk ban — revokes every session for each listed user. |
 
 ## Admin — audit logs
 

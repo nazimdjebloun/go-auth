@@ -116,6 +116,11 @@ type HandlerGroup struct {
 	AdminStats               http.HandlerFunc
 	AdminRegistrationTrend   http.HandlerFunc
 	AdminLoginActivity       http.HandlerFunc
+	AdminListSessions        http.HandlerFunc
+	BulkBanUsers             http.HandlerFunc
+	BulkUnbanUsers           http.HandlerFunc
+	BulkDeleteUsers          http.HandlerFunc
+	BulkRevokeUserSessions   http.HandlerFunc
 	GetInviteInfo            http.HandlerFunc
 	CreateInvite             http.HandlerFunc
 	ListInvites              http.HandlerFunc
@@ -608,6 +613,11 @@ func New(config config) (*Auth, error) {
 			AdminStats:             corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetAdminStats))))).ServeHTTP,
 			AdminRegistrationTrend: corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetRegistrationTrend))))).ServeHTTP,
 			AdminLoginActivity:     corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetLoginActivity))))).ServeHTTP,
+			AdminListSessions:      corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListSessions))))).ServeHTTP,
+			BulkBanUsers:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkBanUsers))))))).ServeHTTP,
+			BulkUnbanUsers:         corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkUnbanUsers))))))).ServeHTTP,
+			BulkDeleteUsers:        corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkDeleteUsers))))))).ServeHTTP,
+			BulkRevokeUserSessions: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkRevokeUserSessions))))))).ServeHTTP,
 			CreateInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite))))))).ServeHTTP,
 			ListInvites:            corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListInvites))))).ServeHTTP,
 			RevokeInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite))))))).ServeHTTP,
@@ -764,6 +774,11 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		{routes.AdminStats, a.Handlers.AdminStats},
 		{routes.AdminRegistrationTrend, a.Handlers.AdminRegistrationTrend},
 		{routes.AdminLoginActivity, a.Handlers.AdminLoginActivity},
+		{routes.AdminListSessions, a.Handlers.AdminListSessions},
+		{routes.BulkBanUsers, a.Handlers.BulkBanUsers},
+		{routes.BulkUnbanUsers, a.Handlers.BulkUnbanUsers},
+		{routes.BulkDeleteUsers, a.Handlers.BulkDeleteUsers},
+		{routes.BulkRevokeUserSessions, a.Handlers.BulkRevokeUserSessions},
 	}
 
 	if a.cfg.registration.EnableEmailPassword {

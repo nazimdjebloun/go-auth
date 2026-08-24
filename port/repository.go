@@ -100,8 +100,21 @@ type UpdateRefreshInput struct {
 
 type SessionFilter struct {
 	UserID *string
-	Offset int
-	Limit  int
+	// IP matches sessions.ip_address exactly.
+	IP *string
+	// Search substring-matches ip_address OR user_agent — the free-text box
+	// on an admin session search ("find the session from this device/IP").
+	Search           *string
+	CreatedAfter     *time.Time
+	CreatedBefore    *time.Time
+	ExpiresAfter     *time.Time
+	ExpiresBefore    *time.Time
+	LastActiveAfter  *time.Time
+	LastActiveBefore *time.Time
+	OrderBy          string // "created_at" (default), "expires_at", "last_active_at"
+	OrderDirection   string // "asc" or "desc"
+	Offset           int
+	Limit            int
 }
 
 // SessionReader covers session lookups and listing — no mutation.

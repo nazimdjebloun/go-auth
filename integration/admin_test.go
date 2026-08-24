@@ -183,3 +183,102 @@ func TestAdmin_GetLoginActivity(t *testing.T) {
 		t.Fatalf("expected 1 global login, got %d: %+v", globalTotal, global)
 	}
 }
+
+func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+	ctx := context.Background()
+
+	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin4@example.com", Password: "Passw0rd!", Name: "Admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "sessionuser1@example.com", Password: "Passw0rd!", Name: "One"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "sessionuser2@example.com", Password: "Passw0rd!", Name: "Two"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := a.Login(ctx, goauth.LoginInput{Email: "sessionuser1@example.com", Password: "Passw0rd!", IP: "10.0.0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Login(ctx, goauth.LoginInput{Email: "sessionuser2@example.com", Password: "Passw0rd!", IP: "10.0.0.2"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ip := "10.0.0.1"
+	result, err := a.Services.Admin.ListSessions(ctx, service.AdminListSessionsInput{
+		ActorID: admin.User.ID, IP: &ip,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Total != 1 || result.Sessions[0].IP != "10.0.0.1" {
+		t.Fatalf("expected exactly 1 session from 10.0.0.1, got %+v", result.Sessions)
+	}
+
+	// Search substring-matches IP too, same as the IP filter but fuzzy.
+	search := "10.0.0.2"
+	searched, err := a.Services.Admin.ListSessions(ctx, service.AdminListSessionsInput{
+		ActorID: admin.User.ID, Search: &search,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if searched.Total != 1 || searched.Sessions[0].IP != "10.0.0.2" {
+		t.Fatalf("expected exactly 1 session matching search 10.0.0.2, got %+v", searched.Sessions)
+	}
+}
+
+func TestAdmin_BulkBanUsers(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+	ctx := context.Background()
+
+	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin5@example.com", Password: "Passw0rd!", Name: "Admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	u1, err := a.Register(ctx, goauth.RegisterInput{Email: "bulk1@example.com", Password: "Passw0rd!", Name: "One"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u2, err := a.Register(ctx, goauth.RegisterInput{Email: "bulk2@example.com", Password: "Passw0rd!", Name: "Two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := a.Services.Admin.BulkBanUsers(ctx, service.BulkUserActionInput{
+		UserIDs: []string{u1.User.ID, u2.User.ID, "nonexistent"}, ActorID: admin.User.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Succeeded) != 2 {
+		t.Fatalf("expected 2 succeeded, got %+v", result.Succeeded)
+	}
+	if len(result.Failed) != 1 || result.Failed[0].UserID != "nonexistent" {
+		t.Fatalf("expected 1 failure for nonexistent, got %+v", result.Failed)
+	}
+
+	var isBanned bool
+	if err := db.QueryRowContext(ctx, "SELECT is_banned FROM users WHERE id = ?", u1.User.ID).Scan(&isBanned); err != nil {
+		t.Fatal(err)
+	}
+	if !isBanned {
+		t.Error("expected u1 to be banned in the database")
+	}
+}

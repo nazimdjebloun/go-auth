@@ -459,13 +459,27 @@ func (m *MockSessionRepo) ListAll(_ context.Context, filter port.SessionFilter) 
 	defer m.mu.Unlock()
 	var res []domain.Session
 	for _, s := range m.byID {
-		if !s.IsRevoked {
-			if filter.UserID != nil && s.UserID != *filter.UserID {
-				continue
-			}
+		if !s.IsRevoked && sessionMatchesFilter(s, filter) {
 			res = append(res, *s)
 		}
 	}
+
+	sort.SliceStable(res, func(i, j int) bool {
+		var ci, cj time.Time
+		switch filter.OrderBy {
+		case "expires_at":
+			ci, cj = res[i].ExpiresAt, res[j].ExpiresAt
+		case "last_active_at":
+			ci, cj = res[i].LastActiveAt, res[j].LastActiveAt
+		default:
+			ci, cj = res[i].CreatedAt, res[j].CreatedAt
+		}
+		if strings.EqualFold(filter.OrderDirection, "asc") {
+			return ci.Before(cj)
+		}
+		return ci.After(cj)
+	})
+
 	total := len(res)
 	if filter.Offset > 0 && filter.Offset < total {
 		res = res[filter.Offset:]
@@ -476,6 +490,40 @@ func (m *MockSessionRepo) ListAll(_ context.Context, filter port.SessionFilter) 
 		res = res[:filter.Limit]
 	}
 	return res, total, nil
+}
+
+func sessionMatchesFilter(s *domain.Session, filter port.SessionFilter) bool {
+	if filter.UserID != nil && s.UserID != *filter.UserID {
+		return false
+	}
+	if filter.IP != nil && s.IP != *filter.IP {
+		return false
+	}
+	if filter.Search != nil && *filter.Search != "" {
+		q := strings.ToLower(*filter.Search)
+		if !strings.Contains(strings.ToLower(s.IP), q) && !strings.Contains(strings.ToLower(s.UserAgent), q) {
+			return false
+		}
+	}
+	if filter.CreatedAfter != nil && s.CreatedAt.Before(*filter.CreatedAfter) {
+		return false
+	}
+	if filter.CreatedBefore != nil && s.CreatedAt.After(*filter.CreatedBefore) {
+		return false
+	}
+	if filter.ExpiresAfter != nil && s.ExpiresAt.Before(*filter.ExpiresAfter) {
+		return false
+	}
+	if filter.ExpiresBefore != nil && s.ExpiresAt.After(*filter.ExpiresBefore) {
+		return false
+	}
+	if filter.LastActiveAfter != nil && s.LastActiveAt.Before(*filter.LastActiveAfter) {
+		return false
+	}
+	if filter.LastActiveBefore != nil && s.LastActiveAt.After(*filter.LastActiveBefore) {
+		return false
+	}
+	return true
 }
 
 func (m *MockSessionRepo) Delete(_ context.Context, tokenHash string) error {

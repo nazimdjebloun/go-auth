@@ -589,3 +589,215 @@ func TestGetLoginActivity_PerUser(t *testing.T) {
 		t.Errorf("expected 1 login for alice, got %d (%+v)", total, body.Logins)
 	}
 }
+
+// ─── AdminListSessions ───────────────────────────────────────────────
+
+func TestAdminListSessions(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	now := time.Now().UTC()
+	th.sessions.Create(context.Background(), &domain.Session{
+		ID: "s1", UserID: "user-1", TokenHash: "s1-token", IP: "1.1.1.1",
+		ExpiresAt: now.Add(time.Hour), CreatedAt: now, LastActiveAt: now,
+	})
+	th.sessions.Create(context.Background(), &domain.Session{
+		ID: "s2", UserID: "user-2", TokenHash: "s2-token", IP: "2.2.2.2",
+		ExpiresAt: now.Add(time.Hour), CreatedAt: now, LastActiveAt: now,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/sessions", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListSessions(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body struct {
+		Sessions []domain.Session `json:"sessions"`
+		Total    int              `json:"total"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 2 {
+		t.Errorf("expected 2 sessions, got %d", body.Total)
+	}
+}
+
+func TestAdminListSessions_FilterByUserID(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	now := time.Now().UTC()
+	th.sessions.Create(context.Background(), &domain.Session{
+		ID: "s1", UserID: "user-1", TokenHash: "s1-token", IP: "1.1.1.1",
+		ExpiresAt: now.Add(time.Hour), CreatedAt: now, LastActiveAt: now,
+	})
+	th.sessions.Create(context.Background(), &domain.Session{
+		ID: "s2", UserID: "user-2", TokenHash: "s2-token", IP: "2.2.2.2",
+		ExpiresAt: now.Add(time.Hour), CreatedAt: now, LastActiveAt: now,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/sessions?userId=user-1", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListSessions(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body struct {
+		Sessions []domain.Session `json:"sessions"`
+		Total    int              `json:"total"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 1 || len(body.Sessions) != 1 || body.Sessions[0].UserID != "user-1" {
+		t.Errorf("expected 1 session for user-1, got %+v", body)
+	}
+}
+
+func TestAdminListSessions_Unauthenticated(t *testing.T) {
+	th := newTestHarness()
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/sessions", nil)
+	w := httptest.NewRecorder()
+	th.handler.AdminListSessions(w, req)
+
+	if w.Result().StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Result().StatusCode)
+	}
+}
+
+// ─── Bulk user actions ─────────────────────────────────────────────
+
+func TestBulkBanUsers(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"})
+	th.users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com"})
+
+	body := `{"userIds":["user-1","user-2","nonexistent"]}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/bulk/ban", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.BulkBanUsers(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var result service.BulkUserActionResult
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Succeeded) != 2 {
+		t.Errorf("expected 2 succeeded, got %+v", result.Succeeded)
+	}
+	if len(result.Failed) != 1 || result.Failed[0].UserID != "nonexistent" {
+		t.Errorf("expected 1 failure for nonexistent, got %+v", result.Failed)
+	}
+}
+
+func TestBulkBanUsers_Unauthenticated(t *testing.T) {
+	th := newTestHarness()
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/bulk/ban", strings.NewReader(`{"userIds":["user-1"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	th.handler.BulkBanUsers(w, req)
+
+	if w.Result().StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestBulkUnbanUsers(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	now := time.Now().UTC()
+	th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com", IsBanned: true, BannedAt: &now})
+
+	body := `{"userIds":["user-1"]}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/bulk/unban", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.BulkUnbanUsers(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var result service.BulkUserActionResult
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Succeeded) != 1 {
+		t.Errorf("expected 1 succeeded, got %+v", result.Succeeded)
+	}
+}
+
+func TestBulkDeleteUsers(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"})
+
+	body := `{"userIds":["user-1"]}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/bulk/delete", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.BulkDeleteUsers(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var result service.BulkUserActionResult
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Succeeded) != 1 {
+		t.Errorf("expected 1 succeeded, got %+v", result.Succeeded)
+	}
+}
+
+func TestBulkRevokeUserSessions(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"})
+	now := time.Now().UTC()
+	th.sessions.Create(context.Background(), &domain.Session{
+		ID: "s1", UserID: "user-1", TokenHash: "s1-token", ExpiresAt: now.Add(time.Hour), CreatedAt: now,
+	})
+
+	body := `{"userIds":["user-1"]}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/users/bulk/revoke-sessions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.BulkRevokeUserSessions(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var result service.BulkUserActionResult
+	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Succeeded) != 1 {
+		t.Errorf("expected 1 succeeded, got %+v", result.Succeeded)
+	}
+}

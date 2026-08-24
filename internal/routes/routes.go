@@ -59,6 +59,13 @@ const (
 	AdminRevokeUserSession = "DELETE /admin/users/{id}/sessions/{sessionId}"
 	RevokeUserSessions     = "DELETE /admin/users/{id}/sessions"
 
+	// Admin — sessions across every user, and bulk user actions
+	AdminListSessions      = "GET /admin/sessions"
+	BulkBanUsers           = "POST /admin/users/bulk/ban"
+	BulkUnbanUsers         = "POST /admin/users/bulk/unban"
+	BulkDeleteUsers        = "POST /admin/users/bulk/delete"
+	BulkRevokeUserSessions = "POST /admin/users/bulk/revoke-sessions"
+
 	// Admin — audit logs
 	AdminListAuditLogs     = "GET /admin/audit-logs"
 	AdminListUserAuditLogs = "GET /admin/users/{id}/audit-logs"
