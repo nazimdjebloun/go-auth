@@ -1090,6 +1090,88 @@ func (m *mockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port
 	return page, total, nil
 }
 
+func (m *mockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.Organization, int, error) {
+	m.mu.Lock()
+	seen := make(map[string]bool)
+	var all []domain.Organization
+	for _, org := range m.orgs {
+		// m.orgs is keyed by both ID and Slug pointing at the same org, so
+		// dedupe by ID before treating this as a real listing.
+		if seen[org.ID] {
+			continue
+		}
+		seen[org.ID] = true
+		all = append(all, *org)
+	}
+	m.mu.Unlock()
+
+	if filter.Search != nil && *filter.Search != "" {
+		term := strings.ToLower(*filter.Search)
+		filtered := all[:0:0]
+		for _, o := range all {
+			if strings.Contains(strings.ToLower(o.Name), term) || strings.Contains(strings.ToLower(o.Slug), term) {
+				filtered = append(filtered, o)
+			}
+		}
+		all = filtered
+	}
+	if filter.CreatedAfter != nil {
+		filtered := all[:0:0]
+		for _, o := range all {
+			if o.CreatedAt.After(*filter.CreatedAfter) {
+				filtered = append(filtered, o)
+			}
+		}
+		all = filtered
+	}
+	if filter.CreatedBefore != nil {
+		filtered := all[:0:0]
+		for _, o := range all {
+			if o.CreatedAt.Before(*filter.CreatedBefore) {
+				filtered = append(filtered, o)
+			}
+		}
+		all = filtered
+	}
+
+	sort.SliceStable(all, func(i, j int) bool {
+		var less bool
+		switch filter.OrderBy {
+		case "created_at":
+			less = all[i].CreatedAt.Before(all[j].CreatedAt)
+		case "member_count":
+			less = all[i].MemberCount < all[j].MemberCount
+		default:
+			less = all[i].Name < all[j].Name
+		}
+		if strings.EqualFold(filter.OrderDirection, "asc") {
+			return less
+		}
+		return !less
+	})
+
+	total := len(all)
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > total {
+		offset = total
+	}
+	end := total
+	if filter.Limit > 0 {
+		end = offset + filter.Limit
+		if end > total {
+			end = total
+		}
+	}
+	page := all[offset:end]
+	if page == nil {
+		page = []domain.Organization{}
+	}
+	return page, total, nil
+}
+
 func (m *mockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID string, maxOrgs int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

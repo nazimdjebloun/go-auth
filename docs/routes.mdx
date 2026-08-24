@@ -151,6 +151,20 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | `GET /admin/stats/registrations` | Admin | Query: `from`, `to` (RFC3339, both required, 400-day max span) | Registrations per day — a registrations-over-time chart. |
 | `GET /admin/stats/logins` | Admin | Query: `from`, `to` (RFC3339, both required, 400-day max span); `userId` (optional — global if omitted) | Successful (`login.success`) logins per day — a GitHub-commit-style login heatmap. Empty if audit logging is disabled. |
 
+## Admin — organizations (`WithOrganizations` required)
+
+Platform-admin oversight of orgs — act on any organization regardless of the caller's own membership in it. Distinct from the `/auth/orgs/*` routes above: those enforce org-membership roles (`Org member`/`Org admin`/`Org owner`), these enforce platform `Admin` only. Every mutation here publishes its own `admin.org.*` audit event, distinct from the self-service `organization.*` events — see [Audit Logs](guides/audit-logs.mdx).
+
+| Method & Path | Auth | Params | Description |
+|---|---|---|---|
+| `GET /admin/orgs` | Admin | Query (all optional): `search` (matches name/slug), `createdAfter`, `createdBefore` (RFC3339), `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Every organization on the platform. |
+| `GET /admin/orgs/{orgID}` | Admin | Path: `orgID` | One organization, regardless of the caller's membership. Publishes `admin.org.viewed`. |
+| `GET /admin/orgs/{orgID}/members` | Admin | Path: `orgID`; same `role`/`search`/`orderBy`/`orderDirection`/`offset`/`limit` params as `GET /auth/orgs/{orgID}/members` | That org's members, regardless of the caller's membership. Publishes `admin.org.viewed`. |
+| `POST /admin/orgs/{orgID}/members` | Admin | Path: `orgID`; body: `` `{userId, role}` `` | Force-adds a member — the recovery path for an org whose only owner is gone and is otherwise unmanageable by anyone. Publishes `admin.org.member.added`. |
+| `DELETE /admin/orgs/{orgID}` | Admin | Path: `orgID` | Force-deletes the org. The org's name/slug are snapshotted into the `admin.org.deleted` event's metadata, since the row won't survive the delete for anything to look it up against afterward. |
+| `DELETE /admin/orgs/{orgID}/members/{userID}` | Admin | Path: `orgID`, `userID` | Force-removes a member. Still refuses to remove an org's last owner — that repository-level invariant applies to an admin override too. Publishes `admin.org.member.removed`. |
+| `PATCH /admin/orgs/{orgID}/members/{userID}/role` | Admin | Path: `orgID`, `userID`; body: `` `{role}` `` | Force-changes a member's role, including granting/revoking Owner — unlike the self-service version, does not require the caller to already be an Owner. Publishes `admin.org.member.role_changed`. |
+
 ## Admin — invites (`EnableInvite` required)
 
 | Method & Path | Auth | Params | Description |

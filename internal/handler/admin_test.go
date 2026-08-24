@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -936,5 +937,430 @@ func TestAdminListAuditLogs_Unauthenticated(t *testing.T) {
 
 	if w.Result().StatusCode != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", w.Result().StatusCode)
+	}
+}
+
+// ─── Admin — organizations ──────────────────────────────────────
+
+func seedNonAdminActor(t *testing.T, th *testHarness) *domain.User {
+	t.Helper()
+	actor := &domain.User{
+		ID:         "regular-user",
+		Email:      "regular@example.com",
+		Role:       domain.RoleUser,
+		IsVerified: true,
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}
+	if err := th.users.Create(context.Background(), actor); err != nil {
+		t.Fatal(err)
+	}
+	return actor
+}
+
+func TestAdminListOrgs_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	seedOrg(t, th, owner.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/orgs", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListOrgs(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body service.AdminListOrgsResult
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 1 || len(body.Orgs) != 1 {
+		t.Fatalf("expected exactly the one seeded org, got %+v", body)
+	}
+}
+
+func TestAdminListOrgs_ActorNotAdmin_Forbidden(t *testing.T) {
+	th := newTestHarness()
+	actor := seedNonAdminActor(t, th)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/orgs", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListOrgs(w, req)
+
+	if w.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminListOrgs_Unauthenticated(t *testing.T) {
+	th := newTestHarness()
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/orgs", nil)
+	w := httptest.NewRecorder()
+	th.handler.AdminListOrgs(w, req)
+
+	if w.Result().StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminGetOrg_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/orgs/"+org.ID, nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminGetOrg(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var got domain.Organization
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != org.ID {
+		t.Errorf("expected org %s, got %s", org.ID, got.ID)
+	}
+}
+
+func TestAdminGetOrg_NotFound(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/orgs/bad-id", nil)
+	req.SetPathValue("orgID", "bad-id")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminGetOrg(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminGetOrg_ActorNotAdmin_Forbidden(t *testing.T) {
+	th := newTestHarness()
+	actor := seedNonAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/orgs/"+org.ID, nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminGetOrg(w, req)
+
+	if w.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminListOrgMembers_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/orgs/"+org.ID+"/members", nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListOrgMembers(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body service.ListMembersResult
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Total != 1 || body.Members[0].UserID != owner.ID {
+		t.Fatalf("expected the one owner member, got %+v", body)
+	}
+}
+
+func TestAdminListOrgMembers_ActorNotAdmin_Forbidden(t *testing.T) {
+	th := newTestHarness()
+	actor := seedNonAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/orgs/"+org.ID+"/members", nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListOrgMembers(w, req)
+
+	if w.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminAddOrgMember_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+	newMember := seedSecondUser(t, th)
+
+	body := fmt.Sprintf(`{"userId":%q,"role":"member"}`, newMember.ID)
+	req := httptest.NewRequest(http.MethodPost, "/admin/orgs/"+org.ID+"/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminAddOrgMember(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201, got %d", res.StatusCode)
+	}
+	m, err := th.orgs.GetMembership(context.Background(), org.ID, newMember.ID)
+	if err != nil || m == nil {
+		t.Fatalf("expected new member to be added, got %+v, err=%v", m, err)
+	}
+}
+
+func TestAdminAddOrgMember_ActorNotAdmin_Forbidden(t *testing.T) {
+	th := newTestHarness()
+	actor := seedNonAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+	newMember := seedSecondUser(t, th)
+
+	body := fmt.Sprintf(`{"userId":%q,"role":"member"}`, newMember.ID)
+	req := httptest.NewRequest(http.MethodPost, "/admin/orgs/"+org.ID+"/members", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminAddOrgMember(w, req)
+
+	if w.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminDeleteOrg_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/orgs/"+org.ID, nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminDeleteOrg(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	got, err := th.orgs.GetByID(context.Background(), org.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Errorf("expected org to be deleted, still found: %+v", got)
+	}
+}
+
+func TestAdminDeleteOrg_NotFound(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/orgs/bad-id", nil)
+	req.SetPathValue("orgID", "bad-id")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminDeleteOrg(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminDeleteOrg_ActorNotAdmin_Forbidden(t *testing.T) {
+	th := newTestHarness()
+	actor := seedNonAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/orgs/"+org.ID, nil)
+	req.SetPathValue("orgID", org.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminDeleteOrg(w, req)
+
+	if w.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Result().StatusCode)
+	}
+	// The org must survive a forbidden attempt.
+	got, err := th.orgs.GetByID(context.Background(), org.ID)
+	if err != nil || got == nil {
+		t.Fatalf("expected org to still exist after a forbidden delete attempt, got %+v, err=%v", got, err)
+	}
+}
+
+func TestAdminRemoveOrgMember_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+	member := seedSecondUser(t, th)
+	if err := th.orgs.AddMember(context.Background(), &domain.OrgMember{
+		OrgID: org.ID, UserID: member.ID, Role: domain.OrgRoleMember, JoinedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/orgs/"+org.ID+"/members/"+member.ID, nil)
+	req.SetPathValue("orgID", org.ID)
+	req.SetPathValue("userID", member.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminRemoveOrgMember(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	m, err := th.orgs.GetMembership(context.Background(), org.ID, member.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m != nil {
+		t.Errorf("expected member to be removed, still found: %+v", m)
+	}
+}
+
+func TestAdminRemoveOrgMember_NotFound(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/orgs/"+org.ID+"/members/nobody", nil)
+	req.SetPathValue("orgID", org.ID)
+	req.SetPathValue("userID", "nobody")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminRemoveOrgMember(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminRemoveOrgMember_ActorNotAdmin_Forbidden(t *testing.T) {
+	th := newTestHarness()
+	actor := seedNonAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+	member := seedSecondUser(t, th)
+	if err := th.orgs.AddMember(context.Background(), &domain.OrgMember{
+		OrgID: org.ID, UserID: member.ID, Role: domain.OrgRoleMember, JoinedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/orgs/"+org.ID+"/members/"+member.ID, nil)
+	req.SetPathValue("orgID", org.ID)
+	req.SetPathValue("userID", member.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminRemoveOrgMember(w, req)
+
+	if w.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminUpdateOrgMemberRole_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+	member := seedSecondUser(t, th)
+	if err := th.orgs.AddMember(context.Background(), &domain.OrgMember{
+		OrgID: org.ID, UserID: member.ID, Role: domain.OrgRoleMember, JoinedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"role":"admin"}`
+	req := httptest.NewRequest(http.MethodPatch, "/admin/orgs/"+org.ID+"/members/"+member.ID+"/role", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("orgID", org.ID)
+	req.SetPathValue("userID", member.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminUpdateOrgMemberRole(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	m, err := th.orgs.GetMembership(context.Background(), org.ID, member.ID)
+	if err != nil || m == nil || m.Role != domain.OrgRoleAdmin {
+		t.Fatalf("expected member to now be admin, got %+v, err=%v", m, err)
+	}
+}
+
+func TestAdminUpdateOrgMemberRole_NotFound(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	body := `{"role":"admin"}`
+	req := httptest.NewRequest(http.MethodPatch, "/admin/orgs/"+org.ID+"/members/nobody/role", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("orgID", org.ID)
+	req.SetPathValue("userID", "nobody")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminUpdateOrgMemberRole(w, req)
+
+	if w.Result().StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestAdminUpdateOrgMemberRole_ActorNotAdmin_Forbidden(t *testing.T) {
+	th := newTestHarness()
+	actor := seedNonAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+	member := seedSecondUser(t, th)
+	if err := th.orgs.AddMember(context.Background(), &domain.OrgMember{
+		OrgID: org.ID, UserID: member.ID, Role: domain.OrgRoleMember, JoinedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"role":"admin"}`
+	req := httptest.NewRequest(http.MethodPatch, "/admin/orgs/"+org.ID+"/members/"+member.ID+"/role", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("orgID", org.ID)
+	req.SetPathValue("userID", member.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminUpdateOrgMemberRole(w, req)
+
+	if w.Result().StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", w.Result().StatusCode)
 	}
 }

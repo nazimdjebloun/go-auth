@@ -306,6 +306,82 @@ func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter 
 	return orgs, total, rows.Err()
 }
 
+// List returns every organization matching filter — the platform-admin,
+// cross-org listing. Unlike ListUserOrgs, there is no organization_members
+// join: this queries organizations directly.
+func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]domain.Organization, int, error) {
+	where := []string{"1=1"}
+	args := []any{}
+	argIdx := 1
+
+	if filter.Search != nil && *filter.Search != "" {
+		searchTerm := "%" + *filter.Search + "%"
+		op := "ILIKE"
+		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+			op = "LIKE"
+		}
+		where = append(where, fmt.Sprintf("(o.name %s $%d OR o.slug %s $%d)", op, argIdx, op, argIdx+1))
+		args = append(args, searchTerm, searchTerm)
+		argIdx += 2
+	}
+	if filter.CreatedAfter != nil {
+		where = append(where, fmt.Sprintf("o.created_at > $%d", argIdx))
+		args = append(args, *filter.CreatedAfter)
+		argIdx++
+	}
+	if filter.CreatedBefore != nil {
+		where = append(where, fmt.Sprintf("o.created_at < $%d", argIdx))
+		args = append(args, *filter.CreatedBefore)
+		argIdx++
+	}
+	whereClause := strings.Join(where, " AND ")
+
+	var total int
+	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM organizations o WHERE %s`, whereClause)
+	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	orderCol := orgOrderByWhitelist[filter.OrderBy]
+	if orderCol == "" {
+		orderCol = "o.name"
+	}
+	orderDir := "DESC"
+	if strings.EqualFold(filter.OrderDirection, "asc") {
+		orderDir = "ASC"
+	}
+
+	base := fmt.Sprintf(`
+		SELECT %s
+		FROM organizations o
+		WHERE %s ORDER BY %s %s`, orgSelectColsAliased, whereClause, orderCol, orderDir)
+
+	query := base
+	if filter.Limit > 0 {
+		query = fmt.Sprintf("%s LIMIT $%d OFFSET $%d", base, argIdx, argIdx+1)
+		args = append(args, filter.Limit, filter.Offset)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var orgs []domain.Organization
+	for rows.Next() {
+		o, err := scanOrg(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		orgs = append(orgs, *o)
+	}
+	if orgs == nil {
+		orgs = []domain.Organization{}
+	}
+	return orgs, total, rows.Err()
+}
+
 func (r *OrgRepository) IncrementUserOrgOwnerCount(ctx context.Context, userID string, maxOrgs int) error {
 	res, err := r.db.ExecContext(ctx, orgIncrementOwnerCountQuery, userID, maxOrgs)
 	if err != nil {

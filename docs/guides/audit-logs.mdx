@@ -59,9 +59,14 @@ Every event carries a `type`, a `severity` (`info` / `warning` / `error` / `crit
 | OAuth | `oauth.login`, `oauth.linked`, `oauth.unlinked` |
 | Admin | `admin.user.created`, `admin.user.updated`, `admin.user.deleted`, `admin.user.banned`, `admin.user.unbanned` |
 | Roles | `role.changed` |
-| Organizations | `organization.created`, `organization.deleted`, `organization.member.invited`, `organization.member.removed` |
+| Organizations | `organization.created`, `organization.deleted`, `organization.member.invited`, `organization.member.removed`, `organization.member.role_changed` |
+| Admin — organizations | `admin.org.deleted`, `admin.org.member.added`, `admin.org.member.removed`, `admin.org.member.role_changed`, `admin.org.viewed` |
 
 This list can grow across versions — treat `event_type` as an opaque string in your filters rather than an exhaustive enum you validate against.
+
+<Callout type="info" title="Admin-organization events are always distinct from the self-service ones">
+  A platform admin using `auth.Services.Org.AdminDeleteOrg`/`AdminRemoveMember`/`AdminUpdateMemberRole` publishes `admin.org.*`, never the plain `organization.*` type the org's own owner/admin would publish for the same action — so "the owner deleted their org" and "a platform admin force-deleted it" never look identical in the log. `admin.org.deleted` also carries the org's `name`/`slug` in its `metadata`, snapshotted at the moment of deletion — the `organizations` row is hard-deleted, so nothing else could resolve `orgId` back to a name afterward (the same limitation as the deleted-user email case below, applied to orgs).
+</Callout>
 
 ## Querying audit logs
 

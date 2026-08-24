@@ -460,6 +460,9 @@ func TestEventTypes_NoDuplicates(t *testing.T) {
 		EventAdminUserBanned, EventAdminUserUnbanned,
 		EventRoleChanged,
 		EventOrgCreated, EventOrgDeleted, EventOrgMemberInvited, EventOrgMemberRemoved,
+		EventOrgMemberRoleChanged,
+		EventAdminOrgDeleted, EventAdminOrgMemberAdded, EventAdminOrgMemberRemoved,
+		EventAdminOrgMemberRoleChanged, EventAdminOrgViewed,
 	}
 	seen := make(map[EventType]bool)
 	for _, typ := range types {
@@ -467,6 +470,47 @@ func TestEventTypes_NoDuplicates(t *testing.T) {
 			t.Fatalf("duplicate event type: %s", typ)
 		}
 		seen[typ] = true
+	}
+}
+
+func TestNewOrgEvent_AdminTypesAccepted(t *testing.T) {
+	userID := "u2"
+	cases := []struct {
+		typ      EventType
+		wantSev  Severity
+		hasOrgID bool
+	}{
+		{EventAdminOrgDeleted, SeverityWarning, true},
+		{EventAdminOrgMemberAdded, SeverityInfo, true},
+		{EventAdminOrgMemberRemoved, SeverityWarning, true},
+		{EventAdminOrgMemberRoleChanged, SeverityInfo, true},
+		{EventAdminOrgViewed, SeverityInfo, true},
+		{EventOrgMemberRoleChanged, SeverityInfo, true},
+	}
+	for _, c := range cases {
+		e := NewOrgEvent(c.typ, "admin1", "org1", &userID)
+		if !e.Success {
+			t.Errorf("%s: expected Success=true for a recognized org event type, got false (metadata: %v)", c.typ, e.Metadata)
+		}
+		if e.Severity != c.wantSev {
+			t.Errorf("%s: severity = %s, want %s", c.typ, e.Severity, c.wantSev)
+		}
+		if e.OrgID == nil || *e.OrgID != "org1" {
+			t.Errorf("%s: org_id not set", c.typ)
+		}
+		if e.ActorID == nil || *e.ActorID != "admin1" {
+			t.Errorf("%s: actor_id not set", c.typ)
+		}
+	}
+}
+
+func TestNewOrgEvent_UnrecognizedTypeRejected(t *testing.T) {
+	e := NewOrgEvent(EventType("bogus.event"), "admin1", "org1", nil)
+	if e.Success {
+		t.Error("unrecognized org event type should produce Success=false")
+	}
+	if e.Metadata["error"] == nil {
+		t.Error("unrecognized org event type should record the error in Metadata")
 	}
 }
 

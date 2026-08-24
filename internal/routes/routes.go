@@ -75,6 +75,15 @@ const (
 	AdminRegistrationTrend = "GET /admin/stats/registrations"
 	AdminLoginActivity     = "GET /admin/stats/logins"
 
+	// Admin — organizations
+	AdminListOrgs            = "GET /admin/orgs"
+	AdminGetOrg              = "GET /admin/orgs/{orgID}"
+	AdminListOrgMembers      = "GET /admin/orgs/{orgID}/members"
+	AdminAddOrgMember        = "POST /admin/orgs/{orgID}/members"
+	AdminDeleteOrg           = "DELETE /admin/orgs/{orgID}"
+	AdminRemoveOrgMember     = "DELETE /admin/orgs/{orgID}/members/{userID}"
+	AdminUpdateOrgMemberRole = "PATCH /admin/orgs/{orgID}/members/{userID}/role"
+
 	// Admin — invites (EnableInvite)
 	CreateInvite     = "POST /admin/invites"
 	ListInvites      = "GET /admin/invites"

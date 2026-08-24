@@ -60,17 +60,19 @@ func NewAdminService(
 	}
 }
 
-// requireAdmin verifies actorID is a current, non-banned admin. Every other
-// exported AdminService method calls this first — the HTTP layer's
+// requireAdminRole verifies actorID is a current, non-banned admin. Shared
+// by AdminService (every exported method) and OrgService (its AdminX
+// methods) — one implementation of a security check used in two services,
+// rather than two copies that could drift. The HTTP layer's
 // RequireRole(domain.RoleAdmin) middleware pre-checks the same thing, but
 // this is the real authority: it also protects the "call it without HTTP"
 // path the root package advertises (auth.Services.Admin.BanUser(ctx, ...)),
 // which has no middleware in front of it at all.
-func (s *AdminService) requireAdmin(ctx context.Context, actorID string) error {
+func requireAdminRole(ctx context.Context, users port.UserRepository, actorID string) error {
 	if actorID == "" {
 		return domain.ErrForbidden
 	}
-	actor, err := s.users.GetByID(ctx, actorID)
+	actor, err := users.GetByID(ctx, actorID)
 	if err != nil {
 		return err
 	}
@@ -78,6 +80,10 @@ func (s *AdminService) requireAdmin(ctx context.Context, actorID string) error {
 		return domain.ErrForbidden
 	}
 	return nil
+}
+
+func (s *AdminService) requireAdmin(ctx context.Context, actorID string) error {
+	return requireAdminRole(ctx, s.users, actorID)
 }
 
 func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput) (*AdminListUsersResult, error) {

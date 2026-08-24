@@ -2,12 +2,66 @@ package integration_test
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"testing"
 	"time"
 
 	goauth "github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 )
+
+// openOrgAdminAuth is openOrgAuth (see org_test.go) plus audit logging
+// enabled — the admin-org tests need both: organizations, to have something
+// to act on, and audit, to assert on the admin.org.* events those actions
+// publish.
+func openOrgAdminAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
+	t.Helper()
+	migrateDB(t, db, "sqlite")
+	cfg, err := goauth.NewConfig(
+		goauth.WithApp(goauth.AppConfig{
+			Name:    "TestApp",
+			BaseURL: "http://localhost:8080",
+			Database: goauth.DatabaseConfig{
+				DB:     db,
+				Driver: goauth.DriverSQLite,
+			},
+		}),
+		goauth.WithSession(goauth.SessionConfig{
+			TTL:             1 * time.Hour,
+			IdleTTL:         1 * time.Hour,
+			RefreshTokenTTL: 1 * time.Hour,
+		}),
+		goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
+			AllowedOrigins: []string{"http://localhost:8080"},
+			TokenTTL:       1 * time.Hour,
+		}),
+		goauth.WithRegistration(goauth.RegistrationConfig{
+			EnableEmailPassword: true,
+			EnableOAuth:         true,
+			EnableInvite:        false,
+			AllowPublic:         true,
+			InviteTTL:           1 * time.Hour,
+			VerificationCodeTTL: 1 * time.Hour,
+		}),
+		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+		goauth.WithMailer(mailer),
+		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
+		goauth.WithOrganizations(goauth.OrganizationConfig{Enable: true}),
+		goauth.WithAudit(goauth.AuditConfig{Enabled: true}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := goauth.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return a
+}
 
 func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
@@ -380,5 +434,120 @@ func TestAdmin_ListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 	}
 	if result.Events[0].TargetEmail == nil || *result.Events[0].TargetEmail != "bantarget@example.com" {
 		t.Fatalf("expected TargetEmail bantarget@example.com, got %+v", result.Events[0].TargetEmail)
+	}
+}
+
+func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openOrgAdminAuth(t, db, &testMailer{})
+	defer a.Close()
+	ctx := context.Background()
+
+	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "orgadmin@example.com", Password: "Passw0rd!", Name: "Admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	owner, err := a.Register(ctx, goauth.RegisterInput{Email: "orgowner@example.com", Password: "Passw0rd!", Name: "Owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{Name: "Acme Inc", Slug: "acme-inc", OwnerID: owner.User.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// admin is a platform admin but not a member of org — self-service
+	// DeleteOrg would reject this with ErrOrgMemberNotFound.
+	if err := a.Services.Org.AdminDeleteOrg(ctx, service.AdminOrgActionInput{OrgID: org.ID, ActorID: admin.User.ID}); err != nil {
+		t.Fatalf("AdminDeleteOrg failed for a non-member platform admin: %v", err)
+	}
+
+	if got, err := a.Services.Org.AdminGetOrg(ctx, service.AdminGetOrgInput{OrgID: org.ID, ActorID: admin.User.ID}); err != domain.ErrOrgNotFound {
+		t.Fatalf("expected the org to be gone (ErrOrgNotFound), got %+v, err=%v", got, err)
+	}
+
+	// Audit events flush asynchronously (AuditServiceConfig's default
+	// FlushInterval is 100ms).
+	time.Sleep(200 * time.Millisecond)
+
+	result, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+		ActorID: admin.User.ID, EventTypes: []string{"admin.org.deleted"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 admin.org.deleted event, got %d: %+v", len(result.Events), result.Events)
+	}
+	var meta map[string]any
+	if err := json.Unmarshal(result.Events[0].Metadata, &meta); err != nil {
+		t.Fatalf("failed to unmarshal event metadata: %v", err)
+	}
+	if meta["orgName"] != "Acme Inc" {
+		t.Fatalf("expected metadata.orgName = Acme Inc (snapshotted before the row was deleted), got %v", meta)
+	}
+}
+
+func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openOrgAdminAuth(t, db, &testMailer{})
+	defer a.Close()
+	ctx := context.Background()
+
+	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "recoveryadmin@example.com", Password: "Passw0rd!", Name: "Admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	owner, err := a.Register(ctx, goauth.RegisterInput{Email: "orphanowner@example.com", Password: "Passw0rd!", Name: "Owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{Name: "Orphan Co", Slug: "orphan-co", OwnerID: owner.User.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulates the owner's account being deleted through a path that
+	// doesn't go through OrgService's own guarded RemoveMember (which would
+	// refuse to remove an org's last owner) — e.g. a direct account
+	// deletion elsewhere in the system. The org is left with no members at
+	// all and is otherwise unmanageable by anyone.
+	if _, err := db.ExecContext(ctx, "DELETE FROM organization_members WHERE org_id = ? AND user_id = ?", org.ID, owner.User.ID); err != nil {
+		t.Fatal(err)
+	}
+	members, err := a.Services.Org.AdminListOrgMembers(ctx, service.AdminListOrgMembersInput{OrgID: org.ID, ActorID: admin.User.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if members.Total != 0 {
+		t.Fatalf("expected the org to be memberless, got %+v", members)
+	}
+
+	newOwner, err := a.Register(ctx, goauth.RegisterInput{Email: "neworgowner@example.com", Password: "Passw0rd!", Name: "New Owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Services.Org.AdminAddMember(ctx, service.AdminAddMemberInput{
+		OrgID: org.ID, UserID: newOwner.User.ID, Role: "owner", ActorID: admin.User.ID,
+	}); err != nil {
+		t.Fatalf("AdminAddMember failed to recover the orphaned org: %v", err)
+	}
+
+	m, err := a.Services.Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: newOwner.User.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Role != "owner" {
+		t.Fatalf("expected the new member to be Owner, got %s", m.Role)
 	}
 }

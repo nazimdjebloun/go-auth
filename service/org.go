@@ -250,36 +250,54 @@ type DeleteOrgInput struct {
 	ActorID string
 }
 
+// deleteOrgTx does the actual work of deleting orgID — fetch, invariant
+// upkeep, cascade, delete — with no authorization check of its own. Callers
+// (DeleteOrg for self-service, AdminDeleteOrg for a platform override) each
+// do their own auth check and publish their own audit event, so the two
+// paths stay distinguishable in the audit log even though they share this
+// body. Returns the deleted org (fetched before the delete) so callers can
+// snapshot its name/slug into their audit event — the row won't exist to
+// look it up afterward.
+func (s *OrgService) deleteOrgTx(ctx context.Context, orgID string) (*domain.Organization, error) {
+	org, err := s.orgs.GetByID(ctx, orgID)
+	if err != nil {
+		s.log.Error("failed to get org for deletion", "err", err, "org_id", orgID)
+		return nil, err
+	}
+	if org == nil {
+		return nil, domain.ErrOrgNotFound
+	}
+
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if err := s.orgs.DecrementOwnerCountForOrgOwners(txCtx, orgID); err != nil {
+			return err
+		}
+		if err := s.sessions.ClearActiveOrgForAllMembers(txCtx, orgID); err != nil {
+			return err
+		}
+		return s.orgs.Delete(txCtx, orgID)
+	})
+	if err != nil {
+		s.log.Error("failed to delete org", "err", err, "org_id", orgID)
+		return nil, err
+	}
+	s.log.Info("org deleted", "org_id", orgID)
+	return org, nil
+}
+
 func (s *OrgService) DeleteOrg(ctx context.Context, input DeleteOrgInput) error {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleOwner); err != nil {
 		return err
 	}
-	org, err := s.orgs.GetByID(ctx, input.OrgID)
+	org, err := s.deleteOrgTx(ctx, input.OrgID)
 	if err != nil {
-		s.log.Error("failed to get org for deletion", "err", err, "org_id", input.OrgID)
 		return err
 	}
-	if org == nil {
-		return domain.ErrOrgNotFound
-	}
-
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		if err := s.orgs.DecrementOwnerCountForOrgOwners(txCtx, input.OrgID); err != nil {
-			return err
-		}
-		if err := s.sessions.ClearActiveOrgForAllMembers(txCtx, input.OrgID); err != nil {
-			return err
-		}
-		return s.orgs.Delete(txCtx, input.OrgID)
-	})
-	if err != nil {
-		s.log.Error("failed to delete org", "err", err, "org_id", input.OrgID)
-		return err
-	}
-	s.log.Info("org deleted", "org_id", input.OrgID)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgDeleted, "", input.OrgID, nil))
+		evt := audit.NewOrgEvent(audit.EventOrgDeleted, input.ActorID, input.OrgID, nil)
+		evt.Metadata = map[string]any{"orgName": org.Name, "orgSlug": org.Slug}
+		s.audit.Publish(ctx, evt)
 	}
 
 	return nil
@@ -356,17 +374,14 @@ type AddMemberInput struct {
 // exported method on an exported service and reachable directly as
 // auth.Services.Org.AddMember(...), so it enforces the same Admin-or-above
 // requirement as the other org-mutating methods.
-func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error {
-	if !input.Role.IsValid() {
-		return domain.NewError("invalid_role", "Invalid organization role")
-	}
-	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
-		return err
-	}
-
-	membership, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
+// addMemberTx does the actual work of adding userID to orgID with role —
+// existence check, owner/member-count upkeep, insert — with no authorization
+// check of its own. See deleteOrgTx's doc comment for why the tx body and
+// the auth check are split across caller and helper.
+func (s *OrgService) addMemberTx(ctx context.Context, orgID, userID string, role domain.OrgRole) error {
+	membership, err := s.orgs.GetMembership(ctx, orgID, userID)
 	if err != nil {
-		s.log.Error("failed to check membership", "err", err, "org_id", input.OrgID, "user_id", input.UserID)
+		s.log.Error("failed to check membership", "err", err, "org_id", orgID, "user_id", userID)
 		return err
 	}
 	if membership != nil {
@@ -374,31 +389,41 @@ func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error 
 	}
 
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		if input.Role == domain.OrgRoleOwner {
-			if err := s.guardAndIncrementOwnerCount(txCtx, input.UserID); err != nil {
+		if role == domain.OrgRoleOwner {
+			if err := s.guardAndIncrementOwnerCount(txCtx, userID); err != nil {
 				return err
 			}
-			if err := s.orgs.IncrementOrgOwnerCount(txCtx, input.OrgID); err != nil {
+			if err := s.orgs.IncrementOrgOwnerCount(txCtx, orgID); err != nil {
 				return err
 			}
 		}
 
-		if err := s.orgs.IncrementOrgMemberCount(txCtx, input.OrgID, 10000); err != nil {
+		if err := s.orgs.IncrementOrgMemberCount(txCtx, orgID, 10000); err != nil {
 			return err
 		}
 
 		return s.orgs.AddMember(txCtx, &domain.OrgMember{
-			OrgID:    input.OrgID,
-			UserID:   input.UserID,
-			Role:     input.Role,
+			OrgID:    orgID,
+			UserID:   userID,
+			Role:     role,
 			JoinedAt: time.Now().UTC(),
 		})
 	})
 	if err != nil {
 		return err
 	}
-	s.log.Info("member added", "org_id", input.OrgID, "user_id", input.UserID, "role", input.Role)
+	s.log.Info("member added", "org_id", orgID, "user_id", userID, "role", role)
 	return nil
+}
+
+func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error {
+	if !input.Role.IsValid() {
+		return domain.NewError("invalid_role", "Invalid organization role")
+	}
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
+		return err
+	}
+	return s.addMemberTx(ctx, input.OrgID, input.UserID, input.Role)
 }
 
 type RemoveMemberInput struct {
@@ -411,6 +436,46 @@ type RemoveMemberInput struct {
 // either equal input.UserID (a member leaving on their own) or hold at
 // least Admin — anything else is removing someone else and requires that
 // privilege.
+// removeMemberTx does the actual work of removing userID from orgID —
+// lookup, owner/member-count upkeep, delete, active-org cleanup — with no
+// authorization check of its own. See deleteOrgTx's doc comment for why the
+// tx body and the auth check are split across caller and helper. Returns the
+// removed member's role for the caller to log/audit.
+func (s *OrgService) removeMemberTx(ctx context.Context, orgID, userID string) (domain.OrgRole, error) {
+	member, err := s.orgs.GetMembership(ctx, orgID, userID)
+	if err != nil {
+		s.log.Error("failed to get membership for removal", "err", err, "org_id", orgID, "user_id", userID)
+		return "", err
+	}
+	if member == nil {
+		return "", domain.ErrOrgMemberNotFound
+	}
+
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if member.Role == domain.OrgRoleOwner {
+			if err := s.orgs.TryDecrementOrgOwnerCount(txCtx, orgID); err != nil {
+				return err
+			}
+			if err := s.orgs.DecrementUserOrgOwnerCount(txCtx, userID); err != nil {
+				return err
+			}
+		}
+
+		if err := s.orgs.DecrementOrgMemberCount(txCtx, orgID); err != nil {
+			return err
+		}
+		if err := s.orgs.RemoveMember(txCtx, orgID, userID); err != nil {
+			return err
+		}
+		return s.sessions.ClearActiveOrgForUser(txCtx, userID, orgID)
+	})
+	if err != nil {
+		return "", err
+	}
+	s.log.Info("member removed", "org_id", orgID, "user_id", userID, "role", member.Role)
+	return member.Role, nil
+}
+
 func (s *OrgService) RemoveMember(ctx context.Context, input RemoveMemberInput) error {
 	if input.ActorID != input.UserID {
 		if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
@@ -418,40 +483,12 @@ func (s *OrgService) RemoveMember(ctx context.Context, input RemoveMemberInput) 
 		}
 	}
 
-	member, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
-	if err != nil {
-		s.log.Error("failed to get membership for removal", "err", err, "org_id", input.OrgID, "user_id", input.UserID)
+	if _, err := s.removeMemberTx(ctx, input.OrgID, input.UserID); err != nil {
 		return err
 	}
-	if member == nil {
-		return domain.ErrOrgMemberNotFound
-	}
-
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		if member.Role == domain.OrgRoleOwner {
-			if err := s.orgs.TryDecrementOrgOwnerCount(txCtx, input.OrgID); err != nil {
-				return err
-			}
-			if err := s.orgs.DecrementUserOrgOwnerCount(txCtx, input.UserID); err != nil {
-				return err
-			}
-		}
-
-		if err := s.orgs.DecrementOrgMemberCount(txCtx, input.OrgID); err != nil {
-			return err
-		}
-		if err := s.orgs.RemoveMember(txCtx, input.OrgID, input.UserID); err != nil {
-			return err
-		}
-		return s.sessions.ClearActiveOrgForUser(txCtx, input.UserID, input.OrgID)
-	})
-	if err != nil {
-		return err
-	}
-	s.log.Info("member removed", "org_id", input.OrgID, "user_id", input.UserID, "role", member.Role)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, "", input.OrgID, &input.UserID))
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, input.ActorID, input.OrgID, &input.UserID))
 	}
 
 	return nil
@@ -464,6 +501,66 @@ type UpdateMemberRoleInput struct {
 	ActorID string // user performing the action
 }
 
+// updateMemberRoleTx does the actual work of changing userID's role within
+// orgID — lookup, no-op-if-unchanged, owner-count upkeep, update, active-org
+// sync — with no authorization check of its own, including no
+// owner-escalation guard (see UpdateMemberRole's doc comment for why that
+// guard stays out of this shared helper). Returns the member's prior role
+// (empty if no change was made) for the caller to log/audit.
+func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID string, newRole domain.OrgRole) (domain.OrgRole, error) {
+	member, err := s.orgs.GetMembership(ctx, orgID, userID)
+	if err != nil {
+		s.log.Error("failed to get membership for role update", "err", err, "org_id", orgID, "user_id", userID)
+		return "", err
+	}
+	if member == nil {
+		return "", domain.ErrOrgMemberNotFound
+	}
+	if member.Role == newRole {
+		return "", nil
+	}
+
+	oldRole := member.Role
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if member.Role == domain.OrgRoleOwner {
+			if err := s.orgs.TryDecrementOrgOwnerCount(txCtx, orgID); err != nil {
+				return err
+			}
+			if err := s.orgs.DecrementUserOrgOwnerCount(txCtx, userID); err != nil {
+				return err
+			}
+		}
+
+		if newRole == domain.OrgRoleOwner {
+			if err := s.guardAndIncrementOwnerCount(txCtx, userID); err != nil {
+				return err
+			}
+			if err := s.orgs.IncrementOrgOwnerCount(txCtx, orgID); err != nil {
+				return err
+			}
+		}
+
+		if err := s.orgs.UpdateMemberRole(txCtx, orgID, userID, newRole); err != nil {
+			return err
+		}
+
+		return s.sessions.UpdateActiveOrgRoleForUser(txCtx, userID, orgID, newRole)
+	})
+	if err != nil {
+		return "", err
+	}
+	s.log.Info("member role updated", "org_id", orgID, "user_id", userID, "old_role", oldRole, "new_role", newRole)
+	return oldRole, nil
+}
+
+// UpdateMemberRole changes input.UserID's role within input.OrgID.
+// Granting or revoking the Owner role is the highest-privilege action in an
+// org and must itself be performed by an Owner — an Admin (who can
+// otherwise manage Member/Admin transitions per RequireOrgRole at the HTTP
+// layer) must not be able to self-escalate or hand Owner to someone else.
+// This guard is deliberately kept out of updateMemberRoleTx — it protects
+// against a same-org Admin abusing the self-service path, which doesn't
+// apply to a platform admin acting via AdminUpdateMemberRole.
 func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRoleInput) error {
 	if !input.NewRole.IsValid() {
 		return domain.NewError("invalid_role", "Invalid organization role")
@@ -480,16 +577,6 @@ func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRol
 	if member == nil {
 		return domain.ErrOrgMemberNotFound
 	}
-
-	if member.Role == input.NewRole {
-		return nil
-	}
-
-	// Granting or revoking the Owner role is the highest-privilege action in
-	// an org and must itself be performed by an Owner — an Admin (who can
-	// otherwise manage Member/Admin transitions per RequireOrgRole at the
-	// HTTP layer) must not be able to self-escalate or hand Owner to someone
-	// else.
 	if input.NewRole == domain.OrgRoleOwner || member.Role == domain.OrgRoleOwner {
 		actor, err := s.orgs.GetMembership(ctx, input.OrgID, input.ActorID)
 		if err != nil {
@@ -501,36 +588,18 @@ func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRol
 		}
 	}
 
-	oldRole := member.Role
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		if member.Role == domain.OrgRoleOwner {
-			if err := s.orgs.TryDecrementOrgOwnerCount(txCtx, input.OrgID); err != nil {
-				return err
-			}
-			if err := s.orgs.DecrementUserOrgOwnerCount(txCtx, input.UserID); err != nil {
-				return err
-			}
-		}
-
-		if input.NewRole == domain.OrgRoleOwner {
-			if err := s.guardAndIncrementOwnerCount(txCtx, input.UserID); err != nil {
-				return err
-			}
-			if err := s.orgs.IncrementOrgOwnerCount(txCtx, input.OrgID); err != nil {
-				return err
-			}
-		}
-
-		if err := s.orgs.UpdateMemberRole(txCtx, input.OrgID, input.UserID, input.NewRole); err != nil {
-			return err
-		}
-
-		return s.sessions.UpdateActiveOrgRoleForUser(txCtx, input.UserID, input.OrgID, input.NewRole)
-	})
+	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole)
 	if err != nil {
 		return err
 	}
-	s.log.Info("member role updated", "org_id", input.OrgID, "user_id", input.UserID, "old_role", oldRole, "new_role", input.NewRole)
+	if oldRole == "" {
+		return nil // no-op: already had this role
+	}
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
+	}
+
 	return nil
 }
 
@@ -615,4 +684,273 @@ type ClearActiveOrgInput struct {
 
 func (s *OrgService) ClearActiveOrg(ctx context.Context, input ClearActiveOrgInput) error {
 	return s.sessions.ClearActiveOrg(ctx, input.SessionID)
+}
+
+// ─── Platform-admin oversight ───────────────────────────────────
+//
+// Everything below is a platform-admin operation — gated by requireAdminRole
+// (is the caller a platform admin?), not requireRole (is the caller a member
+// of this specific org?). These exist because org self-service has no
+// concept of a platform operator: today, nobody outside an org's own
+// membership can list it, view it, or intervene in it, however malformed or
+// abandoned it becomes. Each mutating method reuses the same tx helper as
+// its self-service counterpart (deleteOrgTx, addMemberTx, removeMemberTx,
+// updateMemberRoleTx) so repository-level invariants — e.g. "can't remove
+// the last owner" — still apply to an admin override. What's bypassed is
+// authorization only, plus (deliberately, for UpdateMemberRole only) the
+// same-org owner-escalation guard, which exists to stop a same-org Admin
+// self-promoting and has no bearing on a platform admin acting from outside
+// the org. Every method here publishes its own admin.org.* audit event,
+// distinct from the organization.* events the self-service paths publish,
+// so "the owner deleted their org" and "a platform admin force-deleted it"
+// never look identical in the audit log.
+
+type AdminListOrgsInput struct {
+	ActorID        string
+	Search         *string
+	CreatedAfter   *time.Time
+	CreatedBefore  *time.Time
+	OrderBy        string
+	OrderDirection string
+	Offset         int
+	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
+}
+
+type AdminListOrgsResult struct {
+	Orgs   []domain.Organization `json:"orgs"`
+	Total  int                   `json:"total"`
+	Limit  int                   `json:"limit"`
+	Offset int                   `json:"offset"`
+}
+
+// AdminListOrgs lists every organization on the platform, filterable by
+// name/slug search and creation-date range — the cross-org counterpart to
+// ListUserOrgs, which is scoped to one user's memberships.
+func (s *OrgService) AdminListOrgs(ctx context.Context, input AdminListOrgsInput) (*AdminListOrgsResult, error) {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return nil, err
+	}
+	limit := 20
+	if input.Limit != nil {
+		limit = *input.Limit
+		if limit < 0 {
+			limit = 20
+		} else if limit > 100 {
+			limit = 100
+		}
+	}
+	orgs, total, err := s.orgs.List(ctx, port.OrgFilter{
+		Search:         input.Search,
+		CreatedAfter:   input.CreatedAfter,
+		CreatedBefore:  input.CreatedBefore,
+		OrderBy:        input.OrderBy,
+		OrderDirection: input.OrderDirection,
+		Offset:         input.Offset,
+		Limit:          limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if orgs == nil {
+		orgs = []domain.Organization{}
+	}
+	return &AdminListOrgsResult{Orgs: orgs, Total: total, Limit: limit, Offset: input.Offset}, nil
+}
+
+type AdminGetOrgInput struct {
+	OrgID   string
+	ActorID string
+}
+
+// AdminGetOrg fetches one organization regardless of the caller's membership
+// in it. Publishes EventAdminOrgViewed: this exposes an org's metadata to
+// platform staff who may not be members, and that access itself is worth an
+// audit trail entry.
+func (s *OrgService) AdminGetOrg(ctx context.Context, input AdminGetOrgInput) (*domain.Organization, error) {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return nil, err
+	}
+	org, err := s.orgs.GetByID(ctx, input.OrgID)
+	if err != nil {
+		s.log.Error("failed to get org (admin)", "err", err, "org_id", input.OrgID)
+		return nil, err
+	}
+	if org == nil {
+		return nil, domain.ErrOrgNotFound
+	}
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgViewed, input.ActorID, input.OrgID, nil))
+	}
+
+	return org, nil
+}
+
+type AdminListOrgMembersInput struct {
+	OrgID          string
+	ActorID        string
+	Role           *domain.OrgRole
+	Search         *string
+	OrderBy        string
+	OrderDirection string
+	Offset         int
+	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
+}
+
+// AdminListOrgMembers lists orgID's members regardless of the caller's own
+// membership in it — the admin-bypass counterpart to ListMembers, which
+// requires the caller to already be a member. Publishes EventAdminOrgViewed
+// for the same reason as AdminGetOrg: this is cross-tenant member data
+// (emails, roles) being exposed to platform staff.
+func (s *OrgService) AdminListOrgMembers(ctx context.Context, input AdminListOrgMembersInput) (*ListMembersResult, error) {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return nil, err
+	}
+	limit := 20
+	if input.Limit != nil {
+		limit = *input.Limit
+		if limit < 0 {
+			limit = 20
+		} else if limit > 100 {
+			limit = 100
+		}
+	}
+	members, total, err := s.orgs.ListMembers(ctx, input.OrgID, port.OrgMemberFilter{
+		Role:           input.Role,
+		Search:         input.Search,
+		OrderBy:        input.OrderBy,
+		OrderDirection: input.OrderDirection,
+		Offset:         input.Offset,
+		Limit:          limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if members == nil {
+		members = []domain.OrgMemberDetail{}
+	}
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgViewed, input.ActorID, input.OrgID, nil))
+	}
+
+	return &ListMembersResult{Members: members, Total: total, Limit: limit, Offset: input.Offset}, nil
+}
+
+type AdminOrgActionInput struct {
+	OrgID   string
+	ActorID string
+}
+
+// AdminDeleteOrg force-deletes orgID regardless of whether the caller is a
+// member of it. Publishes EventAdminOrgDeleted — distinct from the
+// self-service EventOrgDeleted — with the org's name/slug snapshotted into
+// the event metadata, since the organizations row won't survive the delete
+// for anything to join against later.
+func (s *OrgService) AdminDeleteOrg(ctx context.Context, input AdminOrgActionInput) error {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return err
+	}
+	org, err := s.deleteOrgTx(ctx, input.OrgID)
+	if err != nil {
+		return err
+	}
+
+	if s.audit != nil {
+		evt := audit.NewOrgEvent(audit.EventAdminOrgDeleted, input.ActorID, input.OrgID, nil)
+		evt.Metadata = map[string]any{"orgName": org.Name, "orgSlug": org.Slug, "override": true}
+		s.audit.Publish(ctx, evt)
+	}
+
+	return nil
+}
+
+type AdminAddMemberInput struct {
+	OrgID   string
+	UserID  string
+	Role    domain.OrgRole
+	ActorID string
+}
+
+// AdminAddMember force-adds userID to orgID with the given role, regardless
+// of the caller's own membership. This is the recovery path for an org
+// whose only owner left or was removed and is otherwise unmanageable by
+// anyone — AdminRemoveMember/AdminUpdateMemberRole alone can't fix that,
+// since both require the target to already be a member. Publishes
+// EventAdminOrgMemberAdded.
+func (s *OrgService) AdminAddMember(ctx context.Context, input AdminAddMemberInput) error {
+	if !input.Role.IsValid() {
+		return domain.NewError("invalid_role", "Invalid organization role")
+	}
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return err
+	}
+	if err := s.addMemberTx(ctx, input.OrgID, input.UserID, input.Role); err != nil {
+		return err
+	}
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgMemberAdded, input.ActorID, input.OrgID, &input.UserID))
+	}
+
+	return nil
+}
+
+type AdminRemoveMemberInput struct {
+	OrgID   string
+	UserID  string
+	ActorID string
+}
+
+// AdminRemoveMember force-removes userID from orgID regardless of the
+// caller's own membership. Publishes EventAdminOrgMemberRemoved — distinct
+// from the self-service EventOrgMemberRemoved.
+func (s *OrgService) AdminRemoveMember(ctx context.Context, input AdminRemoveMemberInput) error {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return err
+	}
+	if _, err := s.removeMemberTx(ctx, input.OrgID, input.UserID); err != nil {
+		return err
+	}
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgMemberRemoved, input.ActorID, input.OrgID, &input.UserID))
+	}
+
+	return nil
+}
+
+type AdminUpdateMemberRoleInput struct {
+	OrgID   string
+	UserID  string
+	NewRole domain.OrgRole
+	ActorID string
+}
+
+// AdminUpdateMemberRole force-changes userID's role within orgID, including
+// granting or revoking Owner — the self-service UpdateMemberRole's
+// owner-escalation guard (only an Owner can touch the Owner role) is
+// deliberately not applied here: that guard exists to stop a same-org Admin
+// self-promoting, and doesn't apply to a platform admin acting from outside
+// the org. Publishes EventAdminOrgMemberRoleChanged.
+func (s *OrgService) AdminUpdateMemberRole(ctx context.Context, input AdminUpdateMemberRoleInput) error {
+	if !input.NewRole.IsValid() {
+		return domain.NewError("invalid_role", "Invalid organization role")
+	}
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return err
+	}
+	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole)
+	if err != nil {
+		return err
+	}
+	if oldRole == "" {
+		return nil // no-op: already had this role
+	}
+
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
+	}
+
+	return nil
 }

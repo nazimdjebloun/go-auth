@@ -278,6 +278,19 @@ type UserOrgFilter struct {
 	Limit          int // 0 means unlimited
 }
 
+// OrgFilter narrows and orders OrgCRUD.List — the platform-admin, cross-org
+// listing (as opposed to UserOrgFilter, which is scoped to one user's
+// memberships).
+type OrgFilter struct {
+	Search         *string // matches org name or slug
+	CreatedAfter   *time.Time
+	CreatedBefore  *time.Time
+	OrderBy        string // "name" (default), "created_at", or "member_count"
+	OrderDirection string // "asc" or "desc"
+	Offset         int
+	Limit          int // 0 means unlimited
+}
+
 // OrgCRUD covers organization and membership records themselves — creating,
 // reading, updating, and deleting orgs and their members.
 type OrgCRUD interface {
@@ -286,6 +299,7 @@ type OrgCRUD interface {
 	GetBySlug(ctx context.Context, slug string) (*domain.Organization, error)
 	Update(ctx context.Context, org *domain.Organization) error
 	Delete(ctx context.Context, id string) error
+	List(ctx context.Context, filter OrgFilter) ([]domain.Organization, int, error)
 
 	AddMember(ctx context.Context, member *domain.OrgMember) error
 	RemoveMember(ctx context.Context, orgID, userID string) error

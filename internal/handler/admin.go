@@ -603,3 +603,246 @@ func (h *Handler) GetLoginActivity(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"logins": counts})
 }
+
+// ─── Admin — organizations ──────────────────────────────────────
+//
+// Platform-admin oversight of orgs: list/view/mutate any organization
+// regardless of the caller's own membership in it. These call OrgService
+// (not AdminService) — see service/org.go's "Platform-admin oversight"
+// section for why. Every handler here mirrors the h.services.Org == nil
+// guard used by the self-service org handlers in org.go, even though in
+// practice these routes are only ever mounted when Org is non-nil (Mount
+// only registers them inside `if a.orgService != nil`).
+
+func (h *Handler) AdminListOrgs(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	var limit *int
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = &n
+		}
+	}
+
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	parseTime := func(param string) *time.Time {
+		v := r.URL.Query().Get(param)
+		if v == "" {
+			return nil
+		}
+		t, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return nil
+		}
+		return &t
+	}
+
+	orderBy := r.URL.Query().Get("orderBy")
+	if orderBy != "name" && orderBy != "created_at" && orderBy != "member_count" {
+		orderBy = "name"
+	}
+	orderDirection := r.URL.Query().Get("orderDirection")
+	if orderDirection != "asc" && orderDirection != "desc" {
+		orderDirection = "asc"
+	}
+
+	result, err := h.services.Org.AdminListOrgs(r.Context(), service.AdminListOrgsInput{
+		ActorID:        actor.ID,
+		Search:         search,
+		CreatedAfter:   parseTime("createdAfter"),
+		CreatedBefore:  parseTime("createdBefore"),
+		OrderBy:        orderBy,
+		OrderDirection: orderDirection,
+		Offset:         offset,
+		Limit:          limit,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) AdminGetOrg(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
+	org, err := h.services.Org.AdminGetOrg(r.Context(), service.AdminGetOrgInput{OrgID: orgID, ActorID: actor.ID})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, org)
+}
+
+func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	var limit *int
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = &n
+		}
+	}
+
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	var role *domain.OrgRole
+	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
+		r := domain.OrgRole(rl)
+		role = &r
+	}
+
+	orderBy := r.URL.Query().Get("orderBy")
+	if orderBy != "joined_at" && orderBy != "role" && orderBy != "name" && orderBy != "email" {
+		orderBy = "joined_at"
+	}
+	orderDirection := r.URL.Query().Get("orderDirection")
+	if orderDirection != "asc" && orderDirection != "desc" {
+		orderDirection = "asc"
+	}
+
+	result, err := h.services.Org.AdminListOrgMembers(r.Context(), service.AdminListOrgMembersInput{
+		OrgID: orgID, ActorID: actor.ID, Offset: offset, Limit: limit,
+		Role: role, Search: search, OrderBy: orderBy, OrderDirection: orderDirection,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handler) AdminAddOrgMember(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
+
+	var body struct {
+		UserID string `json:"userId"`
+		Role   string `json:"role"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	if err := h.services.Org.AdminAddMember(r.Context(), service.AdminAddMemberInput{
+		OrgID:   orgID,
+		UserID:  body.UserID,
+		Role:    domain.OrgRole(body.Role),
+		ActorID: actor.ID,
+	}); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]string{"message": "Member added"})
+}
+
+func (h *Handler) AdminDeleteOrg(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
+	if err := h.services.Org.AdminDeleteOrg(r.Context(), service.AdminOrgActionInput{OrgID: orgID, ActorID: actor.ID}); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Organization deleted"})
+}
+
+func (h *Handler) AdminRemoveOrgMember(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
+	userID := r.PathValue("userID")
+	if err := h.services.Org.AdminRemoveMember(r.Context(), service.AdminRemoveMemberInput{OrgID: orgID, UserID: userID, ActorID: actor.ID}); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Member removed"})
+}
+
+func (h *Handler) AdminUpdateOrgMemberRole(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
+	userID := r.PathValue("userID")
+
+	var body struct {
+		Role string `json:"role"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+
+	if err := h.services.Org.AdminUpdateMemberRole(r.Context(), service.AdminUpdateMemberRoleInput{
+		OrgID:   orgID,
+		UserID:  userID,
+		NewRole: domain.OrgRole(body.Role),
+		ActorID: actor.ID,
+	}); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
+}

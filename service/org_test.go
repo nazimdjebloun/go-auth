@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -56,6 +57,25 @@ func newTestOrgServiceWithUsers() (*OrgService, *testutil.MockUserRepo) {
 		Logger:         nil,
 	})
 	return svc, users
+}
+
+// newTestOrgServiceWithAudit is like newTestOrgServiceWithUsers but also
+// wires a MockAuditPublisher, for tests asserting which event type a
+// mutation published (self-service vs admin-override).
+func newTestOrgServiceWithAudit() (*OrgService, *testutil.MockUserRepo, *testutil.MockAuditPublisher) {
+	orgs := testutil.NewMockOrgRepo()
+	users := testutil.NewMockUserRepo()
+	orgs.SetUsers(users)
+	sessions := testutil.NewMockSessionRepo()
+	tx := &testutil.MockTxManager{}
+	pub := testutil.NewMockAuditPublisher()
+
+	svc := NewOrgService(orgs, users, sessions, tx, OrgServiceConfig{
+		MaxOrgsPerUser: 3,
+		Logger:         nil,
+		Audit:          pub,
+	})
+	return svc, users, pub
 }
 
 func newTestOrgInviteService() (*OrgService, *OrgInviteService) {
@@ -1193,6 +1213,355 @@ func TestUpdateMemberRole_NotFound(t *testing.T) {
 	})
 	if err != domain.ErrOrgMemberNotFound {
 		t.Errorf("expected ErrOrgMemberNotFound, got %v", err)
+	}
+}
+
+// ─── Platform-admin oversight ───────────────────────────────────
+
+func mustCreateAdminUser(t *testing.T, users *testutil.MockUserRepo, id string) {
+	t.Helper()
+	if err := users.Create(context.Background(), &domain.User{ID: id, Email: id + "@example.com", Role: domain.RoleAdmin}); err != nil {
+		t.Fatalf("failed to create admin user %s: %v", id, err)
+	}
+}
+
+func TestAdminListOrgs_Search(t *testing.T) {
+	svc, users, _ := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1")
+	ctx := context.Background()
+
+	svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme Inc", Slug: "acme", OwnerID: "owner-1"})
+	svc.CreateOrg(ctx, CreateOrgInput{Name: "Widget Co", Slug: "widget", OwnerID: "owner-2"})
+
+	term := "acme"
+	result, err := svc.AdminListOrgs(ctx, AdminListOrgsInput{ActorID: "admin1", Search: &term})
+	if err != nil {
+		t.Fatalf("AdminListOrgs failed: %v", err)
+	}
+	if result.Total != 1 || len(result.Orgs) != 1 || result.Orgs[0].Slug != "acme" {
+		t.Fatalf("expected exactly the acme org, got %+v", result)
+	}
+}
+
+func TestAdminListOrgs_DateRange(t *testing.T) {
+	orgs := testutil.NewMockOrgRepo()
+	users := testutil.NewMockUserRepo()
+	orgs.SetUsers(users)
+	mustCreateAdminUser(t, users, "admin1")
+	sessions := testutil.NewMockSessionRepo()
+	tx := &testutil.MockTxManager{}
+	svc := NewOrgService(orgs, users, sessions, tx, OrgServiceConfig{MaxOrgsPerUser: 10})
+	ctx := context.Background()
+
+	old, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Old Org", Slug: "old-org", OwnerID: "owner-1"})
+	oldOrg, _ := orgs.GetByID(ctx, old.ID)
+	oldOrg.CreatedAt = time.Now().UTC().AddDate(0, 0, -30)
+	if err := orgs.Update(ctx, oldOrg); err != nil {
+		t.Fatalf("failed to backdate org: %v", err)
+	}
+	svc.CreateOrg(ctx, CreateOrgInput{Name: "New Org", Slug: "new-org", OwnerID: "owner-2"})
+
+	cutoff := time.Now().UTC().AddDate(0, 0, -1)
+	result, err := svc.AdminListOrgs(ctx, AdminListOrgsInput{ActorID: "admin1", CreatedAfter: &cutoff})
+	if err != nil {
+		t.Fatalf("AdminListOrgs failed: %v", err)
+	}
+	if result.Total != 1 || result.Orgs[0].Slug != "new-org" {
+		t.Fatalf("expected only new-org after cutoff, got %+v", result)
+	}
+}
+
+func TestAdminListOrgs_Sort(t *testing.T) {
+	svc, users, _ := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1")
+	ctx := context.Background()
+
+	svc.CreateOrg(ctx, CreateOrgInput{Name: "Zeta", Slug: "zeta", OwnerID: "owner-1"})
+	svc.CreateOrg(ctx, CreateOrgInput{Name: "Alpha", Slug: "alpha", OwnerID: "owner-2"})
+
+	result, err := svc.AdminListOrgs(ctx, AdminListOrgsInput{ActorID: "admin1", OrderBy: "name", OrderDirection: "asc"})
+	if err != nil {
+		t.Fatalf("AdminListOrgs failed: %v", err)
+	}
+	if len(result.Orgs) != 2 || result.Orgs[0].Name != "Alpha" || result.Orgs[1].Name != "Zeta" {
+		t.Fatalf("expected Alpha before Zeta ascending, got %+v", result.Orgs)
+	}
+}
+
+func TestAdminGetOrg_Found(t *testing.T) {
+	svc, users, _ := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1")
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+
+	got, err := svc.AdminGetOrg(ctx, AdminGetOrgInput{OrgID: org.ID, ActorID: "admin1"})
+	if err != nil {
+		t.Fatalf("AdminGetOrg failed: %v", err)
+	}
+	if got.ID != org.ID {
+		t.Errorf("expected org %s, got %s", org.ID, got.ID)
+	}
+}
+
+func TestAdminGetOrg_NotFound(t *testing.T) {
+	svc, users, _ := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1")
+
+	_, err := svc.AdminGetOrg(context.Background(), AdminGetOrgInput{OrgID: "nonexistent", ActorID: "admin1"})
+	if err != domain.ErrOrgNotFound {
+		t.Errorf("expected ErrOrgNotFound, got %v", err)
+	}
+}
+
+func TestAdminGetOrg_PublishesViewedEvent(t *testing.T) {
+	svc, users, pub := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1")
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+	pub.Events = nil // drop the EventOrgCreated from CreateOrg above
+
+	if _, err := svc.AdminGetOrg(ctx, AdminGetOrgInput{OrgID: org.ID, ActorID: "admin1"}); err != nil {
+		t.Fatalf("AdminGetOrg failed: %v", err)
+	}
+	if len(pub.Events) != 1 || pub.Events[0].Type != audit.EventAdminOrgViewed {
+		t.Fatalf("expected exactly one EventAdminOrgViewed, got %+v", pub.Events)
+	}
+}
+
+func TestAdminListOrgMembers_BypassesMembership(t *testing.T) {
+	svc, users, _ := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1") // not a member of the org below
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+
+	result, err := svc.AdminListOrgMembers(ctx, AdminListOrgMembersInput{OrgID: org.ID, ActorID: "admin1"})
+	if err != nil {
+		t.Fatalf("AdminListOrgMembers failed for a non-member admin: %v", err)
+	}
+	if result.Total != 1 || result.Members[0].UserID != "owner-1" {
+		t.Fatalf("expected the one owner member, got %+v", result)
+	}
+}
+
+func TestAdminListOrgMembers_PublishesViewedEvent(t *testing.T) {
+	svc, users, pub := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1")
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+	pub.Events = nil
+
+	if _, err := svc.AdminListOrgMembers(ctx, AdminListOrgMembersInput{OrgID: org.ID, ActorID: "admin1"}); err != nil {
+		t.Fatalf("AdminListOrgMembers failed: %v", err)
+	}
+	if len(pub.Events) != 1 || pub.Events[0].Type != audit.EventAdminOrgViewed {
+		t.Fatalf("expected exactly one EventAdminOrgViewed, got %+v", pub.Events)
+	}
+}
+
+func TestAdminDeleteOrg_BypassesMembership(t *testing.T) {
+	svc, users, _ := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1") // not a member
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+
+	if err := svc.AdminDeleteOrg(ctx, AdminOrgActionInput{OrgID: org.ID, ActorID: "admin1"}); err != nil {
+		t.Fatalf("AdminDeleteOrg failed for a non-member admin: %v", err)
+	}
+	if got, _ := svc.orgs.GetByID(ctx, org.ID); got != nil {
+		t.Errorf("expected org to be deleted, still found: %+v", got)
+	}
+}
+
+func TestAdminDeleteOrg_PublishesAdminEventNotSelfServiceEvent(t *testing.T) {
+	svc, users, pub := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1")
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme Inc", Slug: "acme", OwnerID: "owner-1"})
+	pub.Events = nil
+
+	if err := svc.AdminDeleteOrg(ctx, AdminOrgActionInput{OrgID: org.ID, ActorID: "admin1"}); err != nil {
+		t.Fatalf("AdminDeleteOrg failed: %v", err)
+	}
+	if len(pub.Events) != 1 {
+		t.Fatalf("expected exactly one published event, got %d", len(pub.Events))
+	}
+	evt := pub.Events[0]
+	if evt.Type != audit.EventAdminOrgDeleted {
+		t.Errorf("expected EventAdminOrgDeleted (not the self-service EventOrgDeleted), got %s", evt.Type)
+	}
+	if evt.Metadata["orgName"] != "Acme Inc" {
+		t.Errorf("expected orgName snapshotted into metadata, got %v", evt.Metadata)
+	}
+}
+
+func TestDeleteOrg_SelfService_PublishesSelfServiceEvent(t *testing.T) {
+	svc, _, pub := newTestOrgServiceWithAudit()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+	pub.Events = nil
+
+	if err := svc.DeleteOrg(ctx, DeleteOrgInput{OrgID: org.ID, ActorID: "owner-1"}); err != nil {
+		t.Fatalf("DeleteOrg failed: %v", err)
+	}
+	if len(pub.Events) != 1 || pub.Events[0].Type != audit.EventOrgDeleted {
+		t.Fatalf("expected exactly one EventOrgDeleted, got %+v", pub.Events)
+	}
+}
+
+func TestAdminAddMember_RecoversOrphanedOrg(t *testing.T) {
+	orgs := testutil.NewMockOrgRepo()
+	users := testutil.NewMockUserRepo()
+	orgs.SetUsers(users)
+	mustCreateAdminUser(t, users, "admin1")
+	sessions := testutil.NewMockSessionRepo()
+	tx := &testutil.MockTxManager{}
+	svc := NewOrgService(orgs, users, sessions, tx, OrgServiceConfig{MaxOrgsPerUser: 10})
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+
+	// removeMemberTx's TryDecrementOrgOwnerCount guard correctly refuses to
+	// remove an org's last owner through the normal path (see
+	// TestUpdateMemberRole_CannotDemoteLastOwner for the same guard on role
+	// changes) — so a sole owner can never be *legitimately* removed. The
+	// real orphaned-org scenario this recovers from is an owner's account
+	// being deleted elsewhere in the system (e.g. AdminService.DeleteUser),
+	// which does not go through OrgService at all: the membership row is
+	// simply gone. Simulated here via the repository directly, bypassing
+	// OrgService's own guard, since that's exactly what an out-of-band
+	// deletion would do.
+	if err := orgs.RemoveMember(ctx, org.ID, "owner-1"); err != nil {
+		t.Fatalf("failed to simulate the dangling-membership scenario: %v", err)
+	}
+	result, _ := svc.AdminListOrgMembers(ctx, AdminListOrgMembersInput{OrgID: org.ID, ActorID: "admin1"})
+	if result.Total != 0 {
+		t.Fatalf("expected the org to be memberless, got %+v", result)
+	}
+
+	// AdminAddMember reinstates a new owner — the recovery path.
+	if err := svc.AdminAddMember(ctx, AdminAddMemberInput{OrgID: org.ID, UserID: "new-owner", Role: domain.OrgRoleOwner, ActorID: "admin1"}); err != nil {
+		t.Fatalf("AdminAddMember failed: %v", err)
+	}
+	m, err := orgs.GetMembership(ctx, org.ID, "new-owner")
+	if err != nil || m == nil || m.Role != domain.OrgRoleOwner {
+		t.Fatalf("expected new-owner to be an Owner, got %+v, err=%v", m, err)
+	}
+}
+
+func TestAdminRemoveMember_BypassesMembership_PublishesAdminEvent(t *testing.T) {
+	svc, users, pub := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1") // not a member
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+	pub.Events = nil
+
+	if err := svc.AdminRemoveMember(ctx, AdminRemoveMemberInput{OrgID: org.ID, UserID: "member-1", ActorID: "admin1"}); err != nil {
+		t.Fatalf("AdminRemoveMember failed for a non-member admin: %v", err)
+	}
+	if len(pub.Events) != 1 || pub.Events[0].Type != audit.EventAdminOrgMemberRemoved {
+		t.Fatalf("expected exactly one EventAdminOrgMemberRemoved, got %+v", pub.Events)
+	}
+}
+
+func TestAdminUpdateMemberRole_SkipsOwnerEscalationGuard_PublishesAdminEvent(t *testing.T) {
+	svc, users, pub := newTestOrgServiceWithAudit()
+	mustCreateAdminUser(t, users, "admin1") // not a member, not an Owner anywhere
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+	pub.Events = nil
+
+	// The self-service UpdateMemberRole would reject this: granting Owner
+	// requires the actor to already be an Owner of this org, and admin1 is
+	// neither a member nor an Owner anywhere. AdminUpdateMemberRole skips
+	// that guard deliberately.
+	if err := svc.AdminUpdateMemberRole(ctx, AdminUpdateMemberRoleInput{
+		OrgID: org.ID, UserID: "member-1", NewRole: domain.OrgRoleOwner, ActorID: "admin1",
+	}); err != nil {
+		t.Fatalf("AdminUpdateMemberRole should bypass the owner-escalation guard, got: %v", err)
+	}
+	m, _ := svc.orgs.GetMembership(ctx, org.ID, "member-1")
+	if m == nil || m.Role != domain.OrgRoleOwner {
+		t.Fatalf("expected member-1 to now be Owner, got %+v", m)
+	}
+	if len(pub.Events) != 1 || pub.Events[0].Type != audit.EventAdminOrgMemberRoleChanged {
+		t.Fatalf("expected exactly one EventAdminOrgMemberRoleChanged, got %+v", pub.Events)
+	}
+}
+
+func TestUpdateMemberRole_NowPublishesEvent(t *testing.T) {
+	svc, _, pub := newTestOrgServiceWithAudit()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+	pub.Events = nil
+
+	if err := svc.UpdateMemberRole(ctx, UpdateMemberRoleInput{
+		OrgID: org.ID, UserID: "member-1", NewRole: domain.OrgRoleAdmin, ActorID: "owner-1",
+	}); err != nil {
+		t.Fatalf("UpdateMemberRole failed: %v", err)
+	}
+	if len(pub.Events) != 1 || pub.Events[0].Type != audit.EventOrgMemberRoleChanged {
+		t.Fatalf("expected exactly one EventOrgMemberRoleChanged (previously never published), got %+v", pub.Events)
+	}
+}
+
+func TestAdminOrgMethods_ActorNotAdmin_Forbidden(t *testing.T) {
+	svc, users, _ := newTestOrgServiceWithAudit()
+	if err := users.Create(context.Background(), &domain.User{ID: "regular-user", Email: "regular@example.com", Role: domain.RoleUser}); err != nil {
+		t.Fatalf("failed to create regular user: %v", err)
+	}
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "Acme", Slug: "acme", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	cases := []struct {
+		name string
+		call func() error
+	}{
+		{"AdminListOrgs", func() error {
+			_, err := svc.AdminListOrgs(ctx, AdminListOrgsInput{ActorID: "regular-user"})
+			return err
+		}},
+		{"AdminGetOrg", func() error {
+			_, err := svc.AdminGetOrg(ctx, AdminGetOrgInput{OrgID: org.ID, ActorID: "regular-user"})
+			return err
+		}},
+		{"AdminListOrgMembers", func() error {
+			_, err := svc.AdminListOrgMembers(ctx, AdminListOrgMembersInput{OrgID: org.ID, ActorID: "regular-user"})
+			return err
+		}},
+		{"AdminAddMember", func() error {
+			return svc.AdminAddMember(ctx, AdminAddMemberInput{OrgID: org.ID, UserID: "someone", Role: domain.OrgRoleMember, ActorID: "regular-user"})
+		}},
+		{"AdminDeleteOrg", func() error {
+			return svc.AdminDeleteOrg(ctx, AdminOrgActionInput{OrgID: org.ID, ActorID: "regular-user"})
+		}},
+		{"AdminRemoveMember", func() error {
+			return svc.AdminRemoveMember(ctx, AdminRemoveMemberInput{OrgID: org.ID, UserID: "member-1", ActorID: "regular-user"})
+		}},
+		{"AdminUpdateMemberRole", func() error {
+			return svc.AdminUpdateMemberRole(ctx, AdminUpdateMemberRoleInput{OrgID: org.ID, UserID: "member-1", NewRole: domain.OrgRoleAdmin, ActorID: "regular-user"})
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := c.call(); err != domain.ErrForbidden {
+				t.Errorf("expected ErrForbidden for a non-admin actor, got %v", err)
+			}
+		})
 	}
 }
 

@@ -409,8 +409,11 @@ func NewAdminEvent(typ EventType, actorID, targetID string) Event {
 }
 
 func NewOrgEvent(typ EventType, actorID, orgID string, targetID *string) Event {
-	if typ != EventOrgCreated && typ != EventOrgDeleted &&
-		typ != EventOrgMemberInvited && typ != EventOrgMemberRemoved {
+	switch typ {
+	case EventOrgCreated, EventOrgDeleted, EventOrgMemberInvited, EventOrgMemberRemoved,
+		EventOrgMemberRoleChanged, EventAdminOrgDeleted, EventAdminOrgMemberAdded,
+		EventAdminOrgMemberRemoved, EventAdminOrgMemberRoleChanged, EventAdminOrgViewed:
+	default:
 		return Event{
 			ID:        generateID(),
 			Type:      typ,
@@ -421,7 +424,8 @@ func NewOrgEvent(typ EventType, actorID, orgID string, targetID *string) Event {
 		}
 	}
 	sev := SeverityInfo
-	if typ == EventOrgDeleted || typ == EventOrgMemberRemoved {
+	if typ == EventOrgDeleted || typ == EventOrgMemberRemoved ||
+		typ == EventAdminOrgDeleted || typ == EventAdminOrgMemberRemoved {
 		sev = SeverityWarning
 	}
 	return Event{

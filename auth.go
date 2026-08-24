@@ -141,6 +141,13 @@ type HandlerGroup struct {
 	ListOrgMembers           http.HandlerFunc
 	RemoveOrgMember          http.HandlerFunc
 	UpdateOrgMemberRole      http.HandlerFunc
+	AdminListOrgs            http.HandlerFunc
+	AdminGetOrg              http.HandlerFunc
+	AdminListOrgMembers      http.HandlerFunc
+	AdminAddOrgMember        http.HandlerFunc
+	AdminDeleteOrg           http.HandlerFunc
+	AdminRemoveOrgMember     http.HandlerFunc
+	AdminUpdateOrgMemberRole http.HandlerFunc
 	LeaveOrg                 http.HandlerFunc
 	SetActiveOrg             http.HandlerFunc
 	ClearActiveOrg           http.HandlerFunc
@@ -644,14 +651,25 @@ func New(config config) (*Auth, error) {
 			ListOrgMembers:      corsMW(authMW(orgMemberMW(http.HandlerFunc(h.ListOrgMembers)))).ServeHTTP,
 			RemoveOrgMember:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.RemoveMember))))))).ServeHTTP,
 			UpdateOrgMemberRole: corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateMemberRole))))))).ServeHTTP,
-			LeaveOrg:            corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.LeaveOrg)))))).ServeHTTP,
-			SetActiveOrg:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg))))).ServeHTTP,
-			ClearActiveOrg:      corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg))))).ServeHTTP,
-			CreateOrgInvite:     corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CreateOrgInvite)))))))).ServeHTTP,
-			AcceptOrgInvite:     corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite))))).ServeHTTP,
-			ListOrgInvites:      corsMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ListOrgInvites))))).ServeHTTP,
-			ResendOrgInvite:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite))))))).ServeHTTP,
-			DeleteOrgInvite:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite))))))).ServeHTTP,
+			// Admin — organizations: platform-admin oversight, gated by
+			// adminMW (RoleAdmin), not org membership — deliberately not
+			// orgMemberMW/orgAdminMW/orgOwnerMW, since the whole point is to
+			// act on an org the caller isn't necessarily a member of.
+			AdminListOrgs:            corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListOrgs))))).ServeHTTP,
+			AdminGetOrg:              corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminGetOrg))))).ServeHTTP,
+			AdminListOrgMembers:      corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListOrgMembers))))).ServeHTTP,
+			AdminAddOrgMember:        corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminAddOrgMember))))))).ServeHTTP,
+			AdminDeleteOrg:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminDeleteOrg))))))).ServeHTTP,
+			AdminRemoveOrgMember:     corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRemoveOrgMember))))))).ServeHTTP,
+			AdminUpdateOrgMemberRole: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminUpdateOrgMemberRole))))))).ServeHTTP,
+			LeaveOrg:                 corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.LeaveOrg)))))).ServeHTTP,
+			SetActiveOrg:             corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg))))).ServeHTTP,
+			ClearActiveOrg:           corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg))))).ServeHTTP,
+			CreateOrgInvite:          corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CreateOrgInvite)))))))).ServeHTTP,
+			AcceptOrgInvite:          corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite))))).ServeHTTP,
+			ListOrgInvites:           corsMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ListOrgInvites))))).ServeHTTP,
+			ResendOrgInvite:          corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite))))))).ServeHTTP,
+			DeleteOrgInvite:          corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite))))))).ServeHTTP,
 		},
 	}, nil
 }
@@ -815,6 +833,13 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 			routeEntry{routes.ListOrgMembers, a.Handlers.ListOrgMembers},
 			routeEntry{routes.RemoveOrgMember, a.Handlers.RemoveOrgMember},
 			routeEntry{routes.UpdateOrgMemberRole, a.Handlers.UpdateOrgMemberRole},
+			routeEntry{routes.AdminListOrgs, a.Handlers.AdminListOrgs},
+			routeEntry{routes.AdminGetOrg, a.Handlers.AdminGetOrg},
+			routeEntry{routes.AdminListOrgMembers, a.Handlers.AdminListOrgMembers},
+			routeEntry{routes.AdminAddOrgMember, a.Handlers.AdminAddOrgMember},
+			routeEntry{routes.AdminDeleteOrg, a.Handlers.AdminDeleteOrg},
+			routeEntry{routes.AdminRemoveOrgMember, a.Handlers.AdminRemoveOrgMember},
+			routeEntry{routes.AdminUpdateOrgMemberRole, a.Handlers.AdminUpdateOrgMemberRole},
 			routeEntry{routes.LeaveOrg, a.Handlers.LeaveOrg},
 			routeEntry{routes.SetActiveOrg, a.Handlers.SetActiveOrg},
 			routeEntry{routes.ClearActiveOrg, a.Handlers.ClearActiveOrg},

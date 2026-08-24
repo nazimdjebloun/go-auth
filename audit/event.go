@@ -23,7 +23,7 @@ const (
 
 	// Email
 	EventEmailVerificationSent EventType = "email.verification.sent"
-	EventEmailVerified        EventType = "email.verified"
+	EventEmailVerified         EventType = "email.verified"
 
 	// Two-factor
 	EventTwoFactorCodeSent   EventType = "2fa.code.sent"
@@ -65,10 +65,20 @@ const (
 	EventRoleChanged EventType = "role.changed"
 
 	// Organizations
-	EventOrgCreated         EventType = "organization.created"
-	EventOrgDeleted         EventType = "organization.deleted"
-	EventOrgMemberInvited   EventType = "organization.member.invited"
-	EventOrgMemberRemoved   EventType = "organization.member.removed"
+	EventOrgCreated           EventType = "organization.created"
+	EventOrgDeleted           EventType = "organization.deleted"
+	EventOrgMemberInvited     EventType = "organization.member.invited"
+	EventOrgMemberRemoved     EventType = "organization.member.removed"
+	EventOrgMemberRoleChanged EventType = "organization.member.role_changed"
+
+	// Admin — organizations. Distinct from the EventOrg* family above so a
+	// platform-admin override is never indistinguishable, in the audit log,
+	// from the org's own owner/admin doing the same thing.
+	EventAdminOrgDeleted           EventType = "admin.org.deleted"
+	EventAdminOrgMemberAdded       EventType = "admin.org.member.added"
+	EventAdminOrgMemberRemoved     EventType = "admin.org.member.removed"
+	EventAdminOrgMemberRoleChanged EventType = "admin.org.member.role_changed"
+	EventAdminOrgViewed            EventType = "admin.org.viewed"
 )
 
 type Severity string
@@ -81,19 +91,19 @@ const (
 )
 
 type Event struct {
-	ID            string                 `json:"id"`
-	Type          EventType              `json:"type"`
-	Severity      Severity               `json:"severity"`
-	Success       bool                   `json:"success"`
-	ActorID       *string                `json:"actorId,omitempty"`
-	TargetUserID  *string                `json:"targetUserId,omitempty"`
-	SessionID     *string                `json:"sessionId,omitempty"`
-	OrgID         *string                `json:"orgId,omitempty"`
-	IP            net.IP                 `json:"ip,omitempty"`
-	UserAgent     string                 `json:"userAgent,omitempty"`
-	ParsedUA      *domain.UserAgentInfo  `json:"parsedUA,omitempty"`
-	RequestID     string                 `json:"requestId,omitempty"`
-	CorrelationID string                 `json:"correlationId,omitempty"`
-	Metadata      map[string]any         `json:"metadata,omitempty"`
-	CreatedAt     time.Time              `json:"createdAt"`
+	ID            string                `json:"id"`
+	Type          EventType             `json:"type"`
+	Severity      Severity              `json:"severity"`
+	Success       bool                  `json:"success"`
+	ActorID       *string               `json:"actorId,omitempty"`
+	TargetUserID  *string               `json:"targetUserId,omitempty"`
+	SessionID     *string               `json:"sessionId,omitempty"`
+	OrgID         *string               `json:"orgId,omitempty"`
+	IP            net.IP                `json:"ip,omitempty"`
+	UserAgent     string                `json:"userAgent,omitempty"`
+	ParsedUA      *domain.UserAgentInfo `json:"parsedUA,omitempty"`
+	RequestID     string                `json:"requestId,omitempty"`
+	CorrelationID string                `json:"correlationId,omitempty"`
+	Metadata      map[string]any        `json:"metadata,omitempty"`
+	CreatedAt     time.Time             `json:"createdAt"`
 }
