@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
@@ -143,6 +144,84 @@ func TestRefreshSession_ReuseDetection(t *testing.T) {
 	_, err = svc.RefreshSession(context.Background(), newRefreshToken)
 	if err == nil {
 		t.Fatal("expected error after session revoked")
+	}
+}
+
+func TestRefreshSession_ReuseDetection_PublishesAuditEvent(t *testing.T) {
+	sessions := testutil.NewMockSessionRepo()
+	gen := &testutil.MockTokenGen{Length: 32}
+	auditPub := testutil.NewMockAuditPublisher()
+	cfg := DefaultSessionConfig()
+	cfg.GraceWindow = 0
+	cfg.Audit = auditPub
+	svc := NewSessionService(sessions, gen, cfg)
+
+	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refreshToken := createResult.RefreshToken
+
+	firstRefresh, err := svc.RefreshSession(context.Background(), refreshToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	revokedSessionID := firstRefresh.Session.ID
+
+	// Reuse the old (already-rotated) token — triggers reuse detection.
+	_, err = svc.RefreshSession(context.Background(), refreshToken)
+	if err != domain.ErrSessionRevoked {
+		t.Fatalf("expected ErrSessionRevoked for reuse, got %v", err)
+	}
+
+	var reuseEvent *audit.Event
+	for i := range auditPub.Events {
+		if auditPub.Events[i].Type == audit.EventSessionRefreshReuseDetected {
+			reuseEvent = &auditPub.Events[i]
+		}
+	}
+	if reuseEvent == nil {
+		t.Fatalf("expected a session.refresh_reuse_detected event, got %+v", auditPub.Events)
+	}
+	if reuseEvent.Success {
+		t.Error("expected reuse event Success=false")
+	}
+	if reuseEvent.Severity != audit.SeverityCritical {
+		t.Errorf("expected SeverityCritical, got %s", reuseEvent.Severity)
+	}
+	if reuseEvent.ActorID == nil || *reuseEvent.ActorID != "user-1" {
+		t.Errorf("expected ActorID user-1, got %+v", reuseEvent.ActorID)
+	}
+	if reuseEvent.SessionID == nil || *reuseEvent.SessionID != revokedSessionID {
+		t.Errorf("expected SessionID %s, got %+v", revokedSessionID, reuseEvent.SessionID)
+	}
+}
+
+func TestRefreshSession_HappyPath_PublishesRefreshedEvent(t *testing.T) {
+	sessions := testutil.NewMockSessionRepo()
+	gen := &testutil.MockTokenGen{Length: 32}
+	auditPub := testutil.NewMockAuditPublisher()
+	cfg := DefaultSessionConfig()
+	cfg.Audit = auditPub
+	svc := NewSessionService(sessions, gen, cfg)
+
+	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.RefreshSession(context.Background(), createResult.RefreshToken); err != nil {
+		t.Fatal(err)
+	}
+
+	var found bool
+	for _, e := range auditPub.Events {
+		if e.Type == audit.EventSessionRefreshed {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected a session.refreshed event, got %+v", auditPub.Events)
 	}
 }
 

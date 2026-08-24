@@ -98,6 +98,22 @@ type UpdateRefreshInput struct {
 	GraceWindow    time.Duration
 }
 
+// ErrRefreshTokenReused is UpdateRefreshToken's error for the theft-suspected
+// case described above: a previous-generation refresh token presented past
+// the grace window. The implementation has already revoked the compromised
+// session by the time this returns — UserID/SessionID identify it so the
+// caller (which owns the audit publisher, not the repository) can record
+// the event. Callers that only care about the client-facing outcome can
+// still match domain.ErrSessionRevoked via errors.Is, since this wraps it.
+type ErrRefreshTokenReused struct {
+	UserID    string
+	SessionID string
+}
+
+func (e *ErrRefreshTokenReused) Error() string {
+	return "port: refresh token reused past grace window (session " + e.SessionID + " revoked)"
+}
+
 type SessionFilter struct {
 	UserID *string
 	// IP matches sessions.ip_address exactly.

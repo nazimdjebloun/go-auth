@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -239,6 +240,26 @@ func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 	u.VerifiedAt = &now
 	u.UpdatedAt = now
 	return nil
+}
+
+// ─── MockAuditPublisher ──────────────────────────────────────────────
+
+// MockAuditPublisher implements service.AuditPublisher by recording every
+// published event — for tests asserting a service call did (or didn't)
+// publish, without spinning up the real queue/sinks/flush-interval pipeline.
+type MockAuditPublisher struct {
+	mu     sync.Mutex
+	Events []audit.Event
+}
+
+func NewMockAuditPublisher() *MockAuditPublisher {
+	return &MockAuditPublisher{}
+}
+
+func (m *MockAuditPublisher) Publish(_ context.Context, event audit.Event) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.Events = append(m.Events, event)
 }
 
 // ─── mockAuditLogRepo ──────────────────────────────────────────────
@@ -678,7 +699,7 @@ func (m *MockSessionRepo) UpdateRefreshToken(_ context.Context, input port.Updat
 			delete(m.byID, prev.ID)
 			delete(m.sessions, prev.TokenHash)
 			delete(m.byRefreshHash, prev.RefreshTokenHash)
-			return nil, domain.ErrSessionRevoked
+			return nil, &port.ErrRefreshTokenReused{UserID: prev.UserID, SessionID: prev.ID}
 		}
 	}
 

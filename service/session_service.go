@@ -138,10 +138,26 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 		GraceWindow:    s.config.GraceWindow,
 	})
 	if err != nil {
+		// A reused refresh token is theft-shaped, not just a rejected request
+		// — the repository has already revoked the compromised session by the
+		// time this returns. Publish the signal, then normalize to the same
+		// domain.ErrSessionRevoked a client would see for any other revoked
+		// session, so this doesn't change the public API's error contract.
+		var reused *port.ErrRefreshTokenReused
+		if errors.As(err, &reused) {
+			s.log.Warn("refresh token reuse detected", "user_id", reused.UserID, "session_id", reused.SessionID)
+			if s.audit != nil {
+				s.audit.Publish(ctx, audit.NewSessionReuseDetectedEvent(reused.UserID, reused.SessionID))
+			}
+			return nil, domain.ErrSessionRevoked
+		}
 		return nil, err
 	}
 
 	s.log.Info("refresh token rotated", "user_id", session.UserID, "session_id", session.ID)
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewSessionEvent(audit.EventSessionRefreshed, session.UserID, session.ID, nil, ""))
+	}
 	return &SessionResult{Session: session, SessionToken: newSessionToken, RefreshToken: newRefreshToken}, nil
 }
 

@@ -43,6 +43,11 @@ const (
 	EventSessionRefreshed  EventType = "session.refreshed"
 	EventSessionRevoked    EventType = "session.revoked"
 	EventSessionRevokedAll EventType = "session.revoked_all"
+	// EventSessionRefreshReuseDetected fires when a refresh token that was
+	// already rotated gets presented again outside the grace window — the
+	// token has leaked, and the session it belonged to has already been
+	// revoked as a theft-response measure by the time this publishes.
+	EventSessionRefreshReuseDetected EventType = "session.refresh_reuse_detected"
 
 	// OAuth
 	EventOAuthLogin    EventType = "oauth.login"

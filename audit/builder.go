@@ -339,6 +339,23 @@ func NewSessionEvent(typ EventType, actorID, sessionID string, ip net.IP, ua str
 	}
 }
 
+// NewSessionReuseDetectedEvent marks a suspected refresh-token theft: a
+// token already rotated once got presented again outside the grace window.
+// Unlike NewSessionEvent's other session types, this always records a
+// failure at critical severity — it's an attack signal, not routine
+// activity.
+func NewSessionReuseDetectedEvent(userID, sessionID string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventSessionRefreshReuseDetected,
+		Severity:  SeverityCritical,
+		Success:   false,
+		ActorID:   strPtr(userID),
+		SessionID: strPtr(sessionID),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
 func NewOAuthEvent(typ EventType, actorID, provider string, ip net.IP, ua string) Event {
 	if typ != EventOAuthLogin && typ != EventOAuthLinked && typ != EventOAuthUnlinked {
 		return Event{

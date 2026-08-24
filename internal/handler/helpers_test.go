@@ -616,7 +616,7 @@ func (m *mockSessionRepo) UpdateRefreshToken(_ context.Context, input port.Updat
 			delete(m.byID, prev.ID)
 			delete(m.sessions, prev.TokenHash)
 			delete(m.byRefreshHash, prev.RefreshTokenHash)
-			return nil, domain.ErrSessionRevoked
+			return nil, &port.ErrRefreshTokenReused{UserID: prev.UserID, SessionID: prev.ID}
 		}
 	}
 

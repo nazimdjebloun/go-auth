@@ -465,7 +465,7 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 				"session_id", prev.ID,
 			)
 		}
-		return nil, domain.ErrSessionRevoked
+		return nil, &port.ErrRefreshTokenReused{UserID: prev.UserID, SessionID: prev.ID}
 	}
 
 	return nil, domain.ErrInvalidRefreshToken
