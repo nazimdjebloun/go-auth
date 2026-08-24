@@ -95,11 +95,22 @@ func (h *Handler) ListInvites(w http.ResponseWriter, r *http.Request) {
 		limit = 100
 	}
 
+	orderBy := r.URL.Query().Get("orderBy")
+	if orderBy != "created_at" && orderBy != "expires_at" && orderBy != "email" && orderBy != "status" {
+		orderBy = "created_at"
+	}
+	orderDirection := r.URL.Query().Get("orderDirection")
+	if orderDirection != "asc" && orderDirection != "desc" {
+		orderDirection = "desc"
+	}
+
 	invites, total, err := h.services.Invite.ListInvites(r.Context(), service.ListInvitesInput{
-		Offset: offset,
-		Limit:  limit,
-		Search: r.URL.Query().Get("search"),
-		Status: r.URL.Query().Get("status"),
+		Offset:         offset,
+		Limit:          limit,
+		Search:         r.URL.Query().Get("search"),
+		Status:         r.URL.Query().Get("status"),
+		OrderBy:        orderBy,
+		OrderDirection: orderDirection,
 	})
 	if err != nil {
 		writeError(w, err)

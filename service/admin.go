@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type AdminService struct {
 	users      port.UserRepository
 	sessions   adminSessionStore
 	providers  port.ProviderAccountRepository
+	auditLogs  port.AuditLogRepository
 	hasher     port.Hasher
 	config     Config
 	sessionSvc *SessionService
@@ -37,6 +39,7 @@ func NewAdminService(
 	users port.UserRepository,
 	sessions adminSessionStore,
 	providers port.ProviderAccountRepository,
+	auditLogs port.AuditLogRepository,
 	hasher port.Hasher,
 	config Config,
 	sessionSvc *SessionService,
@@ -48,6 +51,7 @@ func NewAdminService(
 		users:      users,
 		sessions:   sessions,
 		providers:  providers,
+		auditLogs:  auditLogs,
 		hasher:     hasher,
 		config:     config,
 		sessionSvc: sessionSvc,
@@ -87,13 +91,16 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 		limit = 100
 	}
 	filter := port.UserFilter{
-		Email:          input.Email,
-		Role:           input.Role,
-		Offset:         input.Offset,
-		Limit:          limit,
-		Search:         input.Search,
-		OrderBy:        input.OrderBy,
-		OrderDirection: input.OrderDirection,
+		Email:            input.Email,
+		Role:             input.Role,
+		TwoFactorEnabled: input.TwoFactorEnabled,
+		NeverLoggedIn:    input.NeverLoggedIn,
+		LastLoginBefore:  input.LastLoginBefore,
+		Offset:           input.Offset,
+		Limit:            limit,
+		Search:           input.Search,
+		OrderBy:          input.OrderBy,
+		OrderDirection:   input.OrderDirection,
 	}
 
 	users, total, err := s.users.List(ctx, filter)
@@ -112,6 +119,151 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 		Limit:  limit,
 		Offset: input.Offset,
 	}, nil
+}
+
+// maxStatsRangeDays caps every date-range analytics query (registration
+// trend, login activity) the same way Limit is capped at 100 elsewhere —
+// defense against an admin (or a compromised admin session) requesting an
+// unbounded aggregation.
+const maxStatsRangeDays = 400
+
+// AdminStats is a snapshot of platform-wide counts for an admin dashboard.
+type AdminStats struct {
+	TotalUsers            int `json:"totalUsers"`
+	VerifiedUsers         int `json:"verifiedUsers"`
+	BannedUsers           int `json:"bannedUsers"`
+	TwoFactorEnabledUsers int `json:"twoFactorEnabledUsers"`
+	NeverLoggedInUsers    int `json:"neverLoggedInUsers"`
+	ActiveSessions        int `json:"activeSessions"`
+}
+
+// GetStats returns platform-wide counts for the admin dashboard. Each field
+// is a separate List/ListAll call with Limit:1 — List always runs a COUNT(*)
+// query regardless of Limit, so the row fetch itself stays trivial while the
+// count is exact, not an estimate.
+func (s *AdminService) GetStats(ctx context.Context, actorID string) (*AdminStats, error) {
+	if err := s.requireAdmin(ctx, actorID); err != nil {
+		return nil, err
+	}
+
+	yes := true
+	stats := &AdminStats{}
+
+	_, total, err := s.users.List(ctx, port.UserFilter{Limit: 1})
+	if err != nil {
+		s.log.Error("failed to count users", "err", err)
+		return nil, domain.ErrInternal
+	}
+	stats.TotalUsers = total
+
+	_, verified, err := s.users.List(ctx, port.UserFilter{IsVerified: &yes, Limit: 1})
+	if err != nil {
+		s.log.Error("failed to count verified users", "err", err)
+		return nil, domain.ErrInternal
+	}
+	stats.VerifiedUsers = verified
+
+	_, banned, err := s.users.List(ctx, port.UserFilter{IsBanned: &yes, Limit: 1})
+	if err != nil {
+		s.log.Error("failed to count banned users", "err", err)
+		return nil, domain.ErrInternal
+	}
+	stats.BannedUsers = banned
+
+	_, twoFactor, err := s.users.List(ctx, port.UserFilter{TwoFactorEnabled: &yes, Limit: 1})
+	if err != nil {
+		s.log.Error("failed to count two-factor users", "err", err)
+		return nil, domain.ErrInternal
+	}
+	stats.TwoFactorEnabledUsers = twoFactor
+
+	_, neverLoggedIn, err := s.users.List(ctx, port.UserFilter{NeverLoggedIn: &yes, Limit: 1})
+	if err != nil {
+		s.log.Error("failed to count never-logged-in users", "err", err)
+		return nil, domain.ErrInternal
+	}
+	stats.NeverLoggedInUsers = neverLoggedIn
+
+	_, activeSessions, err := s.sessions.ListAll(ctx, port.SessionFilter{Limit: 1})
+	if err != nil {
+		s.log.Error("failed to count active sessions", "err", err)
+		return nil, domain.ErrInternal
+	}
+	stats.ActiveSessions = activeSessions
+
+	return stats, nil
+}
+
+// StatsRangeInput scopes a day-bucketed analytics query to [From, To].
+type StatsRangeInput struct {
+	ActorID string
+	From    time.Time
+	To      time.Time
+}
+
+func (input StatsRangeInput) validate() error {
+	if input.From.IsZero() || input.To.IsZero() {
+		return domain.NewError("invalid_input", "from and to are required")
+	}
+	if input.To.Before(input.From) {
+		return domain.NewError("invalid_input", "to must not be before from")
+	}
+	if input.To.Sub(input.From) > maxStatsRangeDays*24*time.Hour {
+		return domain.NewError("invalid_input", fmt.Sprintf("date range must not exceed %d days", maxStatsRangeDays))
+	}
+	return nil
+}
+
+// GetRegistrationTrend returns registrations per day over [From, To], for a
+// registrations-over-time chart.
+func (s *AdminService) GetRegistrationTrend(ctx context.Context, input StatsRangeInput) ([]port.DailyCount, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return nil, err
+	}
+	if err := input.validate(); err != nil {
+		return nil, err
+	}
+	counts, err := s.users.CountByDay(ctx, port.UserFilter{CreatedAfter: &input.From, CreatedBefore: &input.To})
+	if err != nil {
+		s.log.Error("failed to count registrations by day", "err", err)
+		return nil, domain.ErrInternal
+	}
+	return counts, nil
+}
+
+// LoginActivityInput scopes a login-activity heatmap query. UserID nil means
+// a global heatmap (every user's successful logins); set, it's one user's.
+type LoginActivityInput struct {
+	ActorID string
+	UserID  *string
+	From    time.Time
+	To      time.Time
+}
+
+// GetLoginActivity returns successful-login counts per day over [From, To] —
+// the data behind a GitHub-commit-style login heatmap, global or per-user.
+// Counts domain.EventLoginSuccess only (email/password logins); OAuth and
+// admin logins are a separate audit event type and aren't folded in here.
+func (s *AdminService) GetLoginActivity(ctx context.Context, input LoginActivityInput) ([]port.DailyCount, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return nil, err
+	}
+	rangeInput := StatsRangeInput{ActorID: input.ActorID, From: input.From, To: input.To}
+	if err := rangeInput.validate(); err != nil {
+		return nil, err
+	}
+	loginSuccess := string(audit.EventLoginSuccess)
+	counts, err := s.auditLogs.CountByDay(ctx, port.AuditLogFilter{
+		Type:     &loginSuccess,
+		ActorID:  input.UserID,
+		FromDate: &input.From,
+		ToDate:   &input.To,
+	})
+	if err != nil {
+		s.log.Error("failed to count login activity by day", "err", err)
+		return nil, domain.ErrInternal
+	}
+	return counts, nil
 }
 
 type BanUserInput struct {

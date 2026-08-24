@@ -12,6 +12,8 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
+	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/nazimdjebloun/go-auth/service"
 )
 
 // seedAdminActor seeds and returns an admin user — every admin handler now
@@ -387,5 +389,203 @@ func TestAdminUnbanUser(t *testing.T) {
 	updated, _ := th.users.GetByID(context.Background(), user.ID)
 	if updated == nil || updated.IsBanned {
 		t.Error("expected user to be unbanned")
+	}
+}
+
+// ─── GetAdminStats ───────────────────────────────────────────────────
+
+func TestGetAdminStats_Unauthenticated(t *testing.T) {
+	th := newTestHarness()
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
+	w := httptest.NewRecorder()
+	th.handler.GetAdminStats(w, req)
+
+	if w.Result().StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestGetAdminStats_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	verified := &domain.User{ID: "u-verified", Email: "verified@example.com", IsVerified: true, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	banned := &domain.User{ID: "u-banned", Email: "banned@example.com", IsBanned: true, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	neverLoggedIn := &domain.User{ID: "u-fresh", Email: "fresh@example.com", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	for _, u := range []*domain.User{verified, banned, neverLoggedIn} {
+		if err := th.users.Create(context.Background(), u); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.GetAdminStats(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var stats service.AdminStats
+	if err := json.NewDecoder(res.Body).Decode(&stats); err != nil {
+		t.Fatal(err)
+	}
+	// actor-admin + 3 seeded users.
+	if stats.TotalUsers != 4 {
+		t.Errorf("expected 4 total users, got %d", stats.TotalUsers)
+	}
+	// seedAdminActor's actor is also IsVerified:true, plus the seeded verified user.
+	if stats.VerifiedUsers != 2 {
+		t.Errorf("expected 2 verified users, got %d", stats.VerifiedUsers)
+	}
+	if stats.BannedUsers != 1 {
+		t.Errorf("expected 1 banned user, got %d", stats.BannedUsers)
+	}
+	// None of the 4 users have ever logged in.
+	if stats.NeverLoggedInUsers != 4 {
+		t.Errorf("expected 4 never-logged-in users, got %d", stats.NeverLoggedInUsers)
+	}
+}
+
+// ─── GetRegistrationTrend ──────────────────────────────────────────────
+
+func TestGetRegistrationTrend_MissingParams(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats/registrations", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.GetRegistrationTrend(w, req)
+
+	if w.Result().StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestGetRegistrationTrend_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	today := time.Now().UTC()
+	u := &domain.User{ID: "u-reg", Email: "reg@example.com", CreatedAt: today, UpdatedAt: today}
+	if err := th.users.Create(context.Background(), u); err != nil {
+		t.Fatal(err)
+	}
+
+	from := today.Add(-24 * time.Hour).Format(time.RFC3339)
+	to := today.Add(24 * time.Hour).Format(time.RFC3339)
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats/registrations?from="+from+"&to="+to, nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.GetRegistrationTrend(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body struct {
+		Registrations []port.DailyCount `json:"registrations"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	var total int
+	for _, c := range body.Registrations {
+		total += c.Count
+	}
+	// actor-admin + u-reg, both created "today" and within the range.
+	if total != 2 {
+		t.Errorf("expected 2 registrations across buckets, got %d (%+v)", total, body.Registrations)
+	}
+}
+
+// ─── GetLoginActivity ──────────────────────────────────────────────────
+
+func TestGetLoginActivity_MissingParams(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats/logins", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.GetLoginActivity(w, req)
+
+	if w.Result().StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", w.Result().StatusCode)
+	}
+}
+
+func TestGetLoginActivity_Global(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	now := time.Now().UTC()
+	alice, bob := "user-alice", "user-bob"
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e3", Type: "login.failed", ActorID: &alice, CreatedAt: now})
+
+	from := now.Add(-24 * time.Hour).Format(time.RFC3339)
+	to := now.Add(24 * time.Hour).Format(time.RFC3339)
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats/logins?from="+from+"&to="+to, nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.GetLoginActivity(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body struct {
+		Logins []port.DailyCount `json:"logins"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	var total int
+	for _, c := range body.Logins {
+		total += c.Count
+	}
+	// Only the two login.success events count — login.failed is excluded.
+	if total != 2 {
+		t.Errorf("expected 2 successful logins, got %d (%+v)", total, body.Logins)
+	}
+}
+
+func TestGetLoginActivity_PerUser(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	now := time.Now().UTC()
+	alice, bob := "user-alice", "user-bob"
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
+
+	from := now.Add(-24 * time.Hour).Format(time.RFC3339)
+	to := now.Add(24 * time.Hour).Format(time.RFC3339)
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats/logins?from="+from+"&to="+to+"&userId="+alice, nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.GetLoginActivity(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body struct {
+		Logins []port.DailyCount `json:"logins"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	var total int
+	for _, c := range body.Logins {
+		total += c.Count
+	}
+	// Scoped to alice only — bob's login is excluded.
+	if total != 1 {
+		t.Errorf("expected 1 login for alice, got %d (%+v)", total, body.Logins)
 	}
 }

@@ -175,6 +175,9 @@ setAdminUser(verified.user); // cookies are already set
 | `email` | string | — | Exact match |
 | `search` | string | — | Matches name or email |
 | `role` | string | — | `admin` or `user` only — any other value is silently ignored, not applied as a filter |
+| `twoFactorEnabled` | bool | — | `true` or `false` — anything else is ignored, not applied as a filter |
+| `neverLoggedIn` | bool | — | `true` only — `last_login_at IS NULL`. Registered but never logged in since. |
+| `lastLoginBefore` | RFC3339 timestamp | — | `last_login_at < X`, excluding users who've never logged in (that's `neverLoggedIn`'s job) — "logged in before, gone dormant since." Composable with `neverLoggedIn` for two different questions in one dashboard. |
 | `orderBy` | string | `created_at` | Or `updated_at` — anything else falls back to the default |
 | `orderDirection` | string | `desc` | Or `asc` — anything else falls back to the default |
 
@@ -562,6 +565,148 @@ await apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions`);
 
 ---
 
+## Stats and activity
+
+Three read-only endpoints for an admin dashboard — an overview snapshot, a registrations-over-time trend, and a GitHub-commit-style daily login-activity heatmap. All three read from data go-auth already tracks (`users.last_login_at`, `users.created_at`, and the audit log) — nothing new is stored just for this.
+
+<Callout type="warn" title="The login endpoints need WithAudit(Enabled: true)">
+  `GET /admin/stats/logins` reads from the audit log — with auditing disabled it has nothing to query and returns an empty series, not an error. `GET /admin/stats` and `GET /admin/stats/registrations` don't depend on auditing at all; they read `users` directly.
+</Callout>
+
+### Overview — `GET /admin/stats`
+
+No params.
+
+**Response** (`200 OK`)
+
+```json
+{
+  "totalUsers": 1204,
+  "verifiedUsers": 1150,
+  "bannedUsers": 3,
+  "twoFactorEnabledUsers": 812,
+  "neverLoggedInUsers": 47,
+  "activeSessions": 389
+}
+```
+
+Each field is its own `List`/`ListAll` call with `Limit: 1` under the hood — `List` always runs a `COUNT(*)` query regardless of `Limit`, so the count is exact and the row fetch itself stays trivial. `neverLoggedInUsers` is `last_login_at IS NULL` — the same filter as [List users → `neverLoggedIn`](#list-users--get-adminusers) above, just counted rather than listed.
+
+#### curl
+
+```bash
+curl https://api.myapp.com/admin/stats -H "Origin: https://myapp.com" -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+stats, err := auth.Services.Admin.GetStats(ctx, adminID)
+```
+
+---
+
+#### Client
+
+```ts
+const stats = await apiRequest(API_BASE, "GET", "/admin/stats");
+```
+
+### Registration trend — `GET /admin/stats/registrations`
+
+**Query params**: `from`, `to` — both required, RFC3339. Capped at a 400-day span (`invalid_input` beyond that).
+
+**Response** (`200 OK`) — one bucket per day that had at least one registration; days with zero are simply absent, not zero-filled:
+
+```json
+{
+  "registrations": [
+    { "date": "2026-08-01T00:00:00Z", "count": 4 },
+    { "date": "2026-08-03T00:00:00Z", "count": 1 }
+  ]
+}
+```
+
+#### curl
+
+```bash
+curl "https://api.myapp.com/admin/stats/registrations?from=2026-07-01T00:00:00Z&to=2026-08-01T00:00:00Z" \
+  -H "Origin: https://myapp.com" -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+counts, err := auth.Services.Admin.GetRegistrationTrend(ctx, service.StatsRangeInput{
+    ActorID: adminID, From: from, To: to,
+})
+```
+
+---
+
+#### Client
+
+```ts
+const { registrations } = await apiRequest(
+  API_BASE, "GET", `/admin/stats/registrations?from=${from}&to=${to}`
+);
+```
+
+### Login activity — `GET /admin/stats/logins`
+
+**Query params**: `from`, `to` — both required, RFC3339, same 400-day cap. `userId` — optional; omit for a global heatmap (every user's successful logins), set for one user's.
+
+Counts `login.success` audit events only — email/password logins. OAuth (`oauth.login`) and admin (`admin.login.success`) logins are separate event types and aren't folded in.
+
+**Response** (`200 OK`) — same shape as the registration trend, one bucket per day with at least one login:
+
+```json
+{ "logins": [ { "date": "2026-08-01T00:00:00Z", "count": 12 } ] }
+```
+
+#### curl
+
+```bash
+# Global
+curl "https://api.myapp.com/admin/stats/logins?from=2026-07-01T00:00:00Z&to=2026-08-01T00:00:00Z" \
+  -H "Origin: https://myapp.com" -b admin-cookies.txt
+
+# One user
+curl "https://api.myapp.com/admin/stats/logins?from=2026-07-01T00:00:00Z&to=2026-08-01T00:00:00Z&userId=b3f1..." \
+  -H "Origin: https://myapp.com" -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+// Global
+counts, err := auth.Services.Admin.GetLoginActivity(ctx, service.LoginActivityInput{
+    ActorID: adminID, From: from, To: to,
+})
+// One user
+counts, err = auth.Services.Admin.GetLoginActivity(ctx, service.LoginActivityInput{
+    ActorID: adminID, UserID: &userID, From: from, To: to,
+})
+```
+
+---
+
+#### Client
+
+```ts
+const { logins } = await apiRequest(
+  API_BASE, "GET", `/admin/stats/logins?from=${from}&to=${to}&userId=${userId}`
+);
+```
+
+---
+
 ## Platform invites — requires `EnableInvite`
 
 Admin-issued, invite-only signup: an admin creates an invite for an email address, and the recipient completes registration with it via `POST /auth/invite/register` — covered in [Authentication → Register via invite](authentication.mdx#register-via-invite--requires-enableinvite-true). This is a different feature from organization invites — see [Organizations → Invites](organizations.mdx#invites) for those. These routes only exist when `RegistrationConfig.EnableInvite: true`; otherwise they 404.
@@ -630,7 +775,7 @@ const invite = await apiRequest(API_BASE, "POST", "/admin/invites", { email: "ad
 
 ### List invites — `GET /admin/invites`
 
-**Query params**: `offset`, `limit` (default `20`, max `100`); `search`, `status` (optional).
+**Query params**: `offset`, `limit` (default `20`, max `100`); `search`, `status` (optional); `orderBy` (`created_at` default, `expires_at`, `email`, `status`), `orderDirection` (`desc` default, `asc`).
 
 **Response** (`200 OK`): `{ "invites": [...], "total": 42 }`
 

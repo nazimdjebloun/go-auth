@@ -133,7 +133,9 @@ func (r *UserRepository) UpdateLastLoginAt(ctx context.Context, userID string, t
 	return err
 }
 
-func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]domain.User, int, error) {
+// buildWhere is shared by List and CountByDay — both need the exact same
+// filter->SQL translation, only what they do with the resulting rows differs.
+func (r *UserRepository) buildWhere(filter port.UserFilter) (string, []any) {
 	where := []string{"1=1"}
 	args := []any{}
 	argIdx := 1
@@ -158,6 +160,29 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 		args = append(args, *filter.IsVerified)
 		argIdx++
 	}
+	if filter.TwoFactorEnabled != nil {
+		where = append(where, fmt.Sprintf("two_factor_enabled = $%d", argIdx))
+		args = append(args, *filter.TwoFactorEnabled)
+		argIdx++
+	}
+	if filter.NeverLoggedIn != nil && *filter.NeverLoggedIn {
+		where = append(where, "last_login_at IS NULL")
+	}
+	if filter.LastLoginBefore != nil {
+		where = append(where, fmt.Sprintf("last_login_at < $%d", argIdx))
+		args = append(args, *filter.LastLoginBefore)
+		argIdx++
+	}
+	if filter.CreatedAfter != nil {
+		where = append(where, fmt.Sprintf("created_at >= $%d", argIdx))
+		args = append(args, *filter.CreatedAfter)
+		argIdx++
+	}
+	if filter.CreatedBefore != nil {
+		where = append(where, fmt.Sprintf("created_at <= $%d", argIdx))
+		args = append(args, *filter.CreatedBefore)
+		argIdx++
+	}
 	if filter.Search != nil && *filter.Search != "" {
 		searchTerm := "%" + *filter.Search + "%"
 		op := "ILIKE"
@@ -173,7 +198,12 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 		argIdx += 2
 	}
 
-	whereClause := strings.Join(where, " AND ")
+	return strings.Join(where, " AND "), args
+}
+
+func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]domain.User, int, error) {
+	whereClause, args := r.buildWhere(filter)
+	argIdx := len(args) + 1
 
 	var total int
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users WHERE %s", whereClause)
@@ -241,4 +271,60 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 	}
 
 	return users, total, rows.Err()
+}
+
+// CountByDay returns registrations per day matching filter — Offset/Limit on
+// filter are ignored, the result is naturally bounded by whatever date range
+// filter.CreatedAfter/CreatedBefore narrows it to.
+func (r *UserRepository) CountByDay(ctx context.Context, filter port.UserFilter) ([]port.DailyCount, error) {
+	whereClause, args := r.buildWhere(filter)
+
+	var dayExpr string
+	switch r.db.Driver() {
+	case "mysql":
+		dayExpr = "DATE(created_at)"
+	case "sqlite", "sqlite3":
+		// Not date(created_at): modernc.org/sqlite stores time.Time as
+		// RFC3339Nano text ("...2026-08-19T19:21:36.275883607Z"), and
+		// SQLite's date() can't parse 9-digit fractional seconds — it
+		// silently returns NULL. The stored format's first 10 characters
+		// are always the ISO date, so substr sidesteps date() entirely.
+		dayExpr = "substr(created_at, 1, 10)"
+	default: // postgres
+		dayExpr = "date_trunc('day', created_at)"
+	}
+
+	query := fmt.Sprintf(`SELECT %s AS day, COUNT(*) FROM users WHERE %s GROUP BY day ORDER BY day`, dayExpr, whereClause)
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var counts []port.DailyCount
+	for rows.Next() {
+		var c port.DailyCount
+		var day time.Time
+		if r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+			// modernc.org/sqlite returns date() as a string, not a time.Time.
+			var dayStr string
+			if err := rows.Scan(&dayStr, &c.Count); err != nil {
+				return nil, err
+			}
+			day, err = time.Parse("2006-01-02", dayStr)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			if err := rows.Scan(&day, &c.Count); err != nil {
+				return nil, err
+			}
+		}
+		c.Date = day
+		counts = append(counts, c)
+	}
+	if counts == nil {
+		counts = []port.DailyCount{}
+	}
+	return counts, rows.Err()
 }

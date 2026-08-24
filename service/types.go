@@ -149,14 +149,19 @@ type ListSessionsResult struct {
 }
 
 type AdminListUsersInput struct {
-	ActorID        string // the admin performing this call
-	Offset         int
-	Limit          int // default 20, max 100
-	Email          *string
-	Role           *domain.Role
-	Search         *string
-	OrderBy        string // "created_at" or "updated_at"
-	OrderDirection string // "asc" or "desc"
+	ActorID          string // the admin performing this call
+	Offset           int
+	Limit            int // default 20, max 100
+	Email            *string
+	Role             *domain.Role
+	TwoFactorEnabled *bool
+	// NeverLoggedIn and LastLoginBefore are independent dormancy filters —
+	// see port.UserFilter's doc comment for why they're kept separate.
+	NeverLoggedIn   *bool
+	LastLoginBefore *time.Time
+	Search          *string
+	OrderBy         string // "created_at" or "updated_at"
+	OrderDirection  string // "asc" or "desc"
 }
 
 type AdminListUsersResult struct {
@@ -167,10 +172,12 @@ type AdminListUsersResult struct {
 }
 
 type ListInvitesInput struct {
-	Offset int
-	Limit  int
-	Search string
-	Status string
+	Offset         int
+	Limit          int
+	Search         string
+	Status         string
+	OrderBy        string // "created_at" (default), "expires_at", "email", "status"
+	OrderDirection string // "asc" or "desc"
 }
 
 type CreateInviteInput struct {

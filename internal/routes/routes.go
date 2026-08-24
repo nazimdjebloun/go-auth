@@ -63,6 +63,11 @@ const (
 	AdminListAuditLogs     = "GET /admin/audit-logs"
 	AdminListUserAuditLogs = "GET /admin/users/{id}/audit-logs"
 
+	// Admin — stats and activity
+	AdminStats             = "GET /admin/stats"
+	AdminRegistrationTrend = "GET /admin/stats/registrations"
+	AdminLoginActivity     = "GET /admin/stats/logins"
+
 	// Admin — invites (EnableInvite)
 	CreateInvite     = "POST /admin/invites"
 	ListInvites      = "GET /admin/invites"

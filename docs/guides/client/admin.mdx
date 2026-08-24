@@ -43,6 +43,19 @@ export const adminApi = {
   revokeUserSessions: (userId: string) =>
     apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions`),
 
+  // --- Stats and activity ---
+
+  getStats: () => apiRequest(API_BASE, "GET", "/admin/stats"),
+
+  getRegistrationTrend: (from: string, to: string) =>
+    apiRequest(API_BASE, "GET", `/admin/stats/registrations?from=${from}&to=${to}`),
+
+  getLoginActivity: (from: string, to: string, userId?: string) =>
+    apiRequest(
+      API_BASE, "GET",
+      `/admin/stats/logins?from=${from}&to=${to}${userId ? `&userId=${userId}` : ""}`
+    ),
+
   // --- Audit logs — requires WithAudit(AuditConfig{Enabled: true}) server-side ---
 
   listAuditLogs: (params: Record<string, string | number> = {}) =>
@@ -79,6 +92,15 @@ try {
   // last_admin — see the Admin guide
   showError(err.message ?? err.error);
 }
+```
+
+## Stats and activity
+
+```ts
+const stats = await adminApi.getStats();
+const { registrations } = await adminApi.getRegistrationTrend("2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z");
+const { logins } = await adminApi.getLoginActivity("2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"); // global
+const { logins: userLogins } = await adminApi.getLoginActivity(from, to, userId); // one user's heatmap
 ```
 
 ## Audit logs

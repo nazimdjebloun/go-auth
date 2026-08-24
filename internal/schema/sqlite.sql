@@ -147,3 +147,4 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_target_id ON audit_log(target_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_session_id ON audit_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);

@@ -254,10 +254,12 @@ func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput)
 	}
 
 	invites, total, err := s.invites.List(ctx, port.InviteFilter{
-		Offset: input.Offset,
-		Limit:  input.Limit,
-		Search: search,
-		Status: status,
+		Offset:         input.Offset,
+		Limit:          input.Limit,
+		Search:         search,
+		Status:         status,
+		OrderBy:        input.OrderBy,
+		OrderDirection: input.OrderDirection,
 	})
 	if err != nil {
 		s.log.Error("failed to list invites", "err", err)

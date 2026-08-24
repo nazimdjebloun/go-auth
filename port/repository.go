@@ -29,15 +29,35 @@ import (
 var ErrDuplicateKey = errors.New("port: duplicate key")
 
 type UserFilter struct {
-	Email          *string
-	Role           *domain.Role
-	IsBanned       *bool
-	IsVerified     *bool
+	Email            *string
+	Role             *domain.Role
+	IsBanned         *bool
+	IsVerified       *bool
+	TwoFactorEnabled *bool
+	// NeverLoggedIn and LastLoginBefore are independent, composable dormancy
+	// filters, not one merged "inactive since" flag: "registered, never
+	// logged in since" and "logged in before, gone dormant since" are
+	// different admin questions.
+	NeverLoggedIn   *bool      // true: last_login_at IS NULL
+	LastLoginBefore *time.Time // last_login_at < X, excluding NULLs
+	// CreatedAfter/CreatedBefore scope List/CountByDay to a registration
+	// date range — used by the admin registrations-over-time trend.
+	CreatedAfter   *time.Time
+	CreatedBefore  *time.Time
 	Search         *string
 	OrderBy        string // "created_at" or "updated_at"
 	OrderDirection string // "asc" or "desc"
 	Offset         int
 	Limit          int // 0 means unlimited
+}
+
+// DailyCount is one bucket of a day-by-day aggregate — the shape both
+// UserRepository.CountByDay and AuditLogRepository.CountByDay return, for
+// building a registrations-over-time chart or a GitHub-style login heatmap
+// without pulling raw rows client-side.
+type DailyCount struct {
+	Date  time.Time `json:"date"` // truncated to day, UTC
+	Count int       `json:"count"`
 }
 
 type UserRepository interface {
@@ -47,6 +67,10 @@ type UserRepository interface {
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id string) error
 	List(ctx context.Context, filter UserFilter) ([]domain.User, int, error)
+	// CountByDay returns registrations per day matching filter (Offset/Limit
+	// on filter are ignored — the result is naturally bounded by the date
+	// range in filter.CreatedAfter/CreatedBefore).
+	CountByDay(ctx context.Context, filter UserFilter) ([]DailyCount, error)
 	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, tokenID string) error
 	SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error
 	UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error
@@ -171,10 +195,12 @@ type TokenRepository interface {
 }
 
 type InviteFilter struct {
-	Search *string
-	Status *string
-	Offset int
-	Limit  int
+	Search         *string
+	Status         *string
+	OrderBy        string // "created_at" (default), "expires_at", "email", "status"
+	OrderDirection string // "asc" or "desc"
+	Offset         int
+	Limit          int
 }
 
 type InviteRepository interface {
@@ -315,4 +341,7 @@ type AuditLogEntry struct {
 type AuditLogRepository interface {
 	List(ctx context.Context, filter AuditLogFilter) ([]AuditLogEntry, int, error)
 	GetByID(ctx context.Context, id string) (*AuditLogEntry, error)
+	// CountByDay returns event counts per day matching filter (Offset/Limit
+	// on filter are ignored, same reasoning as UserRepository.CountByDay).
+	CountByDay(ctx context.Context, filter AuditLogFilter) ([]DailyCount, error)
 }

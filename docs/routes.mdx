@@ -120,7 +120,7 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
-| `GET /admin/users` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `email`, `search` (optional filters); `role` (`admin` or `user` only — any other value is ignored, not applied); `orderBy` (`created_at` \| `updated_at`, default `created_at`); `orderDirection` (`asc` \| `desc`, default `desc`) | Paginated, filterable, sortable user listing. |
+| `GET /admin/users` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `email`, `search` (optional filters); `role` (`admin` or `user` only — any other value is ignored, not applied); `twoFactorEnabled` (`true`\|`false`); `neverLoggedIn` (`true` only — `last_login_at IS NULL`); `lastLoginBefore` (RFC3339 — `last_login_at < X`, excludes never-logged-in); `orderBy` (`created_at` \| `updated_at`, default `created_at`); `orderDirection` (`asc` \| `desc`, default `desc`) | Paginated, filterable, sortable user listing. |
 | `GET /admin/users/{id}` | Admin | Path: `id` | Full detail for one user. |
 | `POST /admin/users` | Admin | Body: `` `{email, password, name, role}` `` | Admin-creates a user with a specified role. |
 | `PATCH /admin/users/{id}/role` | Admin | Path: `id`; body: `` `{role}` `` | Sets a user's role. Blocked if it would demote the last admin. |
@@ -138,12 +138,20 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | `GET /admin/audit-logs` | Admin | Query (all optional): `offset`, `limit` (default `50`, max `200`); `event_type`, `actor_id`, `target_user_id`, `session_id`, `org_id`, `search`; `from`, `to` (RFC3339 timestamps — silently ignored if unparsable); `success` (`true` \| `false`) | Filtered, paginated audit events. `404 audit_not_configured` if audit logging isn't enabled. |
 | `GET /admin/users/{id}/audit-logs` | Admin | Path: `id`; same query params as above | Same as above, pre-filtered to that user. |
 
+## Admin — stats and activity
+
+| Method & Path | Auth | Params | Description |
+|---|---|---|---|
+| `GET /admin/stats` | Admin | none | Overview counts: total/verified/banned/two-factor/never-logged-in users, active sessions. |
+| `GET /admin/stats/registrations` | Admin | Query: `from`, `to` (RFC3339, both required, 400-day max span) | Registrations per day — a registrations-over-time chart. |
+| `GET /admin/stats/logins` | Admin | Query: `from`, `to` (RFC3339, both required, 400-day max span); `userId` (optional — global if omitted) | Successful (`login.success`) logins per day — a GitHub-commit-style login heatmap. Empty if audit logging is disabled. |
+
 ## Admin — invites (`EnableInvite` required)
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
 | `POST /admin/invites` | Admin | Body: `` `{email}` `` | Creates an invite. The inviting admin is taken from the session, not the body. |
-| `GET /admin/invites` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `search`, `status` (optional) | Lists invites. |
+| `GET /admin/invites` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `search`, `status` (optional); `orderBy` (`created_at` default, `expires_at`, `email`, `status`); `orderDirection` (`desc` default, `asc`) | Lists invites. |
 | `DELETE /admin/invites/{id}` | Admin | Path: `id` | Revokes (soft-cancels) an invite. |
 | `POST /admin/invites/{id}/resend` | Admin | Path: `id` | Resends the invite email. |
 | `DELETE /admin/invites/{id}/hard` | Admin | Path: `id` | Permanently deletes the invite record. |

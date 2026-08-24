@@ -14,16 +14,16 @@ import (
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/emailtemplate"
-	"github.com/nazimdjebloun/go-auth/internal/handler"
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/internal/crypto"
+	"github.com/nazimdjebloun/go-auth/internal/handler"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
 	"github.com/nazimdjebloun/go-auth/internal/routes"
+	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 	"github.com/nazimdjebloun/go-auth/service"
-	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/token"
 )
 
@@ -113,6 +113,9 @@ type HandlerGroup struct {
 	GetUserDetail            http.HandlerFunc
 	AdminListAuditLogs       http.HandlerFunc
 	AdminListUserAuditLogs   http.HandlerFunc
+	AdminStats               http.HandlerFunc
+	AdminRegistrationTrend   http.HandlerFunc
+	AdminLoginActivity       http.HandlerFunc
 	GetInviteInfo            http.HandlerFunc
 	CreateInvite             http.HandlerFunc
 	ListInvites              http.HandlerFunc
@@ -399,7 +402,7 @@ func New(config config) (*Auth, error) {
 	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, twoFactorSvc)
-	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, providerAccountRepo, hasherImpl, serviceCfg, sessSvc)
+	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
 
 	// Attach logger to session repository
 	if config.logger != nil {
@@ -602,6 +605,9 @@ func New(config config) (*Auth, error) {
 			AdminRevokeUserSession: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession))))))).ServeHTTP,
 			AdminListAuditLogs:     corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListAuditLogs))))).ServeHTTP,
 			AdminListUserAuditLogs: corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserAuditLogs))))).ServeHTTP,
+			AdminStats:             corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetAdminStats))))).ServeHTTP,
+			AdminRegistrationTrend: corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetRegistrationTrend))))).ServeHTTP,
+			AdminLoginActivity:     corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetLoginActivity))))).ServeHTTP,
 			CreateInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite))))))).ServeHTTP,
 			ListInvites:            corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListInvites))))).ServeHTTP,
 			RevokeInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite))))))).ServeHTTP,
@@ -755,6 +761,9 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		{routes.RevokeUserSessions, a.Handlers.RevokeUserSessions},
 		{routes.AdminListAuditLogs, a.Handlers.AdminListAuditLogs},
 		{routes.AdminListUserAuditLogs, a.Handlers.AdminListUserAuditLogs},
+		{routes.AdminStats, a.Handlers.AdminStats},
+		{routes.AdminRegistrationTrend, a.Handlers.AdminRegistrationTrend},
+		{routes.AdminLoginActivity, a.Handlers.AdminLoginActivity},
 	}
 
 	if a.cfg.registration.EnableEmailPassword {

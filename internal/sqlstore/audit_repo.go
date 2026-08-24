@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -70,6 +71,66 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 		entries = []port.AuditLogEntry{}
 	}
 	return entries, total, rows.Err()
+}
+
+// CountByDay returns event counts per day matching filter — Offset/Limit on
+// filter are ignored, the result is naturally bounded by filter.FromDate/ToDate.
+func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLogFilter) ([]port.DailyCount, error) {
+	where, args := r.buildWhere(filter)
+
+	var dayExpr string
+	switch r.db.Driver() {
+	case "mysql":
+		dayExpr = "DATE(created_at)"
+	case "sqlite", "sqlite3":
+		// Not date(created_at): modernc.org/sqlite stores time.Time as
+		// RFC3339Nano text ("...2026-08-19T19:21:36.275883607Z"), and
+		// SQLite's date() can't parse 9-digit fractional seconds — it
+		// silently returns NULL. The stored format's first 10 characters
+		// are always the ISO date, so substr sidesteps date() entirely.
+		dayExpr = "substr(created_at, 1, 10)"
+	default: // postgres
+		dayExpr = "date_trunc('day', created_at)"
+	}
+
+	query := "SELECT " + dayExpr + " AS day, COUNT(*) FROM audit_log"
+	if where != "" {
+		query += " WHERE " + where
+	}
+	query += " GROUP BY day ORDER BY day"
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var counts []port.DailyCount
+	for rows.Next() {
+		var c port.DailyCount
+		var day time.Time
+		if r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+			// modernc.org/sqlite returns date() as a string, not a time.Time.
+			var dayStr string
+			if err := rows.Scan(&dayStr, &c.Count); err != nil {
+				return nil, err
+			}
+			day, err = time.Parse("2006-01-02", dayStr)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			if err := rows.Scan(&day, &c.Count); err != nil {
+				return nil, err
+			}
+		}
+		c.Date = day
+		counts = append(counts, c)
+	}
+	if counts == nil {
+		counts = []port.DailyCount{}
+	}
+	return counts, rows.Err()
 }
 
 func (r *AuditLogRepository) GetByID(ctx context.Context, id string) (*port.AuditLogEntry, error) {

@@ -81,8 +81,114 @@ func (m *MockUserRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *MockUserRepo) List(_ context.Context, _ port.UserFilter) ([]domain.User, int, error) {
-	return nil, 0, nil
+func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain.User, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var matched []domain.User
+	seen := make(map[string]bool)
+	for _, u := range m.users {
+		if u.ID == "" || seen[u.ID] {
+			continue
+		}
+		if !userMatchesFilter(u, filter) {
+			continue
+		}
+		seen[u.ID] = true
+		matched = append(matched, *u)
+	}
+
+	sort.SliceStable(matched, func(i, j int) bool {
+		var ci, cj time.Time
+		if filter.OrderBy == "updated_at" {
+			ci, cj = matched[i].UpdatedAt, matched[j].UpdatedAt
+		} else {
+			ci, cj = matched[i].CreatedAt, matched[j].CreatedAt
+		}
+		if strings.EqualFold(filter.OrderDirection, "asc") {
+			return ci.Before(cj)
+		}
+		return ci.After(cj)
+	})
+
+	total := len(matched)
+	if filter.Limit <= 0 {
+		return matched, total, nil
+	}
+	start := filter.Offset
+	if start > len(matched) {
+		start = len(matched)
+	}
+	end := start + filter.Limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+	return matched[start:end], total, nil
+}
+
+// CountByDay groups matched users by their CreatedAt day — a small in-memory
+// stand-in for the real GROUP BY date_trunc('day', ...) query.
+func (m *MockUserRepo) CountByDay(_ context.Context, filter port.UserFilter) ([]port.DailyCount, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	byDay := make(map[time.Time]int)
+	seen := make(map[string]bool)
+	for _, u := range m.users {
+		if u.ID == "" || seen[u.ID] {
+			continue
+		}
+		if !userMatchesFilter(u, filter) {
+			continue
+		}
+		seen[u.ID] = true
+		day := time.Date(u.CreatedAt.Year(), u.CreatedAt.Month(), u.CreatedAt.Day(), 0, 0, 0, 0, time.UTC)
+		byDay[day]++
+	}
+
+	counts := make([]port.DailyCount, 0, len(byDay))
+	for day, count := range byDay {
+		counts = append(counts, port.DailyCount{Date: day, Count: count})
+	}
+	sort.Slice(counts, func(i, j int) bool { return counts[i].Date.Before(counts[j].Date) })
+	return counts, nil
+}
+
+func userMatchesFilter(u *domain.User, filter port.UserFilter) bool {
+	if filter.Email != nil && !strings.Contains(strings.ToLower(u.Email), strings.ToLower(*filter.Email)) {
+		return false
+	}
+	if filter.Role != nil && u.Role != *filter.Role {
+		return false
+	}
+	if filter.IsBanned != nil && u.IsBanned != *filter.IsBanned {
+		return false
+	}
+	if filter.IsVerified != nil && u.IsVerified != *filter.IsVerified {
+		return false
+	}
+	if filter.TwoFactorEnabled != nil && u.TwoFactorEnabled != *filter.TwoFactorEnabled {
+		return false
+	}
+	if filter.NeverLoggedIn != nil && *filter.NeverLoggedIn && u.LastLoginAt != nil {
+		return false
+	}
+	if filter.LastLoginBefore != nil && (u.LastLoginAt == nil || !u.LastLoginAt.Before(*filter.LastLoginBefore)) {
+		return false
+	}
+	if filter.CreatedAfter != nil && u.CreatedAt.Before(*filter.CreatedAfter) {
+		return false
+	}
+	if filter.CreatedBefore != nil && u.CreatedAt.After(*filter.CreatedBefore) {
+		return false
+	}
+	if filter.Search != nil && *filter.Search != "" {
+		s := strings.ToLower(*filter.Search)
+		if !strings.Contains(strings.ToLower(u.Name), s) && !strings.Contains(strings.ToLower(u.Email), s) {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *MockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned bool, bannedAt *time.Time, _ time.Time) error {
@@ -133,6 +239,121 @@ func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 	u.VerifiedAt = &now
 	u.UpdatedAt = now
 	return nil
+}
+
+// ─── mockAuditLogRepo ──────────────────────────────────────────────
+
+type MockAuditLogRepo struct {
+	mu      sync.Mutex
+	entries []port.AuditLogEntry
+}
+
+func NewMockAuditLogRepo() *MockAuditLogRepo {
+	return &MockAuditLogRepo{}
+}
+
+// AddEntry seeds a row directly — tests exercising List/CountByDay don't
+// need the real audit publisher pipeline wired up.
+func (m *MockAuditLogRepo) AddEntry(e port.AuditLogEntry) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries = append(m.entries, e)
+}
+
+func (m *MockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var matched []port.AuditLogEntry
+	for _, e := range m.entries {
+		if auditEntryMatchesFilter(e, filter) {
+			matched = append(matched, e)
+		}
+	}
+	sort.SliceStable(matched, func(i, j int) bool { return matched[i].CreatedAt.After(matched[j].CreatedAt) })
+
+	total := len(matched)
+	if filter.Limit <= 0 {
+		return matched, total, nil
+	}
+	start := filter.Offset
+	if start > len(matched) {
+		start = len(matched)
+	}
+	end := start + filter.Limit
+	if end > len(matched) {
+		end = len(matched)
+	}
+	return matched[start:end], total, nil
+}
+
+func (m *MockAuditLogRepo) GetByID(_ context.Context, id string) (*port.AuditLogEntry, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, e := range m.entries {
+		if e.ID == id {
+			cp := e
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
+
+// CountByDay groups matched entries by CreatedAt day — a small in-memory
+// stand-in for the real GROUP BY date_trunc('day', ...) query.
+func (m *MockAuditLogRepo) CountByDay(_ context.Context, filter port.AuditLogFilter) ([]port.DailyCount, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	byDay := make(map[time.Time]int)
+	for _, e := range m.entries {
+		if !auditEntryMatchesFilter(e, filter) {
+			continue
+		}
+		day := time.Date(e.CreatedAt.Year(), e.CreatedAt.Month(), e.CreatedAt.Day(), 0, 0, 0, 0, time.UTC)
+		byDay[day]++
+	}
+
+	counts := make([]port.DailyCount, 0, len(byDay))
+	for day, count := range byDay {
+		counts = append(counts, port.DailyCount{Date: day, Count: count})
+	}
+	sort.Slice(counts, func(i, j int) bool { return counts[i].Date.Before(counts[j].Date) })
+	return counts, nil
+}
+
+func auditEntryMatchesFilter(e port.AuditLogEntry, filter port.AuditLogFilter) bool {
+	if filter.Type != nil && e.Type != *filter.Type {
+		return false
+	}
+	if filter.ActorID != nil && (e.ActorID == nil || *e.ActorID != *filter.ActorID) {
+		return false
+	}
+	if filter.TargetUserID != nil && (e.TargetUserID == nil || *e.TargetUserID != *filter.TargetUserID) {
+		return false
+	}
+	if filter.SessionID != nil && (e.SessionID == nil || *e.SessionID != *filter.SessionID) {
+		return false
+	}
+	if filter.OrgID != nil && (e.OrgID == nil || *e.OrgID != *filter.OrgID) {
+		return false
+	}
+	if filter.Success != nil && e.Success != *filter.Success {
+		return false
+	}
+	if filter.FromDate != nil && e.CreatedAt.Before(*filter.FromDate) {
+		return false
+	}
+	if filter.ToDate != nil && e.CreatedAt.After(*filter.ToDate) {
+		return false
+	}
+	if filter.Search != nil && *filter.Search != "" {
+		s := strings.ToLower(*filter.Search)
+		if !strings.Contains(strings.ToLower(e.UserAgent), s) && !strings.Contains(strings.ToLower(string(e.Metadata)), s) {
+			return false
+		}
+	}
+	return true
 }
 
 // ─── mockSessionRepo ───────────────────────────────────────────────

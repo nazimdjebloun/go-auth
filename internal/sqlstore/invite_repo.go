@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -16,6 +17,13 @@ type InviteRepository struct {
 
 func NewInviteRepository(db *DB) *InviteRepository {
 	return &InviteRepository{db: db}
+}
+
+var inviteOrderByWhitelist = map[string]string{
+	"created_at": "created_at",
+	"expires_at": "expires_at",
+	"email":      "email",
+	"status":     "status",
 }
 
 func (r *InviteRepository) Create(ctx context.Context, invite *domain.Invite) error {
@@ -106,13 +114,22 @@ func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) (
 		return nil, 0, err
 	}
 
+	orderCol := inviteOrderByWhitelist[filter.OrderBy]
+	if orderCol == "" {
+		orderCol = "created_at"
+	}
+	orderDir := "DESC"
+	if strings.EqualFold(filter.OrderDirection, "asc") {
+		orderDir = "ASC"
+	}
+
 	argN++
 	args = append(args, filter.Limit)
 	argN++
 	args = append(args, filter.Offset)
 
 	query := fmt.Sprintf(`SELECT `+inviteSelectColumns+`
-		FROM invites%s ORDER BY created_at DESC LIMIT $%d OFFSET $%d`, where, argN-1, argN)
+		FROM invites%s ORDER BY %s %s LIMIT $%d OFFSET $%d`, where, orderCol, orderDir, argN-1, argN)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
