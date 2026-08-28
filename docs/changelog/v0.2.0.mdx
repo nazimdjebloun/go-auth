@@ -1,0 +1,14 @@
+---
+title: "v0.2.0"
+description: "Platform-admin org oversight, cross-user session admin, stats endpoints, and reworked audit-log filtering."
+date: "2026-08-28"
+---
+
+- Platform-admin oversight of organizations — list/view any org, force-add or force-remove members, force-delete an org, and force-change a member's role, all bypassing membership; every admin action publishes its own `admin.org.*` audit event, kept distinct from the matching self-service event
+- Cross-user session admin — `GET /admin/sessions` lists active sessions platform-wide, filterable by user, IP, search, and date range
+- Bulk user actions — ban, unban, delete, and revoke-sessions on a list of user IDs in one call, with a per-user succeeded/failed report
+- Admin stats — registration-trend and login-activity endpoints, plus dormancy (`neverLoggedIn`, `lastLoginBefore`) and 2FA-status user filters
+- Audit-log filtering reworked — multiple event types per query, device-type and IP filters, actor/target email resolution, and broader free-text search, all routed through `AdminService`
+- Session-refresh audit events, including a new critical-severity `session.refresh_reuse_detected` event for stolen/replayed refresh tokens
+- Paginated, filtered, sortable org invites; a `limit=0` semantics fix on org/member/invite listing; new `Auth.RequireActiveOrg` and `Auth.RequireCSRF` middleware for consumer routes
+- Fixed `AuditLogEntry` JSON tags (were PascalCase, now camelCase, matching the docs and dashboard client)
