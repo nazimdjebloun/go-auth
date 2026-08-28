@@ -9,7 +9,7 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 # Schemas
 
 go-auth ships one canonical schema per database driver, embedded into the
-library at build time. Nine tables and around twenty indexes, no ORM, no
+library at build time. Nine tables and around twenty-two indexes, no ORM, no
 runtime `CREATE TABLE` — you apply the schema once, before your app starts.
 
 The column tables below describe the **PostgreSQL** schema. Table and column
@@ -698,6 +698,7 @@ CREATE TABLE IF NOT EXISTS organization_members (
 
 CREATE INDEX IF NOT EXISTS idx_org_members_user ON organization_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_org_members_org_role ON organization_members(org_id, role);
+CREATE INDEX IF NOT EXISTS idx_org_members_org_joined ON organization_members(org_id, joined_at);
 ```
 
 </Tab>
@@ -714,6 +715,7 @@ CREATE TABLE IF NOT EXISTS organization_members (
 
 CREATE INDEX IF NOT EXISTS idx_org_members_user ON organization_members(user_id);
 CREATE INDEX IF NOT EXISTS idx_org_members_org_role ON organization_members(org_id, role);
+CREATE INDEX IF NOT EXISTS idx_org_members_org_joined ON organization_members(org_id, joined_at);
 ```
 
 </Tab>
@@ -732,6 +734,7 @@ CREATE TABLE IF NOT EXISTS organization_members (
 
 CREATE INDEX idx_org_members_user ON organization_members(user_id);
 CREATE INDEX idx_org_members_org_role ON organization_members(org_id, role);
+CREATE INDEX idx_org_members_org_joined ON organization_members(org_id, joined_at);
 ```
 
 </Tab>
@@ -862,6 +865,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_target_id ON audit_log(target_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_session_id ON audit_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_metadata ON audit_log USING GIN (metadata jsonb_path_ops);
 ```
 
@@ -893,6 +897,7 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_target_id ON audit_log(target_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_session_id ON audit_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
 ```
 
 </Tab>
@@ -923,6 +928,7 @@ CREATE INDEX idx_audit_log_target_id ON audit_log(target_id);
 CREATE INDEX idx_audit_log_session_id ON audit_log(session_id);
 CREATE INDEX idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
+CREATE INDEX idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
 ```
 
 </Tab>
