@@ -61,6 +61,13 @@ const (
 	EventAdminUserBanned   EventType = "admin.user.banned"
 	EventAdminUserUnbanned EventType = "admin.user.unbanned"
 
+	// Admin — invites. The target is an invite, not a user, so the invite id
+	// and address ride in Metadata rather than TargetUserID.
+	EventAdminInviteCreated EventType = "admin.invite.created"
+	EventAdminInviteResent  EventType = "admin.invite.resent"
+	EventAdminInviteRevoked EventType = "admin.invite.revoked"
+	EventAdminInviteDeleted EventType = "admin.invite.deleted"
+
 	// Roles
 	EventRoleChanged EventType = "role.changed"
 

@@ -408,6 +408,45 @@ func NewAdminEvent(typ EventType, actorID, targetID string) Event {
 	}
 }
 
+// NewInviteEvent records an admin action against an app-wide invite.
+//
+// Separate from NewAdminEvent because the subject isn't a user: there's no
+// TargetUserID to set, and actor_id is a UUID column, so the invite id and
+// recipient address go in Metadata instead.
+func NewInviteEvent(typ EventType, actorID, inviteID, email string) Event {
+	if typ != EventAdminInviteCreated && typ != EventAdminInviteResent &&
+		typ != EventAdminInviteRevoked && typ != EventAdminInviteDeleted {
+		return Event{
+			ID:        generateID(),
+			Type:      typ,
+			Severity:  SeverityInfo,
+			Success:   false,
+			CreatedAt: time.Now().UTC(),
+			Metadata:  map[string]any{"error": fmt.Sprintf("invalid invite event type: %s", typ)},
+		}
+	}
+	sev := SeverityInfo
+	if typ == EventAdminInviteDeleted || typ == EventAdminInviteRevoked {
+		sev = SeverityWarning
+	}
+	meta := map[string]any{}
+	if inviteID != "" {
+		meta["inviteId"] = inviteID
+	}
+	if email != "" {
+		meta["email"] = email
+	}
+	return Event{
+		ID:        generateID(),
+		Type:      typ,
+		Severity:  sev,
+		Success:   true,
+		ActorID:   strPtr(actorID),
+		Metadata:  meta,
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
 func NewOrgEvent(typ EventType, actorID, orgID string, targetID *string) Event {
 	switch typ {
 	case EventOrgCreated, EventOrgDeleted, EventOrgMemberInvited, EventOrgMemberRemoved,
