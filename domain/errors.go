@@ -43,6 +43,7 @@ var (
 	ErrInviteExpired            = NewError("invite_expired", "This invite has expired")
 	ErrInviteAlreadyUsed        = NewError("invite_already_used", "This invite has already been used")
 	ErrInviteRevoked            = NewError("invite_revoked", "This invite has been revoked")
+	ErrInviteAlreadyExists      = NewError("invite_already_exists", "A pending invite for this email already exists")
 	ErrRateLimitExceeded        = NewError("rate_limit_exceeded", "Too many requests, please try again later")
 	ErrAccountAlreadyExists     = NewError("account_already_exists", "An account with this email already exists")
 	ErrSessionNotFound          = NewError("session_not_found", "Session not found")

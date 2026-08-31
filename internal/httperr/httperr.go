@@ -24,6 +24,7 @@ var byCode = map[string]int{
 	"invite_expired":               http.StatusGone,
 	"invite_already_used":          http.StatusGone,
 	"invite_revoked":               http.StatusForbidden,
+	"invite_already_exists":        http.StatusConflict,
 	"rate_limit_exceeded":          http.StatusTooManyRequests,
 	"account_already_exists":       http.StatusConflict,
 	"session_not_found":            http.StatusNotFound,
