@@ -158,3 +158,28 @@ CREATE INDEX idx_audit_log_session_id ON audit_log(session_id);
 CREATE INDEX idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
+
+-- Admin console read paths — large-tenant list / count / filter / sort.
+-- (No partial indexes on MySQL; the equality-prefixed composites serve the
+-- selective side of each flag filter.)
+CREATE INDEX idx_users_role_created_at ON users (role, created_at);
+CREATE INDEX idx_users_updated_at ON users (updated_at);
+CREATE INDEX idx_users_last_login_at ON users (last_login_at);
+CREATE INDEX idx_users_banned_created_at ON users (is_banned, created_at);
+CREATE INDEX idx_users_verified_created_at ON users (is_verified, created_at);
+CREATE INDEX idx_users_two_factor_created_at ON users (two_factor_enabled, created_at);
+-- Prefix search fallback ("term%"): email's UNIQUE index already serves it;
+-- name is TEXT so it needs its own prefix index.
+CREATE INDEX idx_users_name ON users (name(255));
+
+CREATE INDEX idx_sessions_created_at ON sessions (created_at);
+CREATE INDEX idx_sessions_last_active_at ON sessions (last_active_at);
+CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX idx_sessions_ip_address ON sessions (ip_address(64));
+
+CREATE INDEX idx_invites_status_created_at ON invites (status, created_at);
+CREATE INDEX idx_invites_created_at ON invites (created_at, id);
+CREATE INDEX idx_invites_expires_at ON invites (expires_at);
+
+CREATE INDEX idx_audit_log_actor_created_at ON audit_log (actor_id, created_at);
+CREATE INDEX idx_audit_log_target_created_at ON audit_log (target_id, created_at);

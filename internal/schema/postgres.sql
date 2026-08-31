@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -152,3 +153,43 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_metadata ON audit_log USING GIN (metadata jsonb_path_ops);
+
+-- ── Admin console read paths — large-tenant list / count / filter / sort. ──
+
+-- users: role-scoped listing + sort. The trailing id keeps these usable for
+-- keyset pagination later without another schema change.
+CREATE INDEX IF NOT EXISTS idx_users_role_created_at ON users (role, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users (updated_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users (last_login_at);
+-- Low-cardinality flag filters: a partial index covers only the rare value
+-- that gets queried, so it stays small and the planner actually picks it.
+CREATE INDEX IF NOT EXISTS idx_users_banned ON users (created_at DESC) WHERE is_banned;
+CREATE INDEX IF NOT EXISTS idx_users_unverified ON users (created_at DESC) WHERE NOT is_verified;
+CREATE INDEX IF NOT EXISTS idx_users_two_factor ON users (created_at DESC) WHERE two_factor_enabled;
+-- Substring search: `name ILIKE '%x%' OR email ILIKE '%x%'` has a leading
+-- wildcard, so a btree is useless. A trigram GIN index makes it an index
+-- lookup instead of a full scan (effective for terms of 3+ characters).
+CREATE INDEX IF NOT EXISTS idx_users_email_trgm ON users USING gin (email gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_users_name_trgm ON users USING gin (name gin_trgm_ops);
+
+-- sessions: cross-user admin session list, "kill all sessions from this IP",
+-- and the expiry sweep.
+CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_active_at ON sessions (last_active_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_ip_address ON sessions (ip_address);
+
+-- invites: status filter, newest-first.
+CREATE INDEX IF NOT EXISTS idx_invites_status_created_at ON invites (status, created_at DESC);
+-- Default admin list order (no status filter).
+CREATE INDEX IF NOT EXISTS idx_invites_created_at ON invites (created_at DESC, id DESC);
+-- ORDER BY expires_at, and the pending-and-past-due half of the derived
+-- "expired" filter (see InviteRepository.buildInviteWhere).
+CREATE INDEX IF NOT EXISTS idx_invites_expires_at ON invites (expires_at);
+CREATE INDEX IF NOT EXISTS idx_invites_pending_expires ON invites (expires_at) WHERE status = 'pending';
+-- Substring email search: ILIKE '%term%' cannot use the plain btree on email.
+CREATE INDEX IF NOT EXISTS idx_invites_email_trgm ON invites USING gin (email gin_trgm_ops);
+
+-- audit_log: per-user trail (as actor or as target) ordered by time.
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor_created_at ON audit_log (actor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_target_created_at ON audit_log (target_id, created_at DESC);
