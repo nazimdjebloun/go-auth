@@ -1,0 +1,45 @@
+---
+title: "v0.2.1"
+description: "Row counts split into dedicated /count endpoints, admin-console read-path indexes, trigram search for users and invites, derived invite expiry, admin-only invite service, and bulk invite actions."
+date: "2026-08-30"
+---
+
+- **List endpoints no longer return a `total`.** Every paginated admin/org listing (`/admin/users`, `/admin/sessions`, `/admin/audit-logs`, `/admin/orgs`, `/admin/orgs/{orgID}/members`, `/admin/invites`, `/auth/orgs`, `/auth/orgs/{orgID}/members`, `/auth/orgs/{orgID}/invites`, `/admin/users/{id}/audit-logs`) dropped the `total` field and gained a sibling `GET .../count` that takes the same filter params (pagination/ordering ignored) and returns `{ "count": N }`. A paginated table fetches the count once per filter change instead of paying for a `COUNT(*)` on every page. The repository interfaces split the same way — `List(...) ([]T, error)` + `Count(...) (int, error)` — and services expose `Count*` methods alongside their `List*` counterparts.
+- `GetStats` now issues one `COUNT(*)` per field instead of a `List(Limit: 1)` that ran a count as a side effect.
+- **`isBanned` and `isVerified` query params** on `GET /admin/users` (and `/admin/users/count`), wired end to end.
+- **Admin-console indexes** across the Postgres/MySQL/SQLite schemas: role-scoped user listing and sort, partial indexes on the low-cardinality `is_banned` / `is_verified` / `two_factor_enabled` flags, session `ip_address` / `last_active_at` / `expires_at`, invite `status`, and per-user audit trails. Composite indexes are ordered `(col DESC, id DESC)` so keyset pagination is a later code-only change.
+- **Trigram user search** on Postgres — `pg_trgm` GIN indexes on `users(name)` / `users(email)` turn the substring `name/email ILIKE '%term%'` lookup into an index scan. MySQL and SQLite, which have no portable substring index, fall back to a prefix match (`term%`) a plain btree can serve.
+
+## Invites
+
+- **Invite list/count/search worked on Postgres only.** `InviteRepository` emitted
+  `$N` placeholders directly instead of going through `DB.Rebind`, so the queries
+  were malformed on MySQL and SQLite. Now rebound like every other repository.
+- **Invite search is indexed.** The email filter was `LOWER(email) LIKE LOWER($1)`,
+  which no index can serve. It now uses the same driver-aware split as user search —
+  substring `ILIKE` against a `pg_trgm` GIN index on Postgres, prefix `LIKE` on
+  MySQL/SQLite.
+- **`expired` is derived rather than stored.** The terminal status is only written
+  when someone opens an invite link, so lapsed invites lingered as `pending` —
+  inflating the pending count and making `status=expired` return almost nothing.
+  `GET /admin/invites` now treats pending-and-past-due as expired in both the filter
+  and the returned rows. Redemption endpoints are unchanged.
+- **Invite indexes** across all three schemas: default list order, `expires_at`,
+  a partial index on pending invites (Postgres/SQLite), and the trigram email index
+  on Postgres.
+- **App-wide invites are admin-only at the service layer.** Every method on
+  `InviteService` now takes an actor and checks it, closing the
+  `Auth.Services.Invite.*` direct-call path that has no middleware in front of it.
+  `RevokeInvite`, `ResendInviteEmail` and `HardDeleteInvite` take an actor ID;
+  `ListInvitesInput` gained `ActorID`. Organization invites already enforced
+  org admin/owner and are unchanged.
+- **`CreateInvite` rejects duplicates.** Inviting an address that already has an
+  account returns `email_already_exists`; a second live invite for the same address
+  returns the new `invite_already_exists` (409). Previously both silently created a
+  row — which a bulk send over a pasted list would have multiplied.
+- **Bulk invite actions**: `POST /admin/invites/bulk/{send,resend,revoke,delete}`,
+  same partial-failure contract as the bulk user actions. `send`/`resend` cap at 25
+  per request and fan out across a worker pool with a per-send timeout, because each
+  item is an SMTP round-trip; `revoke`/`delete` are pure DB writes and take 100.
+  `delete` removes the row outright rather than revoking first — the row is gone
+  either way, and the trail lives in the audit log.
