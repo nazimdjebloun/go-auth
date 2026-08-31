@@ -100,11 +100,13 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
 | `POST /auth/orgs` | Auth | Body: `` `{name, slug}` `` | Creates an org owned by the caller. |
-| `GET /auth/orgs` | Auth | Query: `search`, `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists the orgs the caller belongs to. |
+| `GET /auth/orgs` | Auth | Query: `search`, `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists the orgs the caller belongs to. No total in the response — see `/count`. |
+| `GET /auth/orgs/count` | Auth | Query: `search` | Count of orgs the caller belongs to matching `search`. |
 | `GET /auth/orgs/{orgID}` | Org member | Path: `orgID` | Fetches one org. |
 | `PUT /auth/orgs/{orgID}` | Org admin | Path: `orgID`; body: `` `{name?, slug?}` `` (both pointers — omit a field to leave it unchanged) | Partial update of org name/slug. |
 | `DELETE /auth/orgs/{orgID}` | Org owner | Path: `orgID` | Deletes the org. |
-| `GET /auth/orgs/{orgID}/members` | Org member | Path: `orgID`; query: `role`, `search`, `orderBy` (`joined_at` default, `role`, `name`, `email`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists org members. |
+| `GET /auth/orgs/{orgID}/members` | Org member | Path: `orgID`; query: `role`, `search`, `orderBy` (`joined_at` default, `role`, `name`, `email`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists org members. No total in the response — see `/count`. |
+| `GET /auth/orgs/{orgID}/members/count` | Org member | Path: `orgID`; query: `role`, `search` | Count of the org's members matching the filters. |
 | `DELETE /auth/orgs/{orgID}/members/{userID}` | Org admin | Path: `orgID`, `userID` | Removes a member. |
 | `PATCH /auth/orgs/{orgID}/members/{userID}/role` | Org admin | Path: `orgID`, `userID`; body: `` `{role}` `` | Changes a member's role. |
 | `POST /auth/orgs/{orgID}/leave` | Org member | Path: `orgID` | The caller leaves the org. |
@@ -112,7 +114,8 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | `DELETE /auth/orgs/active` | Auth | none | Clears the active-org setting for the current session. |
 | `POST /auth/orgs/{orgID}/invites` | Org admin | Path: `orgID`; body: `` `{email, role}` `` | Creates an invite to join the org. |
 | `POST /auth/orgs/invites/accept` | Auth | Body: `` `{code}` `` | Accepts an org invite by code. No path segment — the invite is resolved from the code. |
-| `GET /auth/orgs/{orgID}/invites` | Org admin | Path: `orgID`; query: `role`, `status` (`pending`/`expired`, default both), `search`, `orderBy` (`created_at` default, `expires_at`, `email`, `role`), `orderDirection` (`desc` default, `asc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists an org's invites. |
+| `GET /auth/orgs/{orgID}/invites` | Org admin | Path: `orgID`; query: `role`, `status` (`pending`/`expired`, default both), `search`, `orderBy` (`created_at` default, `expires_at`, `email`, `role`), `orderDirection` (`desc` default, `asc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists an org's invites. No total in the response — see `/count`. |
+| `GET /auth/orgs/{orgID}/invites/count` | Org admin | Path: `orgID`; query: `role`, `status`, `search` | Count of the org's invites matching the filters. |
 | `POST /auth/orgs/{orgID}/invites/{inviteID}/resend` | Org admin | Path: `orgID`, `inviteID` (`orgID` is only used for the authorization check, not read again inside the handler) | Resends an org invite email. |
 | `DELETE /auth/orgs/{orgID}/invites/{inviteID}` | Org admin | Path: `orgID`, `inviteID` (same note as above) | Deletes an org invite. |
 
@@ -120,7 +123,8 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
-| `GET /admin/users` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `email`, `search` (optional filters); `role` (`admin` or `user` only — any other value is ignored, not applied); `twoFactorEnabled` (`true`\|`false`); `neverLoggedIn` (`true` only — `last_login_at IS NULL`); `lastLoginBefore` (RFC3339 — `last_login_at < X`, excludes never-logged-in); `orderBy` (`created_at` \| `updated_at`, default `created_at`); `orderDirection` (`asc` \| `desc`, default `desc`) | Paginated, filterable, sortable user listing. |
+| `GET /admin/users` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `email`, `search` (optional filters); `role` (`admin` or `user` only — any other value is ignored, not applied); `isBanned` (`true`\|`false`); `isVerified` (`true`\|`false`); `twoFactorEnabled` (`true`\|`false`); `neverLoggedIn` (`true` only — `last_login_at IS NULL`); `lastLoginBefore` (RFC3339 — `last_login_at < X`, excludes never-logged-in); `orderBy` (`created_at` \| `updated_at`, default `created_at`); `orderDirection` (`asc` \| `desc`, default `desc`) | Paginated, filterable, sortable user listing. No total in the response — see `/count`. |
+| `GET /admin/users/count` | Admin | Same filter params as `GET /admin/users` (`offset`/`limit`/`orderBy`/`orderDirection` ignored) | Count of users matching the filters — fetched on its own cadence so paging doesn't re-run a `COUNT(*)`. |
 | `GET /admin/users/{id}` | Admin | Path: `id` | Full detail for one user. |
 | `POST /admin/users` | Admin | Body: `` `{email, password, name, role}` `` | Admin-creates a user with a specified role. |
 | `PATCH /admin/users/{id}/role` | Admin | Path: `id`; body: `` `{role}` `` | Sets a user's role. Blocked if it would demote the last admin. |
@@ -130,7 +134,8 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | `GET /admin/users/{id}/sessions` | Admin | Path: `id`; query: `offset`, `limit` (default `20`, max `100`) | Paginated sessions for a specific user. |
 | `DELETE /admin/users/{id}/sessions/{sessionId}` | Admin | Path: `id`, `sessionId` | Revokes one specific session belonging to a specific user. |
 | `DELETE /admin/users/{id}/sessions` | Admin | Path: `id` | Revokes all of a user's sessions. |
-| `GET /admin/sessions` | Admin | Query (all optional): `offset`, `limit` (default `20`, max `100`); `userId`, `ip`, `search` (substring-matches `ip`/user agent); `createdAfter`, `createdBefore`, `expiresAfter`, `expiresBefore`, `lastActiveAfter`, `lastActiveBefore` (RFC3339); `orderBy` (`created_at` default, `expires_at`, `last_active_at`); `orderDirection` (`desc` default, `asc`) | Active sessions across every user — the incident-response view ("who's logged in right now", "every session from this IP"). |
+| `GET /admin/sessions` | Admin | Query (all optional): `offset`, `limit` (default `20`, max `100`); `userId`, `ip`, `search` (substring-matches `ip`/user agent); `createdAfter`, `createdBefore`, `expiresAfter`, `expiresBefore`, `lastActiveAfter`, `lastActiveBefore` (RFC3339); `orderBy` (`created_at` default, `expires_at`, `last_active_at`); `orderDirection` (`desc` default, `asc`) | Active sessions across every user — the incident-response view ("who's logged in right now", "every session from this IP"). No total in the response — see `/count`. |
+| `GET /admin/sessions/count` | Admin | Same filter params as `GET /admin/sessions` (pagination/ordering ignored) | Count of active sessions matching the filters. |
 | `POST /admin/users/bulk/ban` | Admin | Body: `` `{userIds: string[]}` `` (max 100) | Bans each user independently — not atomic. Response: `` `{succeeded: string[], failed: [{userId, code, message}]}` ``. |
 | `POST /admin/users/bulk/unban` | Admin | Body: `` `{userIds: string[]}` `` (max 100) | Same shape as bulk ban, for unbanning. |
 | `POST /admin/users/bulk/delete` | Admin | Body: `` `{userIds: string[]}` `` (max 100) | Same shape as bulk ban, for deletion. Blocked per-user for the last admin. |
@@ -140,8 +145,10 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
-| `GET /admin/audit-logs` | Admin | Query (all optional): `offset`, `limit` (default `50`, max `200`); `event_type` (comma-separated, matches any); `actor_id`/`actorEmail`, `target_user_id`/`targetEmail` (email resolved to ID server-side, `404 user_not_found` if none), `session_id`, `org_id`, `deviceType` (`mobile`/`desktop`/`tablet`/`bot`), `ip`, `search` (substring across metadata/user agent/IP/event type); `from`, `to` (RFC3339, independently optional, silently ignored if unparsable); `success` (`true` \| `false`) | Filtered, paginated audit events. Empty (not an error) if audit logging isn't enabled. |
+| `GET /admin/audit-logs` | Admin | Query (all optional): `offset`, `limit` (default `50`, max `200`); `event_type` (comma-separated, matches any); `actor_id`/`actorEmail`, `target_user_id`/`targetEmail` (email resolved to ID server-side, `404 user_not_found` if none), `session_id`, `org_id`, `deviceType` (`mobile`/`desktop`/`tablet`/`bot`), `ip`, `search` (substring across metadata/user agent/IP/event type); `from`, `to` (RFC3339, independently optional, silently ignored if unparsable); `success` (`true` \| `false`) | Filtered, paginated audit events. Empty (not an error) if audit logging isn't enabled. No total in the response — see `/count`. |
+| `GET /admin/audit-logs/count` | Admin | Same filter params as `GET /admin/audit-logs` (pagination ignored) | Count of audit events matching the filters. |
 | `GET /admin/users/{id}/audit-logs` | Admin | Path: `id`; same query params as above | Same as above, pre-filtered to that user. |
+| `GET /admin/users/{id}/audit-logs/count` | Admin | Path: `id`; same filter params | Count of that user's audit events matching the filters. |
 
 ## Admin — stats and activity
 
@@ -157,9 +164,11 @@ Platform-admin oversight of orgs — act on any organization regardless of the c
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
-| `GET /admin/orgs` | Admin | Query (all optional): `search` (matches name/slug), `createdAfter`, `createdBefore` (RFC3339), `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Every organization on the platform. |
+| `GET /admin/orgs` | Admin | Query (all optional): `search` (matches name/slug), `createdAfter`, `createdBefore` (RFC3339), `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Every organization on the platform. No total in the response — see `/count`. |
+| `GET /admin/orgs/count` | Admin | Query: `search`, `createdAfter`, `createdBefore` | Count of organizations matching the filters. |
 | `GET /admin/orgs/{orgID}` | Admin | Path: `orgID` | One organization, regardless of the caller's membership. Publishes `admin.org.viewed`. |
-| `GET /admin/orgs/{orgID}/members` | Admin | Path: `orgID`; same `role`/`search`/`orderBy`/`orderDirection`/`offset`/`limit` params as `GET /auth/orgs/{orgID}/members` | That org's members, regardless of the caller's membership. Publishes `admin.org.viewed`. |
+| `GET /admin/orgs/{orgID}/members` | Admin | Path: `orgID`; same `role`/`search`/`orderBy`/`orderDirection`/`offset`/`limit` params as `GET /auth/orgs/{orgID}/members` | That org's members, regardless of the caller's membership. Publishes `admin.org.viewed`. No total in the response — see `/count`. |
+| `GET /admin/orgs/{orgID}/members/count` | Admin | Path: `orgID`; query: `role`, `search` | Count of that org's members matching the filters. No audit event (count only). |
 | `POST /admin/orgs/{orgID}/members` | Admin | Path: `orgID`; body: `` `{userId, role}` `` | Force-adds a member — the recovery path for an org whose only owner is gone and is otherwise unmanageable by anyone. Publishes `admin.org.member.added`. |
 | `DELETE /admin/orgs/{orgID}` | Admin | Path: `orgID` | Force-deletes the org. The org's name/slug are snapshotted into the `admin.org.deleted` event's metadata, since the row won't survive the delete for anything to look it up against afterward. |
 | `DELETE /admin/orgs/{orgID}/members/{userID}` | Admin | Path: `orgID`, `userID` | Force-removes a member. Still refuses to remove an org's last owner — that repository-level invariant applies to an admin override too. Publishes `admin.org.member.removed`. |
@@ -170,7 +179,37 @@ Platform-admin oversight of orgs — act on any organization regardless of the c
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
 | `POST /admin/invites` | Admin | Body: `` `{email}` `` | Creates an invite. The inviting admin is taken from the session, not the body. |
-| `GET /admin/invites` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `search`, `status` (optional); `orderBy` (`created_at` default, `expires_at`, `email`, `status`); `orderDirection` (`desc` default, `asc`) | Lists invites. |
+| `GET /admin/invites` | Admin | Query: `offset`, `limit` (default `20`, max `100`); `search`, `status` (optional); `orderBy` (`created_at` default, `expires_at`, `email`, `status`); `orderDirection` (`desc` default, `asc`) | Lists invites. No total in the response — see `/count`. `status=expired` also matches pending invites past `expires_at`, and those rows are returned with `status: "expired"` (see note below). |
+| `GET /admin/invites/count` | Admin | Query: `search`, `status` | Count of invites matching the filters. |
 | `DELETE /admin/invites/{id}` | Admin | Path: `id` | Revokes (soft-cancels) an invite. |
 | `POST /admin/invites/{id}/resend` | Admin | Path: `id` | Resends the invite email. |
 | `DELETE /admin/invites/{id}/hard` | Admin | Path: `id` | Permanently deletes the invite record. |
+| `POST /admin/invites/bulk/send` | Admin | Body: `` `{emails}` `` (max 25) | Creates and emails one invite per address. Returns `{succeeded, failed}`; addresses that already have an account or a live invite come back in `failed`. |
+| `POST /admin/invites/bulk/resend` | Admin | Body: `` `{inviteIds}` `` (max 25) | Rotates each code and resends. Returns `{succeeded, failed}`. |
+| `POST /admin/invites/bulk/revoke` | Admin | Body: `` `{inviteIds}` `` (max 100) | Revokes each invite. Returns `{succeeded, failed}`. |
+| `POST /admin/invites/bulk/delete` | Admin | Body: `` `{inviteIds}` `` (max 100) | Permanently deletes each invite. Returns `{succeeded, failed}`. |
+
+### Invite status and expiry
+
+`expired` is derived, not stored. The terminal status is only written when
+someone opens an invite link, so an invite that simply lapsed still sits in the
+table as `pending`. `GET /admin/invites` closes that gap in both directions:
+
+- `status=pending` matches only invites that are still valid.
+- `status=expired` matches invites already written as expired **and** pending
+  invites past `expires_at`.
+- Rows are returned with the derived value, so a lapsed invite reads
+  `status: "expired"` even though the stored column says `pending`.
+
+The redemption endpoints are unaffected — they distinguish revoked from expired
+themselves and write the terminal status.
+
+### Bulk invite responses
+
+Every bulk invite endpoint returns `{succeeded: string[], failed: [...]}` and is
+**not** transactional, so both lists must be read. Failures carry `inviteId` for
+the ID-keyed actions and `email` for `bulk/send`, where no invite exists yet.
+
+`bulk/send` and `bulk/resend` cap at 25 per request rather than 100: each item
+is an SMTP round-trip, dispatched across a small worker pool. Chunk larger
+lists client-side.

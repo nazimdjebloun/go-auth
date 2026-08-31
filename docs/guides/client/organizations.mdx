@@ -38,6 +38,11 @@ export const orgApi = {
     return apiRequest(API_BASE, "GET", `/auth/orgs${qs ? `?${qs}` : ""}`);
   },
 
+  // List responses carry no `total`. Each list has a matching `/count` that
+  // takes the filter params only — call it on its own cadence for the pager.
+  countMine: (search?: string) =>
+    apiRequest(API_BASE, "GET", `/auth/orgs/count${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+
   get: (orgId: string) => apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}`),
 
   update: (orgId: string, input: { name?: string; slug?: string }) =>
@@ -62,6 +67,14 @@ export const orgApi = {
     if (params.offset) query.set("offset", String(params.offset));
     const qs = query.toString();
     return apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/members${qs ? `?${qs}` : ""}`);
+  },
+
+  countMembers: (orgId: string, params: { role?: "owner" | "admin" | "member"; search?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (params.role) query.set("role", params.role);
+    if (params.search) query.set("search", params.search);
+    const qs = query.toString();
+    return apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/members/count${qs ? `?${qs}` : ""}`);
   },
 
   removeMember: (orgId: string, userId: string) =>
@@ -103,6 +116,19 @@ export const orgApi = {
     return apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/invites${qs ? `?${qs}` : ""}`);
   },
 
+  countInvites: (orgId: string, params: {
+    role?: "owner" | "admin" | "member";
+    status?: "pending" | "expired";
+    search?: string;
+  } = {}) => {
+    const query = new URLSearchParams();
+    if (params.role) query.set("role", params.role);
+    if (params.status) query.set("status", params.status);
+    if (params.search) query.set("search", params.search);
+    const qs = query.toString();
+    return apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/invites/count${qs ? `?${qs}` : ""}`);
+  },
+
   resendInvite: (orgId: string, inviteId: string) =>
     apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/invites/${inviteId}/resend`),
 
@@ -119,7 +145,8 @@ await orgApi.setActive(org.id);
 ```
 
 ```ts
-const { members, total } = await orgApi.listMembers(orgId);
+const { members } = await orgApi.listMembers(orgId);
+const { count } = await orgApi.countMembers(orgId); // total for the pager
 await orgApi.updateMemberRole(orgId, userId, "admin");
 ```
 

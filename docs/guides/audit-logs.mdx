@@ -118,11 +118,12 @@ This list can grow across versions — treat `event_type` as an opaque string in
       "createdAt": "2026-08-09T12:00:00Z"
     }
   ],
-  "total": 1000,
   "limit": 50,
   "offset": 0
 }
 ```
+
+The list response carries no total — fetch it from [Count audit logs](#count-audit-logs--get-adminaudit-logscount) below.
 
 `actorEmail`/`targetEmail` are resolved server-side from `actorId`/`targetUserId` for the returned page — not stored, and `null` if the corresponding `*Id` is `null` or that user no longer exists.
 
@@ -135,7 +136,7 @@ This list can grow across versions — treat `event_type` as an opaque string in
 | `internal_error` | 500 | Query failure against the store |
 
 <Callout type="info" title="Empty, not an error, if audit logging was never enabled">
-  `WithAudit(AuditConfig{Enabled: true})` being unset just means no events were ever published — the query still runs, it just returns `{"events": [], "total": 0, ...}`.
+  `WithAudit(AuditConfig{Enabled: true})` being unset just means no events were ever published — the query still runs, it just returns `{"events": [], ...}` (and `/count` returns `{"count": 0}`).
 </Callout>
 
 #### curl
@@ -156,7 +157,7 @@ result, err := auth.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogs
     EventTypes: []string{"login.failed"},
     Limit:      50,
 })
-// result.Events, result.Total
+// result.Events
 ```
 
 `AdminService.ListAuditLogs` — not `auth.Services.AuditLog.List` directly — is the supported programmatic path: it's what resolves `EventActorEmail`/`TargetEmail` to IDs and enforces the calling actor is an admin, same as every other `auth.Services.Admin.*` method.
@@ -166,16 +167,37 @@ result, err := auth.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogs
 #### Client
 
 ```ts
-const { events, total } = await apiRequest(
+const { events } = await apiRequest(
   API_BASE, "GET", "/admin/audit-logs?event_type=login.failed&limit=50"
 );
 ```
 
 ---
 
+### Count audit logs — `GET /admin/audit-logs/count`
+
+The matching total for the list, split into its own call so a paginated log view doesn't run a `COUNT(*)` on every page. Takes every filter param of the list except `offset`/`limit`.
+
+**Response** (`200 OK`): `{ "count": 1000 }`
+
+```go
+n, err := auth.Services.Admin.CountAuditLogs(ctx, service.AdminListAuditLogsInput{
+    ActorID:    adminID,
+    EventTypes: []string{"login.failed"},
+})
+```
+
+```ts
+const { count } = await apiRequest(API_BASE, "GET", "/admin/audit-logs/count?event_type=login.failed");
+```
+
+`GET /admin/users/{id}/audit-logs/count` is the same, scoped to one user (see below).
+
+---
+
 ### List one user's audit logs — `GET /admin/users/{id}/audit-logs`
 
-Identical query params and response shape to the endpoint above — this one just forces `target_user_id` to the `{id}` in the path, overriding anything passed in the query string for `target_user_id`/`targetEmail`.
+Identical query params and response shape to the endpoint above — this one just forces `target_user_id` to the `{id}` in the path, overriding anything passed in the query string for `target_user_id`/`targetEmail`. Its total lives at `GET /admin/users/{id}/audit-logs/count`.
 
 #### curl
 
@@ -202,7 +224,8 @@ result, err := auth.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogs
 #### Client
 
 ```ts
-const { events, total } = await apiRequest(API_BASE, "GET", `/admin/users/${userId}/audit-logs`);
+const { events } = await apiRequest(API_BASE, "GET", `/admin/users/${userId}/audit-logs`);
+const { count } = await apiRequest(API_BASE, "GET", `/admin/users/${userId}/audit-logs/count`);
 ```
 
 ---

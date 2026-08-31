@@ -132,13 +132,12 @@ Auth: any authenticated user. Every org the caller belongs to, any role. Query p
 ```json
 {
   "orgs": [ { "...": "same shape as create, one per org" } ],
-  "total": 1,
   "limit": 20,
   "offset": 0
 }
 ```
 
-`total` is the count of orgs matching `search` (ignoring `limit`/`offset`), so it's what you paginate against, not `orgs.length`.
+The list response carries no total. Fetch it from `GET /auth/orgs/count` — the count of orgs matching `search` (ignoring `limit`/`offset`), which is what you paginate against, not `orgs.length`. Splitting it out keeps `List` from running a `COUNT(*)` on every page.
 
 ---
 
@@ -147,6 +146,9 @@ Auth: any authenticated user. Every org the caller belongs to, any role. Query p
 ```bash
 curl "https://api.myapp.com/auth/orgs?search=acme&orderBy=created_at&orderDirection=desc&limit=20&offset=0" \
   -b cookies.txt -c cookies.txt
+
+curl "https://api.myapp.com/auth/orgs/count?search=acme" -b cookies.txt -c cookies.txt
+# → { "count": 1 }
 ```
 
 ---
@@ -158,7 +160,11 @@ result, err := auth.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
     UserID: userID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
     OrderBy: "created_at", OrderDirection: "desc",
 })
-// result.Orgs, result.Total, result.Limit, result.Offset
+// result.Orgs, result.Limit, result.Offset
+
+n, err := auth.Services.Org.CountUserOrgs(ctx, service.ListUserOrgsInput{
+    UserID: userID, Search: &search,
+})
 ```
 
 ---
@@ -166,9 +172,10 @@ result, err := auth.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
 #### Client
 
 ```ts
-const { orgs, total } = await apiRequest(
+const { orgs } = await apiRequest(
   API_BASE, "GET", "/auth/orgs?search=acme&orderBy=created_at&orderDirection=desc&limit=20&offset=0"
 );
+const { count } = await apiRequest(API_BASE, "GET", "/auth/orgs/count?search=acme");
 ```
 
 ### Get one org — `GET /auth/orgs/{orgID}`
@@ -314,11 +321,12 @@ Auth: org member. Query params, all optional:
       "user": { "...": "the full domain.User for this member" }
     }
   ],
-  "total": 1,
   "limit": 20,
   "offset": 0
 }
 ```
+
+The total lives at `GET /auth/orgs/{orgID}/members/count` (accepts `role` and `search`, ignores pagination) so the list doesn't run a `COUNT(*)` per page.
 
 ---
 
@@ -327,6 +335,10 @@ Auth: org member. Query params, all optional:
 ```bash
 curl "https://api.myapp.com/auth/orgs/a1b2.../members?role=admin&search=jane&orderBy=name&orderDirection=asc&offset=0&limit=20" \
   -b cookies.txt -c cookies.txt
+
+curl "https://api.myapp.com/auth/orgs/a1b2.../members/count?role=admin&search=jane" \
+  -b cookies.txt -c cookies.txt
+# → { "count": 1 }
 ```
 
 ---
@@ -338,7 +350,11 @@ result, err := auth.Services.Org.ListMembers(ctx, service.ListMembersInput{
     OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
     OrderBy: "name", OrderDirection: "asc",
 })
-// result.Members, result.Total, result.Limit, result.Offset
+// result.Members, result.Limit, result.Offset
+
+n, err := auth.Services.Org.CountMembers(ctx, service.ListMembersInput{
+    OrgID: orgID, ActorID: callerUserID, Role: &role, Search: &search,
+})
 ```
 
 ---
@@ -346,9 +362,10 @@ result, err := auth.Services.Org.ListMembers(ctx, service.ListMembersInput{
 #### Client
 
 ```ts
-const { members, total } = await apiRequest(
+const { members } = await apiRequest(
   API_BASE, "GET", `/auth/orgs/${orgId}/members?role=admin&search=jane&orderBy=name&orderDirection=asc&offset=0&limit=20`
 );
+const { count } = await apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/members/count?role=admin&search=jane`);
 ```
 
 ### Remove a member, or leave — `DELETE /auth/orgs/{orgID}/members/{userID}`, `POST /auth/orgs/{orgID}/leave`
@@ -687,11 +704,12 @@ Auth: org admin. `rawCode` is never present here (see [Creating an invite](#crea
 ```json
 {
   "invites": [ { "...": "same shape as create, minus rawCode" } ],
-  "total": 1,
   "limit": 20,
   "offset": 0
 }
 ```
+
+The total lives at `GET /auth/orgs/{orgID}/invites/count` (accepts `role`, `status`, `search`; ignores pagination) so the list doesn't run a `COUNT(*)` per page.
 
 ---
 
@@ -700,6 +718,10 @@ Auth: org admin. `rawCode` is never present here (see [Creating an invite](#crea
 ```bash
 curl "https://api.myapp.com/auth/orgs/a1b2.../invites?status=pending&search=new-hire&orderBy=created_at&orderDirection=desc&offset=0&limit=20" \
   -b cookies.txt -c cookies.txt
+
+curl "https://api.myapp.com/auth/orgs/a1b2.../invites/count?status=pending&search=new-hire" \
+  -b cookies.txt -c cookies.txt
+# → { "count": 1 }
 ```
 
 ---
@@ -711,7 +733,11 @@ result, err := auth.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvite
     OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
     Status: statusPtr("pending"), OrderBy: "created_at", OrderDirection: "desc",
 })
-// result.Invites, result.Total, result.Limit, result.Offset
+// result.Invites, result.Limit, result.Offset
+
+n, err := auth.Services.OrgInvite.CountOrgInvites(ctx, service.ListOrgInvitesInput{
+    OrgID: orgID, ActorID: callerUserID, Status: statusPtr("pending"),
+})
 ```
 
 ---
@@ -719,9 +745,10 @@ result, err := auth.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvite
 #### Client
 
 ```ts
-const { invites, total } = await apiRequest(
+const { invites } = await apiRequest(
   API_BASE, "GET", `/auth/orgs/${orgId}/invites?status=pending&search=new-hire&orderBy=created_at&orderDirection=desc&offset=0&limit=20`
 );
+const { count } = await apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/invites/count?status=pending&search=new-hire`);
 ```
 
 ### Resending or deleting an invite — `POST .../invites/{inviteID}/resend`, `DELETE .../invites/{inviteID}`

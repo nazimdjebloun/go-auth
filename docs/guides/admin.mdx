@@ -175,6 +175,8 @@ setAdminUser(verified.user); // cookies are already set
 | `email` | string | — | Exact match |
 | `search` | string | — | Matches name or email |
 | `role` | string | — | `admin` or `user` only — any other value is silently ignored, not applied as a filter |
+| `isBanned` | bool | — | `true` or `false` — anything else is ignored, not applied as a filter |
+| `isVerified` | bool | — | `true` or `false` — anything else is ignored, not applied as a filter |
 | `twoFactorEnabled` | bool | — | `true` or `false` — anything else is ignored, not applied as a filter |
 | `neverLoggedIn` | bool | — | `true` only — `last_login_at IS NULL`. Registered but never logged in since. |
 | `lastLoginBefore` | RFC3339 timestamp | — | `last_login_at < X`, excluding users who've never logged in (that's `neverLoggedIn`'s job) — "logged in before, gone dormant since." Composable with `neverLoggedIn` for two different questions in one dashboard. |
@@ -198,11 +200,12 @@ setAdminUser(verified.user); // cookies are already set
       "updatedAt": "2026-08-09T12:00:00Z"
     }
   ],
-  "total": 150,
   "limit": 20,
   "offset": 0
 }
 ```
+
+The list response carries no total — fetch it from [Count users](#count-users--get-adminuserscount) below.
 
 #### curl
 
@@ -221,7 +224,7 @@ result, err := auth.Services.Admin.ListUsers(ctx, service.AdminListUsersInput{
     Limit:  20,
     Search: goauth.String("ada"),
 })
-// result.Users, result.Total
+// result.Users
 ```
 
 ---
@@ -229,14 +232,46 @@ result, err := auth.Services.Admin.ListUsers(ctx, service.AdminListUsersInput{
 #### Client
 
 ```ts
-const { users, total } = await apiRequest(API_BASE, "GET", "/admin/users?limit=20&search=ada");
+const { users } = await apiRequest(API_BASE, "GET", "/admin/users?limit=20&search=ada");
+```
+
+---
+
+### Count users — `GET /admin/users/count`
+
+The matching total for [List users](#list-users--get-adminusers), split into its own call: `List` no longer runs a `COUNT(*)` on every page, so a paginated table fetches the count once per filter change instead of once per page.
+
+**Query params**: the filter params of [List users](#list-users--get-adminusers) (`email`, `search`, `role`, `isBanned`, `isVerified`, `twoFactorEnabled`, `neverLoggedIn`, `lastLoginBefore`). `offset`, `limit`, `orderBy`, `orderDirection` are accepted but ignored.
+
+**Response** (`200 OK`): `{ "count": 150 }`
+
+#### curl
+
+```bash
+curl "https://api.myapp.com/admin/users/count?role=user&isBanned=true" \
+  -H "Origin: https://myapp.com" \
+  -b admin-cookies.txt
+```
+
+#### Programmatic (Go)
+
+```go
+n, err := auth.Services.Admin.CountUsers(ctx, service.AdminListUsersInput{
+    Role: &roleUser,
+})
+```
+
+#### Client
+
+```ts
+const { count } = await apiRequest(API_BASE, "GET", "/admin/users/count?role=user");
 ```
 
 ---
 
 ### Get user detail — `GET /admin/users/{id}`
 
-Bundles the user record with their active session count and linked OAuth provider accounts — one call instead of three.
+Bundles the user record with their active session count, whether they can sign in with a password, and linked OAuth provider accounts — one call instead of several.
 
 **Response** (`200 OK`)
 
@@ -244,9 +279,12 @@ Bundles the user record with their active session count and linked OAuth provide
 {
   "user": { "...": "same shape as list" },
   "activeSessionCount": 2,
+  "hasPassword": true,
   "providers": [{ "provider": "github", "providerUserID": "12345" }]
 }
 ```
+
+`hasPassword` is `false` for an OAuth-only account that never set a password. The hash itself is never returned.
 
 **Errors**
 
@@ -571,7 +609,7 @@ The incident-response view: active sessions platform-wide, not scoped to one use
 
 Query (all optional): `offset`, `limit` (default `20`, max `100`); `userId`, `ip`, `search` (substring-matches `ip`/user agent); `createdAfter`, `createdBefore`, `expiresAfter`, `expiresBefore`, `lastActiveAfter`, `lastActiveBefore` (RFC3339); `orderBy` (`created_at` default, `expires_at`, `last_active_at`); `orderDirection` (`desc` default, `asc`).
 
-**Response**: `{ "sessions": [...], "total": 5, "limit": 20, "offset": 0 }`
+**Response**: `{ "sessions": [...], "limit": 20, "offset": 0 }` — no total; use `GET /admin/sessions/count` (below).
 
 #### curl
 
@@ -599,7 +637,25 @@ result, err := auth.Services.Admin.ListSessions(ctx, service.AdminListSessionsIn
 #### Client
 
 ```ts
-const { sessions, total } = await apiRequest(API_BASE, "GET", "/admin/sessions?ip=203.0.113.9");
+const { sessions } = await apiRequest(API_BASE, "GET", "/admin/sessions?ip=203.0.113.9");
+```
+
+---
+
+### Count sessions — `GET /admin/sessions/count`
+
+Total for the filter above, on its own call (same rationale as [Count users](#count-users--get-adminuserscount)). Takes every filter param of `GET /admin/sessions` except `offset`/`limit`/`orderBy`/`orderDirection`.
+
+**Response**: `{ "count": 5 }`
+
+```go
+n, err := auth.Services.Admin.CountSessions(ctx, service.AdminListSessionsInput{
+    ActorID: adminID, IP: &ip,
+})
+```
+
+```ts
+const { count } = await apiRequest(API_BASE, "GET", "/admin/sessions/count?ip=203.0.113.9");
 ```
 
 ---
@@ -675,7 +731,7 @@ No params.
 }
 ```
 
-Each field is its own `List`/`ListAll` call with `Limit: 1` under the hood — `List` always runs a `COUNT(*)` query regardless of `Limit`, so the count is exact and the row fetch itself stays trivial. `neverLoggedInUsers` is `last_login_at IS NULL` — the same filter as [List users → `neverLoggedIn`](#list-users--get-adminusers) above, just counted rather than listed.
+Each field is its own `COUNT(*)` — six exact counts, no estimates. `neverLoggedInUsers` is `last_login_at IS NULL` — the same filter as [List users → `neverLoggedIn`](#list-users--get-adminusers) above, just counted rather than listed.
 
 #### curl
 
@@ -804,7 +860,7 @@ Platform-admin oversight of organizations: list any org, view one regardless of 
 
 Query (all optional): `search` (matches name or slug), `createdAfter`, `createdBefore` (RFC3339), `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`).
 
-**Response**: `{ "orgs": [...], "total": 42, "limit": 20, "offset": 0 }`
+**Response**: `{ "orgs": [...], "limit": 20, "offset": 0 }` — no total; use `GET /admin/orgs/count` (below).
 
 #### curl
 
@@ -830,7 +886,25 @@ result, err := auth.Services.Org.AdminListOrgs(ctx, service.AdminListOrgsInput{
 #### Client
 
 ```ts
-const { orgs, total } = await apiRequest(API_BASE, "GET", "/admin/orgs?search=acme");
+const { orgs } = await apiRequest(API_BASE, "GET", "/admin/orgs?search=acme");
+```
+
+---
+
+### Count organizations — `GET /admin/orgs/count`
+
+Total for [List organizations](#list-organizations--get-adminorgs), split out for the same reason as [Count users](#count-users--get-adminuserscount). Accepts `search`, `createdAfter`, `createdBefore`; ignores `offset`/`limit`/`orderBy`/`orderDirection`.
+
+**Response**: `{ "count": 42 }`
+
+```go
+n, err := auth.Services.Org.CountOrgs(ctx, service.AdminListOrgsInput{
+    ActorID: adminID, Search: &search,
+})
+```
+
+```ts
+const { count } = await apiRequest(API_BASE, "GET", "/admin/orgs/count?search=acme");
 ```
 
 ---
@@ -868,7 +942,7 @@ const org = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123");
 
 ### List an organization's members — `GET /admin/orgs/{orgID}/members`
 
-Same query params as the self-service `GET /auth/orgs/{orgID}/members` (see [Organizations](organizations.mdx)), but bypasses the membership check that endpoint applies — the caller doesn't need to be a member of `orgID`. Publishes `admin.org.viewed`.
+Same query params as the self-service `GET /auth/orgs/{orgID}/members` (see [Organizations](organizations.mdx)), but bypasses the membership check that endpoint applies — the caller doesn't need to be a member of `orgID`. Publishes `admin.org.viewed`. The response carries no total — use `GET /admin/orgs/{orgID}/members/count` below.
 
 #### curl
 
@@ -892,7 +966,25 @@ result, err := auth.Services.Org.AdminListOrgMembers(ctx, service.AdminListOrgMe
 #### Client
 
 ```ts
-const { members, total } = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123/members");
+const { members } = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123/members");
+```
+
+---
+
+### Count an organization's members — `GET /admin/orgs/{orgID}/members/count`
+
+Total for the list above. Accepts `role` and `search`; ignores pagination and ordering. Does **not** publish an audit event — it exposes only a number, not member data.
+
+**Response**: `{ "count": 12 }`
+
+```go
+n, err := auth.Services.Org.AdminCountOrgMembers(ctx, service.AdminListOrgMembersInput{
+    OrgID: "org-123", ActorID: adminID,
+})
+```
+
+```ts
+const { count } = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123/members/count");
 ```
 
 ---
@@ -1083,7 +1175,7 @@ const invite = await apiRequest(API_BASE, "POST", "/admin/invites", { email: "ad
 
 **Query params**: `offset`, `limit` (default `20`, max `100`); `search`, `status` (optional); `orderBy` (`created_at` default, `expires_at`, `email`, `status`), `orderDirection` (`desc` default, `asc`).
 
-**Response** (`200 OK`): `{ "invites": [...], "total": 42 }`
+**Response** (`200 OK`): `{ "invites": [...] }` — no total; use `GET /admin/invites/count` below.
 
 #### curl
 
@@ -1098,7 +1190,7 @@ curl "https://api.myapp.com/admin/invites?status=pending&limit=20" \
 #### Programmatic (Go)
 
 ```go
-invites, total, err := auth.Services.Invite.ListInvites(ctx, service.ListInvitesInput{
+invites, err := auth.Services.Invite.ListInvites(ctx, service.ListInvitesInput{
     Status: "pending",
     Limit:  20,
 })
@@ -1109,7 +1201,23 @@ invites, total, err := auth.Services.Invite.ListInvites(ctx, service.ListInvites
 #### Client
 
 ```ts
-const { invites, total } = await apiRequest(API_BASE, "GET", "/admin/invites?status=pending");
+const { invites } = await apiRequest(API_BASE, "GET", "/admin/invites?status=pending");
+```
+
+---
+
+### Count invites — `GET /admin/invites/count`
+
+Total for the list, on its own call (same rationale as [Count users](#count-users--get-adminuserscount)). Accepts `search` and `status`; ignores pagination and ordering.
+
+**Response** (`200 OK`): `{ "count": 42 }`
+
+```go
+n, err := auth.Services.Invite.CountInvites(ctx, service.ListInvitesInput{Status: "pending"})
+```
+
+```ts
+const { count } = await apiRequest(API_BASE, "GET", "/admin/invites/count?status=pending");
 ```
 
 ---

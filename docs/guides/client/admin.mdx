@@ -20,6 +20,11 @@ export const adminApi = {
   listUsers: (params: Record<string, string | number> = {}) =>
     apiRequest(API_BASE, "GET", `/admin/users?${new URLSearchParams(params as Record<string, string>)}`),
 
+  // The list response has no `total`. Fetch the count separately, keyed on
+  // the filter params only (drop offset/limit) so paging doesn't re-run it.
+  countUsers: (params: Record<string, string | number> = {}) =>
+    apiRequest(API_BASE, "GET", `/admin/users/count?${new URLSearchParams(params as Record<string, string>)}`),
+
   getUser: (userId: string) => apiRequest(API_BASE, "GET", `/admin/users/${userId}`),
 
   createUser: (input: { email: string; password: string; name: string; role?: "user" | "admin" }) =>
@@ -61,8 +66,14 @@ export const adminApi = {
   listAuditLogs: (params: Record<string, string | number> = {}) =>
     apiRequest(API_BASE, "GET", `/admin/audit-logs?${new URLSearchParams(params as Record<string, string>)}`),
 
+  countAuditLogs: (params: Record<string, string | number> = {}) =>
+    apiRequest(API_BASE, "GET", `/admin/audit-logs/count?${new URLSearchParams(params as Record<string, string>)}`),
+
   listUserAuditLogs: (userId: string, params: Record<string, string | number> = {}) =>
     apiRequest(API_BASE, "GET", `/admin/users/${userId}/audit-logs?${new URLSearchParams(params as Record<string, string>)}`),
+
+  countUserAuditLogs: (userId: string, params: Record<string, string | number> = {}) =>
+    apiRequest(API_BASE, "GET", `/admin/users/${userId}/audit-logs/count?${new URLSearchParams(params as Record<string, string>)}`),
 
   // --- Platform invites — requires RegistrationConfig.EnableInvite ---
 
@@ -70,6 +81,9 @@ export const adminApi = {
 
   listInvites: (params: Record<string, string | number> = {}) =>
     apiRequest(API_BASE, "GET", `/admin/invites?${new URLSearchParams(params as Record<string, string>)}`),
+
+  countInvites: (params: Record<string, string | number> = {}) =>
+    apiRequest(API_BASE, "GET", `/admin/invites/count?${new URLSearchParams(params as Record<string, string>)}`),
 
   revokeInvite: (inviteId: string) => apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}`),
 
@@ -82,7 +96,8 @@ export const adminApi = {
 ## Using it
 
 ```ts
-const { users, total } = await adminApi.listUsers({ limit: 20, search: "ada" });
+const { users } = await adminApi.listUsers({ limit: 20, search: "ada" });
+const { count } = await adminApi.countUsers({ search: "ada" }); // total for the pager
 ```
 
 ```ts
@@ -106,7 +121,8 @@ const { logins: userLogins } = await adminApi.getLoginActivity(from, to, userId)
 ## Audit logs
 
 ```ts
-const { events, total } = await adminApi.listAuditLogs({ event_type: "login.failed", limit: 50 });
+const { events } = await adminApi.listAuditLogs({ event_type: "login.failed", limit: 50 });
+const { count } = await adminApi.countAuditLogs({ event_type: "login.failed" });
 
 // event_type takes a comma-separated list — matches any of them
 const failures = await adminApi.listAuditLogs({ event_type: "login.failed,login.locked" });
@@ -125,7 +141,8 @@ const mobileLogins = await adminApi.listAuditLogs({ event_type: "login.success",
 
 ```ts
 const invite = await adminApi.createInvite("ada@example.com");
-const { invites, total } = await adminApi.listInvites({ status: "pending" });
+const { invites } = await adminApi.listInvites({ status: "pending" });
+const { count } = await adminApi.countInvites({ status: "pending" });
 await adminApi.resendInvite(invite.id); // issues a fresh code, invalidates the old one
 ```
 
