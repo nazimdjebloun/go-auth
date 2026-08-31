@@ -61,6 +61,12 @@ type AuditService struct {
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 	queueOnce     sync.Once
+	// closeMu guards the queue's open/closed state against Publish. Sending
+	// on a closed channel panics, and select/default does not protect
+	// against that — Publish holds it for read, Stop for write, so the
+	// channel cannot be closed while a send is in flight.
+	closeMu sync.RWMutex
+	closed  bool
 }
 
 func NewAuditService(cfg AuditServiceConfig, log *slog.Logger) *AuditService {
@@ -94,6 +100,17 @@ func (s *AuditService) Publish(ctx context.Context, event Event) {
 	if event.UserAgent != "" && event.ParsedUA == nil {
 		event.ParsedUA = domain.ParseUserAgent(event.UserAgent)
 	}
+	s.closeMu.RLock()
+	defer s.closeMu.RUnlock()
+	if s.closed {
+		// Shutting down. Auditing is best-effort and must never take the
+		// process down with it, so this is a drop, not a panic.
+		s.log.WarnContext(ctx, "audit service stopped, event dropped",
+			"event_type", event.Type,
+		)
+		return
+	}
+
 	select {
 	case s.queue <- event:
 	default:
@@ -120,7 +137,10 @@ func (s *AuditService) Stop(ctx context.Context) error {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.closeMu.Lock()
+	s.closed = true
 	s.queueOnce.Do(func() { close(s.queue) })
+	s.closeMu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()

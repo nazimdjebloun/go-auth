@@ -101,12 +101,19 @@ func TestQueueFull_DropsEvent(t *testing.T) {
 	sink := &mockSink{}
 	s := NewAuditService(AuditServiceConfig{QueueSize: 1}, nil)
 	s.AddSink(sink)
-	s.Start(context.Background())
 
+	// Publish before Start, so nothing is consuming: the queue is genuinely
+	// full when the second event arrives. Starting the workers first makes
+	// this racy rather than strict — a worker can dequeue the first event
+	// before the second is published, leaving room, and then nothing is
+	// dropped. That is correct behaviour (Publish only drops when there is
+	// really no room), so the test has to control the consumer, not assume it
+	// loses the race.
 	s.Publish(context.Background(), NewLoginEvent("u1", "s1", nil, "", true))
-	// Second event should be dropped (non-blocking, queue full)
+	// Queue is full and unattended — this one must be dropped.
 	s.Publish(context.Background(), NewLoginEvent("u2", "s2", nil, "", true))
 
+	s.Start(context.Background())
 	time.Sleep(200 * time.Millisecond)
 	s.Stop(context.Background())
 
@@ -114,6 +121,42 @@ func TestQueueFull_DropsEvent(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event (second dropped), got %d", len(events))
 	}
+}
+
+// Publish must never panic once the service is stopped: Stop closes the queue,
+// and a send on a closed channel is a panic that select/default does not catch.
+func TestPublishAfterStop_DoesNotPanic(t *testing.T) {
+	sink := &mockSink{}
+	s := NewAuditService(AuditServiceConfig{QueueSize: 4}, nil)
+	s.AddSink(sink)
+	s.Start(context.Background())
+	s.Stop(context.Background())
+
+	s.Publish(context.Background(), NewLoginEvent("u1", "s1", nil, "", true))
+
+	if got := len(sink.snapshot()); got != 0 {
+		t.Fatalf("event count after stop = %d, want 0", got)
+	}
+}
+
+// The same race, but concurrent: publishers still running while Stop lands.
+func TestPublishRacingStop_DoesNotPanic(t *testing.T) {
+	s := NewAuditService(AuditServiceConfig{QueueSize: 4}, nil)
+	s.AddSink(&mockSink{})
+	s.Start(context.Background())
+
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 50; j++ {
+				s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
+			}
+		}()
+	}
+	s.Stop(context.Background())
+	wg.Wait()
 }
 
 func TestWorker_ReceivesEvent(t *testing.T) {
