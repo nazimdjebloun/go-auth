@@ -84,7 +84,7 @@ func (m *MockUserRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain.User, int, error) {
+func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -114,9 +114,8 @@ func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 		return ci.After(cj)
 	})
 
-	total := len(matched)
 	if filter.Limit <= 0 {
-		return matched, total, nil
+		return matched, nil
 	}
 	start := filter.Offset
 	if start > len(matched) {
@@ -126,7 +125,25 @@ func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 	if end > len(matched) {
 		end = len(matched)
 	}
-	return matched[start:end], total, nil
+	return matched[start:end], nil
+}
+
+func (m *MockUserRepo) Count(_ context.Context, filter port.UserFilter) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	seen := make(map[string]bool)
+	n := 0
+	for _, u := range m.users {
+		if u.ID == "" || seen[u.ID] {
+			continue
+		}
+		if userMatchesFilter(u, filter) {
+			seen[u.ID] = true
+			n++
+		}
+	}
+	return n, nil
 }
 
 // CountByDay groups matched users by their CreatedAt day — a small in-memory
@@ -286,7 +303,7 @@ func (m *MockAuditLogRepo) AddEntry(e port.AuditLogEntry) {
 	m.entries = append(m.entries, e)
 }
 
-func (m *MockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, int, error) {
+func (m *MockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -298,9 +315,8 @@ func (m *MockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) (
 	}
 	sort.SliceStable(matched, func(i, j int) bool { return matched[i].CreatedAt.After(matched[j].CreatedAt) })
 
-	total := len(matched)
 	if filter.Limit <= 0 {
-		return matched, total, nil
+		return matched, nil
 	}
 	start := filter.Offset
 	if start > len(matched) {
@@ -310,7 +326,19 @@ func (m *MockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) (
 	if end > len(matched) {
 		end = len(matched)
 	}
-	return matched[start:end], total, nil
+	return matched[start:end], nil
+}
+
+func (m *MockAuditLogRepo) Count(_ context.Context, filter port.AuditLogFilter) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, e := range m.entries {
+		if auditEntryMatchesFilter(e, filter) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (m *MockAuditLogRepo) GetByID(_ context.Context, id string) (*port.AuditLogEntry, error) {
@@ -493,7 +521,19 @@ func (m *MockSessionRepo) ListAllByUserID(_ context.Context, userID string) ([]d
 	return res, nil
 }
 
-func (m *MockSessionRepo) ListAll(_ context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
+func (m *MockSessionRepo) CountAll(_ context.Context, filter port.SessionFilter) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, s := range m.byID {
+		if !s.IsRevoked && sessionMatchesFilter(s, filter) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *MockSessionRepo) ListAll(_ context.Context, filter port.SessionFilter) ([]domain.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var res []domain.Session
@@ -528,7 +568,7 @@ func (m *MockSessionRepo) ListAll(_ context.Context, filter port.SessionFilter) 
 	if filter.Limit > 0 && filter.Limit < len(res) {
 		res = res[:filter.Limit]
 	}
-	return res, total, nil
+	return res, nil
 }
 
 func sessionMatchesFilter(s *domain.Session, filter port.SessionFilter) bool {
@@ -1014,26 +1054,41 @@ func (m *MockInviteRepo) GetByEmail(_ context.Context, email string) (*domain.In
 	return inv, nil
 }
 
-func (m *MockInviteRepo) List(_ context.Context, filter port.InviteFilter) ([]domain.Invite, int, error) {
+func (m *MockInviteRepo) inviteMatches(inv *domain.Invite, filter port.InviteFilter) bool {
+	if inv.ID == "" || inv.Code == "" {
+		return false
+	}
+	if filter.Search != nil && *filter.Search != "" && !strings.Contains(inv.Email, *filter.Search) {
+		return false
+	}
+	if filter.Status != nil && *filter.Status != "" && string(inv.Status) != *filter.Status {
+		return false
+	}
+	return true
+}
+
+func (m *MockInviteRepo) List(_ context.Context, filter port.InviteFilter) ([]domain.Invite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []domain.Invite
 	for _, inv := range m.invites {
-		if inv.ID != "" && inv.Code != "" {
-			if filter.Search != nil && *filter.Search != "" {
-				if !strings.Contains(inv.Email, *filter.Search) {
-					continue
-				}
-			}
-			if filter.Status != nil && *filter.Status != "" {
-				if string(inv.Status) != *filter.Status {
-					continue
-				}
-			}
+		if m.inviteMatches(inv, filter) {
 			result = append(result, *inv)
 		}
 	}
-	return result, len(result), nil
+	return result, nil
+}
+
+func (m *MockInviteRepo) Count(_ context.Context, filter port.InviteFilter) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	n := 0
+	for _, inv := range m.invites {
+		if m.inviteMatches(inv, filter) {
+			n++
+		}
+	}
+	return n, nil
 }
 
 func (m *MockInviteRepo) Update(_ context.Context, invite *domain.Invite) error {
@@ -1180,7 +1235,14 @@ func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*d
 	return mem, nil
 }
 
-func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, int, error) {
+func (m *MockOrgRepo) CountMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) (int, error) {
+	f := filter
+	f.Limit, f.Offset = 0, 0
+	items, err := m.ListMembers(ctx, orgID, f)
+	return len(items), err
+}
+
+func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, error) {
 	m.mu.Lock()
 	var all []domain.OrgMemberDetail
 	for _, mem := range m.members {
@@ -1268,10 +1330,17 @@ func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port
 	if page == nil {
 		page = []domain.OrgMemberDetail{}
 	}
-	return page, total, nil
+	return page, nil
 }
 
-func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, int, error) {
+func (m *MockOrgRepo) CountUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) (int, error) {
+	f := filter
+	f.Limit, f.Offset = 0, 0
+	items, err := m.ListUserOrgs(ctx, userID, f)
+	return len(items), err
+}
+
+func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, error) {
 	m.mu.Lock()
 	var all []domain.Organization
 	for _, mem := range m.members {
@@ -1330,10 +1399,17 @@ func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port
 	if page == nil {
 		page = []domain.Organization{}
 	}
-	return page, total, nil
+	return page, nil
 }
 
-func (m *MockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.Organization, int, error) {
+func (m *MockOrgRepo) Count(ctx context.Context, filter port.OrgFilter) (int, error) {
+	f := filter
+	f.Limit, f.Offset = 0, 0
+	items, err := m.List(ctx, f)
+	return len(items), err
+}
+
+func (m *MockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.Organization, error) {
 	m.mu.Lock()
 	seen := make(map[string]bool)
 	var all []domain.Organization
@@ -1412,7 +1488,7 @@ func (m *MockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.O
 	if page == nil {
 		page = []domain.Organization{}
 	}
-	return page, total, nil
+	return page, nil
 }
 
 func (m *MockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID string, maxOrgs int) error {
@@ -1504,7 +1580,14 @@ func (m *MockOrgInviteRepo) GetByCodeHash(_ context.Context, codeHash string) (*
 	return inv, nil
 }
 
-func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, int, error) {
+func (m *MockOrgInviteRepo) CountByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) (int, error) {
+	f := filter
+	f.Limit, f.Offset = 0, 0
+	items, err := m.ListByOrgID(ctx, orgID, f)
+	return len(items), err
+}
+
+func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, error) {
 	m.mu.Lock()
 	var all []domain.OrgInvite
 	seen := make(map[string]bool)
@@ -1584,7 +1667,7 @@ func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter 
 	if page == nil {
 		page = []domain.OrgInvite{}
 	}
-	return page, total, nil
+	return page, nil
 }
 
 func (m *MockOrgInviteRepo) Update(_ context.Context, invite *domain.OrgInvite) error {
@@ -1632,16 +1715,29 @@ func (m *MockTxManager) WithTx(_ context.Context, fn func(ctx context.Context) e
 // ─── mockMailer ────────────────────────────────────────────────────
 
 type MockMailer struct {
+	// mu guards Calls: the bulk invite send fans out across a worker pool, so
+	// Send is called concurrently.
+	mu     sync.Mutex
 	SendFn func(ctx context.Context, to, subject, html, text string) error
 	Calls  []struct{ To, Subject, HTML, Text string }
 }
 
 func (m *MockMailer) Send(ctx context.Context, to, subject, html, text string) error {
+	m.mu.Lock()
 	m.Calls = append(m.Calls, struct{ To, Subject, HTML, Text string }{to, subject, html, text})
+	m.mu.Unlock()
 	if m.SendFn != nil {
 		return m.SendFn(ctx, to, subject, html, text)
 	}
 	return nil
+}
+
+// SentCount returns how many sends were recorded, safe to call while workers
+// are still running.
+func (m *MockMailer) SentCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.Calls)
 }
 
 // ─── MockProviderAccountRepo ───────────────────────────────────────

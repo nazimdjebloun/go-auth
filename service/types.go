@@ -154,6 +154,8 @@ type AdminListUsersInput struct {
 	Limit            int // default 20, max 100
 	Email            *string
 	Role             *domain.Role
+	IsBanned         *bool
+	IsVerified       *bool
 	TwoFactorEnabled *bool
 	// NeverLoggedIn and LastLoginBefore are independent dormancy filters —
 	// see port.UserFilter's doc comment for why they're kept separate.
@@ -166,12 +168,12 @@ type AdminListUsersInput struct {
 
 type AdminListUsersResult struct {
 	Users  []domain.User `json:"users"`
-	Total  int           `json:"total"`
 	Limit  int           `json:"limit,omitempty"`
 	Offset int           `json:"offset,omitempty"`
 }
 
 type ListInvitesInput struct {
+	ActorID        string
 	Offset         int
 	Limit          int
 	Search         string

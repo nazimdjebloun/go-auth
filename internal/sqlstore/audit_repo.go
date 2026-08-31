@@ -19,17 +19,8 @@ func NewAuditLogRepository(db *DB) *AuditLogRepository {
 	return &AuditLogRepository{db: db}
 }
 
-func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, int, error) {
+func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, error) {
 	where, args := r.buildWhere(filter)
-
-	var total int
-	countQuery := auditLogCountQuery
-	if where != "" {
-		countQuery += " WHERE " + where
-	}
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
 
 	argIdx := len(args) + 1
 	query := auditLogListQuery
@@ -41,11 +32,11 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var entries []port.AuditLogEntry
+	entries := []port.AuditLogEntry{}
 	for rows.Next() {
 		var e port.AuditLogEntry
 		var parsedUA, metadata sql.NullString
@@ -55,7 +46,7 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 			&e.IP, &e.UserAgent, &parsedUA, &e.RequestID, &e.CorrelationID,
 			&metadata, &e.CreatedAt,
 		); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		e.ParsedUA = json.RawMessage(parsedUA.String)
 		e.Metadata = json.RawMessage(metadata.String)
@@ -67,10 +58,21 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 		}
 		entries = append(entries, e)
 	}
-	if entries == nil {
-		entries = []port.AuditLogEntry{}
+	return entries, rows.Err()
+}
+
+// Count returns how many audit entries match filter (Offset/Limit ignored).
+func (r *AuditLogRepository) Count(ctx context.Context, filter port.AuditLogFilter) (int, error) {
+	where, args := r.buildWhere(filter)
+	q := auditLogCountQuery
+	if where != "" {
+		q += " WHERE " + where
 	}
-	return entries, total, rows.Err()
+	var total int
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 // CountByDay returns event counts per day matching filter — Offset/Limit on

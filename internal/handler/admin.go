@@ -11,12 +11,10 @@ import (
 	"github.com/nazimdjebloun/go-auth/service"
 )
 
-func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
-	actor := middleware.GetUserFromContext(r.Context())
-	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
-		return
-	}
+// parseListUsersInput reads the shared /admin/users query params. Offset,
+// Limit, OrderBy and OrderDirection are only meaningful for the list;
+// CountUsers ignores them.
+func parseListUsersInput(r *http.Request, actorID string) service.AdminListUsersInput {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
@@ -39,6 +37,18 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	if rl := r.URL.Query().Get("role"); rl == "admin" || rl == "user" {
 		r := domain.Role(rl)
 		role = &r
+	}
+
+	var isBanned *bool
+	if v := r.URL.Query().Get("isBanned"); v == "true" || v == "false" {
+		b := v == "true"
+		isBanned = &b
+	}
+
+	var isVerified *bool
+	if v := r.URL.Query().Get("isVerified"); v == "true" || v == "false" {
+		b := v == "true"
+		isVerified = &b
 	}
 
 	var twoFactorEnabled *bool
@@ -70,25 +80,50 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		orderDirection = "desc"
 	}
 
-	result, err := h.services.Admin.ListUsers(r.Context(), service.AdminListUsersInput{
-		ActorID:          actor.ID,
+	return service.AdminListUsersInput{
+		ActorID:          actorID,
 		Offset:           offset,
 		Limit:            limit,
 		Email:            email,
 		Role:             role,
+		IsBanned:         isBanned,
+		IsVerified:       isVerified,
 		TwoFactorEnabled: twoFactorEnabled,
 		NeverLoggedIn:    neverLoggedIn,
 		LastLoginBefore:  lastLoginBefore,
 		Search:           search,
 		OrderBy:          orderBy,
 		OrderDirection:   orderDirection,
-	})
+	}
+}
+
+func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	result, err := h.services.Admin.ListUsers(r.Context(), parseListUsersInput(r, actor.ID))
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-
 	writeJSON(w, http.StatusOK, result)
+}
+
+// CountUsers — GET /admin/users/count
+func (h *Handler) CountUsers(w http.ResponseWriter, r *http.Request) {
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	n, err := h.services.Admin.CountUsers(r.Context(), parseListUsersInput(r, actor.ID))
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": n})
 }
 
 func (h *Handler) BanUser(w http.ResponseWriter, r *http.Request) {
@@ -218,7 +253,7 @@ func (h *Handler) AdminListSessions(w http.ResponseWriter, r *http.Request) {
 		orderDirection = "desc"
 	}
 
-	result, err := h.services.Admin.ListSessions(r.Context(), service.AdminListSessionsInput{
+	input := service.AdminListSessionsInput{
 		ActorID:          actor.ID,
 		UserID:           userID,
 		IP:               ip,
@@ -233,7 +268,19 @@ func (h *Handler) AdminListSessions(w http.ResponseWriter, r *http.Request) {
 		OrderDirection:   orderDirection,
 		Offset:           offset,
 		Limit:            limit,
-	})
+	}
+
+	if strings.HasSuffix(r.URL.Path, "/count") {
+		n, err := h.services.Admin.CountSessions(r.Context(), input)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		return
+	}
+
+	result, err := h.services.Admin.ListSessions(r.Context(), input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -490,7 +537,7 @@ func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request, userID *
 		targetEmail = nil
 	}
 
-	result, err := h.services.Admin.ListAuditLogs(r.Context(), service.AdminListAuditLogsInput{
+	input := service.AdminListAuditLogsInput{
 		ActorID:         actor.ID,
 		EventTypes:      eventTypes,
 		EventActorID:    actorID,
@@ -507,7 +554,19 @@ func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request, userID *
 		ToDate:          toDate,
 		Offset:          offset,
 		Limit:           limit,
-	})
+	}
+
+	if strings.HasSuffix(r.URL.Path, "/count") {
+		n, err := h.services.Admin.CountAuditLogs(r.Context(), input)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		return
+	}
+
+	result, err := h.services.Admin.ListAuditLogs(r.Context(), input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -659,7 +718,7 @@ func (h *Handler) AdminListOrgs(w http.ResponseWriter, r *http.Request) {
 		orderDirection = "asc"
 	}
 
-	result, err := h.services.Org.AdminListOrgs(r.Context(), service.AdminListOrgsInput{
+	input := service.AdminListOrgsInput{
 		ActorID:        actor.ID,
 		Search:         search,
 		CreatedAfter:   parseTime("createdAfter"),
@@ -668,7 +727,19 @@ func (h *Handler) AdminListOrgs(w http.ResponseWriter, r *http.Request) {
 		OrderDirection: orderDirection,
 		Offset:         offset,
 		Limit:          limit,
-	})
+	}
+
+	if strings.HasSuffix(r.URL.Path, "/count") {
+		n, err := h.services.Org.CountOrgs(r.Context(), input)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		return
+	}
+
+	result, err := h.services.Org.AdminListOrgs(r.Context(), input)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -735,10 +806,22 @@ func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		orderDirection = "asc"
 	}
 
-	result, err := h.services.Org.AdminListOrgMembers(r.Context(), service.AdminListOrgMembersInput{
+	input := service.AdminListOrgMembersInput{
 		OrgID: orgID, ActorID: actor.ID, Offset: offset, Limit: limit,
 		Role: role, Search: search, OrderBy: orderBy, OrderDirection: orderDirection,
-	})
+	}
+
+	if strings.HasSuffix(r.URL.Path, "/count") {
+		n, err := h.services.Org.AdminCountOrgMembers(r.Context(), input)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		return
+	}
+
+	result, err := h.services.Org.AdminListOrgMembers(r.Context(), input)
 	if err != nil {
 		writeError(w, err)
 		return

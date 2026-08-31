@@ -49,6 +49,7 @@ const (
 
 	// Admin — users
 	ListUsers              = "GET /admin/users"
+	AdminCountUsers        = "GET /admin/users/count"
 	GetUserDetail          = "GET /admin/users/{id}"
 	AdminCreateUser        = "POST /admin/users"
 	UpdateUserRole         = "PATCH /admin/users/{id}/role"
@@ -61,14 +62,17 @@ const (
 
 	// Admin — sessions across every user, and bulk user actions
 	AdminListSessions      = "GET /admin/sessions"
+	AdminCountSessions     = "GET /admin/sessions/count"
 	BulkBanUsers           = "POST /admin/users/bulk/ban"
 	BulkUnbanUsers         = "POST /admin/users/bulk/unban"
 	BulkDeleteUsers        = "POST /admin/users/bulk/delete"
 	BulkRevokeUserSessions = "POST /admin/users/bulk/revoke-sessions"
 
 	// Admin — audit logs
-	AdminListAuditLogs     = "GET /admin/audit-logs"
-	AdminListUserAuditLogs = "GET /admin/users/{id}/audit-logs"
+	AdminListAuditLogs      = "GET /admin/audit-logs"
+	AdminCountAuditLogs     = "GET /admin/audit-logs/count"
+	AdminListUserAuditLogs  = "GET /admin/users/{id}/audit-logs"
+	AdminCountUserAuditLogs = "GET /admin/users/{id}/audit-logs/count"
 
 	// Admin — stats and activity
 	AdminStats             = "GET /admin/stats"
@@ -77,19 +81,28 @@ const (
 
 	// Admin — organizations
 	AdminListOrgs            = "GET /admin/orgs"
+	AdminCountOrgs           = "GET /admin/orgs/count"
 	AdminGetOrg              = "GET /admin/orgs/{orgID}"
 	AdminListOrgMembers      = "GET /admin/orgs/{orgID}/members"
+	AdminCountOrgMembers     = "GET /admin/orgs/{orgID}/members/count"
 	AdminAddOrgMember        = "POST /admin/orgs/{orgID}/members"
 	AdminDeleteOrg           = "DELETE /admin/orgs/{orgID}"
 	AdminRemoveOrgMember     = "DELETE /admin/orgs/{orgID}/members/{userID}"
 	AdminUpdateOrgMemberRole = "PATCH /admin/orgs/{orgID}/members/{userID}/role"
 
 	// Admin — invites (EnableInvite)
-	CreateInvite     = "POST /admin/invites"
-	ListInvites      = "GET /admin/invites"
-	RevokeInvite     = "DELETE /admin/invites/{id}"
-	ResendInvite     = "POST /admin/invites/{id}/resend"
-	HardDeleteInvite = "DELETE /admin/invites/{id}/hard"
+	CreateInvite      = "POST /admin/invites"
+	ListInvites       = "GET /admin/invites"
+	AdminCountInvites = "GET /admin/invites/count"
+	RevokeInvite      = "DELETE /admin/invites/{id}"
+	ResendInvite      = "POST /admin/invites/{id}/resend"
+	HardDeleteInvite  = "DELETE /admin/invites/{id}/hard"
+
+	// Admin — bulk invite actions
+	BulkSendInvites   = "POST /admin/invites/bulk/send"
+	BulkResendInvites = "POST /admin/invites/bulk/resend"
+	BulkRevokeInvites = "POST /admin/invites/bulk/revoke"
+	BulkDeleteInvites = "POST /admin/invites/bulk/delete"
 
 	// OAuth (EnableOAuth)
 	OAuthInitiate     = "GET /auth/oauth/{provider}"
@@ -102,10 +115,12 @@ const (
 	// Organizations
 	CreateOrg           = "POST /auth/orgs"
 	ListUserOrgs        = "GET /auth/orgs"
+	CountUserOrgs       = "GET /auth/orgs/count"
 	GetOrg              = "GET /auth/orgs/{orgID}"
 	UpdateOrg           = "PUT /auth/orgs/{orgID}"
 	DeleteOrg           = "DELETE /auth/orgs/{orgID}"
 	ListOrgMembers      = "GET /auth/orgs/{orgID}/members"
+	CountOrgMembers     = "GET /auth/orgs/{orgID}/members/count"
 	RemoveOrgMember     = "DELETE /auth/orgs/{orgID}/members/{userID}"
 	UpdateOrgMemberRole = "PATCH /auth/orgs/{orgID}/members/{userID}/role"
 	LeaveOrg            = "POST /auth/orgs/{orgID}/leave"
@@ -114,6 +129,7 @@ const (
 	CreateOrgInvite     = "POST /auth/orgs/{orgID}/invites"
 	AcceptOrgInvite     = "POST /auth/orgs/invites/accept"
 	ListOrgInvites      = "GET /auth/orgs/{orgID}/invites"
+	CountOrgInvites     = "GET /auth/orgs/{orgID}/invites/count"
 	ResendOrgInvite     = "POST /auth/orgs/{orgID}/invites/{inviteID}/resend"
 	DeleteOrgInvite     = "DELETE /auth/orgs/{orgID}/invites/{inviteID}"
 )

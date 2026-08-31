@@ -16,8 +16,8 @@ import (
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher"
-	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
+	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -386,7 +386,7 @@ func seedAdmin(ctx context.Context, p seedAdminParams, d seedAdminDeps) (*domain
 
 	if !p.force {
 		adminRole := domain.RoleAdmin
-		_, total, err := d.repo.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
+		total, err := d.repo.Count(ctx, port.UserFilter{Role: &adminRole})
 		if err != nil {
 			return nil, fmt.Errorf("seed-admin: checking for existing admin: %w", err)
 		}

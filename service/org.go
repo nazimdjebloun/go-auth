@@ -314,7 +314,6 @@ type ListUserOrgsInput struct {
 
 type ListUserOrgsResult struct {
 	Orgs   []domain.Organization `json:"orgs"`
-	Total  int                   `json:"total"`
 	Limit  int                   `json:"limit"`
 	Offset int                   `json:"offset"`
 }
@@ -329,7 +328,7 @@ func (s *OrgService) ListUserOrgs(ctx context.Context, input ListUserOrgsInput) 
 			limit = 100
 		}
 	}
-	orgs, total, err := s.orgs.ListUserOrgs(ctx, input.UserID, port.UserOrgFilter{
+	orgs, err := s.orgs.ListUserOrgs(ctx, input.UserID, port.UserOrgFilter{
 		Search:         input.Search,
 		OrderBy:        input.OrderBy,
 		OrderDirection: input.OrderDirection,
@@ -342,7 +341,7 @@ func (s *OrgService) ListUserOrgs(ctx context.Context, input ListUserOrgsInput) 
 	if orgs == nil {
 		orgs = []domain.Organization{}
 	}
-	return &ListUserOrgsResult{Orgs: orgs, Total: total, Limit: limit, Offset: input.Offset}, nil
+	return &ListUserOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
 }
 
 type GetOrgMembershipInput struct {
@@ -625,7 +624,6 @@ type ListMembersInput struct {
 
 type ListMembersResult struct {
 	Members []domain.OrgMemberDetail `json:"members"`
-	Total   int                      `json:"total"`
 	Limit   int                      `json:"limit"`
 	Offset  int                      `json:"offset"`
 }
@@ -643,7 +641,7 @@ func (s *OrgService) ListMembers(ctx context.Context, input ListMembersInput) (*
 			limit = 100
 		}
 	}
-	members, total, err := s.orgs.ListMembers(ctx, input.OrgID, port.OrgMemberFilter{
+	members, err := s.orgs.ListMembers(ctx, input.OrgID, port.OrgMemberFilter{
 		Role:           input.Role,
 		Search:         input.Search,
 		OrderBy:        input.OrderBy,
@@ -657,7 +655,7 @@ func (s *OrgService) ListMembers(ctx context.Context, input ListMembersInput) (*
 	if members == nil {
 		members = []domain.OrgMemberDetail{}
 	}
-	return &ListMembersResult{Members: members, Total: total, Limit: limit, Offset: input.Offset}, nil
+	return &ListMembersResult{Members: members, Limit: limit, Offset: input.Offset}, nil
 }
 
 type SetActiveOrgInput struct {
@@ -718,7 +716,6 @@ type AdminListOrgsInput struct {
 
 type AdminListOrgsResult struct {
 	Orgs   []domain.Organization `json:"orgs"`
-	Total  int                   `json:"total"`
 	Limit  int                   `json:"limit"`
 	Offset int                   `json:"offset"`
 }
@@ -739,7 +736,7 @@ func (s *OrgService) AdminListOrgs(ctx context.Context, input AdminListOrgsInput
 			limit = 100
 		}
 	}
-	orgs, total, err := s.orgs.List(ctx, port.OrgFilter{
+	orgs, err := s.orgs.List(ctx, port.OrgFilter{
 		Search:         input.Search,
 		CreatedAfter:   input.CreatedAfter,
 		CreatedBefore:  input.CreatedBefore,
@@ -754,7 +751,36 @@ func (s *OrgService) AdminListOrgs(ctx context.Context, input AdminListOrgsInput
 	if orgs == nil {
 		orgs = []domain.Organization{}
 	}
-	return &AdminListOrgsResult{Orgs: orgs, Total: total, Limit: limit, Offset: input.Offset}, nil
+	return &AdminListOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
+}
+
+// CountOrgs returns how many organizations match the input's filters
+// (pagination ignored).
+func (s *OrgService) CountOrgs(ctx context.Context, input AdminListOrgsInput) (int, error) {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return 0, err
+	}
+	return s.orgs.Count(ctx, port.OrgFilter{
+		Search:        input.Search,
+		CreatedAfter:  input.CreatedAfter,
+		CreatedBefore: input.CreatedBefore,
+	})
+}
+
+// CountMembers returns how many members of the org match the input's filters.
+func (s *OrgService) CountMembers(ctx context.Context, input ListMembersInput) (int, error) {
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
+		return 0, err
+	}
+	return s.orgs.CountMembers(ctx, input.OrgID, port.OrgMemberFilter{
+		Role:   input.Role,
+		Search: input.Search,
+	})
+}
+
+// CountUserOrgs returns how many orgs the user belongs to that match search.
+func (s *OrgService) CountUserOrgs(ctx context.Context, input ListUserOrgsInput) (int, error) {
+	return s.orgs.CountUserOrgs(ctx, input.UserID, port.UserOrgFilter{Search: input.Search})
 }
 
 type AdminGetOrgInput struct {
@@ -815,7 +841,7 @@ func (s *OrgService) AdminListOrgMembers(ctx context.Context, input AdminListOrg
 			limit = 100
 		}
 	}
-	members, total, err := s.orgs.ListMembers(ctx, input.OrgID, port.OrgMemberFilter{
+	members, err := s.orgs.ListMembers(ctx, input.OrgID, port.OrgMemberFilter{
 		Role:           input.Role,
 		Search:         input.Search,
 		OrderBy:        input.OrderBy,
@@ -834,7 +860,21 @@ func (s *OrgService) AdminListOrgMembers(ctx context.Context, input AdminListOrg
 		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgViewed, input.ActorID, input.OrgID, nil))
 	}
 
-	return &ListMembersResult{Members: members, Total: total, Limit: limit, Offset: input.Offset}, nil
+	return &ListMembersResult{Members: members, Limit: limit, Offset: input.Offset}, nil
+}
+
+// AdminCountOrgMembers returns how many of orgID's members match the input's
+// filters, bypassing the membership check (admin oversight). Pagination is
+// ignored. Unlike AdminListOrgMembers it publishes no audit event — it
+// exposes only a count, not member data.
+func (s *OrgService) AdminCountOrgMembers(ctx context.Context, input AdminListOrgMembersInput) (int, error) {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return 0, err
+	}
+	return s.orgs.CountMembers(ctx, input.OrgID, port.OrgMemberFilter{
+		Role:   input.Role,
+		Search: input.Search,
+	})
 }
 
 type AdminOrgActionInput struct {

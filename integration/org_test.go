@@ -500,8 +500,12 @@ func TestOrg_ListMembers(t *testing.T) {
 	if len(result.Members) > 2 {
 		t.Errorf("expected <=2, got %d", len(result.Members))
 	}
-	if result.Total < 4 {
-		t.Errorf("total=%d, want >=4", result.Total)
+	count, err := a.Services.Org.CountMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID})
+	if err != nil {
+		t.Fatalf("CountMembers failed: %v", err)
+	}
+	if count < 4 {
+		t.Errorf("total=%d, want >=4", count)
 	}
 
 	// Exact-order assertion: default sort is joined_at ascending, and the
@@ -563,8 +567,12 @@ func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
 	if len(defaultResult.Members) != 20 || defaultResult.Limit != 20 {
 		t.Errorf("expected 20 members (default limit), got %d, limit=%d", len(defaultResult.Members), defaultResult.Limit)
 	}
-	if defaultResult.Total != 25 {
-		t.Errorf("expected total 25, got %d", defaultResult.Total)
+	count2, err := a.Services.Org.CountMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID})
+	if err != nil {
+		t.Fatalf("CountMembers failed: %v", err)
+	}
+	if count2 != 25 {
+		t.Errorf("expected total 25, got %d", count2)
 	}
 
 	// Explicit Limit: 0 — must return everything, proving the repo's real
@@ -663,9 +671,6 @@ func TestOrg_ListUserOrgs(t *testing.T) {
 	}
 	if len(result.Orgs) != 2 {
 		t.Errorf("expected 2, got %d", len(result.Orgs))
-	}
-	if result.Total != 2 {
-		t.Errorf("expected total 2, got %d", result.Total)
 	}
 
 	ids := map[string]bool{org1.ID: true, org2.ID: true}
@@ -779,8 +784,15 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(afterDelete.Invites) != 0 || afterDelete.Total != 0 {
-		t.Errorf("expected 0 invites after delete, got %d (total=%d)", len(afterDelete.Invites), afterDelete.Total)
+	if len(afterDelete.Invites) != 0 {
+		t.Errorf("expected 0 invites after delete, got %d", len(afterDelete.Invites))
+	}
+	count, err := a.Services.OrgInvite.CountOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Errorf("expected count 0 after delete, got %d", count)
 	}
 }
 

@@ -156,7 +156,7 @@ func (r *OrgRepository) GetMembership(ctx context.Context, orgID, userID string)
 	return m, nil
 }
 
-func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, int, error) {
+func (r *OrgRepository) membersWhere(orgID string, filter port.OrgMemberFilter) (string, []any) {
 	where := []string{"om.org_id = $1"}
 	args := []any{orgID}
 	argIdx := 2
@@ -172,24 +172,27 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
 			op = "LIKE"
 		}
-		// Two distinct placeholders, not one reused twice: DB.Rebind rewrites
-		// every textual "$N" occurrence to "?" positionally for mysql/sqlite,
-		// so a placeholder used twice in the query text must still be backed
-		// by two separate (equal-valued) entries in args, one per occurrence.
 		where = append(where, fmt.Sprintf("(u.name %s $%d OR u.email %s $%d)", op, argIdx, op, argIdx+1))
 		args = append(args, searchTerm, searchTerm)
-		argIdx += 2
 	}
-	whereClause := strings.Join(where, " AND ")
+	return strings.Join(where, " AND "), args
+}
 
+// CountMembers returns how many members of orgID match filter.
+func (r *OrgRepository) CountMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) (int, error) {
+	whereClause, args := r.membersWhere(orgID, filter)
 	var total int
-	countQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM organization_members om
-		JOIN users u ON u.id = om.user_id
-		WHERE %s`, whereClause)
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
+	q := fmt.Sprintf(`SELECT COUNT(*) FROM organization_members om
+		JOIN users u ON u.id = om.user_id WHERE %s`, whereClause)
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
 	}
+	return total, nil
+}
+
+func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, error) {
+	whereClause, args := r.membersWhere(orgID, filter)
+	argIdx := len(args) + 1
 
 	orderCol := orgMemberOrderByWhitelist[filter.OrderBy]
 	if orderCol == "" {
@@ -214,11 +217,11 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var members []domain.OrgMemberDetail
+	members := []domain.OrgMemberDetail{}
 	for rows.Next() {
 		var md domain.OrgMemberDetail
 		u := &domain.User{}
@@ -226,44 +229,46 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 			&md.OrgID, &md.UserID, &md.Role, &md.JoinedAt,
 			&u.ID, &u.Email, &u.Name, &u.Role, &u.IsVerified, &u.IsBanned, &u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		md.User = u
 		members = append(members, md)
 	}
-	if members == nil {
-		members = []domain.OrgMemberDetail{}
-	}
-	return members, total, rows.Err()
+	return members, rows.Err()
 }
 
-func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, int, error) {
+func (r *OrgRepository) userOrgsWhere(userID string, search *string) (string, []any) {
 	where := []string{"om.user_id = $1"}
 	args := []any{userID}
 	argIdx := 2
 
-	if filter.Search != nil && *filter.Search != "" {
-		searchTerm := "%" + *filter.Search + "%"
+	if search != nil && *search != "" {
+		searchTerm := "%" + *search + "%"
 		op := "ILIKE"
 		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
 			op = "LIKE"
 		}
-		// See the identical comment in ListMembers: two distinct
-		// placeholders, each backed by its own arg entry.
 		where = append(where, fmt.Sprintf("(o.name %s $%d OR o.slug %s $%d)", op, argIdx, op, argIdx+1))
 		args = append(args, searchTerm, searchTerm)
-		argIdx += 2
 	}
-	whereClause := strings.Join(where, " AND ")
+	return strings.Join(where, " AND "), args
+}
 
+// CountUserOrgs returns how many orgs the user belongs to that match search.
+func (r *OrgRepository) CountUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) (int, error) {
+	whereClause, args := r.userOrgsWhere(userID, filter.Search)
 	var total int
-	countQuery := fmt.Sprintf(`
-		SELECT COUNT(*) FROM organizations o
-		JOIN organization_members om ON om.org_id = o.id
-		WHERE %s`, whereClause)
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
+	q := fmt.Sprintf(`SELECT COUNT(*) FROM organizations o
+		JOIN organization_members om ON om.org_id = o.id WHERE %s`, whereClause)
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
 	}
+	return total, nil
+}
+
+func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, error) {
+	whereClause, args := r.userOrgsWhere(userID, filter.Search)
+	argIdx := len(args) + 1
 
 	orderCol := orgOrderByWhitelist[filter.OrderBy]
 	if orderCol == "" {
@@ -288,28 +293,25 @@ func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter 
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var orgs []domain.Organization
+	orgs := []domain.Organization{}
 	for rows.Next() {
 		o, err := scanOrg(rows)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		orgs = append(orgs, *o)
 	}
-	if orgs == nil {
-		orgs = []domain.Organization{}
-	}
-	return orgs, total, rows.Err()
+	return orgs, rows.Err()
 }
 
 // List returns every organization matching filter — the platform-admin,
 // cross-org listing. Unlike ListUserOrgs, there is no organization_members
 // join: this queries organizations directly.
-func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]domain.Organization, int, error) {
+func (r *OrgRepository) buildListWhere(filter port.OrgFilter) (string, []any) {
 	where := []string{"1=1"}
 	args := []any{}
 	argIdx := 1
@@ -334,13 +336,23 @@ func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]doma
 		args = append(args, *filter.CreatedBefore)
 		argIdx++
 	}
-	whereClause := strings.Join(where, " AND ")
+	return strings.Join(where, " AND "), args
+}
 
+// Count returns how many organizations match filter (Offset/Limit ignored).
+func (r *OrgRepository) Count(ctx context.Context, filter port.OrgFilter) (int, error) {
+	whereClause, args := r.buildListWhere(filter)
 	var total int
-	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM organizations o WHERE %s`, whereClause)
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
+	q := fmt.Sprintf(`SELECT COUNT(*) FROM organizations o WHERE %s`, whereClause)
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
 	}
+	return total, nil
+}
+
+func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]domain.Organization, error) {
+	whereClause, args := r.buildListWhere(filter)
+	argIdx := len(args) + 1
 
 	orderCol := orgOrderByWhitelist[filter.OrderBy]
 	if orderCol == "" {
@@ -364,22 +376,19 @@ func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]doma
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var orgs []domain.Organization
+	orgs := []domain.Organization{}
 	for rows.Next() {
 		o, err := scanOrg(rows)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		orgs = append(orgs, *o)
 	}
-	if orgs == nil {
-		orgs = []domain.Organization{}
-	}
-	return orgs, total, rows.Err()
+	return orgs, rows.Err()
 }
 
 func (r *OrgRepository) IncrementUserOrgOwnerCount(ctx context.Context, userID string, maxOrgs int) error {
@@ -486,7 +495,9 @@ func (r *OrgInviteRepository) GetByCodeHash(ctx context.Context, codeHash string
 	return i, err
 }
 
-func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, int, error) {
+// orgInvitesWhere builds the " ... " predicate (always starting "org_id = $1")
+// and args shared by ListByOrgID and CountByOrgID.
+func (r *OrgInviteRepository) orgInvitesWhere(orgID string, filter port.OrgInviteFilter) (string, []any) {
 	where := []string{"org_id = $1"}
 	args := []any{orgID}
 	argIdx := 2
@@ -522,13 +533,24 @@ func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, fil
 		args = append(args, searchTerm)
 		argIdx++
 	}
-	whereClause := strings.Join(where, " AND ")
+	return strings.Join(where, " AND "), args
+}
 
+// CountByOrgID returns how many of orgID's invites match filter (Offset/Limit
+// on filter are ignored).
+func (r *OrgInviteRepository) CountByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) (int, error) {
+	whereClause, args := r.orgInvitesWhere(orgID, filter)
 	var total int
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM organization_invites WHERE %s", whereClause)
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
+	q := fmt.Sprintf("SELECT COUNT(*) FROM organization_invites WHERE %s", whereClause)
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
 	}
+	return total, nil
+}
+
+func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, error) {
+	whereClause, args := r.orgInvitesWhere(orgID, filter)
+	argIdx := len(args) + 1
 
 	orderCol := orgInviteOrderByWhitelist[filter.OrderBy]
 	if orderCol == "" {
@@ -549,22 +571,19 @@ func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, fil
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var invites []domain.OrgInvite
+	invites := []domain.OrgInvite{}
 	for rows.Next() {
 		i, err := scanOrgInvite(rows)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		invites = append(invites, *i)
 	}
-	if invites == nil {
-		invites = []domain.OrgInvite{}
-	}
-	return invites, total, rows.Err()
+	return invites, rows.Err()
 }
 
 func (r *OrgInviteRepository) Update(ctx context.Context, invite *domain.OrgInvite) error {

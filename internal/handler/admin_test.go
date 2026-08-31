@@ -623,8 +623,8 @@ func TestAdminListSessions(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != 2 {
-		t.Errorf("expected 2 sessions, got %d", body.Total)
+	if len(body.Sessions) != 2 {
+		t.Errorf("expected 2 sessions, got %d", len(body.Sessions))
 	}
 }
 
@@ -658,7 +658,7 @@ func TestAdminListSessions_FilterByUserID(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != 1 || len(body.Sessions) != 1 || body.Sessions[0].UserID != "user-1" {
+	if len(body.Sessions) != 1 || body.Sessions[0].UserID != "user-1" {
 		t.Errorf("expected 1 session for user-1, got %+v", body)
 	}
 }
@@ -827,8 +827,8 @@ func TestAdminListAuditLogs_MultiEventType(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != 2 {
-		t.Errorf("expected 2 events, got %d: %+v", body.Total, body.Events)
+	if len(body.Events) != 2 {
+		t.Errorf("expected 2 events, got %d: %+v", len(body.Events), body.Events)
 	}
 }
 
@@ -854,8 +854,8 @@ func TestAdminListAuditLogs_ActorEmail(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != 1 {
-		t.Errorf("expected 1 event, got %d: %+v", body.Total, body.Events)
+	if len(body.Events) != 1 {
+		t.Errorf("expected 1 event, got %d: %+v", len(body.Events), body.Events)
 	}
 }
 
@@ -896,7 +896,7 @@ func TestAdminListUserAuditLogs_ScopesToPathUser(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != 1 || body.Events[0].ID != "e1" {
+	if len(body.Events) != 1 || body.Events[0].ID != "e1" {
 		t.Errorf("expected 1 event for target-id, got %+v", body.Events)
 	}
 }
@@ -977,7 +977,7 @@ func TestAdminListOrgs_HappyPath(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != 1 || len(body.Orgs) != 1 {
+	if len(body.Orgs) != 1 {
 		t.Fatalf("expected exactly the one seeded org, got %+v", body)
 	}
 }
@@ -1085,7 +1085,7 @@ func TestAdminListOrgMembers_HappyPath(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Total != 1 || body.Members[0].UserID != owner.ID {
+	if len(body.Members) != 1 || body.Members[0].UserID != owner.ID {
 		t.Fatalf("expected the one owner member, got %+v", body)
 	}
 }

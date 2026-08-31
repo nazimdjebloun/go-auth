@@ -102,6 +102,7 @@ type HandlerGroup struct {
 	RequestDeleteAccount     http.HandlerFunc
 	ConfirmDeleteAccount     http.HandlerFunc
 	ListUsers                http.HandlerFunc
+	CountUsers               http.HandlerFunc
 	UpdateUserRole           http.HandlerFunc
 	BanUser                  http.HandlerFunc
 	UnbanUser                http.HandlerFunc
@@ -125,8 +126,13 @@ type HandlerGroup struct {
 	CreateInvite             http.HandlerFunc
 	ListInvites              http.HandlerFunc
 	RevokeInvite             http.HandlerFunc
+	CountInvites             http.HandlerFunc
 	ResendInvite             http.HandlerFunc
 	HardDeleteInvite         http.HandlerFunc
+	BulkSendInvites          http.HandlerFunc
+	BulkResendInvites        http.HandlerFunc
+	BulkRevokeInvites        http.HandlerFunc
+	BulkDeleteInvites        http.HandlerFunc
 	OAuthInitiate            http.HandlerFunc
 	OAuthCallback            http.HandlerFunc
 	OAuthLink                http.HandlerFunc
@@ -138,7 +144,9 @@ type HandlerGroup struct {
 	UpdateOrg                http.HandlerFunc
 	DeleteOrg                http.HandlerFunc
 	ListUserOrgs             http.HandlerFunc
+	CountUserOrgs            http.HandlerFunc
 	ListOrgMembers           http.HandlerFunc
+	CountOrgMembers          http.HandlerFunc
 	RemoveOrgMember          http.HandlerFunc
 	UpdateOrgMemberRole      http.HandlerFunc
 	AdminListOrgs            http.HandlerFunc
@@ -154,6 +162,7 @@ type HandlerGroup struct {
 	CreateOrgInvite          http.HandlerFunc
 	AcceptOrgInvite          http.HandlerFunc
 	ListOrgInvites           http.HandlerFunc
+	CountOrgInvites          http.HandlerFunc
 	ResendOrgInvite          http.HandlerFunc
 	DeleteOrgInvite          http.HandlerFunc
 }
@@ -606,6 +615,7 @@ func New(config config) (*Auth, error) {
 			ConfirmDeleteAccount: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ConfirmDeleteAccount)))))).ServeHTTP,
 			// Admin endpoints: CORS outer, then rate limit, then auth + admin role check.
 			ListUsers:              corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListUsers))))).ServeHTTP,
+			CountUsers:             corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.CountUsers))))).ServeHTTP,
 			GetUserDetail:          corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetUserDetail))))).ServeHTTP,
 			UpdateUserRole:         corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole))))))).ServeHTTP,
 			BanUser:                corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser))))))).ServeHTTP,
@@ -627,9 +637,14 @@ func New(config config) (*Auth, error) {
 			BulkRevokeUserSessions: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkRevokeUserSessions))))))).ServeHTTP,
 			CreateInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite))))))).ServeHTTP,
 			ListInvites:            corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListInvites))))).ServeHTTP,
+			CountInvites:           corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.CountInvites))))).ServeHTTP,
 			RevokeInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite))))))).ServeHTTP,
 			ResendInvite:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite))))))).ServeHTTP,
 			HardDeleteInvite:       corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite))))))).ServeHTTP,
+			BulkSendInvites:        corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkSendInvites))))))).ServeHTTP,
+			BulkResendInvites:      corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkResendInvites))))))).ServeHTTP,
+			BulkRevokeInvites:      corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkRevokeInvites))))))).ServeHTTP,
+			BulkDeleteInvites:      corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkDeleteInvites))))))).ServeHTTP,
 			OAuthInitiate:          corsMW(http.HandlerFunc(oauthHandlers.Initiate)).ServeHTTP,
 			OAuthCallback:          corsMW(http.HandlerFunc(oauthHandlers.Callback)).ServeHTTP,
 			OAuthLink:              corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(oauthHandlers.InitiateLink))))).ServeHTTP,
@@ -648,7 +663,9 @@ func New(config config) (*Auth, error) {
 			UpdateOrg:           corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateOrg))))))).ServeHTTP,
 			DeleteOrg:           corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOwnerMW(http.HandlerFunc(h.DeleteOrg))))))).ServeHTTP,
 			ListUserOrgs:        corsMW(authMW(http.HandlerFunc(h.ListUserOrgs))).ServeHTTP,
+			CountUserOrgs:       corsMW(authMW(http.HandlerFunc(h.CountUserOrgs))).ServeHTTP,
 			ListOrgMembers:      corsMW(authMW(orgMemberMW(http.HandlerFunc(h.ListOrgMembers)))).ServeHTTP,
+			CountOrgMembers:     corsMW(authMW(orgMemberMW(http.HandlerFunc(h.CountOrgMembers)))).ServeHTTP,
 			RemoveOrgMember:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.RemoveMember))))))).ServeHTTP,
 			UpdateOrgMemberRole: corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateMemberRole))))))).ServeHTTP,
 			// Admin — organizations: platform-admin oversight, gated by
@@ -668,6 +685,7 @@ func New(config config) (*Auth, error) {
 			CreateOrgInvite:          corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CreateOrgInvite)))))))).ServeHTTP,
 			AcceptOrgInvite:          corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite))))).ServeHTTP,
 			ListOrgInvites:           corsMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ListOrgInvites))))).ServeHTTP,
+			CountOrgInvites:          corsMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CountOrgInvites))))).ServeHTTP,
 			ResendOrgInvite:          corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite))))))).ServeHTTP,
 			DeleteOrgInvite:          corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite))))))).ServeHTTP,
 		},
@@ -778,6 +796,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		{routes.ResendVerificationPublic, a.Handlers.ResendVerificationPublic},
 		{routes.RefreshToken, a.Handlers.RefreshToken},
 		{routes.ListUsers, a.Handlers.ListUsers},
+		{routes.AdminCountUsers, a.Handlers.CountUsers},
 		{routes.GetUserDetail, a.Handlers.GetUserDetail},
 		{routes.UpdateUserRole, a.Handlers.UpdateUserRole},
 		{routes.BanUser, a.Handlers.BanUser},
@@ -788,11 +807,14 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		{routes.AdminRevokeUserSession, a.Handlers.AdminRevokeUserSession},
 		{routes.RevokeUserSessions, a.Handlers.RevokeUserSessions},
 		{routes.AdminListAuditLogs, a.Handlers.AdminListAuditLogs},
+		{routes.AdminCountAuditLogs, a.Handlers.AdminListAuditLogs},
 		{routes.AdminListUserAuditLogs, a.Handlers.AdminListUserAuditLogs},
+		{routes.AdminCountUserAuditLogs, a.Handlers.AdminListUserAuditLogs},
 		{routes.AdminStats, a.Handlers.AdminStats},
 		{routes.AdminRegistrationTrend, a.Handlers.AdminRegistrationTrend},
 		{routes.AdminLoginActivity, a.Handlers.AdminLoginActivity},
 		{routes.AdminListSessions, a.Handlers.AdminListSessions},
+		{routes.AdminCountSessions, a.Handlers.AdminListSessions},
 		{routes.BulkBanUsers, a.Handlers.BulkBanUsers},
 		{routes.BulkUnbanUsers, a.Handlers.BulkUnbanUsers},
 		{routes.BulkDeleteUsers, a.Handlers.BulkDeleteUsers},
@@ -808,9 +830,14 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 			routeEntry{routes.InviteRegister, a.Handlers.InviteRegister},
 			routeEntry{routes.CreateInvite, a.Handlers.CreateInvite},
 			routeEntry{routes.ListInvites, a.Handlers.ListInvites},
+			routeEntry{routes.AdminCountInvites, a.Handlers.CountInvites},
 			routeEntry{routes.RevokeInvite, a.Handlers.RevokeInvite},
 			routeEntry{routes.ResendInvite, a.Handlers.ResendInvite},
 			routeEntry{routes.HardDeleteInvite, a.Handlers.HardDeleteInvite},
+			routeEntry{routes.BulkSendInvites, a.Handlers.BulkSendInvites},
+			routeEntry{routes.BulkResendInvites, a.Handlers.BulkResendInvites},
+			routeEntry{routes.BulkRevokeInvites, a.Handlers.BulkRevokeInvites},
+			routeEntry{routes.BulkDeleteInvites, a.Handlers.BulkDeleteInvites},
 		)
 	}
 	if a.cfg.registration.EnableOAuth && a.oAuthService != nil {
@@ -827,15 +854,19 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		entries = append(entries,
 			routeEntry{routes.CreateOrg, a.Handlers.CreateOrg},
 			routeEntry{routes.ListUserOrgs, a.Handlers.ListUserOrgs},
+			routeEntry{routes.CountUserOrgs, a.Handlers.CountUserOrgs},
 			routeEntry{routes.GetOrg, a.Handlers.GetOrg},
 			routeEntry{routes.UpdateOrg, a.Handlers.UpdateOrg},
 			routeEntry{routes.DeleteOrg, a.Handlers.DeleteOrg},
 			routeEntry{routes.ListOrgMembers, a.Handlers.ListOrgMembers},
+			routeEntry{routes.CountOrgMembers, a.Handlers.CountOrgMembers},
 			routeEntry{routes.RemoveOrgMember, a.Handlers.RemoveOrgMember},
 			routeEntry{routes.UpdateOrgMemberRole, a.Handlers.UpdateOrgMemberRole},
 			routeEntry{routes.AdminListOrgs, a.Handlers.AdminListOrgs},
+			routeEntry{routes.AdminCountOrgs, a.Handlers.AdminListOrgs},
 			routeEntry{routes.AdminGetOrg, a.Handlers.AdminGetOrg},
 			routeEntry{routes.AdminListOrgMembers, a.Handlers.AdminListOrgMembers},
+			routeEntry{routes.AdminCountOrgMembers, a.Handlers.AdminListOrgMembers},
 			routeEntry{routes.AdminAddOrgMember, a.Handlers.AdminAddOrgMember},
 			routeEntry{routes.AdminDeleteOrg, a.Handlers.AdminDeleteOrg},
 			routeEntry{routes.AdminRemoveOrgMember, a.Handlers.AdminRemoveOrgMember},
@@ -846,6 +877,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 			routeEntry{routes.CreateOrgInvite, a.Handlers.CreateOrgInvite},
 			routeEntry{routes.AcceptOrgInvite, a.Handlers.AcceptOrgInvite},
 			routeEntry{routes.ListOrgInvites, a.Handlers.ListOrgInvites},
+			routeEntry{routes.CountOrgInvites, a.Handlers.CountOrgInvites},
 			routeEntry{routes.ResendOrgInvite, a.Handlers.ResendOrgInvite},
 			routeEntry{routes.DeleteOrgInvite, a.Handlers.DeleteOrgInvite},
 		)

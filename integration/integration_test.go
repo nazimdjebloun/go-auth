@@ -593,6 +593,12 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
+	// App-wide invites are admin-only at the service layer, so promote first —
+	// Register hands out the default "user" role.
+	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+		t.Fatal(err)
+	}
+
 	// Create invite
 	invite, aerr := a.Services.Invite.CreateInvite(ctx, service.CreateInviteInput{
 		Email:   "invitee@example.com",
@@ -1191,23 +1197,19 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 	}
 
 	var events []port.AuditLogEntry
-	var total int
 	var err error
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		events, total, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50})
+		events, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50})
 		if err != nil {
 			t.Fatalf("audit log list must not fail on NULL json columns: %v", err)
 		}
-		if total > 0 {
-			break
-		}
-		if time.Now().After(deadline) {
+		if len(events) > 0 || time.Now().After(deadline) {
 			break
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if total == 0 || len(events) == 0 {
+	if len(events) == 0 {
 		t.Fatal("expected audit events to be recorded")
 	}
 	// GetByID must also survive NULL columns.
@@ -1224,7 +1226,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 	// Regression: the search filter referenced the same placeholder twice but
 	// bound a single argument, which failed on ?-placeholder drivers.
 	search := "TestAgent"
-	searched, _, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
+	searched, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
 	if err != nil {
 		t.Fatalf("search filter must not fail: %v", err)
 	}
@@ -1232,7 +1234,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 		deadline = time.Now().Add(5 * time.Second)
 		for len(searched) == 0 && !time.Now().After(deadline) {
 			time.Sleep(50 * time.Millisecond)
-			searched, _, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
+			searched, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
 			if err != nil {
 				t.Fatalf("search filter must not fail: %v", err)
 			}
@@ -1244,7 +1246,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 
 	// Regression: event-type filter must bind correctly.
 	loginType := "login.success"
-	typed, _, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
+	typed, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
 	if err != nil {
 		t.Fatalf("event-type filter must not fail: %v", err)
 	}
@@ -1252,7 +1254,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 		deadline = time.Now().Add(5 * time.Second)
 		for len(typed) == 0 && !time.Now().After(deadline) {
 			time.Sleep(50 * time.Millisecond)
-			typed, _, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
+			typed, err = a.Services.AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
 			if err != nil {
 				t.Fatalf("event-type filter must not fail: %v", err)
 			}

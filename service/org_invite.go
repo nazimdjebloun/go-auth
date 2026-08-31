@@ -41,14 +41,14 @@ type OrgInviteService struct {
 }
 
 type OrgInviteServiceConfig struct {
-	MaxOrgsPerUser  int
-	InviteTTL       time.Duration
-	BaseURL         string
-	AppName         string
+	MaxOrgsPerUser   int
+	InviteTTL        time.Duration
+	BaseURL          string
+	AppName          string
 	TemplateProvider port.TemplateProvider
 	URLValidator     *port.URLValidator
-	Logger          *slog.Logger
-	Audit           AuditPublisher
+	Logger           *slog.Logger
+	Audit            AuditPublisher
 }
 
 func NewOrgInviteService(
@@ -261,9 +261,22 @@ type ListOrgInvitesInput struct {
 
 type ListOrgInvitesResult struct {
 	Invites []domain.OrgInvite `json:"invites"`
-	Total   int                `json:"total"`
 	Limit   int                `json:"limit"`
 	Offset  int                `json:"offset"`
+}
+
+// orgInviteFilterFromInput builds the repository filter shared by
+// ListOrgInvites and CountOrgInvites. limit is only meaningful for the list.
+func orgInviteFilterFromInput(input ListOrgInvitesInput, limit int) port.OrgInviteFilter {
+	return port.OrgInviteFilter{
+		Role:           input.Role,
+		Status:         input.Status,
+		Search:         input.Search,
+		OrderBy:        input.OrderBy,
+		OrderDirection: input.OrderDirection,
+		Offset:         input.Offset,
+		Limit:          limit,
+	}
 }
 
 func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input ListOrgInvitesInput) (*ListOrgInvitesResult, error) {
@@ -279,22 +292,24 @@ func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input ListOrgInvi
 			limit = 100
 		}
 	}
-	invites, total, err := s.orgInvites.ListByOrgID(ctx, input.OrgID, port.OrgInviteFilter{
-		Role:           input.Role,
-		Status:         input.Status,
-		Search:         input.Search,
-		OrderBy:        input.OrderBy,
-		OrderDirection: input.OrderDirection,
-		Offset:         input.Offset,
-		Limit:          limit,
-	})
+	invites, err := s.orgInvites.ListByOrgID(ctx, input.OrgID, orgInviteFilterFromInput(input, limit))
 	if err != nil {
 		return nil, err
 	}
 	if invites == nil {
 		invites = []domain.OrgInvite{}
 	}
-	return &ListOrgInvitesResult{Invites: invites, Total: total, Limit: limit, Offset: input.Offset}, nil
+	return &ListOrgInvitesResult{Invites: invites, Limit: limit, Offset: input.Offset}, nil
+}
+
+// CountOrgInvites returns how many of the org's invites match the input's
+// filters (pagination ignored). Split from ListOrgInvites so a paginated
+// invite table doesn't run a COUNT(*) on every page.
+func (s *OrgInviteService) CountOrgInvites(ctx context.Context, input ListOrgInvitesInput) (int, error) {
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
+		return 0, err
+	}
+	return s.orgInvites.CountByOrgID(ctx, input.OrgID, orgInviteFilterFromInput(input, 0))
 }
 
 // ─── DeleteOrgInvite ────────────────────────────────────────────────

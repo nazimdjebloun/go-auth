@@ -40,7 +40,7 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	reuseType := string(audit.EventSessionRefreshReuseDetected)
-	events, _, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Types: []string{reuseType}, Limit: 10})
+	events, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Types: []string{reuseType}, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

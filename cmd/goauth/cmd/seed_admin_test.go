@@ -48,16 +48,23 @@ func (f *fakeUserRepo) GetByEmail(ctx context.Context, email string) (*domain.Us
 }
 
 func (f *fakeUserRepo) Update(ctx context.Context, user *domain.User) error { return nil }
-func (f *fakeUserRepo) Delete(ctx context.Context, id string) error        { return nil }
+func (f *fakeUserRepo) Delete(ctx context.Context, id string) error         { return nil }
 
-func (f *fakeUserRepo) List(ctx context.Context, filter port.UserFilter) ([]domain.User, int, error) {
+func (f *fakeUserRepo) List(ctx context.Context, filter port.UserFilter) ([]domain.User, error) {
 	if f.listErr != nil {
-		return nil, 0, f.listErr
+		return nil, f.listErr
+	}
+	return nil, nil
+}
+
+func (f *fakeUserRepo) Count(ctx context.Context, filter port.UserFilter) (int, error) {
+	if f.listErr != nil {
+		return 0, f.listErr
 	}
 	if filter.Role != nil && *filter.Role == domain.RoleAdmin {
-		return nil, f.admins, nil
+		return f.admins, nil
 	}
-	return nil, len(f.byEmail), nil
+	return len(f.byEmail), nil
 }
 
 func (f *fakeUserRepo) CountByDay(ctx context.Context, filter port.UserFilter) ([]port.DailyCount, error) {

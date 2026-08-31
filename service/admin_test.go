@@ -49,8 +49,8 @@ func TestAdminListUsers_Empty(t *testing.T) {
 		t.Fatal("expected result, got nil")
 	}
 	// newTestAdminService seeds one user — the admin actor itself.
-	if result.Total != 1 {
-		t.Fatalf("expected 1 user, got %d", result.Total)
+	if len(result.Users) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(result.Users))
 	}
 	if len(result.Users) != 1 {
 		t.Fatalf("expected 1 user in slice, got %d", len(result.Users))
@@ -83,8 +83,8 @@ func TestAdminListUsers_WithData(t *testing.T) {
 		t.Fatalf("expected limit 10, got %d", result.Limit)
 	}
 	// 5 seeded users plus newTestAdminService's own actor-admin.
-	if result.Total != 6 {
-		t.Fatalf("expected 6 users, got %d", result.Total)
+	if len(result.Users) != 6 {
+		t.Fatalf("expected 6 users, got %d", len(result.Users))
 	}
 }
 
@@ -737,8 +737,8 @@ func TestAdminListUsers_NeverLoggedIn(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	// u2 plus newTestAdminService's own actor-admin — neither has logged in.
-	if result.Total != 2 {
-		t.Fatalf("expected 2 never-logged-in users, got %d", result.Total)
+	if len(result.Users) != 2 {
+		t.Fatalf("expected 2 never-logged-in users, got %d", len(result.Users))
 	}
 	for _, u := range result.Users {
 		if u.ID == "u1" {
@@ -768,11 +768,68 @@ func TestAdminListUsers_LastLoginBefore(t *testing.T) {
 	// Only "dormant" logged in before cutoff — "active" logged in after it,
 	// "never" and the actor-admin have never logged in (LastLoginBefore
 	// excludes NULLs, that's NeverLoggedIn's job).
-	if result.Total != 1 {
-		t.Fatalf("expected 1 dormant user, got %d", result.Total)
+	if len(result.Users) != 1 {
+		t.Fatalf("expected 1 dormant user, got %d", len(result.Users))
 	}
 	if len(result.Users) != 1 || result.Users[0].ID != "dormant" {
 		t.Errorf("expected only 'dormant' user, got %+v", result.Users)
+	}
+}
+
+// ─── ListUsers status filters ──────────────────────────────────────
+
+func TestAdminListUsers_IsBanned(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
+
+	users.Create(context.Background(), &domain.User{ID: "banned", Email: "banned@example.com", IsBanned: true})
+	users.Create(context.Background(), &domain.User{ID: "ok", Email: "ok@example.com"})
+
+	yes := true
+	result, err := svc.ListUsers(context.Background(), AdminListUsersInput{
+		ActorID: actorID, Limit: 10, IsBanned: &yes,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Users) != 1 || result.Users[0].ID != "banned" {
+		t.Errorf("expected only the banned user, got %+v", result.Users)
+	}
+
+	no := false
+	result, err = svc.ListUsers(context.Background(), AdminListUsersInput{
+		ActorID: actorID, Limit: 10, IsBanned: &no,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, u := range result.Users {
+		if u.ID == "banned" {
+			t.Error("expected the banned user to be excluded when isBanned=false")
+		}
+	}
+}
+
+func TestAdminListUsers_IsVerified(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
+
+	users.Create(context.Background(), &domain.User{ID: "verified", Email: "verified@example.com", IsVerified: true})
+	users.Create(context.Background(), &domain.User{ID: "pending", Email: "pending@example.com"})
+
+	no := false
+	result, err := svc.ListUsers(context.Background(), AdminListUsersInput{
+		ActorID: actorID, Limit: 10, IsVerified: &no,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, u := range result.Users {
+		if u.IsVerified {
+			t.Errorf("expected only unverified users, got verified %s", u.ID)
+		}
 	}
 }
 
@@ -977,8 +1034,8 @@ func TestAdminListSessions_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 2 {
-		t.Fatalf("expected 2 sessions, got %d", result.Total)
+	if len(result.Sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(result.Sessions))
 	}
 }
 
@@ -995,7 +1052,7 @@ func TestAdminListSessions_FilterByUserID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 1 || len(result.Sessions) != 1 || result.Sessions[0].UserID != "user-1" {
+	if len(result.Sessions) != 1 || result.Sessions[0].UserID != "user-1" {
 		t.Fatalf("expected 1 session for user-1, got %+v", result)
 	}
 }
@@ -1013,7 +1070,7 @@ func TestAdminListSessions_FilterByIP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 1 || result.Sessions[0].UserID != "user-2" {
+	if len(result.Sessions) != 1 || result.Sessions[0].UserID != "user-2" {
 		t.Fatalf("expected 1 session for user-2, got %+v", result)
 	}
 }
@@ -1197,8 +1254,8 @@ func TestAdminListAuditLogs_MultiEventType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 2 {
-		t.Fatalf("expected 2 events (login.success + logout), got %d: %+v", result.Total, result.Events)
+	if len(result.Events) != 2 {
+		t.Fatalf("expected 2 events (login.success + logout), got %d: %+v", len(result.Events), result.Events)
 	}
 }
 
@@ -1221,7 +1278,7 @@ func TestAdminListAuditLogs_ActorByEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 1 || *result.Events[0].ActorID != "alice-id" {
+	if len(result.Events) != 1 || *result.Events[0].ActorID != "alice-id" {
 		t.Fatalf("expected 1 event for alice-id, got %+v", result.Events)
 	}
 }
@@ -1260,7 +1317,7 @@ func TestAdminListAuditLogs_TargetByEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 1 || *result.Events[0].TargetUserID != "target-id" {
+	if len(result.Events) != 1 || *result.Events[0].TargetUserID != "target-id" {
 		t.Fatalf("expected 1 event for target-id, got %+v", result.Events)
 	}
 }
@@ -1282,7 +1339,7 @@ func TestAdminListAuditLogs_DeviceType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 1 || result.Events[0].ID != "e1" {
+	if len(result.Events) != 1 || result.Events[0].ID != "e1" {
 		t.Fatalf("expected 1 mobile event, got %+v", result.Events)
 	}
 }
@@ -1304,7 +1361,7 @@ func TestAdminListAuditLogs_IPFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 1 || result.Events[0].ID != "e2" {
+	if len(result.Events) != 1 || result.Events[0].ID != "e2" {
 		t.Fatalf("expected 1 event from 10.0.0.2, got %+v", result.Events)
 	}
 }
@@ -1326,7 +1383,7 @@ func TestAdminListAuditLogs_PerUserRouteScoping(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 1 || result.Events[0].ID != "e1" {
+	if len(result.Events) != 1 || result.Events[0].ID != "e1" {
 		t.Fatalf("expected 1 event for target-id, got %+v", result.Events)
 	}
 }
@@ -1348,8 +1405,8 @@ func TestAdminListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.Total != 2 {
-		t.Fatalf("expected 2 events, got %d", result.Total)
+	if len(result.Events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(result.Events))
 	}
 
 	var e1, e2 *AdminAuditLogEntry

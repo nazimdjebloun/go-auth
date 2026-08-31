@@ -335,8 +335,8 @@ func TestListUserOrgs(t *testing.T) {
 	if len(result.Orgs) != 2 {
 		t.Errorf("expected 2 orgs, got %d", len(result.Orgs))
 	}
-	if result.Total != 2 {
-		t.Errorf("expected total 2, got %d", result.Total)
+	if len(result.Orgs) != 2 {
+		t.Errorf("expected total 2, got %d", len(result.Orgs))
 	}
 }
 
@@ -398,8 +398,12 @@ func TestListUserOrgs_DefaultLimit(t *testing.T) {
 	if len(result.Orgs) != 20 || result.Limit != 20 {
 		t.Errorf("expected 20 orgs (default limit), got %d orgs, limit=%d", len(result.Orgs), result.Limit)
 	}
-	if result.Total != 25 {
-		t.Errorf("expected total 25, got %d", result.Total)
+	count, err := svc.CountUserOrgs(ctx, ListUserOrgsInput{UserID: "user-1"})
+	if err != nil {
+		t.Fatalf("CountUserOrgs failed: %v", err)
+	}
+	if count != 25 {
+		t.Errorf("expected total 25, got %d", count)
 	}
 }
 
@@ -708,8 +712,12 @@ func TestListMembers_Pagination(t *testing.T) {
 	if len(result.Members) > 2 {
 		t.Errorf("expected at most 2 members, got %d", len(result.Members))
 	}
-	if result.Total < 5 {
-		t.Errorf("expected total >= 5, got %d", result.Total)
+	count, err := svc.CountMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "user-1"})
+	if err != nil {
+		t.Fatalf("CountMembers failed: %v", err)
+	}
+	if count < 5 {
+		t.Errorf("expected total >= 5, got %d", count)
 	}
 }
 
@@ -731,8 +739,12 @@ func TestListMembers_DefaultLimit(t *testing.T) {
 	if len(result.Members) != 20 || result.Limit != 20 {
 		t.Errorf("expected 20 members (default limit), got %d members, limit=%d", len(result.Members), result.Limit)
 	}
-	if result.Total != 26 { // 25 added members + the owner
-		t.Errorf("expected total 26, got %d", result.Total)
+	count, err := svc.CountMembers(ctx, ListMembersInput{OrgID: org.ID, ActorID: "user-1"})
+	if err != nil {
+		t.Fatalf("CountMembers failed: %v", err)
+	}
+	if count != 26 { // 25 added members + the owner
+		t.Errorf("expected total 26, got %d", count)
 	}
 }
 
@@ -771,8 +783,8 @@ func TestListMembers_RoleFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListMembers failed: %v", err)
 	}
-	if result.Total != 2 {
-		t.Fatalf("expected 2 members, got %d", result.Total)
+	if len(result.Members) != 2 {
+		t.Fatalf("expected 2 members, got %d", len(result.Members))
 	}
 	for _, m := range result.Members {
 		if m.Role != domain.OrgRoleMember {
@@ -999,8 +1011,16 @@ func TestListOrgInvites(t *testing.T) {
 	if len(result.Invites) != 2 {
 		t.Errorf("expected 2 invites, got %d", len(result.Invites))
 	}
-	if result.Total != 2 || result.Limit != 20 {
-		t.Errorf("expected total 2, limit 20 (default), got total %d, limit %d", result.Total, result.Limit)
+	if result.Limit != 20 {
+		t.Errorf("expected limit 20 (default), got %d", result.Limit)
+	}
+
+	count, err := inviteSvc.CountOrgInvites(ctx, ListOrgInvitesInput{OrgID: org.ID, ActorID: "owner-1"})
+	if err != nil {
+		t.Fatalf("CountOrgInvites failed: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected count 2, got %d", count)
 	}
 }
 
@@ -1077,8 +1097,13 @@ func TestListOrgInvites_DefaultLimit(t *testing.T) {
 	if len(result.Invites) != 20 || result.Limit != 20 {
 		t.Errorf("expected 20 invites (default limit), got %d, limit=%d", len(result.Invites), result.Limit)
 	}
-	if result.Total != 25 {
-		t.Errorf("expected total 25, got %d", result.Total)
+
+	count, err := inviteSvc.CountOrgInvites(ctx, ListOrgInvitesInput{OrgID: org.ID, ActorID: "owner-1"})
+	if err != nil {
+		t.Fatalf("CountOrgInvites failed: %v", err)
+	}
+	if count != 25 {
+		t.Errorf("expected count 25, got %d", count)
 	}
 }
 
@@ -1238,7 +1263,7 @@ func TestAdminListOrgs_Search(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AdminListOrgs failed: %v", err)
 	}
-	if result.Total != 1 || len(result.Orgs) != 1 || result.Orgs[0].Slug != "acme" {
+	if len(result.Orgs) != 1 || result.Orgs[0].Slug != "acme" {
 		t.Fatalf("expected exactly the acme org, got %+v", result)
 	}
 }
@@ -1266,7 +1291,7 @@ func TestAdminListOrgs_DateRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AdminListOrgs failed: %v", err)
 	}
-	if result.Total != 1 || result.Orgs[0].Slug != "new-org" {
+	if len(result.Orgs) != 1 || result.Orgs[0].Slug != "new-org" {
 		t.Fatalf("expected only new-org after cutoff, got %+v", result)
 	}
 }
@@ -1341,7 +1366,7 @@ func TestAdminListOrgMembers_BypassesMembership(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AdminListOrgMembers failed for a non-member admin: %v", err)
 	}
-	if result.Total != 1 || result.Members[0].UserID != "owner-1" {
+	if len(result.Members) != 1 || result.Members[0].UserID != "owner-1" {
 		t.Fatalf("expected the one owner member, got %+v", result)
 	}
 }
@@ -1441,7 +1466,7 @@ func TestAdminAddMember_RecoversOrphanedOrg(t *testing.T) {
 		t.Fatalf("failed to simulate the dangling-membership scenario: %v", err)
 	}
 	result, _ := svc.AdminListOrgMembers(ctx, AdminListOrgMembersInput{OrgID: org.ID, ActorID: "admin1"})
-	if result.Total != 0 {
+	if len(result.Members) != 0 {
 		t.Fatalf("expected the org to be memberless, got %+v", result)
 	}
 

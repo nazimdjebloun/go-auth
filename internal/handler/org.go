@@ -156,6 +156,34 @@ func (h *Handler) ListUserOrgs(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+// CountUserOrgs — GET /auth/orgs/count. The total for ListUserOrgs, on its
+// own call so a paginated org list doesn't run a COUNT(*) per page.
+func (h *Handler) CountUserOrgs(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	n, err := h.services.Org.CountUserOrgs(r.Context(), service.ListUserOrgsInput{
+		UserID: user.ID, Search: search,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": n})
+}
+
 func (h *Handler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -206,6 +234,41 @@ func (h *Handler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// CountOrgMembers — GET /auth/orgs/{orgID}/members/count. The total for
+// ListOrgMembers; same membership check, no COUNT(*) per page.
+func (h *Handler) CountOrgMembers(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
+
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	var role *domain.OrgRole
+	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
+		x := domain.OrgRole(rl)
+		role = &x
+	}
+
+	n, err := h.services.Org.CountMembers(r.Context(), service.ListMembersInput{
+		OrgID: orgID, ActorID: user.ID, Role: role, Search: search,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": n})
 }
 
 func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
@@ -441,6 +504,47 @@ func (h *Handler) ListOrgInvites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+// CountOrgInvites — GET /auth/orgs/{orgID}/invites/count. The total for
+// ListOrgInvites, split out so a paginated invite table doesn't run a
+// COUNT(*) per page. Same org-admin access check as the list.
+func (h *Handler) CountOrgInvites(w http.ResponseWriter, r *http.Request) {
+	if h.services.OrgInvite == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	user := middleware.GetUserFromContext(r.Context())
+	if user == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	orgID := r.PathValue("orgID")
+
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	var role *domain.OrgRole
+	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
+		x := domain.OrgRole(rl)
+		role = &x
+	}
+
+	var status *string
+	if s := r.URL.Query().Get("status"); s == "pending" || s == "expired" {
+		status = &s
+	}
+
+	n, err := h.services.OrgInvite.CountOrgInvites(r.Context(), service.ListOrgInvitesInput{
+		OrgID: orgID, ActorID: user.ID, Role: role, Status: status, Search: search,
+	})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": n})
 }
 
 func (h *Handler) ResendOrgInvite(w http.ResponseWriter, r *http.Request) {

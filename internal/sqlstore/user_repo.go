@@ -193,10 +193,16 @@ func (r *UserRepository) buildWhere(filter port.UserFilter) (string, []any) {
 		argIdx++
 	}
 	if filter.Search != nil && *filter.Search != "" {
+		// Postgres does a substring match, served by the pg_trgm GIN indexes
+		// on users(name) / users(email). MySQL and SQLite have no portable
+		// substring index, so they fall back to a prefix match ("term%")
+		// that a plain btree can serve — matching the start of a name or
+		// email is the common admin lookup anyway.
 		searchTerm := "%" + *filter.Search + "%"
 		op := "ILIKE"
 		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
 			op = "LIKE"
+			searchTerm = *filter.Search + "%"
 		}
 		// Two distinct placeholders, not one reused twice: DB.Rebind rewrites
 		// every textual "$N" occurrence to "?" positionally for mysql/sqlite,
@@ -210,15 +216,9 @@ func (r *UserRepository) buildWhere(filter port.UserFilter) (string, []any) {
 	return strings.Join(where, " AND "), args
 }
 
-func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]domain.User, int, error) {
+func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]domain.User, error) {
 	whereClause, args := r.buildWhere(filter)
 	argIdx := len(args) + 1
-
-	var total int
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM users WHERE %s", whereClause)
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
 
 	orderCol := orderByWhitelist[filter.OrderBy]
 	if orderCol == "" {
@@ -229,57 +229,42 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 		orderDir = "ASC"
 	}
 
-	if filter.Limit <= 0 {
-		query := fmt.Sprintf(`
-			SELECT %s FROM users WHERE %s ORDER BY %s %s`, userSelectColumns, whereClause, orderCol, orderDir)
-
-		rows, err := r.db.QueryContext(ctx, query, args...)
-		if err != nil {
-			return nil, 0, err
-		}
-		defer rows.Close()
-
-		var users []domain.User
-		for rows.Next() {
-			u, err := scanRow(rows)
-			if err != nil {
-				return nil, 0, err
-			}
-			users = append(users, *u)
-		}
-		if users == nil {
-			users = []domain.User{}
-		}
-		return users, total, rows.Err()
-	}
-
-	limit := filter.Limit
-	offset := filter.Offset
-
 	query := fmt.Sprintf(`
-		SELECT %s FROM users WHERE %s ORDER BY %s %s LIMIT $%d OFFSET $%d`,
-		userSelectColumns, whereClause, orderCol, orderDir, argIdx, argIdx+1)
-	args = append(args, limit, offset)
+		SELECT %s FROM users WHERE %s ORDER BY %s %s`,
+		userSelectColumns, whereClause, orderCol, orderDir)
+	if filter.Limit > 0 {
+		query += fmt.Sprintf(" LIMIT $%d OFFSET $%d", argIdx, argIdx+1)
+		args = append(args, filter.Limit, filter.Offset)
+	}
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var users []domain.User
+	users := []domain.User{}
 	for rows.Next() {
 		u, err := scanRow(rows)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		users = append(users, *u)
 	}
-	if users == nil {
-		users = []domain.User{}
-	}
 
-	return users, total, rows.Err()
+	return users, rows.Err()
+}
+
+// Count returns how many users match filter. Pagination/order on filter are
+// irrelevant here; only the WHERE predicates matter.
+func (r *UserRepository) Count(ctx context.Context, filter port.UserFilter) (int, error) {
+	whereClause, args := r.buildWhere(filter)
+	var total int
+	q := fmt.Sprintf("SELECT COUNT(*) FROM users WHERE %s", whereClause)
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 // CountByDay returns registrations per day matching filter — Offset/Limit on

@@ -99,6 +99,8 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 	filter := port.UserFilter{
 		Email:            input.Email,
 		Role:             input.Role,
+		IsBanned:         input.IsBanned,
+		IsVerified:       input.IsVerified,
 		TwoFactorEnabled: input.TwoFactorEnabled,
 		NeverLoggedIn:    input.NeverLoggedIn,
 		LastLoginBefore:  input.LastLoginBefore,
@@ -109,22 +111,41 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 		OrderDirection:   input.OrderDirection,
 	}
 
-	users, total, err := s.users.List(ctx, filter)
+	users, err := s.users.List(ctx, filter)
 	if err != nil {
 		s.log.Error("failed to list users", "err", err)
 		return nil, domain.ErrInternal
 	}
 
-	if users == nil {
-		users = []domain.User{}
-	}
-
 	return &AdminListUsersResult{
 		Users:  users,
-		Total:  total,
 		Limit:  limit,
 		Offset: input.Offset,
 	}, nil
+}
+
+// CountUsers returns how many users match the input's filters (pagination and
+// ordering are ignored). Split from ListUsers so a paginated UI doesn't pay
+// for a COUNT(*) on every page.
+func (s *AdminService) CountUsers(ctx context.Context, input AdminListUsersInput) (int, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return 0, err
+	}
+	n, err := s.users.Count(ctx, port.UserFilter{
+		Email:            input.Email,
+		Role:             input.Role,
+		IsBanned:         input.IsBanned,
+		IsVerified:       input.IsVerified,
+		TwoFactorEnabled: input.TwoFactorEnabled,
+		NeverLoggedIn:    input.NeverLoggedIn,
+		LastLoginBefore:  input.LastLoginBefore,
+		Search:           input.Search,
+	})
+	if err != nil {
+		s.log.Error("failed to count users", "err", err)
+		return 0, domain.ErrInternal
+	}
+	return n, nil
 }
 
 // maxStatsRangeDays caps every date-range analytics query (registration
@@ -143,10 +164,8 @@ type AdminStats struct {
 	ActiveSessions        int `json:"activeSessions"`
 }
 
-// GetStats returns platform-wide counts for the admin dashboard. Each field
-// is a separate List/ListAll call with Limit:1 — List always runs a COUNT(*)
-// query regardless of Limit, so the row fetch itself stays trivial while the
-// count is exact, not an estimate.
+// GetStats returns platform-wide counts for the admin dashboard — one Count
+// call per field, each an exact COUNT(*), not an estimate.
 func (s *AdminService) GetStats(ctx context.Context, actorID string) (*AdminStats, error) {
 	if err := s.requireAdmin(ctx, actorID); err != nil {
 		return nil, err
@@ -155,42 +174,42 @@ func (s *AdminService) GetStats(ctx context.Context, actorID string) (*AdminStat
 	yes := true
 	stats := &AdminStats{}
 
-	_, total, err := s.users.List(ctx, port.UserFilter{Limit: 1})
+	total, err := s.users.Count(ctx, port.UserFilter{})
 	if err != nil {
 		s.log.Error("failed to count users", "err", err)
 		return nil, domain.ErrInternal
 	}
 	stats.TotalUsers = total
 
-	_, verified, err := s.users.List(ctx, port.UserFilter{IsVerified: &yes, Limit: 1})
+	verified, err := s.users.Count(ctx, port.UserFilter{IsVerified: &yes})
 	if err != nil {
 		s.log.Error("failed to count verified users", "err", err)
 		return nil, domain.ErrInternal
 	}
 	stats.VerifiedUsers = verified
 
-	_, banned, err := s.users.List(ctx, port.UserFilter{IsBanned: &yes, Limit: 1})
+	banned, err := s.users.Count(ctx, port.UserFilter{IsBanned: &yes})
 	if err != nil {
 		s.log.Error("failed to count banned users", "err", err)
 		return nil, domain.ErrInternal
 	}
 	stats.BannedUsers = banned
 
-	_, twoFactor, err := s.users.List(ctx, port.UserFilter{TwoFactorEnabled: &yes, Limit: 1})
+	twoFactor, err := s.users.Count(ctx, port.UserFilter{TwoFactorEnabled: &yes})
 	if err != nil {
 		s.log.Error("failed to count two-factor users", "err", err)
 		return nil, domain.ErrInternal
 	}
 	stats.TwoFactorEnabledUsers = twoFactor
 
-	_, neverLoggedIn, err := s.users.List(ctx, port.UserFilter{NeverLoggedIn: &yes, Limit: 1})
+	neverLoggedIn, err := s.users.Count(ctx, port.UserFilter{NeverLoggedIn: &yes})
 	if err != nil {
 		s.log.Error("failed to count never-logged-in users", "err", err)
 		return nil, domain.ErrInternal
 	}
 	stats.NeverLoggedInUsers = neverLoggedIn
 
-	_, activeSessions, err := s.sessions.ListAll(ctx, port.SessionFilter{Limit: 1})
+	activeSessions, err := s.sessions.CountAll(ctx, port.SessionFilter{})
 	if err != nil {
 		s.log.Error("failed to count active sessions", "err", err)
 		return nil, domain.ErrInternal
@@ -312,7 +331,6 @@ type AdminAuditLogEntry struct {
 
 type AdminListAuditLogsResult struct {
 	Events []AdminAuditLogEntry `json:"events"`
-	Total  int                  `json:"total"`
 	Limit  int                  `json:"limit"`
 	Offset int                  `json:"offset"`
 }
@@ -337,7 +355,7 @@ func (s *AdminService) resolveEmailsForEntries(ctx context.Context, entries []po
 		for id := range idSet {
 			ids = append(ids, id)
 		}
-		users, _, err := s.users.List(ctx, port.UserFilter{IDs: ids})
+		users, err := s.users.List(ctx, port.UserFilter{IDs: ids})
 		if err != nil {
 			s.log.Error("failed to resolve audit log actor/target emails", "err", err)
 			return nil, domain.ErrInternal
@@ -393,22 +411,9 @@ func (s *AdminService) ListAuditLogs(ctx context.Context, input AdminListAuditLo
 		return nil, err
 	}
 
-	eventActorID := input.EventActorID
-	if input.EventActorEmail != nil {
-		resolved, err := s.resolveUserEmail(ctx, input.EventActorEmail)
-		if err != nil {
-			return nil, err
-		}
-		eventActorID = resolved
-	}
-
-	targetUserID := input.TargetUserID
-	if input.TargetEmail != nil {
-		resolved, err := s.resolveUserEmail(ctx, input.TargetEmail)
-		if err != nil {
-			return nil, err
-		}
-		targetUserID = resolved
+	filter, err := s.auditFilterFromInput(ctx, input)
+	if err != nil {
+		return nil, err
 	}
 
 	limit := input.Limit
@@ -417,8 +422,45 @@ func (s *AdminService) ListAuditLogs(ctx context.Context, input AdminListAuditLo
 	} else if limit > 200 {
 		limit = 200
 	}
+	filter.Offset = input.Offset
+	filter.Limit = limit
 
-	events, total, err := s.auditLogs.List(ctx, port.AuditLogFilter{
+	events, err := s.auditLogs.List(ctx, filter)
+	if err != nil {
+		s.log.Error("failed to list audit logs", "err", err)
+		return nil, domain.ErrInternal
+	}
+	enriched, err := s.resolveEmailsForEntries(ctx, events)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AdminListAuditLogsResult{Events: enriched, Limit: limit, Offset: input.Offset}, nil
+}
+
+// auditFilterFromInput resolves any actor/target emails to IDs and builds the
+// repository filter (without Offset/Limit) shared by ListAuditLogs and
+// CountAuditLogs.
+func (s *AdminService) auditFilterFromInput(ctx context.Context, input AdminListAuditLogsInput) (port.AuditLogFilter, error) {
+	eventActorID := input.EventActorID
+	if input.EventActorEmail != nil {
+		resolved, err := s.resolveUserEmail(ctx, input.EventActorEmail)
+		if err != nil {
+			return port.AuditLogFilter{}, err
+		}
+		eventActorID = resolved
+	}
+
+	targetUserID := input.TargetUserID
+	if input.TargetEmail != nil {
+		resolved, err := s.resolveUserEmail(ctx, input.TargetEmail)
+		if err != nil {
+			return port.AuditLogFilter{}, err
+		}
+		targetUserID = resolved
+	}
+
+	return port.AuditLogFilter{
 		Types:        input.EventTypes,
 		ActorID:      eventActorID,
 		TargetUserID: targetUserID,
@@ -430,19 +472,25 @@ func (s *AdminService) ListAuditLogs(ctx context.Context, input AdminListAuditLo
 		Search:       input.Search,
 		FromDate:     input.FromDate,
 		ToDate:       input.ToDate,
-		Offset:       input.Offset,
-		Limit:        limit,
-	})
-	if err != nil {
-		s.log.Error("failed to list audit logs", "err", err)
-		return nil, domain.ErrInternal
-	}
-	enriched, err := s.resolveEmailsForEntries(ctx, events)
-	if err != nil {
-		return nil, err
-	}
+	}, nil
+}
 
-	return &AdminListAuditLogsResult{Events: enriched, Total: total, Limit: limit, Offset: input.Offset}, nil
+// CountAuditLogs returns how many audit entries match the input's filters
+// (pagination ignored).
+func (s *AdminService) CountAuditLogs(ctx context.Context, input AdminListAuditLogsInput) (int, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return 0, err
+	}
+	filter, err := s.auditFilterFromInput(ctx, input)
+	if err != nil {
+		return 0, err
+	}
+	n, err := s.auditLogs.Count(ctx, filter)
+	if err != nil {
+		s.log.Error("failed to count audit logs", "err", err)
+		return 0, domain.ErrInternal
+	}
+	return n, nil
 }
 
 type BanUserInput struct {
@@ -466,7 +514,7 @@ func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 	// Prevent banning the last admin.
 	if user.Role == domain.RoleAdmin {
 		adminRole := domain.RoleAdmin
-		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
+		total, err := s.users.Count(ctx, port.UserFilter{Role: &adminRole})
 		if err != nil {
 			s.log.Error("failed to check admin count", "err", err)
 			return domain.ErrInternal
@@ -552,7 +600,7 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 	// Prevent demoting the last admin.
 	if user.Role == domain.RoleAdmin && input.Role == "user" {
 		adminRole := domain.RoleAdmin
-		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
+		total, err := s.users.Count(ctx, port.UserFilter{Role: &adminRole})
 		if err != nil {
 			s.log.Error("failed to check admin count", "err", err)
 			return domain.ErrInternal
@@ -597,7 +645,7 @@ func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) er
 	// Prevent deleting the last admin.
 	if user.Role == domain.RoleAdmin {
 		adminRole := domain.RoleAdmin
-		_, total, err := s.users.List(ctx, port.UserFilter{Role: &adminRole, Limit: 1})
+		total, err := s.users.Count(ctx, port.UserFilter{Role: &adminRole})
 		if err != nil {
 			s.log.Error("failed to check admin count", "err", err)
 			return domain.ErrInternal
@@ -671,7 +719,6 @@ type AdminListSessionsInput struct {
 
 type AdminListSessionsResult struct {
 	Sessions []domain.Session `json:"sessions"`
-	Total    int              `json:"total"`
 	Limit    int              `json:"limit"`
 	Offset   int              `json:"offset"`
 }
@@ -690,7 +737,17 @@ func (s *AdminService) ListSessions(ctx context.Context, input AdminListSessions
 		limit = 100
 	}
 
-	sessions, total, err := s.sessions.ListAll(ctx, port.SessionFilter{
+	sessions, err := s.sessions.ListAll(ctx, s.sessionFilterFromInput(input, limit))
+	if err != nil {
+		s.log.Error("failed to list sessions", "err", err)
+		return nil, domain.ErrInternal
+	}
+
+	return &AdminListSessionsResult{Sessions: sessions, Limit: limit, Offset: input.Offset}, nil
+}
+
+func (s *AdminService) sessionFilterFromInput(input AdminListSessionsInput, limit int) port.SessionFilter {
+	return port.SessionFilter{
 		UserID:           input.UserID,
 		IP:               input.IP,
 		Search:           input.Search,
@@ -704,16 +761,23 @@ func (s *AdminService) ListSessions(ctx context.Context, input AdminListSessions
 		OrderDirection:   input.OrderDirection,
 		Offset:           input.Offset,
 		Limit:            limit,
-	})
-	if err != nil {
-		s.log.Error("failed to list sessions", "err", err)
-		return nil, domain.ErrInternal
 	}
-	if sessions == nil {
-		sessions = []domain.Session{}
-	}
+}
 
-	return &AdminListSessionsResult{Sessions: sessions, Total: total, Limit: limit, Offset: input.Offset}, nil
+// CountSessions returns how many sessions match the input's filters
+// (pagination ignored).
+func (s *AdminService) CountSessions(ctx context.Context, input AdminListSessionsInput) (int, error) {
+	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+		return 0, err
+	}
+	f := s.sessionFilterFromInput(input, 0)
+	f.Offset, f.Limit = 0, 0
+	n, err := s.sessions.CountAll(ctx, f)
+	if err != nil {
+		s.log.Error("failed to count sessions", "err", err)
+		return 0, domain.ErrInternal
+	}
+	return n, nil
 }
 
 // maxBulkUserIDs caps a bulk request the same way Limit is capped elsewhere
@@ -950,9 +1014,13 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, input RevokeUserSe
 }
 
 type AdminUserDetail struct {
-	User               domain.User              `json:"user"`
-	ActiveSessionCount int                      `json:"activeSessionCount"`
-	Providers          []domain.ProviderAccount `json:"providers"`
+	User               domain.User `json:"user"`
+	ActiveSessionCount int         `json:"activeSessionCount"`
+	// HasPassword is whether the account can sign in with a password at all —
+	// false for an OAuth-only account that never set one. The hash itself is
+	// never exposed (domain.User.PasswordHash is json:"-").
+	HasPassword bool                     `json:"hasPassword"`
+	Providers   []domain.ProviderAccount `json:"providers"`
 }
 
 type GetUserDetailInput struct {
@@ -984,6 +1052,7 @@ func (s *AdminService) GetUserDetail(ctx context.Context, input GetUserDetailInp
 	return &AdminUserDetail{
 		User:               *user,
 		ActiveSessionCount: activeSessionCount,
+		HasPassword:        user.HasPassword(),
 		Providers:          providers,
 	}, nil
 }

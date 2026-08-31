@@ -71,7 +71,13 @@ type UserRepository interface {
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id string) error
-	List(ctx context.Context, filter UserFilter) ([]domain.User, int, error)
+	// List returns a page of users. It does NOT count the full result set —
+	// paginated UIs fetch the total via Count on their own cadence so a
+	// COUNT(*) isn't run on every page.
+	List(ctx context.Context, filter UserFilter) ([]domain.User, error)
+	// Count returns how many users match filter (Offset/Limit/OrderBy are
+	// ignored).
+	Count(ctx context.Context, filter UserFilter) (int, error)
 	// CountByDay returns registrations per day matching filter (Offset/Limit
 	// on filter are ignored — the result is naturally bounded by the date
 	// range in filter.CreatedAfter/CreatedBefore).
@@ -149,8 +155,11 @@ type SessionReader interface {
 	ListByUserID(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error)
 	// ListAllByUserID returns all of a user's active sessions (no pagination).
 	ListAllByUserID(ctx context.Context, userID string) ([]domain.Session, error)
-	// ListAll returns active sessions across all users, optionally filtered (admin).
-	ListAll(ctx context.Context, filter SessionFilter) ([]domain.Session, int, error)
+	// ListAll returns a page of active sessions across all users (admin). It
+	// does not count the full set — use CountAll for the total.
+	ListAll(ctx context.Context, filter SessionFilter) ([]domain.Session, error)
+	// CountAll returns how many sessions match filter (Offset/Limit ignored).
+	CountAll(ctx context.Context, filter SessionFilter) (int, error)
 }
 
 // SessionWriter covers session creation and in-place field updates —
@@ -242,7 +251,10 @@ type InviteRepository interface {
 	GetByID(ctx context.Context, id string) (*domain.Invite, error)
 	GetByCode(ctx context.Context, code string) (*domain.Invite, error)
 	GetByEmail(ctx context.Context, email string) (*domain.Invite, error)
-	List(ctx context.Context, filter InviteFilter) ([]domain.Invite, int, error)
+	// List returns a page of invites; use Count for the total.
+	List(ctx context.Context, filter InviteFilter) ([]domain.Invite, error)
+	// Count returns how many invites match filter (Offset/Limit ignored).
+	Count(ctx context.Context, filter InviteFilter) (int, error)
 	Update(ctx context.Context, invite *domain.Invite) error
 	Delete(ctx context.Context, id string) error
 	// ClaimInvite atomically sets status to 'accepted' only if currently 'pending'.
@@ -299,14 +311,22 @@ type OrgCRUD interface {
 	GetBySlug(ctx context.Context, slug string) (*domain.Organization, error)
 	Update(ctx context.Context, org *domain.Organization) error
 	Delete(ctx context.Context, id string) error
-	List(ctx context.Context, filter OrgFilter) ([]domain.Organization, int, error)
+	// List returns a page of organizations (platform admin); use Count for
+	// the total.
+	List(ctx context.Context, filter OrgFilter) ([]domain.Organization, error)
+	// Count returns how many organizations match filter (Offset/Limit ignored).
+	Count(ctx context.Context, filter OrgFilter) (int, error)
 
 	AddMember(ctx context.Context, member *domain.OrgMember) error
 	RemoveMember(ctx context.Context, orgID, userID string) error
 	UpdateMemberRole(ctx context.Context, orgID, userID string, role domain.OrgRole) error
 	GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error)
-	ListMembers(ctx context.Context, orgID string, filter OrgMemberFilter) ([]domain.OrgMemberDetail, int, error)
-	ListUserOrgs(ctx context.Context, userID string, filter UserOrgFilter) ([]domain.Organization, int, error)
+	// ListMembers returns a page of an org's members; use CountMembers for the total.
+	ListMembers(ctx context.Context, orgID string, filter OrgMemberFilter) ([]domain.OrgMemberDetail, error)
+	CountMembers(ctx context.Context, orgID string, filter OrgMemberFilter) (int, error)
+	// ListUserOrgs returns a page of a user's orgs; use CountUserOrgs for the total.
+	ListUserOrgs(ctx context.Context, userID string, filter UserOrgFilter) ([]domain.Organization, error)
+	CountUserOrgs(ctx context.Context, userID string, filter UserOrgFilter) (int, error)
 }
 
 // OrgLimitCounters maintains the denormalized owner/member counts that back
@@ -348,7 +368,10 @@ type OrgInviteRepository interface {
 	Create(ctx context.Context, invite *domain.OrgInvite) error
 	GetByID(ctx context.Context, id string) (*domain.OrgInvite, error)
 	GetByCodeHash(ctx context.Context, codeHash string) (*domain.OrgInvite, error)
-	ListByOrgID(ctx context.Context, orgID string, filter OrgInviteFilter) ([]domain.OrgInvite, int, error)
+	// ListByOrgID returns a page of one org's invites; use CountByOrgID for the total.
+	ListByOrgID(ctx context.Context, orgID string, filter OrgInviteFilter) ([]domain.OrgInvite, error)
+	// CountByOrgID returns how many of orgID's invites match filter (Offset/Limit ignored).
+	CountByOrgID(ctx context.Context, orgID string, filter OrgInviteFilter) (int, error)
 	Update(ctx context.Context, invite *domain.OrgInvite) error
 	Delete(ctx context.Context, id string) error
 	ClaimInvite(ctx context.Context, id string) (bool, error)
@@ -402,7 +425,10 @@ type AuditLogEntry struct {
 }
 
 type AuditLogRepository interface {
-	List(ctx context.Context, filter AuditLogFilter) ([]AuditLogEntry, int, error)
+	// List returns a page of audit entries; use Count for the total.
+	List(ctx context.Context, filter AuditLogFilter) ([]AuditLogEntry, error)
+	// Count returns how many audit entries match filter (Offset/Limit ignored).
+	Count(ctx context.Context, filter AuditLogFilter) (int, error)
 	GetByID(ctx context.Context, id string) (*AuditLogEntry, error)
 	// CountByDay returns event counts per day matching filter (Offset/Limit
 	// on filter are ignored, same reasoning as UserRepository.CountByDay).

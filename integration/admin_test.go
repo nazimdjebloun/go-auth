@@ -109,8 +109,8 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	// "never" plus the admin actor itself — neither has ever logged in.
-	if neverResult.Total != 2 {
-		t.Fatalf("expected 2 never-logged-in users, got %d", neverResult.Total)
+	if len(neverResult.Users) != 2 {
+		t.Fatalf("expected 2 never-logged-in users, got %d", len(neverResult.Users))
 	}
 
 	// LastLoginBefore cutoff: only "dormant" (logged in before cutoff) — not
@@ -121,7 +121,7 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dormantResult.Total != 1 || dormantResult.Users[0].ID != dormant.User.ID {
+	if len(dormantResult.Users) != 1 || dormantResult.Users[0].ID != dormant.User.ID {
 		t.Fatalf("expected only dormant user, got %+v", dormantResult.Users)
 	}
 }
@@ -274,7 +274,7 @@ func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total != 1 || result.Sessions[0].IP != "10.0.0.1" {
+	if len(result.Sessions) != 1 || result.Sessions[0].IP != "10.0.0.1" {
 		t.Fatalf("expected exactly 1 session from 10.0.0.1, got %+v", result.Sessions)
 	}
 
@@ -286,7 +286,7 @@ func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if searched.Total != 1 || searched.Sessions[0].IP != "10.0.0.2" {
+	if len(searched.Sessions) != 1 || searched.Sessions[0].IP != "10.0.0.2" {
 		t.Fatalf("expected exactly 1 session matching search 10.0.0.2, got %+v", searched.Sessions)
 	}
 }
@@ -379,8 +379,8 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Total != 1 {
-		t.Fatalf("expected 1 mobile login.success event, got %d: %+v", result.Total, result.Events)
+	if len(result.Events) != 1 {
+		t.Fatalf("expected 1 mobile login.success event, got %d: %+v", len(result.Events), result.Events)
 	}
 
 	// Multi-value event type: registrations (3) + logins (2) in one call,
@@ -391,8 +391,8 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if multi.Total != 5 {
-		t.Fatalf("expected 5 events (3 registrations + 2 logins), got %d: %+v", multi.Total, multi.Events)
+	if len(multi.Events) != 5 {
+		t.Fatalf("expected 5 events (3 registrations + 2 logins), got %d: %+v", len(multi.Events), multi.Events)
 	}
 }
 
@@ -529,7 +529,7 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if members.Total != 0 {
+	if len(members.Members) != 0 {
 		t.Fatalf("expected the org to be memberless, got %+v", members)
 	}
 

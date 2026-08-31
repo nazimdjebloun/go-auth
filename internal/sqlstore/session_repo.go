@@ -223,16 +223,21 @@ func (r *SessionRepository) buildAllWhere(filter port.SessionFilter, now time.Ti
 	return strings.Join(where, " AND "), args
 }
 
-func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilter) ([]domain.Session, int, error) {
+// CountAll returns how many sessions match filter (Offset/Limit ignored).
+func (r *SessionRepository) CountAll(ctx context.Context, filter port.SessionFilter) (int, error) {
+	whereClause, args := r.buildAllWhere(filter, time.Now().UTC())
+	var total int
+	q := fmt.Sprintf("SELECT COUNT(*) FROM sessions WHERE %s", whereClause)
+	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilter) ([]domain.Session, error) {
 	now := time.Now().UTC()
 	whereClause, args := r.buildAllWhere(filter, now)
 	argIdx := len(args) + 1
-
-	var total int
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM sessions WHERE %s", whereClause)
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
 
 	orderCol := sessionOrderByWhitelist[filter.OrderBy]
 	if orderCol == "" {
@@ -252,22 +257,19 @@ func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilt
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	var sessions []domain.Session
+	sessions := []domain.Session{}
 	for rows.Next() {
 		var s domain.Session
 		if err := scanSession(&s, rows); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		sessions = append(sessions, s)
 	}
-	if sessions == nil {
-		sessions = []domain.Session{}
-	}
-	return sessions, total, rows.Err()
+	return sessions, rows.Err()
 }
 
 func (r *SessionRepository) Delete(ctx context.Context, tokenHash string) error {
