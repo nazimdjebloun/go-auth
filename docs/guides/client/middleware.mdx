@@ -100,7 +100,7 @@ export const config = {
 </Callout>
 
 <Callout type="info" title="The same idea, in Go">
-  If the thing in front of your go-auth server is a Go service rather than a Next.js app, `middleware.RemoteAuth` is Option 2 as a library: it calls `/auth/me` for you, distinguishes "rejected" from "couldn't ask" (`401` vs `503`), and — unlike edge middleware — forwards upstream's refreshed session cookies, closing the rotation gap noted above. See [Remote Auth](../remote-auth.mdx).
+  If the thing in front of your go-auth server is a Go service rather than a Next.js app, `middleware.RemoteAuth` is Option 2 as a library: it calls `/auth/me` for you, distinguishes "rejected" from "couldn't ask" (`401` vs `503`), and forwards upstream's refreshed session cookies, which closes the rotation gap noted above. Edge middleware can't do that last part. See [Remote Auth](../remote-auth.mdx).
 </Callout>
 
 ## Next

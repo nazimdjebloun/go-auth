@@ -103,16 +103,16 @@ Upstream `AuthMiddleware` transparently refreshes an expired session using the r
 
 This matters more than it sounds: without it the browser would keep a refresh token that upstream has already rotated, and the next refresh would read that as token reuse.
 
-## No caching, on purpose
+## No caching
 
 Every request asks upstream. There is deliberately no cache.
 
-`AuthMiddleware` re-reads the session and the user from the database on every request, so a revoked session or a demoted admin stops working on the very next call. Caching the answer here would reintroduce exactly the window that design eliminates — a demoted admin would keep admin rights for the cache lifetime, and `UpdateUserRole` does not revoke sessions, so nothing else would catch it.
+`AuthMiddleware` re-reads the session and the user from the database on every request, so a revoked session or a demoted admin stops working on the very next call. Caching the answer here would reintroduce exactly the window that design eliminates. A demoted admin would keep admin rights for the cache lifetime, and `UpdateUserRole` does not revoke sessions, so nothing else would catch it.
 
 The cost is one upstream round trip per request. That is the price of the decision being correct, and it is why the no-cookie case short-circuits before the network.
 
 <Callout type="info" title="The TypeScript equivalent">
-  A Next.js middleware doing the same thing — `fetch`ing `/auth/me` from the edge rather than trusting cookie presence — is Option 2 in the [client middleware guide](client/middleware.mdx). Same trade-off, same reasoning, different runtime.
+  Option 2 in the [client middleware guide](./client/middleware.mdx) does the same thing in a Next.js middleware: it calls `/auth/me` from the edge instead of trusting that a cookie is present. Same trade-off, same reasoning, different runtime.
 </Callout>
 
 ## Next
