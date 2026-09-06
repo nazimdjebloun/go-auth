@@ -135,6 +135,11 @@ func (h *Handler) ListUserOrgs(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 
+	role, ok := parseOrgRole(w, r)
+	if !ok {
+		return
+	}
+
 	orderBy := r.URL.Query().Get("orderBy")
 	if orderBy != "name" && orderBy != "created_at" && orderBy != "member_count" {
 		orderBy = "name"
@@ -146,7 +151,7 @@ func (h *Handler) ListUserOrgs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.services.Org.ListUserOrgs(r.Context(), service.ListUserOrgsInput{
-		UserID: user.ID, Offset: offset, Limit: limit, Search: search,
+		UserID: user.ID, Offset: offset, Limit: limit, Search: search, Role: role,
 		OrderBy: orderBy, OrderDirection: orderDirection,
 	})
 	if err != nil {
@@ -174,8 +179,13 @@ func (h *Handler) CountUserOrgs(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 
+	role, ok := parseOrgRole(w, r)
+	if !ok {
+		return
+	}
+
 	n, err := h.services.Org.CountUserOrgs(r.Context(), service.ListUserOrgsInput{
-		UserID: user.ID, Search: search,
+		UserID: user.ID, Search: search, Role: role,
 	})
 	if err != nil {
 		writeError(w, err)
@@ -209,10 +219,9 @@ func (h *Handler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 
-	var role *domain.OrgRole
-	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
-		r := domain.OrgRole(rl)
-		role = &r
+	role, ok := parseOrgRole(w, r)
+	if !ok {
+		return
 	}
 
 	orderBy := r.URL.Query().Get("orderBy")
@@ -255,10 +264,9 @@ func (h *Handler) CountOrgMembers(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 
-	var role *domain.OrgRole
-	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
-		x := domain.OrgRole(rl)
-		role = &x
+	role, ok := parseOrgRole(w, r)
+	if !ok {
+		return
 	}
 
 	n, err := h.services.Org.CountMembers(r.Context(), service.ListMembersInput{
@@ -474,10 +482,9 @@ func (h *Handler) ListOrgInvites(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 
-	var role *domain.OrgRole
-	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
-		r := domain.OrgRole(rl)
-		role = &r
+	role, ok := parseOrgRole(w, r)
+	if !ok {
+		return
 	}
 
 	var status *string
@@ -526,10 +533,9 @@ func (h *Handler) CountOrgInvites(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 
-	var role *domain.OrgRole
-	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
-		x := domain.OrgRole(rl)
-		role = &x
+	role, ok := parseOrgRole(w, r)
+	if !ok {
+		return
 	}
 
 	var status *string

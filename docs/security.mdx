@@ -74,6 +74,7 @@ Every endpoint that reads or mutates a specific resource by ID checks ownership,
 - **Sessions** — revoking a session by ID returns the same `session_not_found` whether it doesn't exist or belongs to someone else, so one user can't distinguish "no such session" from "that's not yours" by probing IDs.
 - **Organizations** — every `/auth/orgs/{orgID}/*` route requires membership in that specific org, and mutating routes additionally require a minimum role (`admin` to manage members/invites/settings, `owner` to delete the org or touch another owner). Demoting or removing the last owner is blocked outright (`cannot_remove_last_owner`), the same way admin management blocks removing the last admin (`last_admin`).
 - **Admin** — every `/admin/*` route requires `role: admin`, checked after authentication, not instead of it.
+- **Remote services** — a separate process gating routes with `middleware.RemoteAuth` gets the same checks, enforced by the upstream server rather than duplicated locally. It holds no database credentials and no application secret, and it re-asks upstream on every request rather than caching, so a revoked session or a demoted admin stops working on the next call there too. When it *can't* reach upstream it fails closed with `503`, not `401` — undecided is not the same as unauthenticated. See [Remote Auth](guides/remote-auth.mdx).
 
 ## Audit logging
 

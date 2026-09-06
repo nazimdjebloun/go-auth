@@ -125,6 +125,33 @@ func writeError(w http.ResponseWriter, err error) {
 	})
 }
 
+// parseOrgRole reads the optional ?role= filter shared by every org listing.
+// An absent or empty param means "no filter". An unrecognized value is
+// rejected rather than dropped: a filter that silently widens returns rows the
+// caller explicitly asked to exclude, and a console rendering them under the
+// label it filtered by shows a confidently wrong answer. Ordering params fall
+// back to a default instead, because a wrong sort is cosmetic and visible on
+// screen; a wrong filter is neither. This also matches what the service layer
+// already does with a role on a mutation input — OrgRole.IsValid there is a
+// 400, not a shrug.
+//
+// Reports false once it has written the response, so callers return early.
+func parseOrgRole(w http.ResponseWriter, r *http.Request) (*domain.OrgRole, bool) {
+	v := r.URL.Query().Get("role")
+	if v == "" {
+		return nil, true
+	}
+	role := domain.OrgRole(v)
+	if !role.IsValid() {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error":   "invalid_input",
+			"message": "role must be owner, admin, or member",
+		})
+		return nil, false
+	}
+	return &role, true
+}
+
 func extractIP(remoteAddr string) string {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {

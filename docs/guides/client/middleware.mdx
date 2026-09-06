@@ -99,8 +99,13 @@ export const config = {
   Every matched navigation now waits on a round trip to the API before the page starts rendering — noticeable if that API is slow or briefly unreachable, in which case this fails closed (redirects to `/login`) rather than letting the request through. It also doesn't get you the transparent refresh-token rotation that `AuthMiddleware` does for a browser's own `fetch` calls — a session that's expired-but-refreshable will read as invalid here and bounce to `/login`, even though the same request from the page itself would have silently renewed. Option 1 has neither cost; Option 2 has neither gap. Most apps are fine mixing them — Option 1 for most protected routes, Option 2 (or a role check via [`useAuth()`](provider.mdx) inside the page) specifically for `/admin`.
 </Callout>
 
+<Callout type="info" title="The same idea, in Go">
+  If the thing in front of your go-auth server is a Go service rather than a Next.js app, `middleware.RemoteAuth` is Option 2 as a library: it calls `/auth/me` for you, distinguishes "rejected" from "couldn't ask" (`401` vs `503`), and — unlike edge middleware — forwards upstream's refreshed session cookies, closing the rotation gap noted above. See [Remote Auth](../remote-auth.mdx).
+</Callout>
+
 ## Next
 
 - [Provider](provider.mdx) — the client-side counterpart; use `user.role` from `useAuth()` for checks this middleware can't do
+- [Remote Auth](../remote-auth.mdx) — the Go equivalent of Option 2, for a service rather than a browser app
 - [Routes](../../routes.mdx) — which endpoints require `Auth` vs. admin role, enforced server-side regardless of this middleware
 - [Security](../../security.mdx) — how session validation actually works, and why it can't happen at this layer

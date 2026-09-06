@@ -49,7 +49,9 @@ Delivery of email (verification, invites, password reset) goes through a one-met
 
 **Organizations** — multi-tenant orgs with owner/admin/member roles, invites, and an active-org concept per session.
 
-**Admin** — list/detail/ban/unban/role-change/delete for users, per-user session listing and revocation, invite management, audit log viewing.
+**Admin** — list/detail/ban/unban/role-change/delete for users, per-user session listing and revocation, platform-wide org oversight, invite management, audit log viewing.
+
+**Remote auth** — `middleware.RemoteAuth` lets a second Go service (an admin console, a BFF, a gateway) gate routes on the same sessions by asking your go-auth server, without a database connection, a copy of your config, or your application secret.
 
 **Security** — CSRF origin checking plus a double-submit cookie layer, both on by default, per-route rate limiting, configurable password policy, tri-state cookie `Secure` and email-link `http://` policy that default sensibly per environment.
 

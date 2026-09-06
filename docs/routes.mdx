@@ -97,11 +97,13 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 ## Organizations — requires `WithOrganizations(Enable: true)`
 
+On every listing below that takes a `role` filter (and on the admin equivalents further down), an unrecognized value is a **400**, not a silently dropped filter — unlike `orderBy`/`orderDirection`, which fall back to their defaults. An empty `role=` means "no filter". See the callout in [Organizations](guides/organizations.mdx#list-your-orgs--get-authorgs) for why the two differ.
+
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
 | `POST /auth/orgs` | Auth | Body: `` `{name, slug}` `` | Creates an org owned by the caller. |
-| `GET /auth/orgs` | Auth | Query: `search`, `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists the orgs the caller belongs to. No total in the response — see `/count`. |
-| `GET /auth/orgs/count` | Auth | Query: `search` | Count of orgs the caller belongs to matching `search`. |
+| `GET /auth/orgs` | Auth | Query: `role` (`owner`\|`admin`\|`member`), `search`, `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Lists the orgs the caller belongs to. No total in the response — see `/count`. |
+| `GET /auth/orgs/count` | Auth | Query: `role`, `search` | Count of orgs the caller belongs to matching the filters. |
 | `GET /auth/orgs/{orgID}` | Org member | Path: `orgID` | Fetches one org. |
 | `PUT /auth/orgs/{orgID}` | Org admin | Path: `orgID`; body: `` `{name?, slug?}` `` (both pointers — omit a field to leave it unchanged) | Partial update of org name/slug. |
 | `DELETE /auth/orgs/{orgID}` | Org owner | Path: `orgID` | Deletes the org. |
@@ -169,6 +171,8 @@ Platform-admin oversight of orgs — act on any organization regardless of the c
 | `GET /admin/orgs/{orgID}` | Admin | Path: `orgID` | One organization, regardless of the caller's membership. Publishes `admin.org.viewed`. |
 | `GET /admin/orgs/{orgID}/members` | Admin | Path: `orgID`; same `role`/`search`/`orderBy`/`orderDirection`/`offset`/`limit` params as `GET /auth/orgs/{orgID}/members` | That org's members, regardless of the caller's membership. Publishes `admin.org.viewed`. No total in the response — see `/count`. |
 | `GET /admin/orgs/{orgID}/members/count` | Admin | Path: `orgID`; query: `role`, `search` | Count of that org's members matching the filters. No audit event (count only). |
+| `GET /admin/users/{id}/orgs` | Admin | Path: `id`; query: `search` (name/slug), `role` (`owner`\|`admin`\|`member`), `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (omit for default `20`; `0` = unlimited; else capped at `100`) | Every org that user belongs to — the inverse of the members listing. `404` if `{id}` doesn't exist. No audit event. No total in the response — see `/count`. |
+| `GET /admin/users/{id}/orgs/count` | Admin | Path: `id`; query: `search`, `role` | Count of that user's orgs matching the filters. |
 | `POST /admin/orgs/{orgID}/members` | Admin | Path: `orgID`; body: `` `{userId, role}` `` | Force-adds a member — the recovery path for an org whose only owner is gone and is otherwise unmanageable by anyone. Publishes `admin.org.member.added`. |
 | `DELETE /admin/orgs/{orgID}` | Admin | Path: `orgID` | Force-deletes the org. The org's name/slug are snapshotted into the `admin.org.deleted` event's metadata, since the row won't survive the delete for anything to look it up against afterward. |
 | `DELETE /admin/orgs/{orgID}/members/{userID}` | Admin | Path: `orgID`, `userID` | Force-removes a member. Still refuses to remove an org's last owner — that repository-level invariant applies to an admin override too. Publishes `admin.org.member.removed`. |

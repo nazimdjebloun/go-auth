@@ -4,6 +4,7 @@
     "authentication",
     "sessions",
     "organizations",
+    "remote-auth",
     "security",
     "rate-limiting",
     "oauth",

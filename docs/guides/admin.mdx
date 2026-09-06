@@ -989,6 +989,67 @@ const { count } = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123/members
 
 ---
 
+### List a user's organizations — `GET /admin/users/{id}/orgs`
+
+Every org `{id}` belongs to, filterable by the membership role. The self-service `GET /auth/orgs` only ever reads the *caller's* memberships; this reads someone else's, so it requires a platform admin. Responds 404 if `{id}` doesn't exist. Does **not** publish an audit event — it returns org metadata the admin can already list.
+
+**Query params**: `search` (org name or slug), `role` (`owner`, `admin` or `member` — any other value is a 400, as on [every org listing](organizations.mdx#list-your-orgs--get-authorgs)), `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (default 20, capped at 100; `limit=0` means unlimited, as on the other list endpoints).
+
+**Response**: `{ "orgs": [...], "limit": 20, "offset": 0 }` — no total; use `GET /admin/users/{id}/orgs/count` below.
+
+<Callout type="info" title="The role filter is what makes this an offboarding tool">
+  `role=owner` answers the question you actually have before deleting an account: *which orgs would this leave ownerless?* `DELETE /admin/users/{id}` won't tell you, and `cannot_remove_last_owner` only surfaces the problem one org at a time, after you've already started. Check this first, hand ownership over with `PATCH /admin/orgs/{orgID}/members/{userID}/role`, then delete.
+</Callout>
+
+#### curl
+
+```bash
+curl "https://api.myapp.com/admin/users/user-123/orgs?role=owner&orderBy=member_count&orderDirection=desc" \
+  -H "Origin: https://myapp.com" -b admin-cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+role := domain.OrgRoleOwner
+result, err := auth.Services.Org.AdminListUserOrgs(ctx, service.AdminListUserOrgsInput{
+    ActorID: adminID, UserID: "user-123", Role: &role,
+})
+// result.Orgs, result.Limit, result.Offset
+```
+
+`Role` is a `*domain.OrgRole` — leave it `nil` for every role. `Limit` is a `*int` with the same `nil` / `&0` semantics as the self-service listing (see [Organizations](organizations.mdx#list-your-orgs--get-authorgs)).
+
+---
+
+#### Client
+
+```ts
+const { orgs } = await apiRequest(API_BASE, "GET", "/admin/users/user-123/orgs?role=owner");
+```
+
+---
+
+### Count a user's organizations — `GET /admin/users/{id}/orgs/count`
+
+Total for the list above. Accepts `search` and `role`; ignores pagination and ordering.
+
+**Response**: `{ "count": 3 }`
+
+```go
+n, err := auth.Services.Org.AdminCountUserOrgs(ctx, service.AdminListUserOrgsInput{
+    ActorID: adminID, UserID: "user-123",
+})
+```
+
+```ts
+const { count } = await apiRequest(API_BASE, "GET", "/admin/users/user-123/orgs/count");
+```
+
+---
+
 ### Add a member — `POST /admin/orgs/{orgID}/members`
 
 Force-adds a user to an org regardless of the caller's own membership. This is the recovery path for an org whose only owner is gone (account deleted, offboarded, whatever the cause) and is otherwise unmanageable by anyone — `AdminRemoveMember`/`AdminUpdateMemberRole` alone can't fix that, since both require the target to already be a member. Publishes `admin.org.member.added`.

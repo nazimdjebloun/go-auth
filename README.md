@@ -11,6 +11,7 @@ A self-hosted authentication and session library for Go. Configure it in your ow
 - **Account lifecycle** — forgot/reset password, change password, set password for OAuth-only accounts, change name, self-service and admin-initiated account deletion
 - **Organizations** — multi-tenant orgs with owner/admin/member roles, invites, and a per-session active org
 - **Admin** — list/ban/unban/role-change/delete users individually or in bulk, per-user and platform-wide session management, platform-admin oversight of any organization (view, add/remove members, force-delete, change roles), registration and login-activity stats, platform invites, all behind a role check
+- **Remote auth** — `middleware.RemoteAuth` lets a second Go service (admin console, BFF, gateway) gate routes on the same live sessions by asking your go-auth server, with no database connection, no copy of your config, and no application secret
 - **Security** — CSRF origin checking with an optional double-submit cookie, per-route rate limiting on by default, configurable password policy
 - **Audit logging** — async, non-blocking event pipeline with a built-in database sink; plug in Kafka, NATS, a webhook, or your own
 - **Extensible by interface** — swap the mailer, OAuth providers, email templates, rate-limit store, or audit sink without forking
@@ -87,7 +88,7 @@ Full documentation, including every route, config option, and error code, is in 
 - [Configuration](docs/configuration.mdx) — every `With*` option, field by field
 - [Schemas](docs/schemas.mdx) — the database tables and driver differences
 - [Routes](docs/routes.mdx) — every HTTP route, params, and request bodies
-- [Guides](docs/guides/) — Authentication, Sessions, Organizations, Security, Admin, Audit Logs, OAuth linking, Rate Limiting — each with curl, Go, and browser-client examples
+- [Guides](docs/guides/) — Authentication, Sessions, Organizations, Remote Auth, Security, Admin, Audit Logs, OAuth linking, Rate Limiting — each with curl, Go, and browser-client examples
 - [Architecture](docs/architecture.mdx) — package layout and the middleware chain
 - [Error Handling](docs/error-handling.mdx) — every error code, grouped by area
 

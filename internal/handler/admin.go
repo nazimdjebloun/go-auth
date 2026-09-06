@@ -791,10 +791,9 @@ func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 
-	var role *domain.OrgRole
-	if rl := r.URL.Query().Get("role"); rl == "owner" || rl == "admin" || rl == "member" {
-		r := domain.OrgRole(rl)
-		role = &r
+	role, ok := parseOrgRole(w, r)
+	if !ok {
+		return
 	}
 
 	orderBy := r.URL.Query().Get("orderBy")
@@ -928,4 +927,72 @@ func (h *Handler) AdminUpdateOrgMemberRole(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
+}
+
+func (h *Handler) AdminListUserOrgs(w http.ResponseWriter, r *http.Request) {
+	if h.services.Org == nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		return
+	}
+	actor := middleware.GetUserFromContext(r.Context())
+	if actor == nil {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		return
+	}
+	userID := r.PathValue("id")
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	var limit *int
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = &n
+		}
+	}
+
+	var search *string
+	if s := r.URL.Query().Get("search"); s != "" {
+		search = &s
+	}
+
+	role, ok := parseOrgRole(w, r)
+	if !ok {
+		return
+	}
+
+	orderBy := r.URL.Query().Get("orderBy")
+	if orderBy != "name" && orderBy != "created_at" && orderBy != "member_count" {
+		orderBy = "name"
+	}
+	orderDirection := r.URL.Query().Get("orderDirection")
+	if orderDirection != "asc" && orderDirection != "desc" {
+		orderDirection = "asc"
+	}
+
+	input := service.AdminListUserOrgsInput{
+		ActorID:        actor.ID,
+		UserID:         userID,
+		Search:         search,
+		Role:           role,
+		OrderBy:        orderBy,
+		OrderDirection: orderDirection,
+		Offset:         offset,
+		Limit:          limit,
+	}
+
+	if strings.HasSuffix(r.URL.Path, "/count") {
+		n, err := h.services.Org.AdminCountUserOrgs(r.Context(), input)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		return
+	}
+
+	result, err := h.services.Org.AdminListUserOrgs(r.Context(), input)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }

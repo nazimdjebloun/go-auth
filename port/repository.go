@@ -283,9 +283,10 @@ type OrgMemberFilter struct {
 
 // UserOrgFilter narrows and orders OrgCRUD.ListUserOrgs for one user.
 type UserOrgFilter struct {
-	Search         *string // matches org name or slug
-	OrderBy        string  // "name" (default), "created_at", or "member_count"
-	OrderDirection string  // "asc" or "desc"
+	Search         *string         // matches org name or slug
+	Role           *domain.OrgRole // nil = all roles, else owner/admin/member
+	OrderBy        string          // "name" (default), "created_at", or "member_count"
+	OrderDirection string          // "asc" or "desc"
 	Offset         int
 	Limit          int // 0 means unlimited
 }

@@ -89,6 +89,8 @@ const (
 	AdminDeleteOrg           = "DELETE /admin/orgs/{orgID}"
 	AdminRemoveOrgMember     = "DELETE /admin/orgs/{orgID}/members/{userID}"
 	AdminUpdateOrgMemberRole = "PATCH /admin/orgs/{orgID}/members/{userID}/role"
+	AdminListUserOrgs        = "GET /admin/users/{id}/orgs"
+	AdminCountUserOrgs       = "GET /admin/users/{id}/orgs/count"
 
 	// Admin — invites (EnableInvite)
 	CreateInvite      = "POST /admin/invites"

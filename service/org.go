@@ -306,6 +306,7 @@ func (s *OrgService) DeleteOrg(ctx context.Context, input DeleteOrgInput) error 
 type ListUserOrgsInput struct {
 	UserID         string
 	Search         *string
+	Role           *domain.OrgRole
 	OrderBy        string
 	OrderDirection string
 	Offset         int
@@ -330,6 +331,7 @@ func (s *OrgService) ListUserOrgs(ctx context.Context, input ListUserOrgsInput) 
 	}
 	orgs, err := s.orgs.ListUserOrgs(ctx, input.UserID, port.UserOrgFilter{
 		Search:         input.Search,
+		Role:           input.Role,
 		OrderBy:        input.OrderBy,
 		OrderDirection: input.OrderDirection,
 		Offset:         input.Offset,
@@ -778,9 +780,66 @@ func (s *OrgService) CountMembers(ctx context.Context, input ListMembersInput) (
 	})
 }
 
-// CountUserOrgs returns how many orgs the user belongs to that match search.
+// CountUserOrgs returns how many orgs the user belongs to that match search/role.
 func (s *OrgService) CountUserOrgs(ctx context.Context, input ListUserOrgsInput) (int, error) {
-	return s.orgs.CountUserOrgs(ctx, input.UserID, port.UserOrgFilter{Search: input.Search})
+	return s.orgs.CountUserOrgs(ctx, input.UserID, port.UserOrgFilter{Search: input.Search, Role: input.Role})
+}
+
+type AdminListUserOrgsInput struct {
+	ActorID        string
+	UserID         string
+	Search         *string
+	Role           *domain.OrgRole
+	OrderBy        string
+	OrderDirection string
+	Offset         int
+	Limit          *int
+}
+
+func (s *OrgService) AdminListUserOrgs(ctx context.Context, input AdminListUserOrgsInput) (*ListUserOrgsResult, error) {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return nil, err
+	}
+	// GetByID reports a missing row as (nil, nil), so the nil check is what
+	// actually produces the 404 — an err-only check would list orgs for a
+	// user that doesn't exist and return an empty page instead.
+	if user, err := s.users.GetByID(ctx, input.UserID); err != nil || user == nil {
+		return nil, domain.ErrUserNotFound
+	}
+	limit := 20
+	if input.Limit != nil {
+		limit = *input.Limit
+		if limit < 0 {
+			limit = 20
+		} else if limit > 100 {
+			limit = 100
+		}
+	}
+	orgs, err := s.orgs.ListUserOrgs(ctx, input.UserID, port.UserOrgFilter{
+		Search:         input.Search,
+		Role:           input.Role,
+		OrderBy:        input.OrderBy,
+		OrderDirection: input.OrderDirection,
+		Offset:         input.Offset,
+		Limit:          limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if orgs == nil {
+		orgs = []domain.Organization{}
+	}
+	return &ListUserOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
+}
+
+func (s *OrgService) AdminCountUserOrgs(ctx context.Context, input AdminListUserOrgsInput) (int, error) {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+		return 0, err
+	}
+	if user, err := s.users.GetByID(ctx, input.UserID); err != nil || user == nil {
+		return 0, domain.ErrUserNotFound
+	}
+	return s.orgs.CountUserOrgs(ctx, input.UserID, port.UserOrgFilter{Search: input.Search, Role: input.Role})
 }
 
 type AdminGetOrgInput struct {

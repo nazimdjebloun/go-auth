@@ -119,11 +119,20 @@ Auth: any authenticated user. Every org the caller belongs to, any role. Query p
 
 | Param | Values | Default | Notes |
 |---|---|---|---|
+| `role` | `owner`, `admin`, `member` | — (no filter) | Narrows to memberships at that role — "the orgs I own". Anything else is a **400**, not a silent fallback; see the callout below. |
 | `search` | any string | — (no filter) | Substring match on org name. |
 | `orderBy` | `name`, `created_at`, `member_count` | `name` | Unrecognized values silently fall back to the default rather than erroring. |
 | `orderDirection` | `asc`, `desc` | `asc` | Same fallback behavior. |
 | `offset` | integer | `0` | |
 | `limit` | integer | `20` | **Omit entirely** for the default page of 20. **`limit=0`** explicitly means unlimited — every org the caller belongs to, in one response. Any other value is capped at `100`. This distinction only exists because the param was left off vs. sent as `0` — see the callout below. |
+
+<Callout type="warn" title="An unrecognized role is a 400 — an unrecognized orderBy isn't">
+  The two look like the same kind of param and are deliberately handled differently, here and on every org listing on this page (members, invites, and the admin equivalents).
+
+  A bad `orderBy` falls back to the default because a wrong sort order is cosmetic and immediately visible on screen. A bad `role` is rejected because a filter that silently widens returns rows the caller explicitly asked to exclude — `?role=Owner` (capital O, straight out of a dropdown label) would hand back *every* member, and a console rendering them under the heading it filtered by would be confidently wrong with no error anywhere. An empty `role=` still means "no filter", so a `<select>` bound directly to the query param works unchanged.
+
+  The service layer already treats a role this way on every mutation input; as of v0.2.2 the filters agree with it.
+</Callout>
 
 <Callout type="info" title="Why limit=0 means something different from omitting it">
   `ListUserOrgsInput.Limit` is `*int`, not `int`, specifically so the service can tell "the caller didn't say" (`nil` → default 20) apart from "the caller explicitly wants everything" (`&0` → unlimited). A plain `int` can't make that distinction — Go's zero value is `0` either way. The HTTP handler mirrors this by checking whether the `limit` query param is *present*, not just parsing it: an absent or unparsable `limit` becomes `nil`, `limit=0` becomes a pointer to `0`. The same semantics apply to [members](#list-members--get-authorgsorgidmembers) and [invites](#listing-invites--get-authorgsorgidinvites) below — but not to the admin `GET /admin/users` listing, which has no unlimited escape hatch.
@@ -164,6 +173,15 @@ result, err := auth.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
 
 n, err := auth.Services.Org.CountUserOrgs(ctx, service.ListUserOrgsInput{
     UserID: userID, Search: &search,
+})
+```
+
+`Role` is a `*domain.OrgRole` — leave it `nil` for every role, or point it at one to narrow the list to memberships at that role:
+
+```go
+role := domain.OrgRoleOwner
+owned, err := auth.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
+    UserID: userID, Role: &role,
 })
 ```
 
@@ -303,7 +321,7 @@ Auth: org member. Query params, all optional:
 
 | Param | Values | Default | Notes |
 |---|---|---|---|
-| `role` | `owner`, `admin`, `member` | — (no filter) | Anything else is ignored, not rejected. |
+| `role` | `owner`, `admin`, `member` | — (no filter) | Anything else is a **400** — see the callout under [List your orgs](#list-your-orgs--get-authorgs). |
 | `search` | any string | — (no filter) | Substring match on the member's name or email. |
 | `orderBy` | `joined_at`, `role`, `name`, `email` | `joined_at` | Unrecognized values fall back to the default. |
 | `orderDirection` | `asc`, `desc` | `asc` | Same fallback behavior. |
@@ -693,7 +711,7 @@ Auth: org admin. `rawCode` is never present here (see [Creating an invite](#crea
 
 | Param | Values | Default | Notes |
 |---|---|---|---|
-| `role` | `owner`, `admin`, `member` | — (no filter) | The role the invite grants on acceptance, not the caller's own role. |
+| `role` | `owner`, `admin`, `member` | — (no filter) | The role the invite grants on acceptance, not the caller's own role. Anything else is a **400**, as on every org listing. |
 | `status` | `pending`, `expired` | — (both) | Derived from `expiresAt` vs. the current time — there's no stored status column. A claimed invite's row is deleted outright, so it never shows up here as anything. |
 | `search` | any string | — (no filter) | Substring match on the invited email. |
 | `orderBy` | `created_at`, `expires_at`, `email`, `role` | `created_at` | Unrecognized values fall back to the default. |

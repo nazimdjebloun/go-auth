@@ -1364,3 +1364,148 @@ func TestAdminUpdateOrgMemberRole_ActorNotAdmin_Forbidden(t *testing.T) {
 		t.Fatalf("expected 403, got %d", w.Result().StatusCode)
 	}
 }
+
+// ─── Admin: a user's organizations ───────────────────────────
+
+func adminUserOrgsRequest(t *testing.T, th *testHarness, actor *domain.User, userID, query string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/admin/users/"+userID+"/orgs"+query, nil)
+	req.SetPathValue("id", userID)
+	if actor != nil {
+		req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	}
+	w := httptest.NewRecorder()
+	th.handler.AdminListUserOrgs(w, req)
+	return w
+}
+
+func TestAdminListUserOrgs_HappyPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	org := seedOrg(t, th, owner.ID)
+
+	res := adminUserOrgsRequest(t, th, actor, owner.ID, "").Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body service.ListUserOrgsResult
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Orgs) != 1 || body.Orgs[0].ID != org.ID {
+		t.Fatalf("expected the one org, got %+v", body.Orgs)
+	}
+}
+
+func TestAdminListUserOrgs_ActorNotAdmin_Forbidden(t *testing.T) {
+	th := newTestHarness()
+	actor := seedNonAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	seedOrg(t, th, owner.ID)
+
+	if code := adminUserOrgsRequest(t, th, actor, owner.ID, "").Result().StatusCode; code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", code)
+	}
+}
+
+func TestAdminListUserOrgs_Unauthenticated(t *testing.T) {
+	th := newTestHarness()
+	owner := seedOrgUser(t, th)
+	seedOrg(t, th, owner.ID)
+
+	if code := adminUserOrgsRequest(t, th, nil, owner.ID, "").Result().StatusCode; code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", code)
+	}
+}
+
+// The role filter is the reason UserOrgFilter.Role exists; owner matches and
+// member does not, for the same user and org.
+func TestAdminListUserOrgs_RoleFilter(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	seedOrg(t, th, owner.ID)
+
+	for _, tc := range []struct {
+		role string
+		want int
+	}{
+		{"owner", 1},
+		{"admin", 0},
+		{"member", 0},
+	} {
+		res := adminUserOrgsRequest(t, th, actor, owner.ID, "?role="+tc.role).Result()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("role=%s: expected 200, got %d", tc.role, res.StatusCode)
+		}
+		var body service.ListUserOrgsResult
+		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+			t.Fatalf("role=%s: %v", tc.role, err)
+		}
+		if len(body.Orgs) != tc.want {
+			t.Fatalf("role=%s: expected %d orgs, got %d", tc.role, tc.want, len(body.Orgs))
+		}
+	}
+}
+
+func TestAdminListUserOrgs_InvalidRole_BadRequest(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	seedOrg(t, th, owner.ID)
+
+	if code := adminUserOrgsRequest(t, th, actor, owner.ID, "?role=superuser").Result().StatusCode; code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", code)
+	}
+}
+
+// UserRepository.GetByID reports a missing row as (nil, nil), not an error, so
+// an err-only existence check would silently return an empty page of orgs for
+// a user that doesn't exist. Both the list and the count path must 404.
+func TestAdminListUserOrgs_UnknownUser_NotFound(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+
+	if code := adminUserOrgsRequest(t, th, actor, "user-does-not-exist", "").Result().StatusCode; code != http.StatusNotFound {
+		t.Fatalf("list: expected 404, got %d", code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/users/user-does-not-exist/orgs/count", nil)
+	req.SetPathValue("id", "user-does-not-exist")
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListUserOrgs(w, req)
+	if code := w.Result().StatusCode; code != http.StatusNotFound {
+		t.Fatalf("count: expected 404, got %d", code)
+	}
+}
+
+// The count route is wired to AdminListUserOrgs and separated only by the
+// "/count" path suffix, so the dispatch itself is worth pinning.
+func TestAdminCountUserOrgs_CountPath(t *testing.T) {
+	th := newTestHarness()
+	actor := seedAdminActor(t, th)
+	owner := seedOrgUser(t, th)
+	seedOrg(t, th, owner.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/users/"+owner.ID+"/orgs/count", nil)
+	req.SetPathValue("id", owner.ID)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
+	w := httptest.NewRecorder()
+	th.handler.AdminListUserOrgs(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var body struct {
+		Count int `json:"count"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Count != 1 {
+		t.Fatalf("expected count 1, got %d", body.Count)
+	}
+}

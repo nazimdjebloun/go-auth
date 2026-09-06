@@ -301,6 +301,107 @@ func TestListUserOrgs_OrderByWhitelist(t *testing.T) {
 	}
 }
 
+// The Role filter reaches the repository through ListUserOrgsInput, but the
+// handler only started reading ?role= in v0.2.2 — before that the field was
+// plumbed end to end and unreachable over HTTP.
+func TestListUserOrgs_RoleParam(t *testing.T) {
+	th := newTestHarness()
+	user := seedOrgUser(t, th)
+	seedOrg(t, th, user.ID) // seeded as owner
+
+	for _, tc := range []struct {
+		role string
+		want int
+	}{
+		{"owner", 1},
+		{"admin", 0},
+		{"member", 0},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/orgs?role="+tc.role, nil)
+		req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
+		w := httptest.NewRecorder()
+		th.handler.ListUserOrgs(w, req)
+
+		res := w.Result()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("role=%s: expected 200, got %d", tc.role, res.StatusCode)
+		}
+		var resp struct {
+			Orgs []domain.Organization `json:"orgs"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+			t.Fatalf("role=%s: %v", tc.role, err)
+		}
+		if len(resp.Orgs) != tc.want {
+			t.Fatalf("role=%s: expected %d orgs, got %d", tc.role, tc.want, len(resp.Orgs))
+		}
+	}
+}
+
+// An unrecognized ?role= is a 400 on every org listing, not a silently
+// dropped filter — see parseOrgRole. Ordering params still fall back to their
+// defaults, so the two are checked together to keep that contrast pinned.
+func TestOrgListings_InvalidRoleIsBadRequest(t *testing.T) {
+	th := newTestHarness()
+	user := seedOrgUser(t, th)
+	org := seedOrg(t, th, user.ID)
+
+	for _, tc := range []struct {
+		name    string
+		path    string
+		orgID   string
+		handler func(http.ResponseWriter, *http.Request)
+	}{
+		{"user orgs", "/orgs?role=superuser", "", th.handler.ListUserOrgs},
+		{"user orgs count", "/orgs/count?role=superuser", "", th.handler.CountUserOrgs},
+		{"members", "/orgs/" + org.ID + "/members?role=superuser", org.ID, th.handler.ListOrgMembers},
+		{"members count", "/orgs/" + org.ID + "/members/count?role=superuser", org.ID, th.handler.CountOrgMembers},
+		{"invites", "/orgs/" + org.ID + "/invites?role=superuser", org.ID, th.handler.ListOrgInvites},
+		{"invites count", "/orgs/" + org.ID + "/invites/count?role=superuser", org.ID, th.handler.CountOrgInvites},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			if tc.orgID != "" {
+				req.SetPathValue("orgID", tc.orgID)
+			}
+			req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
+			w := httptest.NewRecorder()
+			tc.handler(w, req)
+
+			if code := w.Result().StatusCode; code != http.StatusBadRequest {
+				t.Fatalf("expected 400, got %d", code)
+			}
+		})
+	}
+}
+
+// An empty role= is "no filter", not an invalid one — a UI binding a select
+// straight to the query param sends it for "all roles".
+func TestOrgListings_EmptyRoleIsNoFilter(t *testing.T) {
+	th := newTestHarness()
+	user := seedOrgUser(t, th)
+	seedOrg(t, th, user.ID)
+
+	req := httptest.NewRequest(http.MethodGet, "/orgs?role=", nil)
+	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
+	w := httptest.NewRecorder()
+	th.handler.ListUserOrgs(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+	var resp struct {
+		Orgs []domain.Organization `json:"orgs"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Orgs) != 1 {
+		t.Fatalf("expected 1 org, got %d", len(resp.Orgs))
+	}
+}
+
 func TestListUserOrgs_SearchParam(t *testing.T) {
 	th := newTestHarness()
 	user := seedOrgUser(t, th)

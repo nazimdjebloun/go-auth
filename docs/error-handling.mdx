@@ -80,6 +80,7 @@ Everything else below — every service-layer and handler-layer error — uses t
 | `name_required` | 400 | Name is required | |
 | `unauthorized` | 401 | Invalid session / User not found | From the auth middleware, not a specific service call. |
 | `session_expired` | 401 | Missing session cookie / Session has expired | Also from the auth middleware — see [Sessions](#sessions) below for the token-level version. |
+| `auth_unavailable` | 503 | Authentication service unavailable | Only from `middleware.RemoteAuth` — the upstream go-auth server couldn't be reached, so authentication is *undecided*, not failed. Distinct from `401` on purpose: retry it, don't log the user out. See [Remote Auth](guides/remote-auth.mdx). |
 
 ## Two-factor authentication
 

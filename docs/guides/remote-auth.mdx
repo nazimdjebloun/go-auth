@@ -1,0 +1,122 @@
+---
+title: "Remote Auth"
+description: "middleware.RemoteAuth — authenticating a second Go service against a go-auth server it doesn't share a database with."
+icon: "Satellite"
+---
+
+# Remote Auth
+
+Every other middleware in this library authenticates a request by reading your database. `middleware.RemoteAuth` authenticates it by *asking another go-auth server*, so a service that has no business holding your application's database credentials can still gate routes on a real, live session.
+
+## When you need it
+
+You have a go-auth server. You now want a second Go process — an internal admin console, a BFF, a reporting service, an API gateway — that recognizes the same logged-in users.
+
+The two obvious approaches both fail:
+
+- **Stand up a second `goauth.Auth` against the same database.** Now the second service holds full read/write credentials to your users table just to read a session, and you maintain two copies of the entire auth configuration (session TTLs, org enablement, cookie name, audit retention) with nothing keeping them in sync. They will drift.
+- **Parse the session cookie yourself.** The cookie is an opaque random token; it means nothing without the database row behind it. There is nothing to parse.
+
+`RemoteAuth` is the third option: forward the caller's cookies to the upstream server's `GET /auth/me` and use the `domain.User` it returns.
+
+<Callout type="info" title="It stores the user under the same context key as AuthMiddleware">
+  `GetUserFromContext` and `RequireRole` work downstream without knowing which middleware authenticated the request. A handler written against a local `goauth.Auth` can be moved behind a `RemoteAuth` without touching its body.
+</Callout>
+
+## Setup
+
+```go
+import "github.com/nazimdjebloun/go-auth/middleware"
+
+remote, err := middleware.NewRemoteAuth("https://api.example.com")
+if err != nil {
+    log.Fatal(err)
+}
+
+mux := http.NewServeMux()
+mux.Handle("GET /reports", remote.RequireAuth(reportsHandler))
+mux.Handle("GET /admin/reports", remote.RequireAdmin(adminReportsHandler))
+```
+
+The base URL is the scheme and host the upstream go-auth server is mounted on, **without** the `/auth` prefix — `RemoteAuth` appends `/auth/me` itself. A trailing slash is trimmed. A URL that isn't `http`/`https`, or has no host, is rejected by `NewRemoteAuth` rather than failing later on the first request.
+
+This service needs no database, no secret, and no `goauth.Config`. It never sees a password, a session token it can use, or any key material.
+
+## Options
+
+| Option | Default | Notes |
+|---|---|---|
+| `WithRemoteCookieName(name)` | `"goauth_session"` | Must match the upstream server's `CookieConfig.Name`. If you renamed it there, rename it here. |
+| `WithRemoteHTTPClient(c)` | `&http.Client{}` | For a custom transport or TLS config. The client is **copied, not adopted** — see below. |
+| `WithRemoteLogger(l)` | `slog.Default()` | Used for rejected requests, matching `AuthMiddleware`'s logging. |
+
+A client passed to `WithRemoteHTTPClient` is never mutated, since you may be sharing it elsewhere. Two fields are enforced on the copy:
+
+- **A zero `Timeout` becomes 10 seconds.** A hung upstream would otherwise pin a request goroutine indefinitely. Set your own `Timeout` and it is kept as-is.
+- **`CheckRedirect` is always overridden** to stop at the first response. See the callout below — this one is not negotiable, on any client.
+
+<Callout type="warn" title="Why redirects are never followed">
+  `GET /auth/me` answers `200` or `401` and never redirects, so following a `3xx` is always wrong. It is also actively dangerous: Go's redirect handling compares hostnames while **ignoring ports** when deciding whether to keep the `Cookie` header, so a redirect would hand the caller's live session cookie to any other port on the same host. A `3xx` from upstream is reported as `ErrRemoteUnavailable` instead of being chased.
+</Callout>
+
+## The three outcomes
+
+`RequireAuth` distinguishes three cases, because collapsing them would either lie to the caller or leak information:
+
+| Error | HTTP | Meaning |
+|---|---|---|
+| `ErrRemoteNoSession` | `401` `session_expired` | No session cookie on the request. **No upstream call is made** — an unauthenticated flood costs the upstream server nothing. |
+| `ErrRemoteUnauthorized` | `401` `unauthorized` | Upstream answered `401`/`403`. The session is genuinely not valid. |
+| `ErrRemoteUnavailable` | `503` `auth_unavailable` | Upstream was unreachable, timed out, redirected, returned an unexpected status, or sent a body that didn't decode. |
+
+The third is the important one. It fails **closed** — the request does not reach your handler — but it is never a statement that the caller is unauthenticated. A `401` there would log users out en masse during an upstream blip, and would tell a client "your credentials are bad" when the truth is "we couldn't ask." `503` says the latter.
+
+## Roles
+
+`RequireRole` and `RequireAdmin` are `RequireAuth` followed by the same `RequireRole` check local routes use, so a `403` from a remotely-authenticated route is indistinguishable from a locally-authenticated one:
+
+```go
+mux.Handle("GET /admin/reports", remote.RequireAdmin(adminReportsHandler))
+mux.Handle("GET /moderation", remote.RequireRole(domain.RoleAdmin)(modHandler))
+```
+
+## Outside a handler chain
+
+`GetUser` resolves a raw `Cookie` header for code that isn't in a middleware chain — a background job acting on a captured request, a gRPC interceptor, a WebSocket upgrade:
+
+```go
+user, err := remote.GetUser(ctx, cookieHeader)
+switch {
+case errors.Is(err, middleware.ErrRemoteNoSession),
+     errors.Is(err, middleware.ErrRemoteUnauthorized):
+    // not logged in
+case errors.Is(err, middleware.ErrRemoteUnavailable):
+    // couldn't tell — retry or fail closed, your call
+}
+```
+
+Prefer `RequireAuth` inside an HTTP handler chain. `GetUser` has no `http.ResponseWriter`, so it cannot forward a refreshed session cookie back to the browser — see below.
+
+## Session rotation is forwarded
+
+Upstream `AuthMiddleware` transparently refreshes an expired session using the refresh cookie and issues new cookies with the response. `RequireAuth` copies every `Set-Cookie` from the upstream response onto the response it is handling, *before* it inspects the status code, so a rotation that accompanies a success is never dropped.
+
+This matters more than it sounds: without it the browser would keep a refresh token that upstream has already rotated, and the next refresh would read that as token reuse.
+
+## No caching, on purpose
+
+Every request asks upstream. There is deliberately no cache.
+
+`AuthMiddleware` re-reads the session and the user from the database on every request, so a revoked session or a demoted admin stops working on the very next call. Caching the answer here would reintroduce exactly the window that design eliminates — a demoted admin would keep admin rights for the cache lifetime, and `UpdateUserRole` does not revoke sessions, so nothing else would catch it.
+
+The cost is one upstream round trip per request. That is the price of the decision being correct, and it is why the no-cookie case short-circuits before the network.
+
+<Callout type="info" title="The TypeScript equivalent">
+  A Next.js middleware doing the same thing — `fetch`ing `/auth/me` from the edge rather than trusting cookie presence — is Option 2 in the [client middleware guide](client/middleware.mdx). Same trade-off, same reasoning, different runtime.
+</Callout>
+
+## Next
+
+- [Architecture](../architecture.mdx) — where `middleware` sits in the package map
+- [Security](../security.mdx) — the access-control model these checks enforce
+- [Sessions](sessions.mdx) — what `GET /auth/me` returns and how refresh works

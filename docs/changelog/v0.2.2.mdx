@@ -1,0 +1,44 @@
+---
+title: "v0.2.2"
+description: "RemoteAuth — authenticate a second Go service against a go-auth server it shares no database with — plus an admin view of any user's organizations, and role filters that reject a bad value instead of silently returning everything."
+date: "2026-09-06"
+---
+
+## Remote authentication
+
+- **`middleware.RemoteAuth`** authenticates requests against a *remote* go-auth server instead of a local database. It is the counterpart to `AuthMiddleware` for a second process that fronts your API but doesn't own its data — an admin console, a BFF, a gateway. Such a service has no business holding your application's database credentials, and standing up a second `goauth.Auth` just to reuse its middleware means duplicating the whole auth configuration with nothing keeping the two copies in sync.
+
+  It resolves the caller by forwarding their cookies to the upstream `GET /auth/me` and decoding the `domain.User` it returns. Because it stores the user under the same context key `AuthMiddleware` uses, `GetUserFromContext` and `RequireRole` work downstream without knowing which one authenticated the request — an existing handler moves behind it untouched.
+
+  ```go
+  remote, err := middleware.NewRemoteAuth("https://api.example.com")
+  mux.Handle("GET /admin/reports", remote.RequireAdmin(reportsHandler))
+  ```
+
+  `RequireAuth`, `RequireRole`, `RequireAdmin`, and a `GetUser(ctx, cookieHeader)` for code outside a middleware chain. Options: `WithRemoteCookieName`, `WithRemoteHTTPClient`, `WithRemoteLogger`. The service needs no database, no secret, and no `goauth.Config`; it never sees a password or any key material. See [Remote Auth](../guides/remote-auth.mdx).
+
+- **Three outcomes, not two.** `ErrRemoteNoSession` → `401` (and no upstream call is made, so an unauthenticated flood costs upstream nothing), `ErrRemoteUnauthorized` → `401`, and `ErrRemoteUnavailable` → **`503`**. The last fails closed but is never a claim that the caller is unauthenticated — a `401` there would log users out en masse during an upstream blip and tell the client its credentials are bad when the truth is that we couldn't ask.
+
+- **No caching, deliberately.** Every request asks upstream. `AuthMiddleware` re-reads the session and user from the database per request, so a revoked session or demoted admin stops working on the very next call; caching here would reintroduce exactly that window, and since `UpdateUserRole` does not revoke sessions, nothing else would catch it.
+
+- **Redirects are never followed**, including on a client supplied via `WithRemoteHTTPClient`. `/auth/me` answers `200` or `401` and never redirects, and Go compares hostnames while ignoring ports when deciding whether to keep the `Cookie` header — so a `3xx` would hand the caller's live session cookie to any other port on the same host. It is reported as `ErrRemoteUnavailable` instead. A caller's client is copied rather than adopted, and a zero `Timeout` becomes 10s so a hung upstream can't pin a request goroutine.
+
+- **Upstream `Set-Cookie` headers are forwarded** before the status is inspected, so a session rotation accompanying a success is never dropped — otherwise the browser would keep a refresh token upstream has already rotated, and the next refresh would read that as reuse.
+
+## Organizations
+
+- **`GET /admin/users/{id}/orgs`** and **`GET /admin/users/{id}/orgs/count`** — every org a given user belongs to, the inverse of the member listing. The self-service `GET /auth/orgs` only ever reads the *caller's* memberships; this reads someone else's, so it requires a platform admin and `404`s on an unknown `{id}`. Neither publishes an audit event. Backed by `OrgService.AdminListUserOrgs` / `AdminCountUserOrgs`.
+
+- **Role filter on user-org listings.** `port.UserOrgFilter` and `service.ListUserOrgsInput` gained `Role *domain.OrgRole`, applied as an `om.role = $n` predicate shared by both the list and count queries, and `GET /auth/orgs` / `/auth/orgs/count` now read it as a `role` query param alongside the new admin endpoint. `role=owner` answers the question you actually have before deleting an account — which orgs would this leave ownerless — instead of discovering it one `cannot_remove_last_owner` at a time.
+
+- **An unrecognized `role` is now a `400` on every org listing**, not a silently dropped filter. Previously `GET /auth/orgs/{orgID}/members`, `/invites`, their `/count` siblings, and `GET /admin/orgs/{orgID}/members` all ignored a value they didn't recognize and returned **everything** — so `?role=Owner`, capital O straight out of a dropdown label, handed back every member of the org with no error anywhere, and a console rendering that under the heading it filtered by was confidently wrong.
+
+  `orderBy`/`orderDirection` still fall back to their defaults, and that contrast is the point: a wrong sort is cosmetic and visible on screen, a wrong filter is neither. The service layer already rejected an invalid role on every *mutation* input; the filters now agree with it. An empty `role=` still means "no filter", so a `<select>` bound straight to the query param is unaffected. The platform-role filter on `GET /admin/users` (`admin`/`user`, a different type) is unchanged.
+
+  All eight org-role query parsers now share one `parseOrgRole` helper instead of six hand-rolled copies of the same `if`.
+
+## Documentation
+
+- New [Remote Auth](../guides/remote-auth.mdx) guide; `RemoteAuth` also threaded into the architecture package map and middleware chain, the security access-control model, and the client middleware guide as the Go counterpart to its `/auth/me` option.
+- The two new admin routes documented in the admin guide and the route reference; the `role` filter and the reject-vs-fall-back policy documented across the organizations guide's three listing tables, with one note covering the whole org area of the route reference.
+- `auth_unavailable` added to the error reference.

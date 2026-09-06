@@ -237,10 +237,16 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 	return members, rows.Err()
 }
 
-func (r *OrgRepository) userOrgsWhere(userID string, search *string) (string, []any) {
+func (r *OrgRepository) userOrgsWhere(userID string, search *string, role *domain.OrgRole) (string, []any) {
 	where := []string{"om.user_id = $1"}
 	args := []any{userID}
 	argIdx := 2
+
+	if role != nil && *role != "" {
+		where = append(where, fmt.Sprintf("om.role = $%d", argIdx))
+		args = append(args, string(*role))
+		argIdx++
+	}
 
 	if search != nil && *search != "" {
 		searchTerm := "%" + *search + "%"
@@ -254,9 +260,9 @@ func (r *OrgRepository) userOrgsWhere(userID string, search *string) (string, []
 	return strings.Join(where, " AND "), args
 }
 
-// CountUserOrgs returns how many orgs the user belongs to that match search.
+// CountUserOrgs returns how many orgs the user belongs to that match search/role.
 func (r *OrgRepository) CountUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) (int, error) {
-	whereClause, args := r.userOrgsWhere(userID, filter.Search)
+	whereClause, args := r.userOrgsWhere(userID, filter.Search, filter.Role)
 	var total int
 	q := fmt.Sprintf(`SELECT COUNT(*) FROM organizations o
 		JOIN organization_members om ON om.org_id = o.id WHERE %s`, whereClause)
@@ -267,7 +273,7 @@ func (r *OrgRepository) CountUserOrgs(ctx context.Context, userID string, filter
 }
 
 func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, error) {
-	whereClause, args := r.userOrgsWhere(userID, filter.Search)
+	whereClause, args := r.userOrgsWhere(userID, filter.Search, filter.Role)
 	argIdx := len(args) + 1
 
 	orderCol := orgOrderByWhitelist[filter.OrderBy]

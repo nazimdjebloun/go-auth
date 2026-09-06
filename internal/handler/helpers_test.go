@@ -1073,6 +1073,10 @@ func (m *mockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port
 		if mem.UserID != userID {
 			continue
 		}
+		// Mirrors the "om.role = $n" predicate in OrgRepository.userOrgsWhere.
+		if filter.Role != nil && *filter.Role != "" && mem.Role != *filter.Role {
+			continue
+		}
 		if org, ok := m.orgs[mem.OrgID]; ok {
 			all = append(all, *org)
 		}
