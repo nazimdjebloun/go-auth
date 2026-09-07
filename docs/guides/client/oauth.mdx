@@ -6,7 +6,7 @@ icon: "Cable"
 
 # OAuth linking client
 
-Wraps every endpoint from the [OAuth linking](../oauth.mdx) guide into `oauthApi`, built on the [`apiRequest`](index.mdx) helper.
+Wraps every endpoint from the [OAuth linking](../oauth.mdx) guide into `oauthApi`, built on the [`apiRequest`](./index.mdx) helper.
 
 ```ts
 import { apiRequest } from "./client";
@@ -50,6 +50,6 @@ const { providers } = await oauthApi.listConnected();
 
 ## Next
 
-- [Setup](index.mdx) — the `apiRequest` helper this is built on
+- [Setup](./index.mdx) — the `apiRequest` helper this is built on
 - [OAuth linking](../oauth.mdx) — full request/response/error reference
-- [Security client](security.mdx) — setting a password before unlinking the last provider
+- [Security client](./security.mdx) — setting a password before unlinking the last provider

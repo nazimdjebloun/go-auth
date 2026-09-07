@@ -161,24 +161,54 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 	return &SessionResult{Session: session, SessionToken: newSessionToken, RefreshToken: newRefreshToken}, nil
 }
 
+// checkSession applies the liveness rules to an already-loaded session. Shared
+// by Validate and ValidateWithUser so the two can never disagree about what
+// counts as a usable session.
+func (s *SessionService) checkSession(session *domain.Session) error {
+	if session == nil {
+		return domain.ErrSessionNotFound
+	}
+	if session.IsRevoked {
+		return domain.ErrSessionExpired
+	}
+	now := time.Now().UTC()
+	if now.After(session.ExpiresAt) {
+		return domain.ErrSessionExpired
+	}
+	if s.config.IdleTTL > 0 && now.After(session.LastActiveAt.Add(s.config.IdleTTL)) {
+		return domain.ErrSessionExpired
+	}
+	return nil
+}
+
 func (s *SessionService) Validate(ctx context.Context, token string) (*domain.Session, error) {
 	session, err := s.repo.GetByTokenHash(ctx, hashToken(token))
 	if err != nil {
 		return nil, fmt.Errorf("session validate: %w", err)
 	}
-	if session == nil {
-		return nil, domain.ErrSessionNotFound
-	}
-	if session.IsRevoked {
-		return nil, domain.ErrSessionExpired
-	}
-	if time.Now().UTC().After(session.ExpiresAt) {
-		return nil, domain.ErrSessionExpired
-	}
-	if s.config.IdleTTL > 0 && time.Now().UTC().After(session.LastActiveAt.Add(s.config.IdleTTL)) {
-		return nil, domain.ErrSessionExpired
+	if err := s.checkSession(session); err != nil {
+		return nil, err
 	}
 	return session, nil
+}
+
+// ValidateWithUser is Validate plus the session's owning user, resolved in one
+// query rather than two. It is what AuthMiddleware uses: that path needs both
+// on every authenticated request, and the user is always the one the session
+// points at.
+//
+// A session with no matching user row comes back as ErrSessionNotFound — the
+// join is inner, so an orphaned session is indistinguishable from a missing
+// one, and both are authentication failures.
+func (s *SessionService) ValidateWithUser(ctx context.Context, token string) (*domain.Session, *domain.User, error) {
+	session, user, err := s.repo.GetByTokenHashWithUser(ctx, hashToken(token))
+	if err != nil {
+		return nil, nil, fmt.Errorf("session validate: %w", err)
+	}
+	if err := s.checkSession(session); err != nil {
+		return nil, nil, err
+	}
+	return session, user, nil
 }
 
 func (s *SessionService) Touch(ctx context.Context, token string, lastActiveAt time.Time) error {

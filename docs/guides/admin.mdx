@@ -8,7 +8,7 @@ icon: "ShieldUser"
 
 Everything here requires `role: "admin"` on the calling user — routes are wrapped in `RequireRole(domain.RoleAdmin, nil)` on top of the normal `AuthMiddleware`, so an expired or missing session fails the same way it does everywhere else, and a valid session with `role: "user"` gets `403 forbidden`.
 
-For the full path/param reference see [Routes](../routes.mdx#admin--users). For viewing what admins (and everyone else) have done, see [Audit Logs](audit-logs.mdx).
+For the full path/param reference see [Routes](../routes.mdx#admin--users). For viewing what admins (and everyone else) have done, see [Audit Logs](./audit-logs.mdx).
 
 ## Configuration
 
@@ -52,13 +52,13 @@ If email/password aren't supplied and stdin is a TTY, both are prompted for; oth
 
 ## Frontend client setup
 
-The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](client/index.mdx). The named-method wrapper for everything on this page lives on [Client → Admin](client/admin.mdx).
+The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](./client/index.mdx). The named-method wrapper for everything on this page lives on [Client → Admin](./client/admin.mdx).
 
 ## Admin login
 
 ### Admin login — `POST /auth/admin/login`
 
-Same request shape as [Login](authentication.mdx#login), but only succeeds for users whose `role` is `"admin"` — a correct password for a non-admin account fails exactly like a wrong password, and both count as a failed admin-login attempt in the audit log.
+Same request shape as [Login](./authentication.mdx#login), but only succeeds for users whose `role` is `"admin"` — a correct password for a non-admin account fails exactly like a wrong password, and both count as a failed admin-login attempt in the audit log.
 
 **Request body**
 
@@ -68,10 +68,10 @@ Same request shape as [Login](authentication.mdx#login), but only succeeds for u
 | `password` | `string` | Required |
 
 <Callout type="warn" title="Admin login requires a second factor by default — independent of RequireEmail2FA">
-  Every real `goauth.New()` deployment constructs the 2FA service internally, and `AdminLogin` gates on it independent of `SecurityConfig.RequireEmail2FA`, and independent of whether the admin account itself has `TwoFactorEnabled` set — on by default, so most deployments never think about it further. This holds even in a deployment that never touches any other 2FA setting, which has one concrete consequence worth knowing up front: **a mailer (`WithMailer`/`WithEmail`) is mandatory for `/auth/admin/login` to work at all** while this stays on, since the second-factor code has to be emailed. Turn it off with `SecurityConfig.DisableAdminTwoFactor` (via `WithSecurity`) for an API-only deployment with no email delivery at all — a real reduction in admin-account security, so only do this alongside a deliberate decision that no mailer will ever be configured. `NewConfig`'s validation reflects the current state directly — its error names exactly which enabled feature (`RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, `DefaultTwoFactorEnabled`, or this one) is still requiring a mailer; `EnvironmentDev` defaults to a log-only mailer automatically if none is configured but one is still needed. See [Configuration → WithMailer / WithEmail / WithTemplates](../configuration.mdx#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off), [Two-factor authentication](authentication.mdx#two-factor-authentication) for the verify step, and [Security](../security.mdx#two-factor-authentication) for the reasoning.
+  Every real `goauth.New()` deployment constructs the 2FA service internally, and `AdminLogin` gates on it independent of `SecurityConfig.RequireEmail2FA`, and independent of whether the admin account itself has `TwoFactorEnabled` set — on by default, so most deployments never think about it further. This holds even in a deployment that never touches any other 2FA setting, which has one concrete consequence worth knowing up front: **a mailer (`WithMailer`/`WithEmail`) is mandatory for `/auth/admin/login` to work at all** while this stays on, since the second-factor code has to be emailed. Turn it off with `SecurityConfig.DisableAdminTwoFactor` (via `WithSecurity`) for an API-only deployment with no email delivery at all — a real reduction in admin-account security, so only do this alongside a deliberate decision that no mailer will ever be configured. `NewConfig`'s validation reflects the current state directly — its error names exactly which enabled feature (`RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, `DefaultTwoFactorEnabled`, or this one) is still requiring a mailer; `EnvironmentDev` defaults to a log-only mailer automatically if none is configured but one is still needed. See [Configuration → WithMailer / WithEmail / WithTemplates](../configuration.mdx#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off), [Two-factor authentication](./authentication.mdx#two-factor-authentication) for the verify step, and [Security](../security.mdx#two-factor-authentication) for the reasoning.
 </Callout>
 
-**Response** (`200 OK`) — never a session directly. A correct admin password returns a gated challenge, the same shape [Login](authentication.mdx#login) uses:
+**Response** (`200 OK`) — never a session directly. A correct admin password returns a gated challenge, the same shape [Login](./authentication.mdx#login) uses:
 
 ```json
 {
@@ -84,7 +84,7 @@ Same request shape as [Login](authentication.mdx#login), but only succeeds for u
 }
 ```
 
-No session/refresh cookie is set on this response — only the 2FA binding cookie. Complete the login with `POST /auth/2fa/verify` (`{challengeId, code}`) using the code emailed to the admin; that call is what actually sets `goauth_session`/`goauth_refresh`. See [Two-factor authentication](authentication.mdx#two-factor-authentication) for the full request/response shape.
+No session/refresh cookie is set on this response — only the 2FA binding cookie. Complete the login with `POST /auth/2fa/verify` (`{challengeId, code}`) using the code emailed to the admin; that call is what actually sets `goauth_session`/`goauth_refresh`. See [Two-factor authentication](./authentication.mdx#two-factor-authentication) for the full request/response shape.
 
 **Errors**
 
@@ -520,7 +520,7 @@ await apiRequest(API_BASE, "DELETE", `/admin/users/${userId}`);
 
 ## Managing a user's sessions
 
-Same session shape and semantics as [Sessions](sessions.mdx), just scoped to any user by ID instead of "yourself."
+Same session shape and semantics as [Sessions](./sessions.mdx), just scoped to any user by ID instead of "yourself."
 
 ### List a user's sessions — `GET /admin/users/{id}/sessions`
 
@@ -853,7 +853,7 @@ const { logins } = await apiRequest(
 Platform-admin oversight of organizations: list any org, view one regardless of the caller's own membership in it, and force a mutation an org's own owner/admin couldn't otherwise trigger from outside it. These call `auth.Services.Org` (not `auth.Services.Admin`) — the methods live on `OrgService` because it's only constructed when organizations are enabled, so they simply don't exist (and the routes below aren't mounted) when they're not, the same way every other `/auth/orgs/*` route already works.
 
 <Callout type="info" title="Every mutation here publishes its own admin.org.* audit event">
-  Distinct from the `organization.*` events the org's own owner/admin would publish for the same action — see [Audit Logs](audit-logs.mdx) for the full list and why the distinction matters. `admin.org.deleted` also snapshots the org's `name`/`slug` into the event's metadata, since the `organizations` row is hard-deleted and nothing else could resolve `orgId` back to a name afterward.
+  Distinct from the `organization.*` events the org's own owner/admin would publish for the same action — see [Audit Logs](./audit-logs.mdx) for the full list and why the distinction matters. `admin.org.deleted` also snapshots the org's `name`/`slug` into the event's metadata, since the `organizations` row is hard-deleted and nothing else could resolve `orgId` back to a name afterward.
 </Callout>
 
 ### List organizations — `GET /admin/orgs`
@@ -942,7 +942,7 @@ const org = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123");
 
 ### List an organization's members — `GET /admin/orgs/{orgID}/members`
 
-Same query params as the self-service `GET /auth/orgs/{orgID}/members` (see [Organizations](organizations.mdx)), but bypasses the membership check that endpoint applies — the caller doesn't need to be a member of `orgID`. Publishes `admin.org.viewed`. The response carries no total — use `GET /admin/orgs/{orgID}/members/count` below.
+Same query params as the self-service `GET /auth/orgs/{orgID}/members` (see [Organizations](./organizations.mdx)), but bypasses the membership check that endpoint applies — the caller doesn't need to be a member of `orgID`. Publishes `admin.org.viewed`. The response carries no total — use `GET /admin/orgs/{orgID}/members/count` below.
 
 #### curl
 
@@ -993,7 +993,7 @@ const { count } = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123/members
 
 Every org `{id}` belongs to, filterable by the membership role. The self-service `GET /auth/orgs` only ever reads the *caller's* memberships; this reads someone else's, so it requires a platform admin. Responds 404 if `{id}` doesn't exist. Does **not** publish an audit event — it returns org metadata the admin can already list.
 
-**Query params**: `search` (org name or slug), `role` (`owner`, `admin` or `member` — any other value is a 400, as on [every org listing](organizations.mdx#list-your-orgs--get-authorgs)), `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (default 20, capped at 100; `limit=0` means unlimited, as on the other list endpoints).
+**Query params**: `search` (org name or slug), `role` (`owner`, `admin` or `member` — any other value is a 400, as on [every org listing](./organizations.mdx#list-your-orgs--get-authorgs)), `orderBy` (`name` default, `created_at`, `member_count`), `orderDirection` (`asc` default, `desc`), `offset`, `limit` (default 20, capped at 100; `limit=0` means unlimited, as on the other list endpoints).
 
 **Response**: `{ "orgs": [...], "limit": 20, "offset": 0 }` — no total; use `GET /admin/users/{id}/orgs/count` below.
 
@@ -1020,7 +1020,7 @@ result, err := auth.Services.Org.AdminListUserOrgs(ctx, service.AdminListUserOrg
 // result.Orgs, result.Limit, result.Offset
 ```
 
-`Role` is a `*domain.OrgRole` — leave it `nil` for every role. `Limit` is a `*int` with the same `nil` / `&0` semantics as the self-service listing (see [Organizations](organizations.mdx#list-your-orgs--get-authorgs)).
+`Role` is a `*domain.OrgRole` — leave it `nil` for every role. `Limit` is a `*int` with the same `nil` / `&0` semantics as the self-service listing (see [Organizations](./organizations.mdx#list-your-orgs--get-authorgs)).
 
 ---
 
@@ -1168,7 +1168,7 @@ await apiRequest(API_BASE, "PATCH", "/admin/orgs/org-123/members/b3f1.../role", 
 
 ## Platform invites — requires `EnableInvite`
 
-Admin-issued, invite-only signup: an admin creates an invite for an email address, and the recipient completes registration with it via `POST /auth/invite/register` — covered in [Authentication → Register via invite](authentication.mdx#register-via-invite--requires-enableinvite-true). This is a different feature from organization invites — see [Organizations → Invites](organizations.mdx#invites) for those. These routes only exist when `RegistrationConfig.EnableInvite: true`; otherwise they 404.
+Admin-issued, invite-only signup: an admin creates an invite for an email address, and the recipient completes registration with it via `POST /auth/invite/register` — covered in [Authentication → Register via invite](./authentication.mdx#register-via-invite--requires-enableinvite-true). This is a different feature from organization invites — see [Organizations → Invites](./organizations.mdx#invites) for those. These routes only exist when `RegistrationConfig.EnableInvite: true`; otherwise they 404.
 
 An invite's `status` is one of `pending`, `accepted`, `revoked`, or `expired` (the last one is set lazily — a pending invite past its `expiresAt` reports `invite_expired` the next time something reads it, rather than a background job flipping the status).
 
@@ -1388,7 +1388,7 @@ await apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}/hard`);
 
 ## Next
 
-- [Audit Logs](audit-logs.mdx) — every admin action above (and everything else) shows up here
-- [Sessions](sessions.mdx) — the self-service version of session listing/revocation
-- [Organizations → Invites](organizations.mdx#invites) — the other kind of invite, scoped to one org
+- [Audit Logs](./audit-logs.mdx) — every admin action above (and everything else) shows up here
+- [Sessions](./sessions.mdx) — the self-service version of session listing/revocation
+- [Organizations → Invites](./organizations.mdx#invites) — the other kind of invite, scoped to one org
 - [Routes](../routes.mdx#admin--users) — full param reference

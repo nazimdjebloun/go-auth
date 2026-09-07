@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
 func createAdminUser(t *testing.T, th *testHarness, email, password string) {
@@ -334,79 +335,6 @@ func TestRefresh_ClearsCookiesOnError(t *testing.T) {
 	}
 }
 
-func TestCheckAuth_ValidSession(t *testing.T) {
-	th := newTestHarness()
-
-	body := `{"email":"alice@example.com","password":"Passw0rd!","name":"Alice"}`
-	req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	th.handler.Register(w, req)
-
-	var token string
-	for _, c := range w.Result().Cookies() {
-		if c.Name == "goauth_session" {
-			token = c.Value
-			break
-		}
-	}
-
-	req2 := httptest.NewRequest(http.MethodGet, "/auth/check", nil)
-	req2.AddCookie(&http.Cookie{Name: "goauth_session", Value: token})
-	w2 := httptest.NewRecorder()
-	th.handler.CheckAuth(w2, req2)
-
-	res := w2.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
-	}
-
-	var resp map[string]any
-	json.NewDecoder(res.Body).Decode(&resp)
-	if resp["user"] == nil {
-		t.Fatal("expected user to be present")
-	}
-}
-
-func TestCheckAuth_InvalidSession(t *testing.T) {
-	th := newTestHarness()
-
-	req := httptest.NewRequest(http.MethodGet, "/auth/check", nil)
-	req.AddCookie(&http.Cookie{Name: "goauth_session", Value: "garbage"})
-	w := httptest.NewRecorder()
-	th.handler.CheckAuth(w, req)
-
-	res := w.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
-	}
-
-	var resp map[string]any
-	json.NewDecoder(res.Body).Decode(&resp)
-	if resp["user"] != nil {
-		t.Fatal("expected user to be nil")
-	}
-}
-
-func TestCheckAuth_NoCookie(t *testing.T) {
-	th := newTestHarness()
-
-	req := httptest.NewRequest(http.MethodGet, "/auth/check", nil)
-	w := httptest.NewRecorder()
-	th.handler.CheckAuth(w, req)
-
-	res := w.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
-	}
-
-	var resp map[string]any
-	json.NewDecoder(res.Body).Decode(&resp)
-	if resp["user"] != nil {
-		t.Fatal("expected user to be nil")
-	}
-}
-
 func TestGetMe_NoUserInContext(t *testing.T) {
 	th := newTestHarness()
 
@@ -619,5 +547,144 @@ func TestAdminLogin_WrongPassword(t *testing.T) {
 	}
 	if resp["error"] != "invalid_credentials" {
 		t.Errorf("expected error invalid_credentials, got %v", resp["error"])
+	}
+}
+
+// GET /auth/me carries the caller's session alongside the user, which is the
+// only way a client can read the active org: PUT/DELETE /auth/orgs/active
+// answer with a bare {"message"} and nothing else exposes it.
+func TestGetMe_IncludesSession(t *testing.T) {
+	th := newTestHarness()
+
+	orgID, orgRole := "org-1", "admin"
+	user := &domain.User{ID: "u-1", Email: "a@b.c", Role: domain.RoleAdmin}
+	session := &domain.Session{
+		ID: "s-1", UserID: "u-1", TokenHash: "must-not-leak",
+		RefreshTokenHash: "must-not-leak-either",
+		ActiveOrgID:      &orgID, ActiveOrgRole: &orgRole,
+	}
+
+	ctx := middleware.ContextWithUser(context.Background(), user)
+	ctx = middleware.ContextWithSession(ctx, session)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+	th.handler.GetMe(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	var resp struct {
+		ID      string `json:"id"`
+		Session *struct {
+			ID            string  `json:"id"`
+			ActiveOrgID   *string `json:"activeOrgId"`
+			ActiveOrgRole *string `json:"activeOrgRole"`
+		} `json:"session"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decoding /auth/me: %v", err)
+	}
+	if resp.ID != "u-1" {
+		t.Errorf("id = %q, want u-1", resp.ID)
+	}
+	if resp.Session == nil {
+		t.Fatal("no session in the /auth/me payload")
+	}
+	if resp.Session.ActiveOrgID == nil || *resp.Session.ActiveOrgID != orgID {
+		t.Errorf("activeOrgId = %v, want %q", resp.Session.ActiveOrgID, orgID)
+	}
+	if resp.Session.ActiveOrgRole == nil || *resp.Session.ActiveOrgRole != orgRole {
+		t.Errorf("activeOrgRole = %v, want %q", resp.Session.ActiveOrgRole, orgRole)
+	}
+
+	// Session carries three token hashes. All are json:"-", and this endpoint
+	// is the one place the struct is handed to an untrusted reader.
+	if body := w.Body.String(); strings.Contains(body, "must-not-leak") {
+		t.Errorf("a token hash reached the /auth/me body: %s", body)
+	}
+}
+
+// A caller with no session in context (there is no such path through
+// AuthMiddleware today) must still get a well-formed user rather than a nil
+// dereference or a null session field.
+func TestGetMe_OmitsSessionWhenAbsent(t *testing.T) {
+	th := newTestHarness()
+
+	user := &domain.User{ID: "u-1", Email: "a@b.c", Role: domain.RoleUser}
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil).
+		WithContext(middleware.ContextWithUser(context.Background(), user))
+	w := httptest.NewRecorder()
+	th.handler.GetMe(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), `"session"`) {
+		t.Errorf("session should be omitted entirely, got %s", w.Body.String())
+	}
+}
+
+// GET /auth/csrf-token stays a bare 204 unless a deployment opts in. The token
+// is in the cookie; a client that can read it needs nothing in the body, and a
+// value not in a body cannot be cached or logged by an intermediary.
+func TestGetCSRFToken_204ByDefault(t *testing.T) {
+	th := newTestHarness()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil).
+		WithContext(middleware.ContextWithCSRFToken(context.Background(), "tok.sig"))
+	w := httptest.NewRecorder()
+	th.handler.GetCSRFToken(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w.Code)
+	}
+	if body := w.Body.String(); strings.Contains(body, "tok.sig") {
+		t.Errorf("token leaked into the body without opting in: %s", body)
+	}
+}
+
+// With ExposeCSRFTokenInBody the same route answers 200 {"token": ...} — the
+// opt-in for a frontend on a different registrable domain, which cannot read
+// the cookie however it is scoped.
+func TestGetCSRFToken_BodyWhenExposed(t *testing.T) {
+	th := newTestHarness()
+	th.handler.csrfTokenCfg = &middleware.CSRFTokenConfig{ExposeCSRFTokenInBody: true}
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil).
+		WithContext(middleware.ContextWithCSRFToken(context.Background(), "tok.sig"))
+	w := httptest.NewRecorder()
+	th.handler.GetCSRFToken(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decoding body: %v", err)
+	}
+	if resp["token"] != "tok.sig" {
+		t.Errorf("token = %q, want tok.sig", resp["token"])
+	}
+	// A 200 with a body is cacheable where a 204 was not, and a shared cache
+	// handing one visitor's token to the next would hand over a working one.
+	if cc := w.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+}
+
+// Opted in but the CSRF middleware isn't in front of this route: there is no
+// token to hand back, and inventing one would hand out a value the cookie
+// doesn't match.
+func TestGetCSRFToken_NoTokenInContext(t *testing.T) {
+	th := newTestHarness()
+	th.handler.csrfTokenCfg = &middleware.CSRFTokenConfig{ExposeCSRFTokenInBody: true}
+
+	w := httptest.NewRecorder()
+	th.handler.GetCSRFToken(w, httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil))
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d", w.Code)
 	}
 }

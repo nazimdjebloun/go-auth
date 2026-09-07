@@ -62,22 +62,22 @@ export async function apiRequest(baseUrl: string, method: string, path: string, 
 
 `credentials: "include"` is the load-bearing line — without it, the browser never sends or stores the `HttpOnly` session/refresh cookies, and every request looks unauthenticated regardless of what the server sets. `_csrf` and `X-CSRF-Token` are the defaults; both are configurable on `CSRFTokenConfig` (see [Configuration → WithSecurity](../../configuration.mdx#withsecurity--required-allowedorigins)) — match whatever you actually set there. Leaving `CSRFToken` `nil` server-side does **not** turn the layer off; it just means the defaults apply, so this wrapper works against a stock configuration as written. The only case where the cookie never appears is `DisableCSRFToken: true` — and the `if (csrf)` guard handles that on its own, so the same code is correct either way.
 
-`setUnauthorizedHandler` exists for one reason: a session can die on the server (revoked, banned, expired past its refresh window) while a tab is sitting open with stale `user` state in memory. The next request that tab makes will fail — `401`, or `403 user_banned` — and without this hook, only that one call would know. Wiring it up (done in the [Provider](provider.mdx) guide) means the whole app's state clears the moment any request discovers the session is gone, not just the one that happened to ask first.
+`setUnauthorizedHandler` exists for one reason: a session can die on the server (revoked, banned, expired past its refresh window) while a tab is sitting open with stale `user` state in memory. The next request that tab makes will fail — `401`, or `403 user_banned` — and without this hook, only that one call would know. Wiring it up (done in the [Provider](./provider.mdx) guide) means the whole app's state clears the moment any request discovers the session is gone, not just the one that happened to ask first.
 
 On a `429`, the thrown error additionally carries `retryAfter` — the `Retry-After` header value in seconds, parsed for you — since [rate limiting](../rate-limiting.mdx) can hit any endpoint and there's no single place that otherwise expects to read response headers.
 
 ## What lives where
 
 - The individual feature guides (e.g. [Authentication](../authentication.mdx)) show the **raw** call — `apiRequest(API_BASE, "POST", "/auth/login", ...)` — right next to the curl and Go examples for that same endpoint, so you can see the request/response map 1:1 to what's documented above it.
-- [Authentication](authentication.mdx), [Sessions](sessions.mdx), [Organizations](organizations.mdx), [Security](security.mdx), [OAuth linking](oauth.mdx), and [Admin](admin.mdx) wrap those same calls into named methods — `authApi.login(...)`, `sessionsApi.list(...)`, `orgApi.create(...)`, `securityApi.changePassword(...)`, `oauthApi.link(...)`, `adminApi.listUsers(...)` — the form you'd actually want in an app.
-- [Provider](provider.mdx) wraps *those* in a React context, so components read `user`/`loading` from one hook instead of calling the API directly.
-- [Middleware](middleware.mdx) is a different layer entirely — it runs on the server, before any of the above, to redirect unauthenticated requests away from protected pages.
+- [Authentication](./authentication.mdx), [Sessions](./sessions.mdx), [Organizations](./organizations.mdx), [Security](./security.mdx), [OAuth linking](./oauth.mdx), and [Admin](./admin.mdx) wrap those same calls into named methods — `authApi.login(...)`, `sessionsApi.list(...)`, `orgApi.create(...)`, `securityApi.changePassword(...)`, `oauthApi.link(...)`, `adminApi.listUsers(...)` — the form you'd actually want in an app.
+- [Provider](./provider.mdx) wraps *those* in a React context, so components read `user`/`loading` from one hook instead of calling the API directly.
+- [Middleware](./middleware.mdx) is a different layer entirely — it runs on the server, before any of the above, to redirect unauthenticated requests away from protected pages.
 
 ## Next
 
-- [Authentication client](authentication.mdx) — `authApi`, covering register, login, logout, and session checks
-- [Sessions client](sessions.mdx) — `sessionsApi`, covering listing and revoking
-- [Organizations client](organizations.mdx) — `orgApi`, covering org CRUD, membership, and invites
-- [Security client](security.mdx) — `securityApi`, covering name/password changes, verification resend, and deletion
-- [OAuth linking client](oauth.mdx) — `oauthApi`, covering link/unlink/list connected providers
-- [Admin client](admin.mdx) — `adminApi`, covering user management and audit-log queries
+- [Authentication client](./authentication.mdx) — `authApi`, covering register, login, logout, and session checks
+- [Sessions client](./sessions.mdx) — `sessionsApi`, covering listing and revoking
+- [Organizations client](./organizations.mdx) — `orgApi`, covering org CRUD, membership, and invites
+- [Security client](./security.mdx) — `securityApi`, covering name/password changes, verification resend, and deletion
+- [OAuth linking client](./oauth.mdx) — `oauthApi`, covering link/unlink/list connected providers
+- [Admin client](./admin.mdx) — `adminApi`, covering user management and audit-log queries

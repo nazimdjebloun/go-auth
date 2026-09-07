@@ -82,11 +82,13 @@ goauth.WithSecurity(goauth.SecurityConfig{
     AllowMissingCSRFHeaders: false,                          // optional, default false
     DisableCSRFToken:        false,                          // optional, default false — the token layer is ON
     CSRFToken: &middleware.CSRFTokenConfig{ // optional — overrides only; a config is created for you
-        TokenLength:    32,                       // optional, default 32
-        CookieName:     "_csrf",                  // optional, default "_csrf"
-        HeaderName:     "X-CSRF-Token",           // optional, default "X-CSRF-Token"
-        CookiePath:     "/",                      // optional, default "/"
-        CookieSameSite: http.SameSiteLaxMode,     // optional, default Lax
+        TokenLength:           32,                   // optional, default 32
+        CookieName:            "_csrf",              // optional, default "_csrf"
+        HeaderName:            "X-CSRF-Token",       // optional, default "X-CSRF-Token"
+        CookiePath:            "/",                  // optional, default "/"
+        CookieSameSite:        http.SameSiteLaxMode, // optional, default Lax
+        CookieDomain:          "",                   // optional, defaults to CookieConfig.Domain
+        ExposeCSRFTokenInBody: false,                // optional, default false; see "Where is your frontend?"
         // CookieSecure and Secret are filled in automatically — do not set them.
     },
     PasswordPolicy: domain.PasswordPolicy{ // optional, default {MinLength: 8, RequireDigit: true}
@@ -115,10 +117,10 @@ goauth.WithSecurity(goauth.SecurityConfig{
 | `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Setting any one field means you're specifying the whole policy — see note below. |
 | `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
 | `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
-| `RequireEmail2FA` | `bool` | Optional | `false` | Makes email 2FA mandatory for every password login (`Login`, `AdminLogin`, `Register`, invite registration). While on, `Enable`/`Disable` both reject — users cannot opt out. OAuth logins are not covered; see [Security](security.mdx). |
+| `RequireEmail2FA` | `bool` | Optional | `false` | Makes email 2FA mandatory for every password login (`Login`, `AdminLogin`, `Register`, invite registration). While on, `Enable`/`Disable` both reject — users cannot opt out. OAuth logins are not covered; see [Security](./security.mdx). |
 | `DefaultTwoFactorEnabled` | `bool` | Optional | `false` | Seeds `User.TwoFactorEnabled` at registration (email/password only). Users can still call `Disable` to opt out — use `RequireEmail2FA` if that shouldn't be possible. |
 | `TwoFactorCodeTTL` | `time.Duration` | Optional | `5m` | Lifetime of a 2FA login code. Deliberately shorter than `VerificationCodeTTL`: a 6-digit code has ~20 fewer bits of entropy than the 8-char alphanumeric codes used elsewhere. |
-| `DisableTwoFactorChallengeBinding` | `bool` | Optional | `false` | Turns off the cookie that ties a 2FA challenge to the browser that started it. Spelled as "Disable" so the zero value is the secure one. Intended for CLI/server-to-server consumers with no browser — see [Security](security.mdx). With it set, the challenge id alone identifies the challenge, so treat it as a secret. |
+| `DisableTwoFactorChallengeBinding` | `bool` | Optional | `false` | Turns off the cookie that ties a 2FA challenge to the browser that started it. Spelled as "Disable" so the zero value is the secure one. Intended for CLI/server-to-server consumers with no browser — see [Security](./security.mdx). With it set, the challenge id alone identifies the challenge, so treat it as a secret. |
 | `TwoFactorChallengeCookieName` | `string` | Optional | `_2fa_challenge` | Overrides the binding cookie name. |
 
 `PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default — if you set `RequireUppercase: true` without repeating `MinLength` or `RequireDigit`, those two are no longer applied.
@@ -152,15 +154,36 @@ first and echo the cookie value back in the header.
 | `HeaderName` | `X-CSRF-Token` |
 | `CookiePath` | `/` |
 | `CookieSameSite` | Lax |
+| `CookieDomain` | inherited from `CookieConfig.Domain` |
+| `ExposeCSRFTokenInBody` | `false` |
 | `CookieSecure` | derived from the resolved session cookie `Secure` value |
 | `Secret` | filled automatically from `WithSecret` |
 
-**Expected errors**
+### Where is your frontend?
 
-- `allowed_origins must include at least one origin` — hint: `AllowedOrigins` was empty.
-- `allowed_origins must not contain "*" — this disables CSRF protection; list specific origins instead`.
-- `token_ttl must be positive` — hint: only reachable if `TokenTTL` was explicitly set negative; an omitted value defaults to `1h` and never reaches this check.
-- `security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set — a cross-site request with no Origin/Referer and no token would pass; keep one of the two layers`.
+The double submit check needs the browser to do two things with `_csrf`: **send** it, and let your JavaScript **read** it so the value can be echoed in `X-CSRF-Token`. Which of those you get for free depends entirely on where the frontend sits relative to the API.
+
+| Topology | Sends? | Readable? | What to set |
+|---|---|---|---|
+| Same origin, the frontend proxies the API (both reference apps do this) | yes | yes | nothing |
+| Sibling subdomains, `app.example.com` and `api.example.com` | yes, they are the **same site** | not by default | `CookieDomain: ".example.com"` here, and leave `CookieConfig.Domain` alone |
+| Different registrable domains, `panel.acme.com` and `api.example.com` | only with `SameSite=None` | **never** | `CookieSameSite: http.SameSiteNoneMode`, a secure cookie, and `ExposeCSRFTokenInBody: true` |
+
+Two things that trip people up, both covered in full in the [Deployment guide](./guides/deployment.mdx):
+
+* **Subdomains are the same site, not a cross site deployment.** `SameSite` is computed from the registrable domain and ignores the subdomain and the port, so the default `Lax` cookie is sent normally there. Only *readability* is missing, and `CookieDomain` is what fixes it. A leading dot is optional: `net/http` strips it on write, RFC 6265 ignores it on read, and any `Domain` attribute covers subdomains.
+* **Only the CSRF cookie needs a `Domain`.** Widening `CookieConfig.Domain` as well shares your session across every subdomain, and is not required for a sibling subdomain frontend to authenticate. Do it only when you want one login to cover both.
+
+**`ExposeCSRFTokenInBody`** makes `GET /auth/csrf-token` answer `200 {"token": "..."}` (with `Cache-Control: no-store`) instead of a bare `204`. Turn it on only for the third row: across two registrable domains no cookie scope can make `_csrf` readable by the frontend, so the response body is the only channel left.
+
+It does not weaken the check. The cookie is still set and still compared server side, and reading that body requires the caller's origin to be in `AllowedOrigins`, the same gate `OriginCheck` applies to every mutation. The exposure that matters in a cross site deployment comes from `SameSite=None`, which removes the browser's own barrier against the cookie riding along on a cross site request. This flag accompanies that decision rather than causing it, and it stays off by default because most deployments read the cookie perfectly well.
+
+**Startup warnings** (logged, not fatal — a native client keeps its own cookie jar and is not subject to `SameSite`, so either setting alone is legitimate there):
+
+- `cookie SameSite=None without CSRFTokenConfig.ExposeCSRFTokenInBody` — a cross-site browser frontend receives the session cookie but cannot read the CSRF token, so reads work and every write `403`s.
+- `CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None` — the reverse: the frontend can read the token but is never sent the session cookie, so everything arrives unauthenticated.
+
+- `cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()` — the pair yields *no* session rather than a weaker one, so this is caught in config instead of surfacing as "login succeeds but never sticks".
 - `security: two_factor_code_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `5m`.
 - `security: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path`.
 
@@ -206,12 +229,12 @@ goauth.WithSession(goauth.SessionConfig{
 
 ```go
 goauth.WithCookie(goauth.CookieConfig{
-    Name:        "goauth_session",       // optional, default "goauth_session"
-    RefreshName: "goauth_refresh",       // optional, default "goauth_refresh"
-    Domain:      "",                      // optional, default "" (host-only cookie)
-    Path:        "/",                     // optional, default "/"
-    SameSite:    http.SameSiteLaxMode,    // optional, default Lax
-    Secure:      goauth.SecureAlways(),   // optional, default derived from Environment/BaseURL
+    Name:        "goauth_session",      // optional, default "goauth_session"
+    RefreshName: "goauth_refresh",      // optional, default "goauth_refresh"
+    Domain:      "",                    // optional, default "" (host-only cookie)
+    Path:        "/",                   // optional, default "/"
+    SameSite:    http.SameSiteLaxMode,  // optional, default Lax
+    Secure:      goauth.SecureAlways(), // optional, default derived from Environment/BaseURL
 })
 ```
 
@@ -219,12 +242,20 @@ goauth.WithCookie(goauth.CookieConfig{
 |---|---|---|---|---|
 | `Name` | `string` | Optional | `goauth_session` | |
 | `RefreshName` | `string` | Optional | `goauth_refresh` | |
-| `Domain` | `string` | Optional | `""` — host-only cookie | |
+| `Domain` | `string` | Optional | `""` — host-only cookie | Widen it (`".example.com"`) only to share **one login** across subdomains. A frontend on a sibling subdomain does *not* need this to authenticate: the request goes to the API's own host either way. Scope only the CSRF cookie instead, with `CSRFTokenConfig.CookieDomain`. See [Deployment](./guides/deployment.mdx). |
 | `Path` | `string` | Optional | `/` | |
-| `SameSite` | `http.SameSite` | Optional | Lax | |
+| `SameSite` | `http.SameSite` | Optional | Lax | Keep `Lax` unless a browser frontend is on a different **registrable domain** from the API. Subdomains of one domain are the same site and work on `Lax`. `None` requires `Secure` (see the error below) and pairs with `CSRFTokenConfig.ExposeCSRFTokenInBody`. See [Deployment](./guides/deployment.mdx). |
 | `Secure` | `*bool` | Optional | derived — `true` unless `Environment` is dev **and** `BaseURL` is `http://` | Tri-state: `nil` derives it, so the same code is correct in development and production. Override with `goauth.SecureAlways()` or `goauth.SecureNever()` (local `http://` development only). |
 
-No fields here reach validation as an error — every field is defaulted before the config is checked.
+**Expected errors**
+
+- `cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()` — every current browser discards a `SameSite=None` cookie that is not also `Secure`, so the pairing produces *no* session rather than a weaker one, from the first request, with nothing in the server logs to explain it. This is checked against the **resolved** `Secure` value, so an `https://` `BaseURL` satisfies it without setting `Secure` explicitly.
+
+Every other field is defaulted before the config is checked and cannot fail validation.
+
+<Callout type="info" title="These settings depend on where your frontend is hosted">
+  `Domain` and `SameSite` are the two fields you touch when the frontend is not same-origin with the API, and they pair with `CSRFTokenConfig.CookieDomain` and `ExposeCSRFTokenInBody` above. The [Deployment guide](./guides/deployment.mdx) walks the three topologies and says which fields each one needs, along with what each costs.
+</Callout>
 
 ## `WithRegistration` — Optional, replaces wholesale
 
@@ -287,7 +318,7 @@ goauth.WithOrganizations(goauth.OrganizationConfig{
 
 ## `WithMailer` / `WithEmail` / `WithTemplates` — required unless every email feature is off
 
-A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultTwoFactorEnabled`, or `POST /auth/admin/login`'s two-factor challenge (on by default — see [Admin login](guides/admin.mdx#admin-login) and [Security](security.mdx#two-factor-authentication)). Set `SecurityConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
+A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultTwoFactorEnabled`, or `POST /auth/admin/login`'s two-factor challenge (on by default — see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `SecurityConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
 
 **Exception: `EnvironmentDev`.** If neither `WithMailer` nor `WithEmail` is set and `Environment` is `EnvironmentDev`, `NewConfig` automatically defaults to a log-only mailer (`goauth.LogMailer`) instead of erroring — emails are logged (`slog`) rather than delivered, so local development works with zero mailer setup. This default only fills in when *nothing* was configured; an explicit `WithMailer`/`WithEmail` call is never overridden. Outside `EnvironmentDev`, no default is applied — a still-unconfigured mailer is a validation error.
 
@@ -369,7 +400,7 @@ type TemplateResult struct {
 | `port.OrgInviteData` | `TemplateOrgInvite` | `AppName, OrgName, InviteURL, ExpiresIn` | Organization invite |
 | `port.DeleteAccountData` | `TemplateDeleteAccount` | `AppName, Code, ExpiresIn` | Account deletion confirmation |
 | `port.TwoFactorData` | `TemplateTwoFactor` | `AppName, Code, ExpiresIn` | 2FA login code |
-| `port.TwoFactorSuspiciousData` | `TemplateTwoFactorSuspicious` | `AppName, AttemptCount, ResetPasswordURL` | Notify-only warning after repeated wrong 2FA codes on one account — never blocks login, see [Security](security.mdx) |
+| `port.TwoFactorSuspiciousData` | `TemplateTwoFactorSuspicious` | `AppName, AttemptCount, ResetPasswordURL` | Notify-only warning after repeated wrong 2FA codes on one account — never blocks login, see [Security](./security.mdx) |
 
 A minimal implementation:
 
@@ -481,6 +512,12 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
 | `IPv6Subnet` | `int` | Optional | `64` | Subnet prefix length used to bucket IPv6 clients. Must be 1–128. |
 | `IPAddressHeader` | `string` | Optional | `""` — trusts `RemoteAddr` only | The header is only honored from a peer in `TrustedIPs`; otherwise it's ignored, since an untrusted client could spoof it to pick its own rate-limit key. |
 
+<Callout type="info" title="These two fields describe your proxy setup, not just your rate limiter">
+  `TrustedIPs` and `IPAddressHeader` live under `WithRateLimit` for historical reasons, but three subsystems read them: the rate limiter (to key counters), the CSRF origin check (to recover the original scheme/host from `X-Forwarded-*`), and **the address recorded on sessions and audit events**.
+
+  If go-auth sits behind a reverse proxy and you leave these unset, every session and every audit row records the *proxy's* address — so the session list and the audit log, whose whole job is to show an operator where a login came from, show the same address for every user. Setting them once fixes all three. Rate limiting does not need to be `Enabled` for the other two to read them.
+</Callout>
+
 **Expected errors** (only reachable when `Enabled: true`)
 
 - `rate_limit: route "..." requests must be positive, got N` / `... window must be positive, got ...` — from `Default` or any entry in `Routes`. A `Routes` entry may be exactly `0` (that's the per-route opt-out); `Default` may not.
@@ -557,5 +594,5 @@ No validation errors — all fields are defaulted rather than rejected.
 
 ## Next
 
-- [Introduction](index.mdx) — what go-auth is and why it exists
-- [Installation](installation.mdx) — prerequisites and what you need before configuring
+- [Introduction](./index.mdx) — what go-auth is and why it exists
+- [Installation](./installation.mdx) — prerequisites and what you need before configuring

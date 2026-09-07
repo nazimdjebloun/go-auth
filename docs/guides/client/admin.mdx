@@ -6,7 +6,7 @@ icon: "UserCog"
 
 # Admin client
 
-Wraps every endpoint from the [Admin](../admin.mdx) and [Audit Logs](../audit-logs.mdx) guides into `adminApi`, built on the [`apiRequest`](index.mdx) helper. Every call here 403s unless the logged-in user has `role: "admin"` — this is for an admin dashboard, not a regular app surface.
+Wraps every endpoint from the [Admin](../admin.mdx) and [Audit Logs](../audit-logs.mdx) guides into `adminApi`, built on the [`apiRequest`](./index.mdx) helper. Every call here 403s unless the logged-in user has `role: "admin"` — this is for an admin dashboard, not a regular app surface.
 
 ```ts
 import { apiRequest } from "./client";
@@ -148,6 +148,6 @@ await adminApi.resendInvite(invite.id); // issues a fresh code, invalidates the 
 
 ## Next
 
-- [Setup](index.mdx) — the `apiRequest` helper this is built on
+- [Setup](./index.mdx) — the `apiRequest` helper this is built on
 - [Admin](../admin.mdx) — full request/response/error reference
 - [Audit Logs](../audit-logs.mdx) — event types and filter params

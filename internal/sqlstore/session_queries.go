@@ -1,5 +1,7 @@
 package sqlstore
 
+import "strings"
+
 const (
 	sessionCols = `id, user_id, token_hash, refresh_token_hash, prev_refresh_token_hash, ip_address, user_agent, is_revoked, expires_at, refresh_expires_at, refresh_rotated_at, created_at, revoked_at, last_active_at, active_org_id, active_org_role`
 
@@ -62,4 +64,29 @@ const (
 	sessionClearActiveOrgForAllMembersQuery = `UPDATE sessions SET active_org_id = NULL, active_org_role = NULL WHERE active_org_id = $1 AND is_revoked = false`
 
 	sessionSetActiveOrgQuery = `UPDATE sessions SET active_org_id = $1, active_org_role = $2 WHERE id = $3 AND is_revoked = false`
+)
+
+// prefixCols qualifies every column in a comma-separated list with a table
+// alias. It lets the session+user join reuse sessionCols and
+// userSelectColumns verbatim instead of keeping a second, drift-prone copy of
+// either list, and it runs once at init rather than per query.
+func prefixCols(alias, cols string) string {
+	parts := strings.Split(cols, ", ")
+	for i, c := range parts {
+		parts[i] = alias + "." + c
+	}
+	return strings.Join(parts, ", ")
+}
+
+var (
+	sessionColsQualified = prefixCols("s", sessionCols)
+	userColsQualified    = prefixCols("u", userSelectColumns)
+
+	// sessionWithUserByTokenHashQuery resolves a session and its owning user in
+	// one round trip — the auth middleware's hot path, which needs both on
+	// every authenticated request. Columns come from the same two constants the
+	// single-table queries use, so there is no second copy of either list to
+	// keep in step.
+	sessionWithUserByTokenHashQuery = `SELECT ` + sessionColsQualified + `, ` + userColsQualified +
+		` FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = $1`
 )

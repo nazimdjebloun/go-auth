@@ -16,14 +16,17 @@ type OAuthHandlers struct {
 	session      *service.SessionService
 	baseURL      string
 	csrfTokenCfg *middleware.CSRFTokenConfig
+	// clientIP — see Handler.clientIP.
+	clientIP middleware.ClientIPConfig
 }
 
-func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig) *OAuthHandlers {
+func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig) *OAuthHandlers {
 	return &OAuthHandlers{
 		oauth:        oauth,
 		session:      session,
 		baseURL:      baseURL,
 		csrfTokenCfg: csrfTokenCfg,
+		clientIP:     clientIP,
 	}
 }
 
@@ -82,7 +85,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.oauth.Callback(r.Context(), provider, code, state, extractIP(r.RemoteAddr), r.UserAgent())
+	result, err := h.oauth.Callback(r.Context(), provider, code, state, middleware.ClientIP(r, h.clientIP), r.UserAgent())
 	if err != nil {
 		errCode := "internal_error"
 		var authErr *domain.AuthError

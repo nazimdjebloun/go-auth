@@ -1,11 +1,13 @@
 package integration_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +20,7 @@ import (
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/schema"
+	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 	_ "modernc.org/sqlite"
@@ -2013,5 +2016,85 @@ func TestTwoFactor_Enable_KeepOtherSessionsLeavesBoth(t *testing.T) {
 	}
 	if len(sessions) != 2 {
 		t.Fatalf("expected both sessions to survive with keepOtherSessions=true, got %d", len(sessions))
+	}
+}
+
+// --- CSRF cross-site config mismatch warnings ---
+//
+// SameSite=None and ExposeCSRFTokenInBody are the same decision from two sides.
+// Setting one without the other leaves a browser deployment that half-works,
+// which reads as a library bug rather than a config mismatch, so New warns.
+// It warns rather than rejects: a native client keeps its own cookie jar and
+// is not subject to SameSite, so either alone is legitimate there.
+func newAuthWithCSRFTopology(t *testing.T, db *sql.DB, sameSite http.SameSite, exposeInBody bool) *bytes.Buffer {
+	t.Helper()
+	migrateDB(t, db, "sqlite")
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	cfg, err := goauth.NewConfig(
+		goauth.WithApp(goauth.AppConfig{
+			Name:     "TestApp",
+			BaseURL:  "https://api.example.com",
+			Database: goauth.DatabaseConfig{DB: db, Driver: goauth.DriverSQLite},
+		}),
+		goauth.WithSecurity(goauth.SecurityConfig{
+			AllowedOrigins: []string{"https://panel.example.com"},
+			CSRFToken:      &middleware.CSRFTokenConfig{ExposeCSRFTokenInBody: exposeInBody},
+		}),
+		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session", SameSite: sameSite}),
+		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
+		goauth.WithMailer(&testMailer{}),
+		goauth.WithLogger(logger),
+	)
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	a, err := goauth.New(cfg)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(a.Close)
+	return &buf
+}
+
+func TestCSRFTopology_WarnsOnNoneWithoutBodyToken(t *testing.T) {
+	db, cleanup := newSQLiteDB(t)
+	defer cleanup()
+
+	logs := newAuthWithCSRFTopology(t, db, http.SameSiteNoneMode, false).String()
+	if !strings.Contains(logs, "cannot read the CSRF token") {
+		t.Errorf("expected a warning about the unreadable token, got:\n%s", logs)
+	}
+}
+
+func TestCSRFTopology_WarnsOnBodyTokenWithoutNone(t *testing.T) {
+	db, cleanup := newSQLiteDB(t)
+	defer cleanup()
+
+	logs := newAuthWithCSRFTopology(t, db, http.SameSiteLaxMode, true).String()
+	if !strings.Contains(logs, "arrives unauthenticated") {
+		t.Errorf("expected a warning about the missing session cookie, got:\n%s", logs)
+	}
+}
+
+func TestCSRFTopology_SilentWhenBothSet(t *testing.T) {
+	db, cleanup := newSQLiteDB(t)
+	defer cleanup()
+
+	logs := newAuthWithCSRFTopology(t, db, http.SameSiteNoneMode, true).String()
+	if strings.Contains(logs, "ExposeCSRFTokenInBody") {
+		t.Errorf("a correctly configured cross-site deployment must not warn, got:\n%s", logs)
+	}
+}
+
+func TestCSRFTopology_SilentOnPlainSameOriginDefaults(t *testing.T) {
+	db, cleanup := newSQLiteDB(t)
+	defer cleanup()
+
+	logs := newAuthWithCSRFTopology(t, db, http.SameSiteLaxMode, false).String()
+	if strings.Contains(logs, "ExposeCSRFTokenInBody") {
+		t.Errorf("the default same-origin setup must not warn, got:\n%s", logs)
 	}
 }

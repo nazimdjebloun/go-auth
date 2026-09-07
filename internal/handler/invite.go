@@ -42,7 +42,7 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 		Name:            body.Name,
 		Password:        body.Password,
 		ConfirmPassword: body.ConfirmPassword,
-		IP:              extractIP(r.RemoteAddr),
+		IP:              h.ip(r),
 		UserAgent:       r.UserAgent(),
 	})
 	if err != nil {

@@ -43,7 +43,7 @@ goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 
 ## Frontend client setup
 
-The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](client/index.mdx). The named-method wrapper for both endpoints on this page lives on [Client → Admin](client/admin.mdx#audit-logs).
+The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](./client/index.mdx). The named-method wrapper for both endpoints on this page lives on [Client → Admin](./client/admin.mdx#audit-logs).
 
 ## What gets recorded
 
@@ -232,5 +232,5 @@ const { count } = await apiRequest(API_BASE, "GET", `/admin/users/${userId}/audi
 
 ## Next
 
-- [Admin](admin.mdx) — most of the actions that show up as `admin.*` events here
+- [Admin](./admin.mdx) — most of the actions that show up as `admin.*` events here
 - [Routes](../routes.mdx#admin--audit-logs) — full param reference

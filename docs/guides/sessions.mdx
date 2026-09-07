@@ -6,7 +6,7 @@ icon: "MonitorSmartphone"
 
 # Sessions
 
-The self-service surface on top of the two-token session model: checking whether a request is authenticated, listing a user's own active sessions, and revoking them. For the token/cookie mechanics themselves (rotation, hashing, the grace window) see [Security concepts](../security.mdx) and the `sessions` table on [Schemas](../schemas.mdx#sessions). For an admin viewing or revoking *another* user's sessions, see [Admin](admin.mdx#managing-a-users-sessions) — that's a different, role-gated surface and isn't covered here.
+The self-service surface on top of the two-token session model: checking whether a request is authenticated, listing a user's own active sessions, and revoking them. For the token/cookie mechanics themselves (rotation, hashing, the grace window) see [Security concepts](../security.mdx) and the `sessions` table on [Schemas](../schemas.mdx#sessions). For an admin viewing or revoking *another* user's sessions, see [Admin](./admin.mdx#managing-a-users-sessions) — that's a different, role-gated surface and isn't covered here.
 
 ## Configuration
 
@@ -100,7 +100,7 @@ func myLoginHandler(a *goauth.Auth) http.HandlerFunc {
 
 ## Frontend client setup
 
-The **Client** examples below call the same `apiRequest` helper defined on [Client → Setup](client/index.mdx) — see that page (or [Authentication](authentication.mdx)) if you haven't already.
+The **Client** examples below call the same `apiRequest` helper defined on [Client → Setup](./client/index.mdx) — see that page (or [Authentication](./authentication.mdx)) if you haven't already.
 
 ## A note on curl and sessions — read this if something isn't working
 
@@ -122,7 +122,7 @@ curl https://api.myapp.com/auth/sessions -b cookies.txt -c cookies.txt
 
 `AuthMiddleware` transparently rotates your session when the session cookie has expired but the refresh cookie is still valid — it issues new `Set-Cookie` headers on that same response rather than erroring. If you only ever read from the jar (`-b`) and never let curl write back to it (`-c`), you keep replaying the old token, and once the refresh window closes too you'll get a `401 session_expired` that looks like it came from nowhere. Always pass both flags pointing at the same file.
 
-**2. The revoke endpoints also need the `Origin` header.** `DELETE /auth/sessions/{id}`, `POST /auth/sessions/revoke`, and `DELETE /auth/sessions` are state-changing, so they run through the same `OriginCheck` as register/login — see [Authentication → Origin checking](authentication.mdx#origin-checking). The two list endpoints and `GET /auth/check` are `GET` requests and don't need it; `OriginCheck` only inspects `POST`/`PUT`/`PATCH`/`DELETE`.
+**2. The revoke endpoints also need the `Origin` header.** `DELETE /auth/sessions/{id}`, `POST /auth/sessions/revoke`, and `DELETE /auth/sessions` are state-changing, so they run through the same `OriginCheck` as register/login — see [Authentication → Origin checking](./authentication.mdx#origin-checking). The two list endpoints and `GET /auth/me` are `GET` requests and don't need it; `OriginCheck` only inspects `POST`/`PUT`/`PATCH`/`DELETE`.
 
 <Callout type="info" title="Is this secure?">
   Yes — curl isn't bypassing anything here, it's just making manual what a browser normally hides. The session cookie is the actual credential: it's a random token, stored server-side only as a SHA-256 hash (see [Schemas → sessions](../schemas.mdx#sessions)), never guessable from the session ID. Every revoke query is scoped with `WHERE user_id = ... AND id = ...`, so knowing or guessing another session's ID never lets you touch it — `RevokeSession` returns the same `404 session_not_found` whether the ID doesn't exist or just isn't yours. curl can do everything a browser can *because it has the same cookie*, not because any check was skipped.
@@ -130,7 +130,17 @@ curl https://api.myapp.com/auth/sessions -b cookies.txt -c cookies.txt
 
 ## Checking who's logged in
 
-Two endpoints, for two different situations: one for a page that requires auth and should redirect if there isn't any, one for a page that renders differently either way without treating "not logged in" as an error.
+One endpoint. `GET /auth/me` requires auth and answers `401` when there is no valid session, so code that renders differently for anonymous visitors reads that status as "logged out" rather than as a failure:
+
+```ts
+try {
+  setUser(await authApi.me())
+} catch {
+  setUser(null) // a 401 here just means "not logged in"
+}
+```
+
+That `401` is worth more than a `200` with a null body would be. It comes from `AuthMiddleware`, which is also what transparently renews an expired-but-refreshable session before the handler runs. An endpoint that answered softly would have to sit outside that middleware, and would then report "logged out" for a session that was one refresh cookie away from being valid.
 
 ### `GET /auth/me` — Auth required
 
@@ -147,9 +157,43 @@ Returns the authenticated user plus whether they have a password set (relevant f
   "orgOwnerCount": 0,
   "createdAt": "2026-08-09T12:00:00Z",
   "updatedAt": "2026-08-09T12:00:00Z",
-  "hasPassword": true
+  "hasPassword": true,
+  "session": {
+    "id": "9c2e...",
+    "userId": "b3f1...",
+    "ipAddress": "203.0.113.4",
+    "userAgent": "Mozilla/5.0 ...",
+    "parsedUA": { "browser": "Chrome", "os": "Windows", "deviceType": "desktop" },
+    "isRevoked": false,
+    "expiresAt": "2026-09-08T12:00:00Z",
+    "refreshExpiresAt": "2026-09-13T12:00:00Z",
+    "createdAt": "2026-09-06T12:00:00Z",
+    "lastActiveAt": "2026-09-06T12:31:00Z",
+    "activeOrgId": "org_7fa2...",
+    "activeOrgRole": "admin"
+  }
 }
 ```
+
+`session` is the caller's own current session — the same object `GET /auth/sessions` returns for each entry, plus the active-org fields. Every token hash on it is `json:"-"`, so nothing usable as a credential is in there.
+
+It is what lets a client read the **active org** — `activeOrgId`/`activeOrgRole` — which is otherwise not exposed anywhere: `PUT`/`DELETE /auth/orgs/active` only return a bare `{"message"}`.
+
+Which fields you actually get:
+
+| Field | When it appears |
+|---|---|
+| `id`, `userId`, `isRevoked`, `expiresAt`, `createdAt` | Always. `isRevoked` is always `false` here — a revoked session never gets past `AuthMiddleware` to reach this handler. |
+| `ipAddress`, `userAgent`, `parsedUA` | When they were recorded at login. `parsedUA` is derived from `userAgent`, so the two travel together. |
+| `refreshExpiresAt` | Whenever a refresh cookie was issued — in practice, always for a browser login. |
+| `refreshRotatedAt` | Only after the refresh token has rotated at least once. |
+| `lastActiveAt` | Once the session has been touched (subject to `TouchDebounce`). |
+| `activeOrgId`, `activeOrgRole` | Only while an org is active. Both absent otherwise — not `null`. |
+| `revokedAt` | Never on this endpoint; see `isRevoked` above. |
+
+<Callout type="info" title="One session shape, everywhere">
+  `session` is `domain.Session` verbatim, minus the three `json:"-"` token hashes. It is the same object `POST /auth/login`, `POST /auth/register`, `POST /auth/invite/register`, `POST /auth/2fa/verify`, `POST /auth/verify-email` and `POST /auth/refresh` all return under that key. Read the fields you need and ignore the rest: a field added to the struct appears on every one of them at once.
+</Callout>
 
 | Code | Status | Cause |
 |---|---|---|
@@ -179,50 +223,6 @@ There's no dedicated "get me" service method — the HTTP layer reads the user a
 const me = await apiRequest(API_BASE, "GET", "/auth/me");
 ```
 
----
-
-### `GET /auth/check` — public, soft check
-
-Never errors — always `200`. Returns `{ "user": null }` instead of a `401` when there's no valid session, which is what makes it suitable for a layout component that renders a "log in" vs. "account" button without treating the anonymous case as an error.
-
-```json
-{ "user": { "...": "same shape as /auth/me, minus hasPassword" } }
-```
-
-or, with no valid session:
-
-```json
-{ "user": null }
-```
-
----
-
-#### curl
-
-```bash
-curl https://api.myapp.com/auth/check -b cookies.txt -c cookies.txt
-```
-
----
-
-#### Programmatic (Go)
-
-```go
-user, _, err := auth.Services.Auth.ValidateSession(ctx, sessionToken)
-if err != nil {
-    // treat as user == nil rather than propagating the error
-}
-```
-
----
-
-#### Client
-
-```ts
-const { user } = await apiRequest(API_BASE, "GET", "/auth/check");
-// user is null when there's no valid session — never throws for that case
-```
-
 ## Listing sessions
 
 Both endpoints return the caller's **own** sessions only, plus `currentSessionId` so the UI can highlight the device in use and disable its own revoke button.
@@ -247,6 +247,7 @@ Both endpoints return the caller's **own** sessions only, plus `currentSessionId
       "parsedUA": { "browser": "Chrome", "os": "Windows", "deviceType": "desktop" },
       "isRevoked": false,
       "expiresAt": "2026-09-08T12:00:00Z",
+      "refreshExpiresAt": "2026-09-13T12:00:00Z",
       "lastActiveAt": "2026-08-09T11:55:00Z",
       "createdAt": "2026-08-01T09:00:00Z"
     }
@@ -464,7 +465,8 @@ await apiRequest(API_BASE, "DELETE", "/auth/sessions");
 
 ## Next
 
-- [Authentication](authentication.mdx) — register/login/logout, and the `Origin`-checking rules these endpoints share
+- [Authentication](./authentication.mdx) — register/login/logout, and the `Origin`-checking rules these endpoints share
 - [Routes](../routes.mdx) — the full path/param reference, including admin session management
 - [Security](../security.mdx) — session hashing, refresh rotation, and the reuse-detection grace window
+- [Deployment](./deployment.mdx) for how these cookies behave when the frontend and the API are on different hosts
 - [Schemas](../schemas.mdx#sessions) — the `sessions` table this page reads and writes

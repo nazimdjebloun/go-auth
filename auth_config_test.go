@@ -711,7 +711,10 @@ func TestWithCookie_PartialConfigKeepsDefaults(t *testing.T) {
 
 func TestWithCookie_ExplicitOverridesDefaults(t *testing.T) {
 	cfg, err := NewConfig(append(validConfigOpts(),
-		WithCookie(CookieConfig{Name: "custom", Domain: "example.com", Path: "/api", SameSite: http.SameSiteNoneMode}),
+		// Secure accompanies SameSite=None because browsers reject the pair
+		// without it, and config.validate() now says so rather than letting
+		// it fail silently in a browser.
+		WithCookie(CookieConfig{Name: "custom", Domain: "example.com", Path: "/api", SameSite: http.SameSiteNoneMode, Secure: SecureAlways()}),
 	)...)
 	if err != nil {
 		t.Fatal(err)
@@ -772,3 +775,41 @@ func TestWithSecret_SetsSecret(t *testing.T) {
 type mockMailer struct{}
 
 func (m *mockMailer) Send(_ context.Context, _, _, _, _ string) error { return nil }
+
+// SameSite=None without Secure is rejected by every current browser, so the
+// pairing yields no session at all rather than a weaker one. Catch it in
+// config instead of leaving it to look like "login succeeds but never sticks".
+func TestValidate_SameSiteNoneRequiresSecure(t *testing.T) {
+	cfg := config{
+		appName: "Test", baseURL: "http://localhost", environment: EnvironmentDev,
+		sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour,
+		cookie:         CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode},
+		allowedOrigins: []string{"http://localhost"},
+		database:       DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
+		secret:         "0123456789abcdef0123456789abcdef",
+	}
+	cfg.applyDefaults()
+	err := cfg.validate()
+	if err == nil {
+		t.Fatal("expected an error for SameSite=None without Secure")
+	}
+	if !strings.Contains(err.Error(), "same_site=None requires a secure cookie") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+// The pairing the cross-site deployment actually needs.
+func TestValidate_SameSiteNoneWithSecureIsAccepted(t *testing.T) {
+	cfg := config{
+		appName: "Test", baseURL: "http://localhost", environment: EnvironmentDev,
+		sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour,
+		cookie:         CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode, Secure: SecureAlways()},
+		allowedOrigins: []string{"http://localhost"},
+		database:       DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
+		secret:         "0123456789abcdef0123456789abcdef",
+	}
+	cfg.applyDefaults()
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("SameSite=None with Secure must be accepted, got: %v", err)
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/service"
 )
@@ -204,7 +205,7 @@ func newOAuthTestHarness() *oauthTestHarness {
 		oauthCfg,
 	)
 
-	oauthHandlers := NewOAuthHandlers(oauthSvc, sessSvc, "http://localhost:3000", nil)
+	oauthHandlers := NewOAuthHandlers(oauthSvc, sessSvc, "http://localhost:3000", nil, middleware.ClientIPConfig{})
 
 	stateRaw := "test-state-token-value"
 	stateHash := sha256.Sum256([]byte(stateRaw))
@@ -517,7 +518,7 @@ func TestOAuthCallback_InvalidProvider(t *testing.T) {
 func TestOAuthCallback_Disabled(t *testing.T) {
 	sessCfg := service.DefaultSessionConfig()
 	sessSvc := service.NewSessionService(newMockSessionRepo(), &mockTokenGen{}, sessCfg)
-	h := NewOAuthHandlers(nil, sessSvc, "http://localhost:3000", nil)
+	h := NewOAuthHandlers(nil, sessSvc, "http://localhost:3000", nil, middleware.ClientIPConfig{})
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/test/callback?code=abc&state=xyz", nil)
 	req.SetPathValue("provider", "test")

@@ -34,20 +34,58 @@ func (r *SessionRepository) WithLogger(logger *slog.Logger) *SessionRepository {
 // coupled to domain.UserAgentInfo's JSON tags (which can and do change; see
 // CHANGELOG). This also means a session always reflects the current
 // UA-parsing logic, never a parse frozen at the row's creation time.
-func scanSession(s *domain.Session, sc interface{ Scan(dest ...any) error }) error {
-	err := sc.Scan(
+// sessionScanDest lists the scan targets for sessionCols, in that exact order.
+// Shared with GetByTokenHashWithUser's join so the two cannot drift.
+func sessionScanDest(s *domain.Session) []any {
+	return []any{
 		&s.ID, &s.UserID, &s.TokenHash, &s.RefreshTokenHash, &s.PreviousRefreshHash,
 		&s.IP, &s.UserAgent, &s.IsRevoked, &s.ExpiresAt, &s.RefreshExpiresAt,
 		&s.RefreshRotatedAt, &s.CreatedAt, &s.RevokedAt, &s.LastActiveAt,
 		&s.ActiveOrgID, &s.ActiveOrgRole,
-	)
-	if err != nil {
-		return err
 	}
+}
+
+// finishSession derives the non-stored fields. Call after any scan that used
+// sessionScanDest.
+func finishSession(s *domain.Session) {
 	if s.UserAgent != "" {
 		s.ParsedUA = domain.ParseUserAgent(s.UserAgent)
 	}
+}
+
+func scanSession(s *domain.Session, sc interface{ Scan(dest ...any) error }) error {
+	if err := sc.Scan(sessionScanDest(s)...); err != nil {
+		return err
+	}
+	finishSession(s)
 	return nil
+}
+
+// GetByTokenHashWithUser returns a session and its owning user in one query.
+// AuthMiddleware needs both on every authenticated request, and the user is
+// always the one the session points at, so fetching them separately is two
+// round trips where the second's WHERE clause is already known from the
+// first's result. Returns (nil, nil, nil) when no session matches — the same
+// "missing is not an error" contract as GetByTokenHash.
+//
+// The join is inner, so a session whose user row is gone reads the same as no
+// session at all. That matches what the callers already did with that case:
+// both treated a missing user as an authentication failure.
+func (r *SessionRepository) GetByTokenHashWithUser(ctx context.Context, hash string) (*domain.Session, *domain.User, error) {
+	s := &domain.Session{}
+	u := &domain.User{}
+	var n userNullables
+
+	dest := append(sessionScanDest(s), userScanDest(u, &n)...)
+	if err := r.db.QueryRowContext(ctx, sessionWithUserByTokenHashQuery, hash).Scan(dest...); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil, nil
+		}
+		return nil, nil, err
+	}
+	finishSession(s)
+	finishUser(u, &n)
+	return s, u, nil
 }
 
 func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error {

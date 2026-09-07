@@ -27,14 +27,13 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	middleware.SetSessionCookie(w, h.services.Session.Config(), refreshResult.SessionToken)
 	middleware.SetRefreshCookie(w, h.services.Session.Config(), refreshResult.RefreshToken)
-	writeJSON(w, http.StatusOK, map[string]any{
-		"session": map[string]any{
-			"id":         refreshResult.Session.ID,
-			"userId":     refreshResult.Session.UserID,
-			"expiresAt":  refreshResult.Session.ExpiresAt,
-			"lastActive": refreshResult.Session.LastActiveAt,
-		},
-	})
+	// The session goes out verbatim, like every other endpoint that returns
+	// one. The hand-built subset this replaces renamed lastActiveAt to
+	// lastActive and omitted activeOrgId/activeOrgRole, so a client that
+	// refreshed got a different shape than the one /auth/me had just handed
+	// it. Every token hash on domain.Session is json:"-", and it is the
+	// caller's own session either way.
+	writeJSON(w, http.StatusOK, map[string]any{"session": refreshResult.Session})
 }
 
 func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {

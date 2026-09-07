@@ -507,6 +507,7 @@ func TestIsAllowed_NoMatch(t *testing.T) {
 func TestAuthMiddleware_MissingCookie(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -533,6 +534,7 @@ func TestAuthMiddleware_MissingCookie(t *testing.T) {
 func TestAuthMiddleware_ExpiredSession(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -570,6 +572,7 @@ func TestAuthMiddleware_ExpiredSession(t *testing.T) {
 func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -597,6 +600,7 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 func TestAuthMiddleware_BannedUser(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -633,6 +637,7 @@ func TestAuthMiddleware_BannedUser(t *testing.T) {
 func TestAuthMiddleware_DeletedUser(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -671,6 +676,7 @@ func TestAuthMiddleware_DeletedUser(t *testing.T) {
 func TestRequireRole_CorrectRole(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -702,6 +708,7 @@ func TestRequireRole_CorrectRole(t *testing.T) {
 func TestRequireRole_WrongRole(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -738,6 +745,7 @@ func TestRequireRole_WrongRole(t *testing.T) {
 func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -884,6 +892,7 @@ func TestAuthMiddleware_MissingCookieLogsDebug(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
@@ -913,6 +922,7 @@ func TestAuthMiddleware_BannedUserLogsWarn(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()

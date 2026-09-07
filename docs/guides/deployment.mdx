@@ -1,0 +1,194 @@
+---
+title: "Deployment"
+description: "Where your frontend sits relative to the API decides your cookie, CSRF and CORS configuration. The three topologies, what each one needs, and why."
+icon: "Network"
+---
+
+# Deployment
+
+One question decides most of your auth configuration: **where does the browser think the API lives?**
+
+Not where it actually runs. Where the browser thinks it runs. Everything below follows from that, because cookies are governed by the host the browser connected to, not by whatever produced the response.
+
+## The two things a browser must do with a cookie
+
+Every problem on this page is one of these two, so it is worth naming them before the topologies.
+
+**Sending.** The browser attaches the session cookie to a request. This is governed by `SameSite`. A cookie marked `Lax` is attached to same site requests and withheld from cross site ones.
+
+**Reading.** Your JavaScript reads a cookie value out of `document.cookie`. This is governed by the cookie's `Domain`, and it only matters for `_csrf`, because the double submit check requires the client to echo that value back in the `X-CSRF-Token` header.
+
+The session cookie only ever needs to be **sent**. It is `HttpOnly`, so no JavaScript reads it, ever. The `_csrf` cookie needs to be both sent **and** read.
+
+Confusing these two is the most common way a deployment ends up half working. A frontend that can send but not read gets a working login and a `403` on every write. A frontend that can read but not send is never authenticated at all.
+
+## Topology 1: same origin
+
+The frontend and the API answer on the same scheme, host and port, because whatever serves your frontend also forwards the API paths to it.
+
+Both reference apps in this repository do exactly this. The Next.js app uses a rewrite:
+
+```ts
+// next.config.ts
+async rewrites() {
+  return [{ source: "/api/:path*", destination: `${API_URL}/:path*` }]
+}
+```
+
+An nginx, Caddy, Vercel or Netlify rule does the same job for a static frontend, as does a small server of your own.
+
+**What to configure:** nothing. This is the default.
+
+**Why it works.** The browser requests `/auth/me` from your frontend's own host. Your proxy forwards it to the API server to server, and the browser is not involved in that hop. When the API replies with `Set-Cookie`, the browser attributes that cookie to **the host it connected to**, which is your frontend. So:
+
+* The request never leaves the origin, so `SameSite` never comes into play.
+* CORS is not engaged, because there is no cross origin request to check.
+* The `_csrf` cookie is stored against your frontend's own host, so `document.cookie` reads it with no `Domain` attribute needed.
+
+Both cookies stay host only, which is the narrowest scope available. A different subdomain of yours cannot read either one.
+
+<Callout type="info" title="This is also the most secure option">
+  Because both cookies are host only, a compromised sibling subdomain (a dangling DNS record pointed at a decommissioned service is the usual way) cannot read your CSRF token. In the subdomain topology below it can, and you are left relying on the origin check alone.
+</Callout>
+
+## Topology 2: sibling subdomains
+
+The frontend is on `app.example.com` and calls `api.example.com` directly from the browser. No proxy.
+
+**What to configure:**
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{
+    AllowedOrigins: []string{"https://app.example.com"},
+    CSRFToken: &middleware.CSRFTokenConfig{
+        CookieDomain: ".example.com",
+    },
+}),
+```
+
+**Sending works already.** `SameSite` is computed from the registrable domain and ignores both the subdomain and the port, so `app.example.com` and `api.example.com` are the **same site**. The default `Lax` cookie is attached normally. This surprises people, so it is worth stating plainly: subdomains are not a cross site deployment.
+
+**Reading needs `CookieDomain`.** The `_csrf` cookie set by `api.example.com` is host only by default, so `document.cookie` on `app.example.com` cannot see it. Without this setting your reads all succeed and every write returns `403`, which reads like a permissions bug rather than a cookie scope one.
+
+<Callout type="warn" title="Do not widen CookieConfig.Domain to match">
+  It is tempting to set `CookieConfig.Domain` to `".example.com"` at the same time. Do not, unless you actually want one shared login across subdomains.
+
+  The session cookie does not need it. That request goes to `api.example.com`, and a host only cookie set by that host is attached to every request to it, including cross origin ones. Host only does not mean "not sent cross origin". It means "sent only to this host", which is exactly where you are sending it.
+
+  Setting `CookieDomain` alone leaves the real credential scoped to the API while sharing a token that is useless without it. That is strictly narrower.
+</Callout>
+
+**The cost.** Every state changing request now triggers a CORS preflight, and the `_csrf` token is readable by every subdomain you run, including any that gets taken over.
+
+## Topology 3: different registrable domains
+
+The frontend is on `panel.acme.com` and the API on `api.example.com`. Genuinely cross site.
+
+**What to configure:**
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{
+    AllowedOrigins: []string{"https://panel.acme.com"},
+    CSRFToken: &middleware.CSRFTokenConfig{
+        CookieSameSite:        http.SameSiteNoneMode,
+        ExposeCSRFTokenInBody: true,
+    },
+}),
+goauth.WithCookie(goauth.CookieConfig{
+    SameSite: http.SameSiteNoneMode,
+    Secure:   goauth.SecureAlways(),
+}),
+```
+
+**Sending needs `SameSite=None`.** Under `Lax` the browser withholds the session cookie on a cross site request, so every call arrives unauthenticated. This is a browser rule. No server side setting changes it.
+
+`SameSite=None` also requires a secure cookie, which means serving over HTTPS. Browsers reject the pair outright, so `goauth.New` refuses that configuration rather than letting you discover it as "login succeeds but never sticks".
+
+**Reading needs `ExposeCSRFTokenInBody`.** No `Domain` value spans two registrable domains, so no cookie scope can make `_csrf` readable by `panel.acme.com`. The token has to arrive through a channel the client can read, which is the response body of `GET /auth/csrf-token`:
+
+```json
+{ "token": "sQ2f....a91c" }
+```
+
+The cookie is still set and still compared server side, so the double submit check is byte for byte what it always was. Only the client's source of the value changes.
+
+<Callout type="warn" title="These two settings are one decision">
+  `SameSite=None` and `ExposeCSRFTokenInBody` are the same choice viewed from two sides. Set only the first and you get a read only frontend: login works, listings work, every write returns `403`. Set only the second and nothing authenticates at all.
+
+  `goauth.New` logs a startup warning for either half on its own. It warns rather than refuses, because a native or mobile client keeps its own cookie jar, is not subject to `SameSite`, and can legitimately want one without the other.
+</Callout>
+
+### Is this secure?
+
+Yes, with the caveat that you have spent a layer.
+
+`SameSite` is one of three CSRF defences, and setting it to `None` removes that one. The other two still run on every state changing request:
+
+1. **The origin check.** `Origin` must match your `AllowedOrigins`. Browsers always set that header on cross origin requests and JavaScript cannot forge it. `AllowedOrigins` also rejects `"*"` outright, so there is no way to switch this off by accident.
+2. **The double submit token.** An attacker cannot read the victim's token. Reading the cookie is blocked by the same origin policy, and reading the response body of `GET /auth/csrf-token` requires their origin to be in `AllowedOrigins`, which it is not. They can obtain a validly signed token from their own server, but it will not match the victim's cookie.
+
+So a cross site deployment is supported and defensible. It is simply one layer thinner than a subdomain, which is one layer thinner than same origin. Prefer a subdomain when you have the choice, because it costs you a DNS record and buys back a layer.
+
+## Running two frontends against one API
+
+An admin panel is the usual reason: one go-auth server, two browser apps, both needing sessions. That brings in four behaviours a single frontend never meets, and none of them are obvious from the topology tables above.
+
+### Every origin has to be listed
+
+`AllowedOrigins` gates both CORS and the origin check, so each frontend needs its own entry. Miss one and it fails closed, which at least is loud.
+
+The two frontends do not have to share a topology. Your app can proxy the API while your panel calls it directly, or the reverse. Each one is configured on its own terms.
+
+### On localhost the two share one session
+
+Cookies are scoped by host and **ignore the port**. So `localhost:3000` and `localhost:5173` are one cookie jar, and both frontends read and write the same `goauth_session`.
+
+Logging into the app overwrites the session the panel was using, and logging into the panel overwrites the app's. Nothing is broken and nothing is insecure. The last login simply wins, which is confusing when you are trying to test both at once.
+
+Use two browser profiles, or one browser and one private window, when you need both signed in. On real hostnames the problem disappears, because the hosts differ.
+
+### In production they usually have separate sessions
+
+If each frontend proxies the API from its own host, the browser stores each cookie against that host. `admin.example.com` and `example.com` then hold independent sessions, and a user signs into each one separately.
+
+For an admin tool that is usually the behaviour you want, and it is a small piece of defence in depth: an app session is not automatically a panel session. Set `CookieConfig.Domain` to `".example.com"` only if you would rather one login covered both.
+
+### A valid session is not an admin session
+
+This one is worth guarding against explicitly.
+
+Whenever the two frontends do share a cookie, which is any time they are on the same host or you have widened `CookieConfig.Domain`, a regular user signed into your app arrives at the panel **already authenticated**. Using a dedicated login endpoint does not save you: `POST /auth/admin/login` gates the login itself, but nothing gates a session that was minted somewhere else.
+
+This is not a security hole. Every `/admin/*` route checks the role server side and answers `403`, so the user can see nothing and change nothing. The problem is purely that the panel renders its entire shell before discovering that, and then fails every request it makes.
+
+Check the role once, where the session is loaded, and treat a non admin as signed out:
+
+```ts
+const me = await authApi.me()
+setUser(me.role === "admin" ? me : null)
+```
+
+Cheap, and it turns a dashboard full of failed requests into a login screen.
+
+## Summary
+
+| Topology | Cookie sent? | Token readable? | Configuration |
+|---|---|---|---|
+| Same origin (frontend proxies the API) | yes | yes | none |
+| Sibling subdomains, same registrable domain | yes, they are the same site | no, by default | `CSRFTokenConfig.CookieDomain` |
+| Different registrable domains | only with `SameSite=None` | never, at any scope | `SameSite=None`, a secure cookie, `ExposeCSRFTokenInBody` |
+
+## What never changes
+
+Whichever topology you pick:
+
+* **`AllowedOrigins` must list every origin a browser calls the API from.** It gates both CORS and the origin check, and a missing entry fails closed.
+* **The origin check runs on every mutation** and cannot be disabled.
+* **The session cookie stays `HttpOnly`.** No topology exposes it to JavaScript, and `ExposeCSRFTokenInBody` returns the CSRF token only, never the session.
+* **Authorization is enforced server side.** Every `/admin/*` route checks the caller's role regardless of what any frontend believes, so a client side role check is there to spare the user a broken screen, never to protect the data.
+
+## Next
+
+* [Configuration](../configuration.mdx) for the full field reference, including the startup warnings and errors named above.
+* [Security](../security.mdx) for the access control model these checks enforce.
+* [Client middleware](./client/middleware.mdx) for the Next.js side of a proxied setup.

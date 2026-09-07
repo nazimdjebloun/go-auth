@@ -94,7 +94,6 @@ type HandlerGroup struct {
 	ResendTwoFactor          http.HandlerFunc
 	Enable2FA                http.HandlerFunc
 	Disable2FA               http.HandlerFunc
-	CheckSession             http.HandlerFunc
 	RefreshToken             http.HandlerFunc
 	GetMe                    http.HandlerFunc
 	ChangeName               http.HandlerFunc
@@ -213,6 +212,38 @@ func New(config config) (*Auth, error) {
 		config.csrfToken.CookieSecure = config.cookieSecure
 		config.csrfToken.Secret = keys.CSRF
 		config.csrfToken.Logger = config.logger
+		// Default the token cookie's scope to the session cookie's. A
+		// deployment that widened the session cookie to ".example.com" so a
+		// sibling subdomain could hold a session almost certainly needs the
+		// CSRF token readable there too — and a session that works while
+		// every mutation 403s is the worst of the two failure modes, because
+		// it looks like a permissions bug rather than a cookie-scope one.
+		// An explicit CookieDomain still wins.
+		if config.csrfToken.CookieDomain == "" {
+			config.csrfToken.CookieDomain = config.cookie.Domain
+		}
+
+		// SameSite=None and ExposeCSRFTokenInBody are the same decision seen from
+		// two sides: one lets the cookie be *sent* cross-site, the other lets
+		// the frontend *read* the token it has to echo back. A browser
+		// frontend needs both or neither, and setting one alone produces a
+		// deployment that half-works in a way that reads as a bug in this
+		// library rather than a config mismatch — reads fine, every write
+		// 403s, or nothing authenticates at all.
+		//
+		// A warning, not a rejection: a native or mobile client keeps its own
+		// cookie jar and is not subject to SameSite, so either setting on its
+		// own is legitimate there.
+		if config.logger != nil {
+			crossSiteCookie := config.cookie.SameSite == http.SameSiteNoneMode
+			switch {
+			case crossSiteCookie && !config.csrfToken.ExposeCSRFTokenInBody:
+				config.logger.Warn("goauth: cookie SameSite=None without CSRFTokenConfig.ExposeCSRFTokenInBody — a cross-site browser frontend receives the session cookie but cannot read the CSRF token, so every state-changing request will 403")
+			case !crossSiteCookie && config.csrfToken.ExposeCSRFTokenInBody:
+				config.logger.Warn("goauth: CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None — a cross-site browser frontend can read the CSRF token but is never sent the session cookie, so every request arrives unauthenticated",
+					"same_site", config.cookie.SameSite)
+			}
+		}
 	}
 
 	var pool *pgxpool.Pool
@@ -486,6 +517,19 @@ func New(config config) (*Auth, error) {
 		})
 	}
 
+	// One description of the deployment's proxy setup, shared by everything
+	// that has to reason about it: the rate limiter keys limits on it, the
+	// CSRF origin check recovers the original scheme/host with it, and the
+	// handlers below record it on sessions and audit events. Nil rateLimit
+	// leaves it zero, which trusts no forwarding header at all.
+	var clientIPCfg middleware.ClientIPConfig
+	if config.rateLimit != nil {
+		clientIPCfg = middleware.ClientIPConfig{
+			Header:     config.rateLimit.IPAddressHeader,
+			TrustedIPs: config.rateLimit.TrustedIPs,
+		}
+	}
+
 	h := handler.NewWithLogger(handler.Services{
 		Auth:      authSvc,
 		Password:  passSvc,
@@ -498,10 +542,10 @@ func New(config config) (*Auth, error) {
 		OrgInvite: orgInviteSvc,
 		TwoFactor: twoFactorSvc,
 		AuditLog:  auditLogRepo,
-	}, config.logger, config.csrfToken)
+	}, config.logger, config.csrfToken, clientIPCfg)
 
 	// OAuth handlers (separate because they need baseURL and session service for cookies)
-	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.baseURL, config.csrfToken)
+	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.baseURL, config.csrfToken, clientIPCfg)
 
 	authMW := middleware.AuthMiddleware(sessSvc, userRepo, config.logger)
 	adminMW := middleware.RequireRole(domain.RoleAdmin, config.logger)
@@ -601,13 +645,14 @@ func New(config config) (*Auth, error) {
 			// VerifyTwoFactor/ResendTwoFactor are public — they complete a login
 			// already in progress, not an authenticated action — but rate-limited
 			// and CSRF-checked like Login/Register.
-			VerifyTwoFactor:      corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.VerifyTwoFactor))))).ServeHTTP,
-			ResendTwoFactor:      corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendTwoFactor))))).ServeHTTP,
-			Enable2FA:            corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Enable2FA)))))).ServeHTTP,
-			Disable2FA:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Disable2FA)))))).ServeHTTP,
-			GetInviteInfo:        corsMW(rateLimitMW(http.HandlerFunc(h.GetInviteInfo))).ServeHTTP,
-			GetMe:                corsMW(authMW(http.HandlerFunc(h.GetMe))).ServeHTTP,
-			CheckSession:         corsMW(http.HandlerFunc(h.CheckAuth)).ServeHTTP,
+			VerifyTwoFactor: corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.VerifyTwoFactor))))).ServeHTTP,
+			ResendTwoFactor: corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendTwoFactor))))).ServeHTTP,
+			Enable2FA:       corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Enable2FA)))))).ServeHTTP,
+			Disable2FA:      corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Disable2FA)))))).ServeHTTP,
+			GetInviteInfo:   corsMW(rateLimitMW(http.HandlerFunc(h.GetInviteInfo))).ServeHTTP,
+			// Rate-limited like every other authenticated read: a junk cookie
+			// named like a session still costs a session lookup here.
+			GetMe:                corsMW(rateLimitMW(authMW(http.HandlerFunc(h.GetMe)))).ServeHTTP,
 			RefreshToken:         corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.RefreshToken))))).ServeHTTP,
 			ChangeName:           corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangeName))))).ServeHTTP,
 			DeleteAccount:        corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))))).ServeHTTP,
@@ -780,7 +825,6 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		{routes.TwoFactorDisable, a.Handlers.Disable2FA},
 		{routes.Logout, a.Handlers.Logout},
 		{routes.Me, a.Handlers.GetMe},
-		{routes.CheckSession, a.Handlers.CheckSession},
 		{routes.CSRFToken, a.Handlers.CSRFToken},
 		{routes.ChangeName, a.Handlers.ChangeName},
 		{routes.ListSessions, a.Handlers.ListSessions},

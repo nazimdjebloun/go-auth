@@ -6,7 +6,7 @@ icon: "Route"
 
 # Routes
 
-This page covers every route `Auth.Mount(mux)` registers. Paths in the tables use `{name}` for a path parameter read via `r.PathValue("name")`. "Auth" is the minimum session/role required — see [Architecture](architecture.mdx#the-middleware-chain) for the full middleware chain each route runs through, and [Error Handling](error-handling.mdx) for what each one returns on failure.
+This page covers every route `Auth.Mount(mux)` registers. Paths in the tables use `{name}` for a path parameter read via `r.PathValue("name")`. "Auth" is the minimum session/role required — see [Architecture](./architecture.mdx#the-middleware-chain) for the full middleware chain each route runs through, and [Error Handling](./error-handling.mdx) for what each one returns on failure.
 
 A few routes are conditionally mounted and simply don't exist on the mux otherwise:
 
@@ -25,9 +25,8 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | `POST /auth/login` | Public | `` `{email, password}` `` | Log in. May return `requiresVerification: true` instead of a session, or `requiresTwoFactor: true` if the account has 2FA on. |
 | `POST /auth/admin/login` | Public | `` `{email, password}` `` | Same as login, but only succeeds for `role: admin` users. Requires a second factor unless `SecurityConfig.DisableAdminTwoFactor` is set — see [Two-factor authentication](#two-factor-authentication). |
 | `POST /auth/logout` | Auth | none | Revokes the current session and clears its session + refresh cookies. |
-| `GET /auth/me` | Auth | none | Returns the authenticated user plus `hasPassword`. |
-| `GET /auth/check` | Public (session cookie optional) | none | Soft check — always `200`, returns `{"user": null}` instead of erroring when there's no valid session. |
-| `GET /auth/csrf-token` | Public | none | No-op handler (`204`) — the CSRF cookie/header is actually issued by the CSRF middleware wrapping this route. Call it to prime the cookie before your first mutating request. |
+| `GET /auth/me` | Auth | none | Returns the authenticated user plus `hasPassword` and the caller's own `session` (no token hashes, includes the active org). Rate-limited. |
+| `GET /auth/csrf-token` | Public | none | Primes the CSRF cookie, which is issued by the middleware wrapping this route. Answers `204` with no body; with `CSRFTokenConfig.ExposeCSRFTokenInBody` it answers `200 {"token"}` (`Cache-Control: no-store`) for a frontend on a different registrable domain, which cannot read the cookie. Call it before your first mutating request. |
 | `PUT /auth/name` | Auth | `` `{name}` `` | Updates the authenticated user's display name. |
 
 ## Sessions
@@ -73,7 +72,7 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 | Method & Path | Auth | Body | Description |
 |---|---|---|---|
-| `POST /auth/2fa/verify` | Public (requires the binding cookie, unless disabled) | `` `{challengeId, code}` `` | Completes any of the four gated flows above. Sets session+refresh cookies and clears the binding cookie on success. Wrong code, wrong binding cookie, and a capped lineage (5 wrong guesses) all return the same `two_factor_code_invalid` — see [Error Handling](error-handling.mdx). |
+| `POST /auth/2fa/verify` | Public (requires the binding cookie, unless disabled) | `` `{challengeId, code}` `` | Completes any of the four gated flows above. Sets session+refresh cookies and clears the binding cookie on success. Wrong code, wrong binding cookie, and a capped lineage (5 wrong guesses) all return the same `two_factor_code_invalid` — see [Error Handling](./error-handling.mdx). |
 | `POST /auth/2fa/resend` | Public (requires the binding cookie, unless disabled) | `` `{challengeId}` `` | Refreshes the code on the same challenge — the `challengeId` doesn't change. Capped at 3 resends per challenge; an unknown or binding-mismatched challenge gets the same generic `200` as a real send, to avoid enumeration. |
 | `POST /auth/2fa/enable` | Auth | `` `{password, keepOtherSessions}` `` | Turns on per-user 2FA after re-checking the password. `keepOtherSessions` defaults to `false` (omitted = revoke every other session) — spelled this way so the zero value is the safe one, matching `DisableCSRFToken`. Rejected with `two_factor_already_enforced` if `RequireEmail2FA` is on. |
 | `POST /auth/2fa/disable` | Auth | `` `{password}` `` | Turns off per-user 2FA after re-checking the password. No session revocation — turning 2FA off isn't the "someone may be in my account" signal that turning it on is. Rejected with `two_factor_already_enforced` if `RequireEmail2FA` is on. |
@@ -90,14 +89,14 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
 | `GET /auth/oauth/{provider}` | Public | Path: `provider` | Starts the OAuth flow. Returns `` `{url}` `` to redirect the browser to. |
-| `GET /auth/oauth/{provider}/callback`, `POST /auth/oauth/{provider}/callback` | Public | Path: `provider`; form values `code`, `state` (from query on `GET`, parsed form body on `POST`) | Completes the code exchange. On success, sets cookies and redirects to `{BaseURL}/auth/callback`; on error, redirects to `{BaseURL}/auth/callback?error={code}&provider={provider}` — see [Error Handling](error-handling.mdx#oauth). |
+| `GET /auth/oauth/{provider}/callback`, `POST /auth/oauth/{provider}/callback` | Public | Path: `provider`; form values `code`, `state` (from query on `GET`, parsed form body on `POST`) | Completes the code exchange. On success, sets cookies and redirects to `{BaseURL}/auth/callback`; on error, redirects to `{BaseURL}/auth/callback?error={code}&provider={provider}` — see [Error Handling](./error-handling.mdx#oauth). |
 | `POST /auth/oauth/{provider}/link` | Auth | Path: `provider` | Links a provider to the already-authenticated account. Returns `` `{url}` ``. |
 | `POST /auth/oauth/{provider}/unlink` | Auth | Path: `provider` | Unlinks a provider. Blocked if it would leave the account with no way to log in. |
 | `GET /auth/oauth/providers` | Auth | none | Lists connected providers — `provider`, `email`, `name`, `avatarUrl`, `createdAt` only. Access/refresh tokens are never returned. |
 
 ## Organizations — requires `WithOrganizations(Enable: true)`
 
-On every listing below that takes a `role` filter (and on the admin equivalents further down), an unrecognized value is a **400**, not a silently dropped filter — unlike `orderBy`/`orderDirection`, which fall back to their defaults. An empty `role=` means "no filter". See the callout in [Organizations](guides/organizations.mdx#list-your-orgs--get-authorgs) for why the two differ.
+On every listing below that takes a `role` filter (and on the admin equivalents further down), an unrecognized value is a **400**, not a silently dropped filter — unlike `orderBy`/`orderDirection`, which fall back to their defaults. An empty `role=` means "no filter". See the callout in [Organizations](./guides/organizations.mdx#list-your-orgs--get-authorgs) for why the two differ.
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
@@ -162,7 +161,7 @@ On every listing below that takes a `role` filter (and on the admin equivalents 
 
 ## Admin — organizations (`WithOrganizations` required)
 
-Platform-admin oversight of orgs — act on any organization regardless of the caller's own membership in it. Distinct from the `/auth/orgs/*` routes above: those enforce org-membership roles (`Org member`/`Org admin`/`Org owner`), these enforce platform `Admin` only. Every mutation here publishes its own `admin.org.*` audit event, distinct from the self-service `organization.*` events — see [Audit Logs](guides/audit-logs.mdx).
+Platform-admin oversight of orgs — act on any organization regardless of the caller's own membership in it. Distinct from the `/auth/orgs/*` routes above: those enforce org-membership roles (`Org member`/`Org admin`/`Org owner`), these enforce platform `Admin` only. Every mutation here publishes its own `admin.org.*` audit event, distinct from the self-service `organization.*` events — see [Audit Logs](./guides/audit-logs.mdx).
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|

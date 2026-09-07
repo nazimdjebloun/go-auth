@@ -643,3 +643,112 @@ func TestCSRFToken_FailsClosedLogsStructured(t *testing.T) {
 		}
 	}
 }
+
+// --- CookieDomain (sibling-subdomain support) ---
+
+func TestCSRFToken_CookieDomainIsSetOnTheCookie(t *testing.T) {
+	cfg := &CSRFTokenConfig{Secret: []byte("test-secret-key"), CookieDomain: ".example.com"}
+	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil))
+
+	// net/http strips a leading dot when writing the header, and RFC 6265
+	// ignores one when reading: a Domain attribute always covers subdomains,
+	// so ".example.com" and "example.com" are the same instruction. What
+	// matters is that Domain is present at all — without it the cookie is
+	// host-only and a sibling subdomain cannot read the token.
+	if raw := rec.Header().Get("Set-Cookie"); !strings.Contains(raw, "Domain=example.com") {
+		t.Errorf("Set-Cookie = %q, want a Domain=example.com attribute", raw)
+	}
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+	if cookies[0].Domain != "example.com" {
+		t.Errorf("parsed Domain = %q, want example.com", cookies[0].Domain)
+	}
+}
+
+func TestCSRFToken_NoCookieDomainStaysHostOnly(t *testing.T) {
+	cfg := &CSRFTokenConfig{Secret: []byte("test-secret-key")}
+	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil))
+
+	if d := rec.Result().Cookies()[0].Domain; d != "" {
+		t.Errorf("Domain = %q, want empty (host-only) by default", d)
+	}
+}
+
+// --- token in context (what lets a handler echo it in the body) ---
+
+func TestCSRFToken_ContextCarriesFreshlyMintedToken(t *testing.T) {
+	cfg := &CSRFTokenConfig{Secret: []byte("test-secret-key")}
+	var seen string
+	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = CSRFTokenFromContext(r.Context())
+	}))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil))
+
+	if seen == "" {
+		t.Fatal("no token in context")
+	}
+	// A freshly minted token is only on the response, so a handler cannot
+	// recover it with r.Cookie — the context is the only route to it.
+	if got := rec.Result().Cookies()[0].Value; got != seen {
+		t.Errorf("context token %q != cookie %q", seen, got)
+	}
+}
+
+func TestCSRFToken_ContextCarriesExistingToken(t *testing.T) {
+	cfg := &CSRFTokenConfig{Secret: []byte("test-secret-key")}
+	token, err := generateCSRFToken(32, cfg.Secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var seen string
+	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = CSRFTokenFromContext(r.Context())
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil)
+	req.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if seen != token {
+		t.Errorf("context token = %q, want the existing cookie %q", seen, token)
+	}
+	if n := len(rec.Result().Cookies()); n != 0 {
+		t.Errorf("expected no rotation on an existing token, got %d Set-Cookie", n)
+	}
+}
+
+func TestCSRFToken_NoContextTokenOnUnsafeMethod(t *testing.T) {
+	// Only safe methods issue/expose. A POST that passes validation must not
+	// leave the token lying in context for a handler to echo back.
+	cfg := &CSRFTokenConfig{Secret: []byte("test-secret-key")}
+	token, err := generateCSRFToken(32, cfg.Secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var seen = "sentinel"
+	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = CSRFTokenFromContext(r.Context())
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
+	req.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	req.Header.Set("X-CSRF-Token", token)
+	h.ServeHTTP(httptest.NewRecorder(), req)
+
+	if seen != "" {
+		t.Errorf("token exposed in context on POST: %q", seen)
+	}
+}

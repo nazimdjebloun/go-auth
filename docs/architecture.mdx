@@ -15,7 +15,7 @@ go-auth follows a ports-and-adapters (hexagonal) layout. Business logic in the `
 | `domain` | Core types (`User`, `Session`, `Organization`, ...) and every `AuthError` — no dependencies on anything else in the module. |
 | `port` | Interfaces the service layer depends on: `Mailer`, `Hasher`, `TokenGenerator`, `TemplateProvider`, `OAuthProvider`, `TxManager`, and one repository interface per aggregate (`UserRepository`, `SessionRepository`, `OrgRepository`, ...). |
 | `service` | Business logic — one file per concern (`auth.go`, `password.go`, `session_service.go`, `admin.go`, `oauth.go`, `org.go`, `org_invite.go`, `invite.go`, `verification.go`). Depends only on `domain` and `port`. |
-| `middleware` | Cross-cutting HTTP concerns: `AuthMiddleware`/`RequireRole` (session and role gating), `OriginCheck`/`CSRFToken` (CSRF), `RateLimit`, `CORS`, `RequireOrgMember`/`RequireOrgRole` (org access control, resolved from an `{orgID}` path segment), `RequireActiveOrg` (the same role check, resolved from the session's active org instead). Also `RemoteAuth` — the one member of this package that doesn't touch a repository, authenticating instead against a remote go-auth server over HTTP (see [Remote Auth](guides/remote-auth.mdx)). |
+| `middleware` | Cross-cutting HTTP concerns: `AuthMiddleware`/`RequireRole` (session and role gating), `OriginCheck`/`CSRFToken` (CSRF), `RateLimit`, `CORS`, `RequireOrgMember`/`RequireOrgRole` (org access control, resolved from an `{orgID}` path segment), `RequireActiveOrg` (the same role check, resolved from the session's active org instead). |
 | `provider` | Built-in OAuth provider adapters (`provider/google`, `provider/github`), each implementing `port.OAuthProvider`. |
 | `ratelimit` | The rate limiter itself: `Config`, the `Store` interface, and the built-in in-memory implementation. |
 | `audit` | The audit event pipeline: `AuditService` (queue + workers + batching), the `EventSink` interface, and the built-in sinks. |
@@ -76,10 +76,6 @@ BanUser         (admin):         CORS → RateLimit → CSRFToken → OriginChec
 UpdateOrg       (org admin):     CORS → CSRFToken → OriginCheck → Auth → OrgMember → OrgRole(admin) → handler
 ```
 
-### Authenticating from another process
-
-Everything above assumes one process that owns both the routes and the database. A second Go service — an admin console, a BFF, a gateway — can substitute `middleware.RemoteAuth` for the **Auth** and **Admin** layers: same context key, same `403` body, but it resolves the caller by calling the upstream server's `GET /auth/me` instead of reading a session row. It is the only middleware here that needs neither a repository nor the application secret. See [Remote Auth](guides/remote-auth.mdx).
-
 ### Organizations access model
 
 | Action | Requires |
@@ -102,7 +98,7 @@ Everywhere the library needs to talk to the outside world, it does so through a 
 
 | Interface | Built-in implementation | Replace it for |
 |---|---|---|
-| `port.Mailer` | SMTP via `WithEmail`, or none | Resend, Postmark, SES, or any transactional email API — see [Configuration](configuration.mdx) |
+| `port.Mailer` | SMTP via `WithEmail`, or none | Resend, Postmark, SES, or any transactional email API — see [Configuration](./configuration.mdx) |
 | `port.TemplateProvider` | `emailtemplate` (embedded HTML/text templates) | Your own branded email templates |
 | `port.OAuthProvider` | `provider/google`, `provider/github` | Any OAuth2 provider — `Name()`, `AuthURL()`, `Exchange()` |
 | `ratelimit.Store` | bounded in-memory | A distributed store (Redis, etc.) for multi-instance deployments — one method, `Allow(ctx, key, Rate) (Result, error)` |

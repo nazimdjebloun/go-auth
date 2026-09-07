@@ -7,6 +7,12 @@ import { ChangelogCard } from '@/components/changelog-card';
 
 <div className="not-prose grid gap-4">
   <ChangelogCard
+    version="v0.2.3"
+    date="2026-09-07"
+    description="One identity endpoint instead of two, a session and its user resolved in a single query, correct client IPs behind a proxy, and the cookie settings a frontend on another host actually needs."
+    href="/docs/changelog/v0.2.3"
+  />
+  <ChangelogCard
     version="v0.2.2"
     date="2026-09-06"
     description="RemoteAuth — authenticate a second Go service against a go-auth server it shares no database with — plus an admin view of any user's organizations, and role filters that reject a bad value instead of silently returning everything."

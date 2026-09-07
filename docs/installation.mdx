@@ -10,7 +10,7 @@ icon: "Download"
 
 - Go 1.26 or later
 - A database: PostgreSQL, MySQL, or SQLite
-- An SMTP server, or your own mailer implementation — required unless every email-sending feature is off (invites, email verification, 2FA, and admin login's two-factor challenge, the last of which is on by default and needs `SecurityConfig.DisableAdminTwoFactor` to turn off). `EnvironmentDev` is the one exception when a mailer is otherwise needed: with neither `WithMailer` nor `WithEmail` set, it falls back to a log-only driver. See [Configuration](configuration.mdx#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off).
+- An SMTP server, or your own mailer implementation — required unless every email-sending feature is off (invites, email verification, 2FA, and admin login's two-factor challenge, the last of which is on by default and needs `SecurityConfig.DisableAdminTwoFactor` to turn off). `EnvironmentDev` is the one exception when a mailer is otherwise needed: with neither `WithMailer` nor `WithEmail` set, it falls back to a log-only driver. See [Configuration](./configuration.mdx#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off).
 
 ## Install
 
@@ -52,9 +52,9 @@ go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
 |---|---|
 | `migrate` | Connects to your database and applies the schema directly, one statement at a time. Requires `--driver` and `--dsn`. |
 | `generate` | Writes the schema to a `.sql` file instead of applying it — for checking in, or feeding to Atlas, golang-migrate, Flyway, or your own migration tool. Requires `--driver`; `--out` defaults to `auth.schema.sql`. |
-| `seed-admin` | Creates the first admin account directly in the database, since every admin route needs an existing admin session to call. Sends a real email first and writes nothing if that send fails. See [Admin → Creating the first admin](guides/admin.mdx#creating-the-first-admin). |
+| `seed-admin` | Creates the first admin account directly in the database, since every admin route needs an existing admin session to call. Sends a real email first and writes nothing if that send fails. See [Admin → Creating the first admin](./guides/admin.mdx#creating-the-first-admin). |
 
-Each command takes `--help`. [Schemas](schemas.mdx) covers `migrate` and `generate` in full.
+Each command takes `--help`. [Schemas](./schemas.mdx) covers `migrate` and `generate` in full.
 
 ## What you'll need before configuring
 
@@ -100,10 +100,10 @@ go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
   --driver postgres --dsn "$DATABASE_URL"
 ```
 
-[Schemas](schemas.mdx) covers the tables themselves, the other two ways to get
+[Schemas](./schemas.mdx) covers the tables themselves, the other two ways to get
 at the schema, and what to expect when it changes between releases.
 
 ## Next
 
-- [Configuration](configuration.mdx) — every option, field by field
-- [Schemas](schemas.mdx) — the tables, the CLI, and applying the schema
+- [Configuration](./configuration.mdx) — every option, field by field
+- [Schemas](./schemas.mdx) — the tables, the CLI, and applying the schema

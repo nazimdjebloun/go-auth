@@ -22,7 +22,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessResult, sessionErr := h.services.Session.Create(r.Context(), user.ID, extractIP(r.RemoteAddr), r.UserAgent())
+	sessResult, sessionErr := h.services.Session.Create(r.Context(), user.ID, h.ip(r), r.UserAgent())
 	if sessionErr != nil {
 		h.log.Error("failed to create session after verification", "err", sessionErr, "user_id", user.ID)
 		writeError(w, domain.ErrInternal)

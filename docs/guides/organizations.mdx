@@ -8,7 +8,7 @@ icon: "Building2"
 
 Multi-tenancy: users can belong to more than one organization, hold a different role in each, and scope a session to one of them at a time. Disabled by default — with `WithOrganizations` unset (or `Enable: false`), none of the routes on this page are mounted at all, and `h.services.Org` is `nil`.
 
-For state-changing requests, every curl example below needs the same `-H "Origin: https://myapp.com"` treatment as [Authentication](authentication.mdx#origin-checking) — omitted from most snippets below for brevity, but required in practice.
+For state-changing requests, every curl example below needs the same `-H "Origin: https://myapp.com"` treatment as [Authentication](./authentication.mdx#origin-checking) — omitted from most snippets below for brevity, but required in practice.
 
 ## Configuration
 
@@ -35,7 +35,7 @@ Full reference: [Configuration → WithOrganizations](../configuration.mdx#witho
 
 ## Frontend client setup
 
-The **Client** examples below call the same `apiRequest` helper defined on [Client → Setup](client/index.mdx).
+The **Client** examples below call the same `apiRequest` helper defined on [Client → Setup](./client/index.mdx).
 
 ## Roles
 
@@ -490,7 +490,7 @@ await apiRequest(API_BASE, "PATCH", `/auth/orgs/${orgId}/members/${userId}/role`
 
 ## Active org
 
-A session can be scoped to one org at a time — stored as `sessions.active_org_id`/`active_org_role` (see [Schemas → sessions](../schemas.mdx#sessions)), returned on every session-listing response from [Sessions](sessions.mdx#listing-sessions). Your app reads it to decide which org's data the current request should see; go-auth itself doesn't use it to filter anything — that's on you.
+A session can be scoped to one org at a time — stored as `sessions.active_org_id`/`active_org_role` (see [Schemas → sessions](../schemas.mdx#sessions)), returned on every session-listing response from [Sessions](./sessions.mdx#listing-sessions). Your app reads it to decide which org's data the current request should see; go-auth itself doesn't use it to filter anything — that's on you.
 
 ### Reading it back
 
@@ -521,7 +521,7 @@ Returns `no_active_org` (400) if the session has no active org, `org_forbidden` 
   `middleware.GetOrgID(ctx)` and `middleware.GetOrgRole(ctx)` are a *different* mechanism — they're set by `RequireOrgMember`/`RequireOrgRole` from the `{orgID}` in the URL, for go-auth's own org-scoped routes on this page (everything above this section). `session.ActiveOrgID`/`ActiveOrgRole` from `GetSessionFromContext` is the user's session-level "current org," set via the two endpoints below, and it only means something to *your* routes — go-auth's own handlers never read it. A request to `GET /auth/orgs/{orgID}` and a request relying on the active org can legitimately disagree about which org they're talking about; they're independent. (`RequireActiveOrg` bridges the two: it reads the session-level active org but writes it into the same context keys `RequireOrgMember` uses, so downstream code doesn't need to care which one ran.)
 </Callout>
 
-**From a browser client**, there's no dedicated "what's my active org" endpoint — `/auth/me` returns the user, not the session. The active org is visible on the [session-listing](sessions.mdx#listing-sessions) responses (match `currentSessionId` against the `sessions` array to find your own), but the simplest approach is usually to just track it as local state the moment you call `setActive`/`clearActive` below, rather than re-fetching to confirm it.
+**From a browser client**, there's no dedicated "what's my active org" endpoint — `/auth/me` returns the user, not the session. The active org is visible on the [session-listing](./sessions.mdx#listing-sessions) responses (match `currentSessionId` against the `sessions` array to find your own), but the simplest approach is usually to just track it as local state the moment you call `setActive`/`clearActive` below, rather than re-fetching to confirm it.
 
 ### Set active org — `PUT /auth/orgs/active`
 
@@ -600,7 +600,7 @@ Email-based, code-authenticated, and matched by email on accept — the acceptin
 
 ### Creating an invite — `POST /auth/orgs/{orgID}/invites`
 
-Auth: org admin — except inviting someone directly as `owner`, which requires the caller to already be an Owner, mirroring [Change a member's role](#change-a-members-role--patch-authorgsorgidmembersuseridrole). Body: `{ "email", "role" }`. Requires a mailer (`WithMailer`/`WithEmail`) — same requirement as [email verification](authentication.mdx#verifying-the-email); without one, this fails outright rather than silently skipping delivery.
+Auth: org admin — except inviting someone directly as `owner`, which requires the caller to already be an Owner, mirroring [Change a member's role](#change-a-members-role--patch-authorgsorgidmembersuseridrole). Body: `{ "email", "role" }`. Requires a mailer (`WithMailer`/`WithEmail`) — same requirement as [email verification](./authentication.mdx#verifying-the-email); without one, this fails outright rather than silently skipping delivery.
 
 ```json
 {
@@ -819,5 +819,5 @@ await apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}/invites/${inviteId}`);
 
 - [Routes](../routes.mdx#organizations--requires-withorganizationsenable-true) — the full path/param table for every route on this page
 - [Schemas](../schemas.mdx#organizations) — the `organizations`, `organization_members`, and `organization_invites` tables
-- [Authentication](authentication.mdx) — the mailer requirement invites share with email verification
-- [Sessions](sessions.mdx#listing-sessions) — where `activeOrgId`/`activeOrgRole` show up on a session
+- [Authentication](./authentication.mdx) — the mailer requirement invites share with email verification
+- [Sessions](./sessions.mdx#listing-sessions) — where `activeOrgId`/`activeOrgRole` show up on a session

@@ -17,7 +17,7 @@ Most endpoints return errors as JSON with the same shape:
 
 `error` is a stable machine-readable code — match on this, not on `message`, which is meant for humans and can change wording without notice. The HTTP status carries the same information a REST client expects (`404` not found, `409` conflict, `429` rate limited, and so on).
 
-This page covers **runtime** errors returned by the mounted HTTP handlers. Configuration-time errors — the ones `NewConfig` returns before your server ever starts — are documented on the [Configuration](configuration.mdx) page instead.
+This page covers **runtime** errors returned by the mounted HTTP handlers. Configuration-time errors — the ones `NewConfig` returns before your server ever starts — are documented on the [Configuration](./configuration.mdx) page instead.
 
 ## Handling errors programmatically
 
@@ -80,7 +80,6 @@ Everything else below — every service-layer and handler-layer error — uses t
 | `name_required` | 400 | Name is required | |
 | `unauthorized` | 401 | Invalid session / User not found | From the auth middleware, not a specific service call. |
 | `session_expired` | 401 | Missing session cookie / Session has expired | Also from the auth middleware — see [Sessions](#sessions) below for the token-level version. |
-| `auth_unavailable` | 503 | Authentication service unavailable | Only from `middleware.RemoteAuth` — the upstream go-auth server couldn't be reached, so authentication is *undecided*, not failed. Distinct from `401` on purpose: retry it, don't log the user out. See [Remote Auth](guides/remote-auth.mdx). |
 
 ## Two-factor authentication
 
@@ -92,7 +91,7 @@ Everything else below — every service-layer and handler-layer error — uses t
 | `two_factor_already_enforced` | 409 | Two-factor authentication is required and cannot be changed | Returned by `POST /auth/2fa/enable` and `POST /auth/2fa/disable` when `SecurityConfig.RequireEmail2FA` is on — mandatory 2FA can't be toggled per-user. |
 | `two_factor_password_required` | 400 | Password is required to change two-factor settings | From `POST /auth/2fa/enable`/`disable`. Deliberately its own code, not the pre-existing `password_required` (delete-account) — same shape, different endpoint, different message; sharing a code would make the two indistinguishable to a client matching on `error`. |
 | `challenge_not_found` | 200 | If the challenge is valid, a new code has been sent | Yes, HTTP 200 — `POST /auth/2fa/resend` never reveals whether a `challengeId` is real, so an unrecognized or binding-mismatched one gets the same generic response as a real resend. |
-| `email_not_configured` | 500 | Email sender is not configured | 2FA requires a mailer the same way email verification does — see [Configuration](configuration.mdx). |
+| `email_not_configured` | 500 | Email sender is not configured | 2FA requires a mailer the same way email verification does — see [Configuration](./configuration.mdx). |
 
 ## Sessions
 
@@ -165,7 +164,7 @@ Everything else below — every service-layer and handler-layer error — uses t
 | `state_expired` | 400 | OAuth state token has expired | |
 | `provider_error` | 502 | Failed to authenticate with provider | The provider's own API rejected the exchange — not something the caller can fix. |
 | `unauthorized` | 401 | Authentication required | Link/unlink require an existing session. |
-| `email_already_exists` | 409 | An account with this email already exists | Logging in via OAuth when a password account already exists for that email — go-auth never auto-links the two; the user has to log in with the password and use [Link](#oauth) explicitly. See [OAuth guide](guides/oauth.mdx#logging-in-with-an-email-that-already-has-a-password-account). |
+| `email_already_exists` | 409 | An account with this email already exists | Logging in via OAuth when a password account already exists for that email — go-auth never auto-links the two; the user has to log in with the password and use [Link](#oauth) explicitly. See [OAuth guide](./guides/oauth.mdx#logging-in-with-an-email-that-already-has-a-password-account). |
 
 Callback errors don't arrive as JSON — see [Not every layer uses this shape](#not-every-layer-uses-this-shape) above.
 

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"time"
 
@@ -150,12 +149,4 @@ func parseOrgRole(w http.ResponseWriter, r *http.Request) (*domain.OrgRole, bool
 		return nil, false
 	}
 	return &role, true
-}
-
-func extractIP(remoteAddr string) string {
-	host, _, err := net.SplitHostPort(remoteAddr)
-	if err != nil {
-		return remoteAddr
-	}
-	return host
 }

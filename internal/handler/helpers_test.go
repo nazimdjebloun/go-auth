@@ -399,6 +399,9 @@ type mockSessionRepo struct {
 	byRefreshHash map[string]*domain.Session
 	// clearActiveOrgCalls records session IDs passed to ClearActiveOrg.
 	clearActiveOrgCalls []string
+	// users backs GetByTokenHashWithUser, which the real repo answers with a
+	// JOIN. Wired up by the harness alongside the user repo.
+	users *mockUserRepo
 }
 
 func newMockSessionRepo() *mockSessionRepo {
@@ -428,6 +431,23 @@ func (m *mockSessionRepo) GetByTokenHash(_ context.Context, hash string) (*domai
 		return nil, nil
 	}
 	return s, nil
+}
+
+// GetByTokenHashWithUser mirrors the real repo's inner join: no session, or a
+// session whose user cannot be resolved, both come back as (nil, nil, nil).
+func (m *mockSessionRepo) GetByTokenHashWithUser(ctx context.Context, hash string) (*domain.Session, *domain.User, error) {
+	m.mu.Lock()
+	sess, ok := m.sessions[hash]
+	users := m.users
+	m.mu.Unlock()
+	if !ok || users == nil {
+		return nil, nil, nil
+	}
+	u, err := users.GetByID(ctx, sess.UserID)
+	if err != nil || u == nil {
+		return nil, nil, err
+	}
+	return sess, u, nil
 }
 
 func (m *mockSessionRepo) GetByRefreshHash(_ context.Context, hash string) (*domain.Session, error) {
@@ -1453,6 +1473,7 @@ type testHarness struct {
 func newTestHarness() *testHarness {
 	users := newMockUserRepo()
 	sessions := newMockSessionRepo()
+	sessions.users = users
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{}

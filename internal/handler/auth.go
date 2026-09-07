@@ -22,7 +22,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		Email:     body.Email,
 		Password:  body.Password,
 		Name:      body.Name,
-		IP:        extractIP(r.RemoteAddr),
+		IP:        h.ip(r),
 		UserAgent: r.UserAgent(),
 	})
 	if err != nil {
@@ -63,7 +63,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	result, err := h.services.Auth.Login(r.Context(), service.LoginInput{
 		Email:     body.Email,
 		Password:  body.Password,
-		IP:        extractIP(r.RemoteAddr),
+		IP:        h.ip(r),
 		UserAgent: r.UserAgent(),
 	})
 	if err != nil {
@@ -104,7 +104,7 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	result, err := h.services.Auth.AdminLogin(r.Context(), service.LoginInput{
 		Email:     body.Email,
 		Password:  body.Password,
-		IP:        extractIP(r.RemoteAddr),
+		IP:        h.ip(r),
 		UserAgent: r.UserAgent(),
 	})
 	if err != nil {
@@ -144,32 +144,46 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
+	// Session travels alongside the user because the active org lives on it
+	// and is otherwise unreadable by a client: PUT/DELETE /auth/orgs/active
+	// only answer with a bare {"message"}. Every token hash on domain.Session
+	// is `json:"-"`, so nothing secret leaves with it, and it is the caller's
+	// own session either way.
 	resp := struct {
 		*domain.User
-		HasPassword bool `json:"hasPassword"`
-	}{user, user.HasPassword()}
+		HasPassword bool            `json:"hasPassword"`
+		Session     *domain.Session `json:"session,omitempty"`
+	}{user, user.HasPassword(), middleware.GetSessionFromContext(r.Context())}
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (h *Handler) CheckAuth(w http.ResponseWriter, r *http.Request) {
-	cfg := h.services.Session.Config()
-	cookie, err := r.Cookie(cfg.CookieName)
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"user": nil})
-		return
-	}
-
-	user, _, aerr := h.services.Auth.ValidateSession(r.Context(), cookie.Value)
-	if aerr != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"user": nil})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]any{"user": user})
-}
-
+// GetCSRFToken primes the double-submit cookie. The CSRF middleware wrapping
+// this route is what actually issues it; this handler only decides whether the
+// value is also echoed in the body.
+//
+// It answers 204 with no body by default. A client on the same origin, or on a
+// sibling subdomain with CookieDomain set, reads the token from document.cookie
+// and needs nothing here.
+//
+// With CSRFTokenConfig.ExposeCSRFTokenInBody it answers 200 {"token": "..."} — the
+// opt-in for a frontend on a different registrable domain, which cannot read
+// the cookie however it is scoped. no-store because a 200 with a body is
+// cacheable where a 204 was not, and a shared cache handing one visitor's
+// token to the next would hand over a working one.
 func (h *Handler) GetCSRFToken(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNoContent)
+	if h.csrfTokenCfg == nil || !h.csrfTokenCfg.ExposeCSRFTokenInBody {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	token := middleware.CSRFTokenFromContext(r.Context())
+	if token == "" {
+		// The middleware issues on every safe method, so this means it is not
+		// in front of this route at all. Nothing to hand back.
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 func (h *Handler) ChangeName(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())

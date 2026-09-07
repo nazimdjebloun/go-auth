@@ -34,7 +34,7 @@ Full field reference, defaults, and validation errors live on [Configuration](..
 
 ## Frontend client setup
 
-The **Client** examples below call a small `apiRequest(baseUrl, method, path, body)` helper — cookies-included `fetch` plus CSRF header handling. It's defined once on the [Client → Setup](client/index.mdx) page rather than repeated in every section here; see that page for what it does and why. A named-method wrapper built on top of it (`authApi.login(...)`, etc.) lives on [Client → Authentication](client/authentication.mdx).
+The **Client** examples below call a small `apiRequest(baseUrl, method, path, body)` helper — cookies-included `fetch` plus CSRF header handling. It's defined once on the [Client → Setup](./client/index.mdx) page rather than repeated in every section here; see that page for what it does and why. A named-method wrapper built on top of it (`authApi.login(...)`, etc.) lives on [Client → Authentication](./client/authentication.mdx).
 
 ## Origin checking
 
@@ -454,7 +454,7 @@ if (result.requiresVerification) {
 ```
 
 <Callout type="warn" title="Admin login has its own page — and requires a second factor by default">
-  `POST /auth/admin/login` gets its own guide alongside the rest of the admin panel rather than living here — see [Admin → Admin login](admin.mdx#admin-login). It's a login variant, but everything else about it (who can use it, what it manages) belongs with Admin, not Authentication. One thing worth knowing before you get there: admin login requires a second factor **by default** in every real deployment — independent of `RequireEmail2FA` or any other flag, and on unless explicitly turned off via `SecurityConfig.DisableAdminTwoFactor`. See [Admin → Admin login](admin.mdx#admin-login) for what that means in practice (a mailer becomes effectively mandatory unless disabled) and [Security](../security.mdx#two-factor-authentication) for the reasoning.
+  `POST /auth/admin/login` gets its own guide alongside the rest of the admin panel rather than living here — see [Admin → Admin login](./admin.mdx#admin-login). It's a login variant, but everything else about it (who can use it, what it manages) belongs with Admin, not Authentication. One thing worth knowing before you get there: admin login requires a second factor **by default** in every real deployment — independent of `RequireEmail2FA` or any other flag, and on unless explicitly turned off via `SecurityConfig.DisableAdminTwoFactor`. See [Admin → Admin login](./admin.mdx#admin-login) for what that means in practice (a mailer becomes effectively mandatory unless disabled) and [Security](../security.mdx#two-factor-authentication) for the reasoning.
 </Callout>
 
 ## Two-factor authentication
@@ -637,8 +637,8 @@ window.location.href = "/login";
 
 ## Next
 
-- [Security](security.mdx) — password/name changes, verification resend, and account deletion
-- [Admin](admin.mdx) — admin login and platform-wide user management
+- [Security](./security.mdx) — password/name changes, verification resend, and account deletion
+- [Admin](./admin.mdx) — admin login and platform-wide user management
 - [Routes](../routes.mdx) — every other endpoint, including sessions, password, and account management
 - [Error Handling](../error-handling.mdx) — the full error code list
 - [Providers](../providers/index.mdx) — OAuth setup for GitHub and Google

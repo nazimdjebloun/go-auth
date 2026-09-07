@@ -28,27 +28,47 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
+// userNullables holds the nullable timestamp columns during a scan. They need
+// sql.NullTime on the way in and become pointers on domain.User afterward.
+type userNullables struct {
+	verifiedAt  sql.NullTime
+	bannedAt    sql.NullTime
+	lastLoginAt sql.NullTime
+}
+
+// userScanDest lists the scan targets for userSelectColumns, in that exact
+// order. It exists so scanRow and the session+user join in SessionRepository
+// share one list: a column added to userSelectColumns but not here is a scan
+// error in both, rather than a silent mismatch in whichever one was forgotten.
+func userScanDest(u *domain.User, n *userNullables) []any {
+	return []any{
+		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
+		&u.IsVerified, &n.verifiedAt, &u.IsBanned, &n.bannedAt, &u.TwoFactorEnabled,
+		&u.OrgOwnerCount, &n.lastLoginAt, &u.CreatedAt, &u.UpdatedAt,
+	}
+}
+
+// finishUser moves the scanned nullables onto the user. Call after any scan
+// that used userScanDest.
+func finishUser(u *domain.User, n *userNullables) {
+	if n.verifiedAt.Valid {
+		u.VerifiedAt = &n.verifiedAt.Time
+	}
+	if n.bannedAt.Valid {
+		u.BannedAt = &n.bannedAt.Time
+	}
+	if n.lastLoginAt.Valid {
+		u.LastLoginAt = &n.lastLoginAt.Time
+	}
+}
+
 func scanRow(s scanner) (*domain.User, error) {
 	u := &domain.User{}
-	var bannedAt sql.NullTime
-	var verifiedAt sql.NullTime
-	var lastLoginAt sql.NullTime
-	if err := s.Scan(
-		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
-		&u.IsVerified, &verifiedAt, &u.IsBanned, &bannedAt, &u.TwoFactorEnabled,
-		&u.OrgOwnerCount, &lastLoginAt, &u.CreatedAt, &u.UpdatedAt,
-	); err != nil {
+	var n userNullables
+	if err := s.Scan(userScanDest(u, &n)...); err != nil {
 		return nil, err
 	}
-	if verifiedAt.Valid {
-		u.VerifiedAt = &verifiedAt.Time
-	}
-	if bannedAt.Valid {
-		u.BannedAt = &bannedAt.Time
-	}
-	if lastLoginAt.Valid {
-		u.LastLoginAt = &lastLoginAt.Time
-	}
+	finishUser(u, &n)
 	return u, nil
 }
 

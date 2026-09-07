@@ -24,7 +24,6 @@ const (
 	ResendVerificationPublic = "POST /auth/verify-email/resend"
 
 	Me           = "GET /auth/me"
-	CheckSession = "GET /auth/check"
 	CSRFToken    = "GET /auth/csrf-token"
 	ChangeName   = "PUT /auth/name"
 

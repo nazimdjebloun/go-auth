@@ -527,6 +527,15 @@ func (c *config) validate() error {
 		}
 	}
 
+	// SameSite=None without Secure is rejected outright by every current
+	// browser, so this pairing does not produce a weaker session — it
+	// produces no session at all, from the first request, with nothing in the
+	// server logs to explain why. Catching it here beats debugging it as
+	// "login succeeds but the user is never logged in".
+	if c.cookie.SameSite == http.SameSiteNoneMode && !c.cookieSecure {
+		errs = append(errs, errors.New("cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()"))
+	}
+
 	seen := map[string]bool{}
 	for _, p := range c.providers {
 		if p == nil {

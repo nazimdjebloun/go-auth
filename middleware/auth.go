@@ -76,7 +76,11 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 		return nil, nil, ""
 	}
 
-	session, err := sessionSvc.Validate(r.Context(), cookie.Value)
+	// One query for both: the user this resolves is always the session's owner,
+	// so a separate lookup would be a second round trip whose WHERE clause the
+	// first already determined. The refresh branch below still needs its own
+	// user lookup — RefreshSession returns only a session.
+	session, user, err := sessionSvc.ValidateWithUser(r.Context(), cookie.Value)
 	if err != nil {
 		if !errors.Is(err, domain.ErrSessionExpired) {
 			logRejectedRequest(r, logger, slog.LevelInfo, "auth rejected", "invalid session")
@@ -114,7 +118,7 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 
 		session = refreshResult.Session
 
-		user, err := userRepo.GetByID(r.Context(), session.UserID)
+		user, err = userRepo.GetByID(r.Context(), session.UserID)
 		if err != nil || user == nil {
 			logRejectedRequest(r, logger, slog.LevelWarn, "auth rejected", "user not found after refresh", slog.String("user_id", session.UserID))
 			writeJSON(w, http.StatusUnauthorized, map[string]string{
@@ -136,8 +140,7 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 		return session, user, refreshResult.SessionToken
 	}
 
-	user, err := userRepo.GetByID(r.Context(), session.UserID)
-	if err != nil || user == nil {
+	if user == nil {
 		logRejectedRequest(r, logger, slog.LevelWarn, "auth rejected", "user not found", slog.String("user_id", session.UserID))
 		writeJSON(w, http.StatusUnauthorized, map[string]string{
 			"error":   "unauthorized",

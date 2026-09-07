@@ -20,7 +20,7 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.services.TwoFactor.Verify(
 		r.Context(), body.ChallengeID, h.twoFactorBindingCookieValue(r), body.Code,
-		extractIP(r.RemoteAddr), r.UserAgent(),
+		h.ip(r), r.UserAgent(),
 	)
 	if err != nil {
 		writeError(w, err)

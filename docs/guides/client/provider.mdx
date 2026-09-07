@@ -122,7 +122,7 @@ export function useAuth(): AuthContextValue {
 
 **`loading`, and why it starts `true`.** Until that first `refresh()` resolves, you don't yet know if there's a user or not — `loading` distinguishes "haven't checked yet" from "checked, and there's no one." Skipping this is what causes the common flash of a logged-out UI for a split second before a valid session kicks in; gate your route rendering on `loading` being `false`, not just on `user` being non-null.
 
-**`setUnauthorizedHandler(() => setUser(null))`.** This is why [Setup](index.mdx) exports it. A session can die on the server — revoked, banned, or expired past its refresh window — while this tab still has `user` set in memory from the last successful call. The next request that happens to hit the API will get a `401` (or `403 user_banned`), and this wiring means *any* request discovering that clears `user` app-wide, not just the component that made the unlucky call.
+**`setUnauthorizedHandler(() => setUser(null))`.** This is why [Setup](./index.mdx) exports it. A session can die on the server — revoked, banned, or expired past its refresh window — while this tab still has `user` set in memory from the last successful call. The next request that happens to hit the API will get a `401` (or `403 user_banned`), and this wiring means *any* request discovering that clears `user` app-wide, not just the component that made the unlucky call.
 
 **Why `login`/`register` call `refresh()` again instead of using the response's own `user` field.** The login/register response already contains a full user object — you could use it directly and skip the extra round trip. Calling `refresh()` instead means there's exactly one code path that ever populates `user`, so it can't drift out of sync with what `/auth/me` would say. Either is correct; this trades a network call for not having two sources of truth.
 
@@ -165,6 +165,6 @@ function AccountMenu() {
 
 ## Next
 
-- [Setup](index.mdx) — the `apiRequest` helper and `setUnauthorizedHandler` this is built on
-- [Authentication client](authentication.mdx) — `authApi`, including `me`/`check`
-- [Middleware](middleware.mdx) — the server-side counterpart: redirecting unauthenticated requests before a page even renders
+- [Setup](./index.mdx) — the `apiRequest` helper and `setUnauthorizedHandler` this is built on
+- [Authentication client](./authentication.mdx) — `authApi`, including `me`/`check`
+- [Middleware](./middleware.mdx) — the server-side counterpart: redirecting unauthenticated requests before a page even renders

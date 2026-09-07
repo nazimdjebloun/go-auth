@@ -1,0 +1,76 @@
+---
+title: "v0.2.3"
+description: "One identity endpoint instead of two, a session and its user resolved in a single query, correct client IPs behind a proxy, and the cookie settings a frontend on another host actually needs."
+date: "2026-09-07"
+---
+
+## Sessions
+
+- **`GET /auth/me` returns the caller's own `session`.** Every token hash on `domain.Session` is `json:"-"`, so nothing secret travels with it. It is what lets a client read `activeOrgId` and `activeOrgRole`, which no other endpoint exposes: `PUT` and `DELETE /auth/orgs/active` only answer with a bare `{"message"}`.
+
+  This is the shape `POST /auth/login`, `/auth/register`, `/auth/invite/register`, `/auth/2fa/verify` and `/auth/verify-email` already returned. `/auth/me` was the last identity endpoint that did not.
+
+- **`GET /auth/check` is removed.** It answered `200` with `{"user": ...}` or `{"user": null}`, and it was the only handler that resolved a session by calling `ValidateSession` directly instead of going through `AuthMiddleware`. That meant it never attempted the transparent refresh: a session that was expired but refreshable, one `AuthMiddleware` would have silently renewed, read as logged out.
+
+  `GET /auth/me` covers the same ground. It costs the same two round trips, and a `401` from it is the "not logged in" signal:
+
+  ```ts
+  try {
+    setUser(await authApi.me())
+  } catch {
+    setUser(null)
+  }
+  ```
+
+  The `Auth.CheckSession(ctx, token) bool` helper is unchanged. It is for consumers routing their own handlers, and it goes through the same validation the middleware does.
+
+- **`POST /auth/refresh` returns the session verbatim.** It was the one endpoint that hand built a four field subset, which renamed `lastActiveAt` to `lastActive` and dropped `activeOrgId` and `activeOrgRole`. A client that refreshed therefore received a different shape than the one `/auth/me` had just handed it. It now returns `domain.Session` like every other endpoint that returns a session.
+
+- **`GET /auth/me` is now rate limited** like every other authenticated read. It was the only authenticated route without a limit, and a junk cookie shaped like a session still costs a session lookup.
+
+## Deployment: cookies and CSRF across hosts
+
+Three changes that together make a frontend on a different host workable, and a new [Deployment guide](../guides/deployment.mdx) explaining which one you need and why.
+
+- **`CSRFTokenConfig.CookieDomain`** scopes the `_csrf` cookie, defaulting from `CookieConfig.Domain` so the two stay in step. Previously the token cookie was always host only, with no way to change it, so a frontend on a sibling subdomain could never read the token and every state changing request answered `403` while reads kept working.
+
+  Setting only this leaves the session cookie host only, which is narrower than widening `CookieConfig.Domain`: the session cookie is sent to the API's own host either way, so it does not need widening for a sibling subdomain frontend to authenticate.
+
+- **`CSRFTokenConfig.ExposeCSRFTokenInBody`** makes `GET /auth/csrf-token` answer `200 {"token": "..."}` with `Cache-Control: no-store` instead of a bare `204`. Off by default.
+
+  It is for a frontend on a different *registrable* domain, where no cookie scope can make `_csrf` readable, so the response body is the only channel left. The cookie is still set and still compared server side, and reading that body requires the caller's origin to be in `AllowedOrigins`, the same gate `OriginCheck` applies to every mutation.
+
+  It does not by itself enable cross site use. `CookieSameSite=None` is what lets the session cookie be sent at all, and the two are the same decision seen from two sides. `goauth.New` now logs a startup warning when it sees one without the other, since either half alone produces a deployment that half works: a read only frontend, or one that never authenticates.
+
+- **`SameSite=None` without a secure cookie is now a configuration error.** Browsers reject that pairing outright, so it does not yield a weaker session, it yields no session at all from the first request with nothing in the logs to say why. `NewConfig` names it instead.
+
+## Performance
+
+- **A session and its user resolve in one query.** `AuthMiddleware` runs on every authenticated request and needs both, and it was doing a session lookup followed by a user lookup whose `WHERE` clause the first result had already determined.
+
+  `SessionRepository.GetByTokenHashWithUser` joins the two, and `SessionService.ValidateWithUser` wraps it with the same liveness rules `Validate` applies. Both now share one `checkSession`, so they cannot disagree about what counts as a usable session.
+
+  Nothing observable changed: same status codes, same bodies, same cookies. The refresh branch still does its own user lookup, since `RefreshSession` returns only a session. The join is inner, so a session whose user row is gone now reads as "no session" rather than "no user"; both were already the same `401`, only the log line differs.
+
+## Correctness
+
+- **The client IP recorded on sessions and audit events is now proxy aware.** `middleware.ClientIP` honors the forwarding header named by `IPAddressHeader`, and only when the immediate peer is in `TrustedIPs`, taking the rightmost hop that is not itself a trusted proxy. It is the same trust posture the rate limiter and the CSRF origin check already used, now shared by the handler path.
+
+  Registration, login, admin login, invite acceptance, two factor verification, email verification and the OAuth callback all used `r.RemoteAddr` directly. Behind any reverse proxy that recorded the proxy's address on every session and every audit row, which is exactly what the session list and the audit log exist to show an operator.
+
+  Unlike the rate limit key, IPv6 is not masked to a subnet here. That masking exists so a routed prefix cannot rotate for a fresh counter; an audit record wants the exact address.
+
+  `TrustedIPs` and `IPAddressHeader` still live on the rate limit config, and are now read by three subsystems. Rate limiting does not need to be enabled for the other two to use them.
+
+## Removed
+
+- **`middleware.RemoteAuth`.** It authenticated a request by forwarding the caller's cookies to a remote go-auth server's `GET /auth/me`, for a second Go service fronting an API it does not own. In practice the services that need this, an admin console or a gateway, proxy the API rather than re-authenticating in front of it, and a proxy needs no auth middleware at all: the upstream server runs the real check on every forwarded request.
+
+  Removed with it: the `auth_unavailable` `503` error code, the Remote Auth guide, and `NewRemoteAuth`, `RemoteAuth.RequireAuth`, `RequireRole`, `RequireAdmin`, `GetUser`, `ErrRemoteNoSession`, `ErrRemoteUnauthorized`, `ErrRemoteUnavailable` and the `WithRemote*` options.
+
+## Documentation
+
+- **A new [Deployment guide](../guides/deployment.mdx)** covering the three topologies a frontend can sit in relative to the API, what each needs, and why. It separates the two things a browser must do with a cookie, send it and read it, since almost every confusing failure in this area is one of those two working without the other. It also covers running two frontends against one API, which is what an admin panel is, including the shared cookie jar on localhost and why a valid session is not an admin session.
+- The Sessions guide's "Checking who's logged in" section now covers one endpoint instead of two, and says why `/auth/me` answering `401` is worth more than a soft `200`.
+- The `/auth/me` and `GET /auth/sessions` payload samples now list the session fields that actually ship, including `ipAddress`, `userAgent`, `parsedUA`, `isRevoked` and `refreshExpiresAt`, with a table of when each appears. Both previously showed a subset no client would ever receive.
+- `Configuration` documents the new fields, the new error, and the two startup warnings.

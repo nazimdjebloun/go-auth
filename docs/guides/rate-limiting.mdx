@@ -199,7 +199,7 @@ Calling a service method directly (`auth.Services.Auth.Login(ctx, ...)`) skips t
 
 #### Client
 
-The shared `apiRequest` helper (see [Client → Setup](client/index.mdx)) attaches `retryAfter` (parsed from the `Retry-After` header, in seconds) onto the thrown error whenever the response is `429`, so you don't need to reach for headers yourself:
+The shared `apiRequest` helper (see [Client → Setup](./client/index.mdx)) attaches `retryAfter` (parsed from the `Retry-After` header, in seconds) onto the thrown error whenever the response is `429`, so you don't need to reach for headers yourself:
 
 ```ts
 try {

@@ -8,11 +8,11 @@ icon: "Link2"
 
 The initial sign-up/sign-in redirect flow (`GET /auth/oauth/{provider}` → provider approval → callback) is covered per-provider on the [Providers](../providers/index.mdx) pages — it's identical regardless of which provider you use. This page covers the three endpoints that only matter for an **already-authenticated** user: linking an additional provider to their account, unlinking one, and listing what's currently connected.
 
-Requires `RegistrationConfig.EnableOAuth: true` and at least one `WithProvider(...)` call — see [Authentication → Configuration](authentication.mdx#configuration). All three routes below are otherwise unmounted (404).
+Requires `RegistrationConfig.EnableOAuth: true` and at least one `WithProvider(...)` call — see [Authentication → Configuration](./authentication.mdx#configuration). All three routes below are otherwise unmounted (404).
 
 ## Frontend client setup
 
-The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](client/index.mdx). The named-method wrapper for everything on this page lives on [Client → OAuth](client/oauth.mdx).
+The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](./client/index.mdx). The named-method wrapper for everything on this page lives on [Client → OAuth](./client/oauth.mdx).
 
 ## Linking a provider
 
@@ -99,7 +99,7 @@ Auth required. Blocked if this is the account's *only* way to log in — unlinki
 
 | Code | Status | Cause |
 |---|---|---|
-| `cannot_unlink_last_provider` | 400 | Account has no password and this is the only linked provider — set a password first ([Security → Set a password](security.mdx#set-a-password-oauth-only-accounts)) |
+| `cannot_unlink_last_provider` | 400 | Account has no password and this is the only linked provider — set a password first ([Security → Set a password](./security.mdx#set-a-password-oauth-only-accounts)) |
 | `user_not_found` | 404 | Session's user no longer exists |
 | `internal_error` | 500 | Database failure |
 
@@ -187,5 +187,5 @@ const { providers } = await apiRequest(API_BASE, "GET", "/auth/oauth/providers")
 ## Next
 
 - [Providers](../providers/index.mdx) — registering GitHub/Google and the initial sign-in flow
-- [Security](security.mdx#set-a-password-oauth-only-accounts) — setting a password so a provider can be safely unlinked
+- [Security](./security.mdx#set-a-password-oauth-only-accounts) — setting a password so a provider can be safely unlinked
 - [Routes](../routes.mdx#oauth--requires-enableoauth-and-at-least-one-registered-provider) — full param reference

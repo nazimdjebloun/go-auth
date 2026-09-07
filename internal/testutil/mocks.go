@@ -432,6 +432,12 @@ type MockSessionRepo struct {
 	byRefreshHash map[string]*domain.Session
 	// ClearActiveOrgCalls records session IDs passed to ClearActiveOrg.
 	ClearActiveOrgCalls []string
+
+	// Users backs GetByTokenHashWithUser, which the real repo answers with a
+	// JOIN. Leave it nil for tests that never take the ValidateWithUser path
+	// (that method then reports no match, exactly as the inner join does for
+	// a session whose user row is gone); set it to resolve users properly.
+	Users *MockUserRepo
 }
 
 func NewMockSessionRepo() *MockSessionRepo {
@@ -461,6 +467,23 @@ func (m *MockSessionRepo) GetByTokenHash(_ context.Context, hash string) (*domai
 		return nil, nil
 	}
 	return s, nil
+}
+
+// GetByTokenHashWithUser mirrors the real repo's inner join: no session, or a
+// session whose user cannot be resolved, both come back as (nil, nil, nil).
+func (m *MockSessionRepo) GetByTokenHashWithUser(ctx context.Context, hash string) (*domain.Session, *domain.User, error) {
+	m.mu.Lock()
+	s, ok := m.sessions[hash]
+	users := m.Users
+	m.mu.Unlock()
+	if !ok || users == nil {
+		return nil, nil, nil
+	}
+	u, err := users.GetByID(ctx, s.UserID)
+	if err != nil || u == nil {
+		return nil, nil, err
+	}
+	return s, u, nil
 }
 
 func (m *MockSessionRepo) GetByRefreshHash(_ context.Context, hash string) (*domain.Session, error) {

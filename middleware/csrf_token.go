@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -47,21 +48,64 @@ import (
 // CSRF validation will 403. This is mandatory for cross-origin deployments
 // where the first browser request is often a POST.
 //
-// Cross-site deployment warning: if the API and frontend are on different
-// registrable domains (e.g., api.example.com vs app.example.com), you MUST
-// set SameSite=None and CookieSecure=true. SameSite=Lax (the default) blocks
-// the cookie on cross-site POST requests, silently 403ing every mutation.
-// Same-site subdomain deployments (app.example.com / api.example.com) work
-// with the default Lax or Strict.
+// Deployment topologies, and what each needs:
+//
+//   - Same origin (the frontend proxies the API, as both reference apps do):
+//     nothing to configure. The default Lax cookie is same-origin.
+//
+//   - Sibling subdomains (app.example.com + api.example.com): same-site, so
+//     Lax still sends the cookie. Set CookieDomain to ".example.com" so the
+//     frontend can *read* it — host-only is the default, and a token it
+//     cannot read is a token it cannot echo.
+//
+//   - Different registrable domains (panel.acme.com + api.example.com):
+//     genuinely cross-site. Set CookieSameSite=None and CookieSecure=true so
+//     the cookie is sent at all, and ExposeCSRFTokenInBody=true so the client can
+//     learn the value — no Domain can make a cookie readable across two
+//     sites, so document.cookie is not an option there.
+//
+// Note that api.example.com and app.example.com are the *same* site, not
+// different ones: SameSite is computed from the registrable domain, and
+// ignores both the subdomain and the port.
 type CSRFTokenConfig struct {
-	TokenLength    int            // bytes, default 32
-	CookieName     string         // default "_csrf"
-	HeaderName     string         // default "X-CSRF-Token"
-	CookiePath     string         // default "/"
-	CookieSecure   bool           // should match session cookie secure flag; auto-derived from BaseURL in goauth.New
-	CookieSameSite http.SameSite  // default Lax; cross-site deploys MUST set None + CookieSecure=true
-	Secret         []byte         // HMAC-SHA256 signing key; set by goauth.New from Config.Secret
-	Logger         *slog.Logger   // structured logger for fail-closed errors; defaults to slog.Default()
+	TokenLength int    // bytes, default 32
+	CookieName  string // default "_csrf"
+	HeaderName  string // default "X-CSRF-Token"
+	CookiePath  string // default "/"
+	// CookieDomain scopes the token cookie, matching CookieConfig.Domain on
+	// the session cookie. goauth.New defaults it from that field, so the two
+	// stay in step unless you deliberately separate them.
+	//
+	// It is what lets a frontend on a *sibling subdomain* read the token:
+	// without it the cookie is host-only, so a panel on admin.example.com
+	// cannot read a token issued by api.example.com and every mutation it
+	// attempts 403s with the header missing. Set to ".example.com" to share.
+	//
+	// It cannot help across different registrable domains — no Domain value
+	// spans two sites. See ExposeCSRFTokenInBody for that case.
+	CookieDomain   string
+	CookieSecure   bool          // should match session cookie secure flag; auto-derived from BaseURL in goauth.New
+	CookieSameSite http.SameSite // default Lax; see the topology notes above
+	// ExposeCSRFTokenInBody makes GET /auth/csrf-token answer 200 with
+	// {"token": "..."} instead of a bare 204. Off by default.
+	//
+	// Turn it on only for a frontend on a *different registrable domain*
+	// from the API. There, document.cookie cannot reach the token no matter
+	// how the cookie is scoped, so the body is the only channel left. Same-
+	// origin and sibling-subdomain deployments must leave this off and read
+	// the cookie: they can, and a value not in a body is a value that cannot
+	// be logged by an intermediary or cached by mistake.
+	//
+	// It does not weaken the double-submit check — the cookie is still set
+	// and still compared server-side, and reading the body requires the
+	// caller's origin to be in AllowedOrigins, the same gate OriginCheck
+	// applies to every mutation. The exposure that matters in a cross-site
+	// deployment comes from CookieSameSite=None, which this flag accompanies
+	// rather than causes.
+	ExposeCSRFTokenInBody bool
+
+	Secret []byte       // HMAC-SHA256 signing key; set by goauth.New from Config.Secret
+	Logger *slog.Logger // structured logger for fail-closed errors; defaults to slog.Default()
 }
 
 func (c *CSRFTokenConfig) defaults() {
@@ -80,6 +124,24 @@ func (c *CSRFTokenConfig) defaults() {
 	if c.CookieSameSite == 0 {
 		c.CookieSameSite = http.SameSiteLaxMode
 	}
+}
+
+type csrfCtxKey struct{}
+
+// ContextWithCSRFToken stores the request's active CSRF token. The middleware
+// sets it on every safe method, whether the token was just minted or read off
+// an existing cookie, so a handler can return it without re-deriving it — a
+// freshly minted token is on the response, not the request, and so cannot be
+// read back with r.Cookie.
+func ContextWithCSRFToken(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, csrfCtxKey{}, token)
+}
+
+// CSRFTokenFromContext returns the active CSRF token, or "" when the request
+// did not pass through CSRFToken middleware on a safe method.
+func CSRFTokenFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(csrfCtxKey{}).(string)
+	return v
 }
 
 // CSRFToken returns middleware that implements double-submit cookie CSRF protection.
@@ -109,7 +171,10 @@ func CSRFToken(cfg *CSRFTokenConfig) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case "GET", "HEAD", "OPTIONS":
-				if _, err := r.Cookie(cfg.CookieName); err != nil {
+				active := ""
+				if c, err := r.Cookie(cfg.CookieName); err == nil {
+					active = c.Value
+				} else {
 					if len(cfg.Secret) == 0 {
 						cfg.Logger.Error("csrf: refusing to issue token: signing secret is empty (misconfigured goauth.Config.Secret)",
 							"check", "issue",
@@ -124,6 +189,10 @@ func CSRFToken(cfg *CSRFTokenConfig) func(http.Handler) http.Handler {
 						return
 					}
 					setCSRFCookie(w, cfg, token)
+					active = token
+				}
+				if active != "" {
+					r = r.WithContext(ContextWithCSRFToken(r.Context(), active))
 				}
 				next.ServeHTTP(w, r)
 				return
@@ -232,6 +301,7 @@ func setCSRFCookie(w http.ResponseWriter, cfg *CSRFTokenConfig, token string) {
 		Name:     cfg.CookieName,
 		Value:    token,
 		Path:     cfg.CookiePath,
+		Domain:   cfg.CookieDomain,
 		HttpOnly: false,
 		Secure:   cfg.CookieSecure,
 		SameSite: cfg.CookieSameSite,
