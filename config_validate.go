@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
@@ -113,8 +114,8 @@ func (c *Config) validate() error {
 		errs = append(errs, errors.New("secret: signing secret must be at least 32 bytes for HMAC-SHA256"))
 	}
 
-	if _, isLog := c.mailer.(*LogMailer); isLog && c.environment.normalize() != EnvironmentDev {
-		errs = append(errs, errors.New("mailer: LogMailer cannot be used outside EnvironmentDev — codes and reset links would be written to application logs instead of delivered"))
+	if _, isLog := c.mailer.(*mailer.Log); isLog && c.environment.normalize() != EnvironmentDev {
+		errs = append(errs, errors.New("mailer: mailer.Log cannot be used outside EnvironmentDev — codes and reset links would be written to application logs instead of delivered"))
 	}
 
 	// Email validation — only check SMTP fields when no custom mailer is set

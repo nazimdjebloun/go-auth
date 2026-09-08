@@ -1,4 +1,4 @@
-package goauth
+package sqldriver
 
 import (
 	"database/sql"
@@ -7,7 +7,11 @@ import (
 	"strings"
 )
 
-func isDriverRegistered(name string) bool {
+// IsRegistered reports whether name is in database/sql's registered driver
+// list. go-auth's own go.mod pulls in only pgx, so every other backend needs
+// the consumer to blank-import its driver; this is what turns a missing import
+// into a startup error naming the import instead of a query-time failure.
+func IsRegistered(name string) bool {
 	for _, d := range sql.Drivers() {
 		if d == name {
 			return true
@@ -16,20 +20,20 @@ func isDriverRegistered(name string) bool {
 	return false
 }
 
-// resolveSQLiteDriverName returns whichever of "sqlite" (modernc.org/sqlite,
+// ResolveSQLiteName returns whichever of "sqlite" (modernc.org/sqlite,
 // the documented driver) or "sqlite3" (mattn/go-sqlite3) is actually
-// registered. The registration check in New() accepts either name, so
+// registered. IsRegistered accepts either name, so
 // sql.Open must use the one that's really there instead of assuming
 // "sqlite" — otherwise a consumer using mattn/go-sqlite3 passes validation
 // and then fails with "unknown driver \"sqlite\"".
-func resolveSQLiteDriverName() string {
-	if isDriverRegistered("sqlite") {
+func ResolveSQLiteName() string {
+	if IsRegistered("sqlite") {
 		return "sqlite"
 	}
 	return "sqlite3"
 }
 
-// validateMySQLDSN rejects a MySQL DSN that's missing parseTime=true.
+// ValidateMySQLDSN rejects a MySQL DSN that's missing parseTime=true.
 // go-sql-driver/mysql returns DATETIME/TIMESTAMP columns as []byte unless
 // parseTime=true is set, and every sqlstore repository scans directly into
 // time.Time fields — without it, the first query touching any date column
@@ -37,7 +41,7 @@ func resolveSQLiteDriverName() string {
 // *time.Time". loc=UTC is recommended too: every timestamp in go-auth is
 // computed via time.Now().UTC(), and without loc=UTC the driver parses
 // returned times in the local server timezone, skewing expiry/TTL checks.
-func validateMySQLDSN(dsn string) error {
+func ValidateMySQLDSN(dsn string) error {
 	_, params, _ := strings.Cut(dsn, "?")
 	values, err := url.ParseQuery(params)
 	if err != nil || !mysqlBoolParam(values.Get("parseTime")) {

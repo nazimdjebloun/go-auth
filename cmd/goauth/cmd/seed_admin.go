@@ -18,6 +18,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/internal/sqldriver"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
+	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -335,7 +336,7 @@ func resolveMailer(env goauth.Environment, smtp smtpConfig, skipCheck bool) (por
 	hasSMTP := smtp.Host != "" || smtp.From != ""
 
 	if env == goauth.EnvironmentDev && !hasSMTP {
-		return goauth.NewLogMailer(nil), nil
+		return mailer.NewLog(nil), nil
 	}
 
 	if !hasSMTP {
@@ -345,7 +346,7 @@ func resolveMailer(env goauth.Environment, smtp smtpConfig, skipCheck bool) (por
 		return nil, fmt.Errorf("seed-admin: --env %s requires SMTP configuration (or --skip-mailer-check)", env)
 	}
 
-	return goauth.NewSMTPMailer(goauth.EmailConfig{
+	return mailer.NewSMTP(goauth.EmailConfig{
 		Host: smtp.Host,
 		Port: smtp.Port,
 		From: smtp.From,

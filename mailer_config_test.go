@@ -1,75 +1,46 @@
 package goauth
 
 import (
-	"bytes"
-	"context"
-	"log/slog"
 	"strings"
 	"testing"
 
+	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-func TestLogMailer_Send(t *testing.T) {
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, nil))
-	m := NewLogMailer(logger)
-
-	if err := m.Send(context.Background(), "user@example.com", "subject line", "<p>html</p>", "text body"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	out := buf.String()
-	for _, want := range []string{"user@example.com", "subject line", "text body"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("expected log output to contain %q, got: %s", want, out)
-		}
-	}
-	if strings.Contains(out, "<p>html</p>") {
-		t.Errorf("expected log output to omit html body, got: %s", out)
-	}
-}
-
-func TestLogMailer_NilLoggerDefaultsToSlogDefault(t *testing.T) {
-	m := NewLogMailer(nil)
-	if m.log == nil {
-		t.Fatal("expected default logger to be set")
-	}
-}
-
 func TestNewConfig_LogMailerRejectedOutsideDev(t *testing.T) {
 	opts := append(validConfigOpts(), func(c *Config) {
-		c.mailer = NewLogMailer(nil)
+		c.mailer = mailer.NewLog(nil)
 		c.environment = EnvironmentStaging
 	})
 	_, err := NewConfig(opts...)
 	if err == nil {
-		t.Fatal("expected error when LogMailer is used outside EnvironmentDev")
+		t.Fatal("expected error when mailer.Log is used outside EnvironmentDev")
 	}
-	if !strings.Contains(err.Error(), "LogMailer cannot be used outside EnvironmentDev") {
-		t.Fatalf("expected LogMailer env error, got: %v", err)
+	if !strings.Contains(err.Error(), "mailer.Log cannot be used outside EnvironmentDev") {
+		t.Fatalf("expected Log env error, got: %v", err)
 	}
 }
 
 func TestNewConfig_LogMailerRejectedInProd(t *testing.T) {
 	opts := append(validConfigOpts(), func(c *Config) {
-		c.mailer = NewLogMailer(nil)
+		c.mailer = mailer.NewLog(nil)
 		c.environment = EnvironmentProd
 	})
 	_, err := NewConfig(opts...)
 	if err == nil {
-		t.Fatal("expected error when LogMailer is used in EnvironmentProd")
+		t.Fatal("expected error when mailer.Log is used in EnvironmentProd")
 	}
 }
 
 func TestNewConfig_LogMailerAllowedInDev(t *testing.T) {
 	opts := append(validConfigOpts(), func(c *Config) {
-		c.mailer = NewLogMailer(nil)
+		c.mailer = mailer.NewLog(nil)
 		c.environment = EnvironmentDev
 	})
 	_, err := NewConfig(opts...)
 	if err != nil {
-		t.Fatalf("unexpected error when LogMailer is used in EnvironmentDev: %v", err)
+		t.Fatalf("unexpected error when mailer.Log is used in EnvironmentDev: %v", err)
 	}
 }
 
@@ -81,8 +52,8 @@ func TestNewConfig_DevDefaultsToLogMailerWhenUnconfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := cfg.mailer.(*LogMailer); !ok {
-		t.Fatalf("expected mailer to default to *LogMailer in dev, got %T", cfg.mailer)
+	if _, ok := cfg.mailer.(*mailer.Log); !ok {
+		t.Fatalf("expected mailer to default to *mailer.Log in dev, got %T", cfg.mailer)
 	}
 }
 
@@ -110,7 +81,7 @@ func TestNewConfig_DevDefaultDoesNotOverrideExplicitEmail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := cfg.mailer.(*LogMailer); ok {
+	if _, ok := cfg.mailer.(*mailer.Log); ok {
 		t.Fatal("expected explicit WithEmail config not to be overridden by the log-mailer default")
 	}
 }

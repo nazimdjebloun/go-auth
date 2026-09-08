@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
@@ -44,7 +45,7 @@ func (c *Config) applyDefaults() {
 	// silently no-oping every send — but only when neither WithMailer nor
 	// WithEmail was called; an explicit choice is never overridden.
 	if c.mailer == nil && c.email == nil && c.environment.normalize() == EnvironmentDev {
-		c.mailer = NewLogMailer(c.logger)
+		c.mailer = mailer.NewLog(c.logger)
 	}
 
 	if !c.registrationSet {

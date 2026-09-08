@@ -1,51 +1,24 @@
 package goauth
 
 import (
-	_ "embed"
-	"errors"
-	"fmt"
 	"os"
 
 	"github.com/nazimdjebloun/go-auth/internal/schema"
 )
 
-// The DDL ships inside the binary, so there is no .sql file to find on disk
-// after `go get`. Apply it with the goauth CLI's migrate command, or read it
-// out with GetSchema and run it yourself.
-
-//go:embed internal/schema/postgres.sql
-var embeddedPostgresSchema string
-
-//go:embed internal/schema/sqlite.sql
-var embeddedSQLiteSchema string
-
-//go:embed internal/schema/mysql.sql
-var embeddedMySQLSchema string
-
-// driverSchemas keys on every spelling of a driver go-auth accepts, matching
-// internal/sqldriver.SQLName — a name that resolves to a driver must also
-// resolve to a schema.
-var driverSchemas = map[string]string{
-	"postgres": embeddedPostgresSchema,
-	"pg":       embeddedPostgresSchema,
-	"mysql":    embeddedMySQLSchema,
-	"sqlite3":  embeddedSQLiteSchema,
-	"sqlite":   embeddedSQLiteSchema,
-}
+// The schema itself — the embedded .sql files and the statement splitter —
+// lives in internal/schema, alongside the .sql files it embeds. What follows is
+// only the public surface over it.
 
 // ErrUnsupportedDriver is returned (wrapped, with the offending name) by
 // GetSchema when no embedded schema exists for the requested driver. Match it
 // with errors.Is rather than comparing error strings.
-var ErrUnsupportedDriver = errors.New("goauth: unsupported driver")
+var ErrUnsupportedDriver = schema.ErrUnsupportedDriver
 
 // GetSchema returns the embedded DDL for driver. The error wraps
 // ErrUnsupportedDriver for any driver the library has no schema for.
 func GetSchema(driver string) (string, error) {
-	s, ok := driverSchemas[driver]
-	if !ok {
-		return "", fmt.Errorf("%w %q — valid options: postgres, sqlite, mysql", ErrUnsupportedDriver, driver)
-	}
-	return s, nil
+	return schema.For(driver)
 }
 
 // SplitSQL splits a schema string (as returned by GetSchema) into individual

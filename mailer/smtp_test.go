@@ -1,23 +1,23 @@
-package goauth
+package mailer
 
 import "testing"
 
-func TestNewSMTPMailer_EmptyHost(t *testing.T) {
-	_, err := NewSMTPMailer(EmailConfig{From: "auth@example.com"})
+func TestNewSMTP_EmptyHost(t *testing.T) {
+	_, err := NewSMTP(Config{From: "auth@example.com"})
 	if err == nil {
 		t.Fatal("expected error for empty host")
 	}
 }
 
-func TestNewSMTPMailer_EmptyFrom(t *testing.T) {
-	_, err := NewSMTPMailer(EmailConfig{Host: "smtp.example.com"})
+func TestNewSMTP_EmptyFrom(t *testing.T) {
+	_, err := NewSMTP(Config{Host: "smtp.example.com"})
 	if err == nil {
 		t.Fatal("expected error for empty from address")
 	}
 }
 
-func TestNewSMTPMailer_Valid(t *testing.T) {
-	mailer, err := NewSMTPMailer(EmailConfig{
+func TestNewSMTP_Valid(t *testing.T) {
+	mailer, err := NewSMTP(Config{
 		Host: "smtp.example.com",
 		From: "auth@example.com",
 		Port: 587,

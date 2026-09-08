@@ -19,14 +19,6 @@ const (
 	DriverMySQL    Driver = "mysql"
 )
 
-type TLSMode int
-
-const (
-	TLSStart    TLSMode = iota // STARTTLS, typically port 587 — the zero value, so an unset TLSMode is never plaintext
-	TLSImplicit                // implicit TLS, typically port 465
-	TLSNone                    // plaintext — dev/local only
-)
-
 // DatabaseConfig configures the database connection.
 // Provide one of URL, DB, or Pool. URL is the preferred option —
 // the library will open, validate, and close the connection automatically.
@@ -38,16 +30,6 @@ type DatabaseConfig struct {
 
 	opened     bool // internal — true if the library opened DB itself
 	poolOpened bool // internal — true if the library opened Pool itself
-}
-
-// EmailConfig configures SMTP email delivery (transport only).
-type EmailConfig struct {
-	From string
-	Host string
-	Port int
-	User string
-	Pass string
-	TLS  TLSMode
 }
 
 // CookieConfig configures the session and refresh cookies. Zero-valued fields

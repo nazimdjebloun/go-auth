@@ -9,6 +9,7 @@ import (
 
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -243,8 +244,8 @@ func TestResolveMailer_DevNoSMTP_UsesLogMailer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := m.(*goauth.LogMailer); !ok {
-		t.Fatalf("expected *goauth.LogMailer, got %T", m)
+	if _, ok := m.(*mailer.Log); !ok {
+		t.Fatalf("expected *mailer.Log, got %T", m)
 	}
 }
 
@@ -265,13 +266,13 @@ func TestResolveMailer_StagingNoSMTPWithSkip_ReturnsNilMailer(t *testing.T) {
 	}
 }
 
-func TestResolveMailer_WithSMTPFields_BuildsSMTPMailer(t *testing.T) {
+func TestResolveMailer_WithSMTPFields_BuildsSMTP(t *testing.T) {
 	m, err := resolveMailer(goauth.EnvironmentProd, smtpConfig{Host: "smtp.example.com", From: "auth@example.com", Port: 587}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if _, ok := m.(*goauth.SMTPMailer); !ok {
-		t.Fatalf("expected *goauth.SMTPMailer, got %T", m)
+	if _, ok := m.(*mailer.SMTP); !ok {
+		t.Fatalf("expected *mailer.SMTP, got %T", m)
 	}
 }
 

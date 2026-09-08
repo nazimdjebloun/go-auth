@@ -14,6 +14,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/internal/sqldriver"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
+	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -100,13 +101,13 @@ func requireDriverSupport(cfg *Config) error {
 	case DriverPostgres:
 		// supported natively
 	case DriverSQLite:
-		if !isDriverRegistered("sqlite") && !isDriverRegistered("sqlite3") {
+		if !sqldriver.IsRegistered("sqlite") && !sqldriver.IsRegistered("sqlite3") {
 			return fmt.Errorf(
 				"goauth: sqlite driver not registered — add the following import to your main package:\n\n\t_ \"modernc.org/sqlite\"",
 			)
 		}
 	case DriverMySQL:
-		if !isDriverRegistered("mysql") {
+		if !sqldriver.IsRegistered("mysql") {
 			return fmt.Errorf(
 				"goauth: mysql driver not registered — add the following import to your main package:\n\n\t_ \"github.com/go-sql-driver/mysql\"",
 			)
@@ -114,7 +115,7 @@ func requireDriverSupport(cfg *Config) error {
 		// Only checkable when go-auth opens the connection itself — a
 		// consumer-provided *sql.DB is already open and its DSN is unknown.
 		if cfg.database.URL != "" {
-			if err := validateMySQLDSN(cfg.database.URL); err != nil {
+			if err := sqldriver.ValidateMySQLDSN(cfg.database.URL); err != nil {
 				return err
 			}
 		}
@@ -146,7 +147,7 @@ func openDatabase(cfg *Config) (*pgxpool.Pool, *sqlstore.DB, error) {
 			// registration check in requireDriverSupport also accepts mattn/go-sqlite3
 			// ("sqlite3") — use whichever is actually registered so sql.Open
 			// doesn't fail with "unknown driver" after registration passed.
-			driverName = resolveSQLiteDriverName()
+			driverName = sqldriver.ResolveSQLiteName()
 		}
 		db, err := sql.Open(driverName, cfg.database.URL)
 		if err != nil {
@@ -177,17 +178,19 @@ func openDatabase(cfg *Config) (*pgxpool.Pool, *sqlstore.DB, error) {
 // Returns nil when neither is configured — validate() has already refused
 // that combination for any feature that actually sends mail.
 func resolveMailer(cfg *Config) (port.Mailer, error) {
-	var mailer port.Mailer
 	if cfg.mailer != nil {
-		mailer = cfg.mailer
-	} else if cfg.email != nil {
-		m, err := NewSMTPMailer(*cfg.email)
+		return cfg.mailer, nil
+	}
+	if cfg.email != nil {
+		smtp, err := mailer.NewSMTP(*cfg.email)
 		if err != nil {
 			return nil, err
 		}
-		mailer = m
+		return smtp, nil
 	}
-	return mailer, nil
+	// Neither configured: validate() has already refused this for any feature
+	// that actually sends mail, so a nil Mailer here means nothing needs one.
+	return nil, nil
 }
 
 // resolveTemplates picks the consumer's TemplateProvider over the built-in
