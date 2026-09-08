@@ -54,8 +54,8 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, h.services.Session.Config(), result.SessionToken)
-	middleware.SetRefreshCookie(w, h.services.Session.Config(), result.RefreshToken)
+	middleware.SetSessionCookie(w, sessionCookies(h.services.Session.Config()), result.SessionToken)
+	middleware.SetRefreshCookie(w, sessionCookies(h.services.Session.Config()), result.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""

@@ -113,8 +113,8 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 			return nil, nil, ""
 		}
 
-		SetSessionCookie(w, sessionSvc.Config(), refreshResult.SessionToken)
-		SetRefreshCookie(w, sessionSvc.Config(), refreshResult.RefreshToken)
+		SetSessionCookie(w, sessionCookies(sessionSvc.Config()), refreshResult.SessionToken)
+		SetRefreshCookie(w, sessionCookies(sessionSvc.Config()), refreshResult.RefreshToken)
 
 		session = refreshResult.Session
 
@@ -182,5 +182,21 @@ func RequireRole(role domain.Role, logger *slog.Logger) func(http.Handler) http.
 			}
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// sessionCookies maps the service layer's session config onto the cookie
+// fields middleware writes from. The two shapes are deliberately separate --
+// see middleware.CookieSettings.
+func sessionCookies(cfg service.SessionConfig) CookieSettings {
+	return CookieSettings{
+		Name:        cfg.CookieName,
+		RefreshName: cfg.RefreshCookieName,
+		Domain:      cfg.Domain,
+		Path:        cfg.Path,
+		Secure:      cfg.Secure,
+		SameSite:    cfg.SameSite,
+		TTL:         cfg.Duration,
+		RefreshTTL:  cfg.RefreshTTL,
 	}
 }

@@ -27,8 +27,8 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, h.services.Session.Config(), result.SessionToken)
-	middleware.SetRefreshCookie(w, h.services.Session.Config(), result.RefreshToken)
+	middleware.SetSessionCookie(w, sessionCookies(h.services.Session.Config()), result.SessionToken)
+	middleware.SetRefreshCookie(w, sessionCookies(h.services.Session.Config()), result.RefreshToken)
 	h.clearTwoFactorBindingCookie(w)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	h.writeJSON(w, http.StatusOK, map[string]any{"user": result.User, "session": result.Session})

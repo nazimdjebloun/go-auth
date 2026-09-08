@@ -9,6 +9,8 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/httperr"
+	"github.com/nazimdjebloun/go-auth/middleware"
+	"github.com/nazimdjebloun/go-auth/service"
 )
 
 const maxBodySize = 1 << 16 // 64 KB
@@ -178,4 +180,20 @@ func (h *OAuthHandlers) writeJSON(w http.ResponseWriter, status int, v any) {
 
 func (h *OAuthHandlers) writeError(w http.ResponseWriter, err error) {
 	writeErrorTo(h.log, w, err)
+}
+
+// sessionCookies maps the service layer's session config onto the cookie
+// fields middleware writes from. The two shapes are deliberately separate --
+// see middleware.CookieSettings.
+func sessionCookies(cfg service.SessionConfig) middleware.CookieSettings {
+	return middleware.CookieSettings{
+		Name:        cfg.CookieName,
+		RefreshName: cfg.RefreshCookieName,
+		Domain:      cfg.Domain,
+		Path:        cfg.Path,
+		Secure:      cfg.Secure,
+		SameSite:    cfg.SameSite,
+		TTL:         cfg.Duration,
+		RefreshTTL:  cfg.RefreshTTL,
+	}
 }

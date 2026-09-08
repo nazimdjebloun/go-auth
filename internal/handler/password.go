@@ -131,8 +131,8 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	middleware.ClearSessionCookie(w, h.services.Session.Config())
-	middleware.ClearRefreshCookie(w, h.services.Session.Config())
+	middleware.ClearSessionCookie(w, sessionCookies(h.services.Session.Config()))
+	middleware.ClearRefreshCookie(w, sessionCookies(h.services.Session.Config()))
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }
@@ -175,8 +175,8 @@ func (h *Handler) ConfirmDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.ClearSessionCookie(w, h.services.Session.Config())
-	middleware.ClearRefreshCookie(w, h.services.Session.Config())
+	middleware.ClearSessionCookie(w, sessionCookies(h.services.Session.Config()))
+	middleware.ClearRefreshCookie(w, sessionCookies(h.services.Session.Config()))
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }

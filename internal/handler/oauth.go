@@ -127,8 +127,8 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 // then redirects via JS. This is needed because Set-Cookie headers on cross-origin
 // 302 redirects are unreliable in some browsers.
 func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, sessionToken, refreshToken, redirectURL string) {
-	middleware.SetSessionCookie(w, h.session.Config(), sessionToken)
-	middleware.SetRefreshCookie(w, h.session.Config(), refreshToken)
+	middleware.SetSessionCookie(w, sessionCookies(h.session.Config()), sessionToken)
+	middleware.SetRefreshCookie(w, sessionCookies(h.session.Config()), refreshToken)
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'")

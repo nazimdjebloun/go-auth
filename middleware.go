@@ -6,6 +6,7 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
+	"github.com/nazimdjebloun/go-auth/service"
 )
 
 // RequireAuth protects a consumer route with the same session validation
@@ -142,7 +143,7 @@ func (a *Auth) RequireCSRF(next http.Handler) http.Handler {
 // your handler needs the same "session issued" ceremony the built-in login
 // handlers perform.
 func (a *Auth) SetSessionCookies(w http.ResponseWriter, sessionToken, refreshToken string) {
-	cfg := a.sessionService.Config()
+	cfg := sessionCookies(a.sessionService.Config())
 	middleware.SetSessionCookie(w, cfg, sessionToken)
 	middleware.SetRefreshCookie(w, cfg, refreshToken)
 }
@@ -151,7 +152,7 @@ func (a *Auth) SetSessionCookies(w http.ResponseWriter, sessionToken, refreshTok
 // with a custom handler that revokes the session itself via
 // a.Services.Session.Revoke.
 func (a *Auth) ClearSessionCookies(w http.ResponseWriter) {
-	cfg := a.sessionService.Config()
+	cfg := sessionCookies(a.sessionService.Config())
 	middleware.ClearSessionCookie(w, cfg)
 	middleware.ClearRefreshCookie(w, cfg)
 }
@@ -163,4 +164,20 @@ func (a *Auth) ClearSessionCookies(w http.ResponseWriter) {
 // the CSRF token on every login/logout.
 func (a *Auth) RotateCSRFToken(w http.ResponseWriter) {
 	middleware.RotateCSRFToken(w, a.cfg.csrfToken)
+}
+
+// sessionCookies maps the service layer's session config onto the cookie
+// fields middleware writes from. The two shapes are deliberately separate --
+// see middleware.CookieSettings.
+func sessionCookies(cfg service.SessionConfig) middleware.CookieSettings {
+	return middleware.CookieSettings{
+		Name:        cfg.CookieName,
+		RefreshName: cfg.RefreshCookieName,
+		Domain:      cfg.Domain,
+		Path:        cfg.Path,
+		Secure:      cfg.Secure,
+		SameSite:    cfg.SameSite,
+		TTL:         cfg.Duration,
+		RefreshTTL:  cfg.RefreshTTL,
+	}
 }
