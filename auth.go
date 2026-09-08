@@ -522,7 +522,8 @@ func New(in *Config) (*Auth, error) {
 			CSRFToken:              corsMW(csrfTokenMW(http.HandlerFunc(h.GetCSRFToken))).ServeHTTP,
 			// Org routes: authMW authenticates, then orgMemberMW/orgAdminMW/
 			// orgOwnerMW enforce membership and minimum role per the access
-			// levels documented in ORGS.md §6. CreateOrg/ListUserOrgs/
+			// levels documented in docs/guides/organizations.mdx.
+			// CreateOrg/ListUserOrgs/
 			// AcceptOrgInvite/SetActiveOrg/ClearActiveOrg have no {orgID}
 			// path segment (self-service or org resolved from a code/body),
 			// so they stay authMW-only; SetActiveOrg/AcceptInvite already
