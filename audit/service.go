@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/id"
 )
 
 type AuditFailureMode int
@@ -276,6 +276,10 @@ func (s *AuditService) startRetentionCleanup(ctx context.Context) {
 	}
 }
 
+// generateID is a package-local alias for internal/id.New. It stays a wrapper
+// rather than being inlined at the call sites because "id" is already a
+// parameter name in this package (see builder.go WithRequestID), and an
+// id.New() call in that scope would resolve to the parameter.
 func generateID() string {
-	return uuid.New().String()
+	return id.New()
 }

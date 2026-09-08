@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/nazimdjebloun/go-auth"
+	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/spf13/cobra"
 )
 

@@ -62,14 +62,3 @@ func mysqlBoolParam(v string) bool {
 		return false
 	}
 }
-
-func sqlDriverName(driver Driver) string {
-	switch driver {
-	case DriverPostgres:
-		return "pgx"
-	case DriverSQLite:
-		return "sqlite"
-	default:
-		return string(driver)
-	}
-}

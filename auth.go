@@ -16,6 +16,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/crypto"
 	"github.com/nazimdjebloun/go-auth/internal/handler"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
+	"github.com/nazimdjebloun/go-auth/internal/sqldriver"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -286,9 +287,9 @@ func New(cfg config) (*Auth, error) {
 		sqlDB = sqlstore.NewDB(cfg.database.DB, string(cfg.database.Driver))
 		sessRepo = sqlstore.NewSessionRepository(sqlDB)
 	case cfg.database.URL != "":
-		driverName := sqlDriverName(cfg.database.Driver)
+		driverName := sqldriver.SQLName(string(cfg.database.Driver))
 		if cfg.database.Driver == DriverSQLite {
-			// sqlDriverName assumes modernc.org/sqlite ("sqlite"), but the
+			// sqldriver.SQLName assumes modernc.org/sqlite ("sqlite"), but the
 			// registration check above also accepts mattn/go-sqlite3
 			// ("sqlite3") — use whichever is actually registered so sql.Open
 			// doesn't fail with "unknown driver" after registration passed.

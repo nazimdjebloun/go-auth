@@ -16,6 +16,7 @@ import (
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher"
+	"github.com/nazimdjebloun/go-auth/internal/sqldriver"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/spf13/cobra"
@@ -96,7 +97,7 @@ func runSeedAdminCmd(cmd *cobra.Command, args []string) {
 		fmt.Fprintln(os.Stderr, "WARNING: mailer check skipped — this admin may not be able to complete login if 2FA email delivery isn't actually working.")
 	}
 
-	sqlDriver := sqlDriverName(driver)
+	sqlDriver := sqldriver.SQLName(driver)
 	db, err := sql.Open(sqlDriver, dsn)
 	if err != nil {
 		abort(fmt.Errorf("seed-admin: failed to connect: %w", err))

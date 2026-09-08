@@ -7,8 +7,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/nazimdjebloun/go-auth"
+	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/internal/schema"
+	"github.com/nazimdjebloun/go-auth/internal/sqldriver"
 	"github.com/spf13/cobra"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -37,7 +38,7 @@ Supported drivers: postgres, sqlite, mysql`,
 			os.Exit(1)
 		}
 
-		sqlDriver := sqlDriverName(driver)
+		sqlDriver := sqldriver.SQLName(driver)
 		db, err := sql.Open(sqlDriver, dsn)
 		if err != nil {
 			log.Fatalf("goauth: failed to connect: %v", err)
@@ -72,17 +73,6 @@ func applySchema(ctx context.Context, db *sql.DB, driver string) error {
 		fmt.Println("OK:", stmt)
 	}
 	return nil
-}
-
-func sqlDriverName(driver string) string {
-	switch driver {
-	case "postgres", "pg":
-		return "pgx"
-	case "sqlite", "sqlite3":
-		return "sqlite"
-	default:
-		return driver
-	}
 }
 
 func init() {
