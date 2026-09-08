@@ -14,7 +14,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Name     string `json:"name"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -26,12 +26,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		UserAgent: r.UserAgent(),
 	})
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 
 	if result.RequiresVerification {
-		writeJSON(w, http.StatusCreated, map[string]interface{}{
+		h.writeJSON(w, http.StatusCreated, map[string]interface{}{
 			"user":                 result.User,
 			"requiresVerification": true,
 			"message":              "Verification email sent. Please verify your email to continue.",
@@ -48,7 +48,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
-	writeJSON(w, http.StatusCreated, result)
+	h.writeJSON(w, http.StatusCreated, result)
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -67,12 +67,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		UserAgent: r.UserAgent(),
 	})
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 
 	if result.RequiresVerification {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		h.writeJSON(w, http.StatusOK, map[string]interface{}{
 			"user":                 result.User,
 			"requiresVerification": true,
 			"message":              "Please verify your email to continue.",
@@ -89,7 +89,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
@@ -97,7 +97,7 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -108,7 +108,7 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 		UserAgent: r.UserAgent(),
 	})
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 	if result.RequiresTwoFactor {
@@ -121,7 +121,7 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -135,13 +135,13 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	middleware.ClearSessionCookie(w, h.services.Session.Config())
 	middleware.ClearRefreshCookie(w, h.services.Session.Config())
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 }
 
 func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	// Session travels alongside the user because the active org lives on it
@@ -154,7 +154,7 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		HasPassword bool            `json:"hasPassword"`
 		Session     *domain.Session `json:"session,omitempty"`
 	}{user, user.HasPassword(), middleware.GetSessionFromContext(r.Context())}
-	writeJSON(w, http.StatusOK, resp)
+	h.writeJSON(w, http.StatusOK, resp)
 }
 
 // GetCSRFToken primes the double-submit cookie. The CSRF middleware wrapping
@@ -183,23 +183,23 @@ func (h *Handler) GetCSRFToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, http.StatusOK, map[string]string{"token": token})
+	h.writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
 func (h *Handler) ChangeName(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	var body struct {
 		Name string `json:"name"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	if err := h.services.Auth.ChangeName(r.Context(), user.ID, body.Name); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Name updated"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Name updated"})
 }

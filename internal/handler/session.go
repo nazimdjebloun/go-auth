@@ -13,7 +13,7 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	cfg := h.services.Session.Config()
 	cookie, err := r.Cookie(cfg.RefreshCookieName)
 	if err != nil || cookie.Value == "" {
-		writeError(w, domain.NewError("invalid_refresh", "No refresh token provided"))
+		h.writeError(w, domain.NewError("invalid_refresh", "No refresh token provided"))
 		return
 	}
 
@@ -21,7 +21,7 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		middleware.ClearSessionCookie(w, h.services.Session.Config())
 		middleware.ClearRefreshCookie(w, h.services.Session.Config())
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 
@@ -33,13 +33,13 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	// refreshed got a different shape than the one /auth/me had just handed
 	// it. Every token hash on domain.Session is json:"-", and it is the
 	// caller's own session either way.
-	writeJSON(w, http.StatusOK, map[string]any{"session": refreshResult.Session})
+	h.writeJSON(w, http.StatusOK, map[string]any{"session": refreshResult.Session})
 }
 
 func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	currentSession := middleware.GetSessionFromContext(r.Context())
@@ -55,14 +55,14 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, total, err := h.services.Session.List(r.Context(), user.ID, offset, limit)
 	if err != nil {
 		h.log.Error("failed to list sessions", "err", err, "user_id", user.ID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
+		h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 		return
 	}
 	currentSessionID := ""
 	if currentSession != nil {
 		currentSessionID = currentSession.ID
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	h.writeJSON(w, http.StatusOK, map[string]any{
 		"sessions":         sessions,
 		"total":            total,
 		"limit":            limit,
@@ -74,7 +74,7 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetAllSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	currentSession := middleware.GetSessionFromContext(r.Context())
@@ -82,14 +82,14 @@ func (h *Handler) GetAllSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := h.services.Session.ListAll(r.Context(), user.ID)
 	if err != nil {
 		h.log.Error("failed to list all sessions", "err", err, "user_id", user.ID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
+		h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 		return
 	}
 	currentSessionID := ""
 	if currentSession != nil {
 		currentSessionID = currentSession.ID
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	h.writeJSON(w, http.StatusOK, map[string]any{
 		"sessions":         sessions,
 		"currentSessionId": currentSessionID,
 	})
@@ -98,7 +98,7 @@ func (h *Handler) GetAllSessions(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	sessionID := r.PathValue("id")
@@ -106,51 +106,51 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	revoked, err := h.services.Session.RevokeByIDForUser(r.Context(), sessionID, user.ID)
 	if err != nil {
 		h.log.Error("failed to revoke session", "err", err, "user_id", user.ID, "session_id", sessionID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
+		h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 		return
 	}
 	if !revoked {
-		writeError(w, domain.NewError("session_not_found", "Session not found"))
+		h.writeError(w, domain.NewError("session_not_found", "Session not found"))
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
 }
 
 func (h *Handler) RevokeManySessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 
 	var body struct {
 		SessionIDs []string `json:"sessionIds"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	if len(body.SessionIDs) == 0 {
-		writeError(w, domain.NewError("invalid_input", "sessionIds must not be empty"))
+		h.writeError(w, domain.NewError("invalid_input", "sessionIds must not be empty"))
 		return
 	}
 	if len(body.SessionIDs) > 100 {
-		writeError(w, domain.NewError("invalid_input", "cannot revoke more than 100 sessions at once"))
+		h.writeError(w, domain.NewError("invalid_input", "cannot revoke more than 100 sessions at once"))
 		return
 	}
 
 	revoked, err := h.services.Session.RevokeManyForUser(r.Context(), body.SessionIDs, user.ID)
 	if err != nil {
 		h.log.Error("failed to revoke sessions", "err", err, "user_id", user.ID)
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
+		h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"revoked": revoked})
+	h.writeJSON(w, http.StatusOK, map[string]any{"revoked": revoked})
 }
 
 func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	currentSession := middleware.GetSessionFromContext(r.Context())
@@ -158,15 +158,15 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	if currentSession != nil {
 		if err := h.services.Session.RevokeAllExcept(r.Context(), user.ID, currentSession.ID); err != nil {
 			h.log.Error("failed to revoke sessions", "err", err, "user_id", user.ID)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
+			h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 			return
 		}
 	} else {
 		if err := h.services.Session.RevokeAll(r.Context(), user.ID); err != nil {
 			h.log.Error("failed to revoke all sessions", "err", err, "user_id", user.ID)
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
+			h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 			return
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Sessions revoked"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Sessions revoked"})
 }

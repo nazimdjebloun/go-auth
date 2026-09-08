@@ -14,7 +14,7 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 		ChallengeID string `json:"challengeId"`
 		Code        string `json:"code"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -23,7 +23,7 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 		h.ip(r), r.UserAgent(),
 	)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 
@@ -31,7 +31,7 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 	middleware.SetRefreshCookie(w, h.services.Session.Config(), result.RefreshToken)
 	h.clearTwoFactorBindingCookie(w)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
-	writeJSON(w, http.StatusOK, map[string]any{"user": result.User, "session": result.Session})
+	h.writeJSON(w, http.StatusOK, map[string]any{"user": result.User, "session": result.Session})
 }
 
 // ResendTwoFactor refreshes the code on the caller's existing challenge. An
@@ -43,18 +43,18 @@ func (h *Handler) ResendTwoFactor(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		ChallengeID string `json:"challengeId"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
 	result, err := h.services.TwoFactor.Resend(r.Context(), body.ChallengeID, h.twoFactorBindingCookieValue(r))
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 
 	h.setTwoFactorBindingCookie(w, result.BindingToken)
-	writeJSON(w, http.StatusOK, map[string]any{
+	h.writeJSON(w, http.StatusOK, map[string]any{
 		"codeSent":    result.Sent,
 		"expiresAt":   result.ExpiresAt,
 		"challengeId": result.ID,
@@ -68,7 +68,7 @@ func (h *Handler) ResendTwoFactor(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	currentSession := middleware.GetSessionFromContext(r.Context())
@@ -77,7 +77,7 @@ func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
 		Password          string `json:"password"`
 		KeepOtherSessions bool   `json:"keepOtherSessions"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	callerSessionID := ""
@@ -86,10 +86,10 @@ func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.services.TwoFactor.Enable(r.Context(), user.ID, body.Password, body.KeepOtherSessions, callerSessionID); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Two-factor authentication enabled"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Two-factor authentication enabled"})
 }
 
 // Disable2FA turns off per-user 2FA for the authenticated caller. No session
@@ -97,20 +97,20 @@ func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 
 	var body struct {
 		Password string `json:"password"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
 	if err := h.services.TwoFactor.Disable(r.Context(), user.ID, body.Password); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Two-factor authentication disabled"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Two-factor authentication disabled"})
 }

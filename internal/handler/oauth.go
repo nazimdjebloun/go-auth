@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -18,15 +19,20 @@ type OAuthHandlers struct {
 	csrfTokenCfg *middleware.CSRFTokenConfig
 	// clientIP — see Handler.clientIP.
 	clientIP middleware.ClientIPConfig
+	log      *slog.Logger
 }
 
-func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig) *OAuthHandlers {
+func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig, logger *slog.Logger) *OAuthHandlers {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &OAuthHandlers{
 		oauth:        oauth,
 		session:      session,
 		baseURL:      baseURL,
 		csrfTokenCfg: csrfTokenCfg,
 		clientIP:     clientIP,
+		log:          logger,
 	}
 }
 
@@ -37,43 +43,43 @@ func (h *OAuthHandlers) disabled() bool {
 // GET /auth/oauth/{provider}
 func (h *OAuthHandlers) Initiate(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
-		writeError(w, domain.ErrProviderNotFound)
+		h.writeError(w, domain.ErrProviderNotFound)
 		return
 	}
 	provider := r.PathValue("provider")
 	url, err := h.oauth.Initiate(r.Context(), provider)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"url": url})
+	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
 // POST /auth/oauth/{provider}/link — requires auth
 func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
-		writeError(w, domain.ErrProviderNotFound)
+		h.writeError(w, domain.ErrProviderNotFound)
 		return
 	}
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeError(w, domain.NewError("unauthorized", "Authentication required"))
+		h.writeError(w, domain.NewError("unauthorized", "Authentication required"))
 		return
 	}
 
 	provider := r.PathValue("provider")
 	url, err := h.oauth.InitiateLink(r.Context(), provider, user.ID)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"url": url})
+	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
 // GET /auth/oauth/{provider}/callback, POST /auth/oauth/{provider}/callback
 func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
-		writeError(w, domain.ErrProviderNotFound)
+		h.writeError(w, domain.ErrProviderNotFound)
 		return
 	}
 	provider := r.PathValue("provider")
@@ -140,38 +146,38 @@ func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, sessionToken,
 // POST /auth/oauth/{provider}/unlink — requires auth
 func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
-		writeError(w, domain.ErrProviderNotFound)
+		h.writeError(w, domain.ErrProviderNotFound)
 		return
 	}
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeError(w, domain.NewError("unauthorized", "Authentication required"))
+		h.writeError(w, domain.NewError("unauthorized", "Authentication required"))
 		return
 	}
 
 	provider := r.PathValue("provider")
 	if err := h.oauth.Unlink(r.Context(), user.ID, provider); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Provider unlinked"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Provider unlinked"})
 }
 
 // GET /auth/oauth/providers — requires auth
 func (h *OAuthHandlers) ListConnected(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
-		writeError(w, domain.ErrProviderNotFound)
+		h.writeError(w, domain.ErrProviderNotFound)
 		return
 	}
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeError(w, domain.NewError("unauthorized", "Authentication required"))
+		h.writeError(w, domain.NewError("unauthorized", "Authentication required"))
 		return
 	}
 
 	accounts, err := h.oauth.ListConnected(r.Context(), user.ID)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 
@@ -193,5 +199,5 @@ func (h *OAuthHandlers) ListConnected(w http.ResponseWriter, r *http.Request) {
 			CreatedAt:     a.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{"providers": safe})
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{"providers": safe})
 }

@@ -543,7 +543,7 @@ func New(cfg config) (*Auth, error) {
 	}, cfg.logger, cfg.csrfToken, clientIPCfg)
 
 	// OAuth handlers (separate because they need baseURL and session service for cookies)
-	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, cfg.baseURL, cfg.csrfToken, clientIPCfg)
+	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, cfg.baseURL, cfg.csrfToken, clientIPCfg, cfg.logger)
 
 	authMW := middleware.AuthMiddleware(sessSvc, userRepo, cfg.logger)
 	adminMW := middleware.RequireRole(domain.RoleAdmin, cfg.logger)

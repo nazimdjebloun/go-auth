@@ -74,7 +74,7 @@ func (h *Handler) writeTwoFactorChallenge(w http.ResponseWriter, status int, use
 	if codeSent {
 		message = "Two-factor code sent to your email"
 	}
-	writeJSON(w, status, map[string]any{
+	h.writeJSON(w, status, map[string]any{
 		"user":              user,
 		"requiresTwoFactor": true,
 		"codeSent":          codeSent,
@@ -84,20 +84,27 @@ func (h *Handler) writeTwoFactorChallenge(w http.ResponseWriter, status int, use
 	})
 }
 
-func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+func (h *Handler) decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "message": "Invalid request body"})
+		h.writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_json", "message": "Invalid request body"})
 		return false
 	}
 	return true
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
+// writeJSONTo is the one place a handler response is serialized. It takes
+// the logger explicitly because the encode failure it reports is a server
+// fault the consumer needs in their own log, not slog's default sink —
+// callers reach it through the writeJSON method on their handler type.
+func writeJSONTo(log *slog.Logger, w http.ResponseWriter, status int, v any) {
+	if log == nil {
+		log = slog.Default()
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(v); err != nil {
-		slog.Error("failed to encode JSON response", "err", err, "status", status)
+		log.Error("failed to encode JSON response", "err", err, "status", status)
 	}
 }
 
@@ -108,17 +115,20 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // in the service layer's error contract, not a normal failure mode: it's
 // logged and answered as a generic 500 rather than leaking an unexpected
 // error's text to the client.
-func writeError(w http.ResponseWriter, err error) {
+func writeErrorTo(log *slog.Logger, w http.ResponseWriter, err error) {
 	var authErr *domain.AuthError
 	if errors.As(err, &authErr) {
-		writeJSON(w, httperr.StatusFor(authErr.Code), map[string]string{
+		writeJSONTo(log, w, httperr.StatusFor(authErr.Code), map[string]string{
 			"error":   authErr.Code,
 			"message": authErr.Message,
 		})
 		return
 	}
-	slog.Error("writeError: non-AuthError reached the HTTP layer", "err", err)
-	writeJSON(w, http.StatusInternalServerError, map[string]string{
+	if log == nil {
+		log = slog.Default()
+	}
+	log.Error("writeError: non-AuthError reached the HTTP layer", "err", err)
+	writeJSONTo(log, w, http.StatusInternalServerError, map[string]string{
 		"error":   "internal_error",
 		"message": "Internal server error",
 	})
@@ -135,18 +145,37 @@ func writeError(w http.ResponseWriter, err error) {
 // 400, not a shrug.
 //
 // Reports false once it has written the response, so callers return early.
-func parseOrgRole(w http.ResponseWriter, r *http.Request) (*domain.OrgRole, bool) {
+func (h *Handler) parseOrgRole(w http.ResponseWriter, r *http.Request) (*domain.OrgRole, bool) {
 	v := r.URL.Query().Get("role")
 	if v == "" {
 		return nil, true
 	}
 	role := domain.OrgRole(v)
 	if !role.IsValid() {
-		writeJSON(w, http.StatusBadRequest, map[string]string{
+		h.writeJSON(w, http.StatusBadRequest, map[string]string{
 			"error":   "invalid_input",
 			"message": "role must be owner, admin, or member",
 		})
 		return nil, false
 	}
 	return &role, true
+}
+
+// writeJSON and writeError are methods rather than package functions so the
+// server-fault they report reaches the logger the consumer configured with
+// WithLogger. Both handler types carry one.
+func (h *Handler) writeJSON(w http.ResponseWriter, status int, v any) {
+	writeJSONTo(h.log, w, status, v)
+}
+
+func (h *Handler) writeError(w http.ResponseWriter, err error) {
+	writeErrorTo(h.log, w, err)
+}
+
+func (h *OAuthHandlers) writeJSON(w http.ResponseWriter, status int, v any) {
+	writeJSONTo(h.log, w, status, v)
+}
+
+func (h *OAuthHandlers) writeError(w http.ResponseWriter, err error) {
+	writeErrorTo(h.log, w, err)
 }

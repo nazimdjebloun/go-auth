@@ -16,7 +16,7 @@ import (
 func (h *Handler) AdminListSessions(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
@@ -81,17 +81,17 @@ func (h *Handler) AdminListSessions(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/count") {
 		n, err := h.services.Admin.CountSessions(r.Context(), input)
 		if err != nil {
-			writeError(w, err)
+			h.writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 		return
 	}
 
 	result, err := h.services.Admin.ListSessions(r.Context(), input)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }

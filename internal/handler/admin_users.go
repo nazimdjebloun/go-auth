@@ -99,112 +99,112 @@ func parseListUsersInput(r *http.Request, actorID string) service.AdminListUsers
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	result, err := h.services.Admin.ListUsers(r.Context(), parseListUsersInput(r, actor.ID))
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 // CountUsers — GET /admin/users/count
 func (h *Handler) CountUsers(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	n, err := h.services.Admin.CountUsers(r.Context(), parseListUsersInput(r, actor.ID))
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"count": n})
+	h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 }
 
 func (h *Handler) BanUser(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	userID := r.PathValue("id")
 	if err := h.services.Admin.BanUser(r.Context(), service.BanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "User banned successfully"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "User banned successfully"})
 }
 
 func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	userID := r.PathValue("id")
 	if err := h.services.Admin.UnbanUser(r.Context(), service.UnbanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "User unbanned successfully"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "User unbanned successfully"})
 }
 
 func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	userID := r.PathValue("id")
 	var body struct {
 		Role string `json:"role"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	if err := h.services.Admin.UpdateUserRole(r.Context(), service.UpdateUserRoleInput{UserID: userID, Role: body.Role, ActorID: actor.ID}); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
 }
 
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	userID := r.PathValue("id")
 	if err := h.services.Admin.DeleteUser(r.Context(), service.DeleteUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "User deleted successfully"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "User deleted successfully"})
 }
 
 func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	userID := r.PathValue("id")
 	if err := h.services.Admin.RevokeUserSessions(r.Context(), service.RevokeUserSessionsInput{UserID: userID, ActorID: actor.ID}); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Sessions revoked"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Sessions revoked"})
 }
 
 func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	var body struct {
@@ -213,7 +213,7 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		Name     string `json:"name"`
 		Role     string `json:"role"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -225,16 +225,16 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		Role:     body.Role,
 	})
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, result)
+	h.writeJSON(w, http.StatusCreated, result)
 }
 
 func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	userID := r.PathValue("id")
@@ -253,40 +253,40 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 		Limit:   limit,
 	})
 	if aerr != nil {
-		writeError(w, aerr)
+		h.writeError(w, aerr)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions, "total": total})
+	h.writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions, "total": total})
 }
 
 func (h *Handler) GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	userID := r.PathValue("id")
 
 	detail, aerr := h.services.Admin.GetUserDetail(r.Context(), service.GetUserDetailInput{UserID: userID, ActorID: actor.ID})
 	if aerr != nil {
-		writeError(w, aerr)
+		h.writeError(w, aerr)
 		return
 	}
-	writeJSON(w, http.StatusOK, detail)
+	h.writeJSON(w, http.StatusOK, detail)
 }
 
 func (h *Handler) AdminRevokeUserSession(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	userID := r.PathValue("id")
 	sessionID := r.PathValue("sessionId")
 
 	if aerr := h.services.Admin.RevokeUserSession(r.Context(), service.RevokeUserSessionInput{UserID: userID, SessionID: sessionID, ActorID: actor.ID}); aerr != nil {
-		writeError(w, aerr)
+		h.writeError(w, aerr)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
 }

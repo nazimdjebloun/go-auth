@@ -21,12 +21,12 @@ import (
 
 func (h *Handler) AdminListOrgs(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
@@ -78,48 +78,48 @@ func (h *Handler) AdminListOrgs(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/count") {
 		n, err := h.services.Org.CountOrgs(r.Context(), input)
 		if err != nil {
-			writeError(w, err)
+			h.writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 		return
 	}
 
 	result, err := h.services.Org.AdminListOrgs(r.Context(), input)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) AdminGetOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	orgID := r.PathValue("orgID")
 	org, err := h.services.Org.AdminGetOrg(r.Context(), service.AdminGetOrgInput{OrgID: orgID, ActorID: actor.ID})
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, org)
+	h.writeJSON(w, http.StatusOK, org)
 }
 
 func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	orgID := r.PathValue("orgID")
@@ -137,7 +137,7 @@ func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 
-	role, ok := parseOrgRole(w, r)
+	role, ok := h.parseOrgRole(w, r)
 	if !ok {
 		return
 	}
@@ -159,29 +159,29 @@ func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/count") {
 		n, err := h.services.Org.AdminCountOrgMembers(r.Context(), input)
 		if err != nil {
-			writeError(w, err)
+			h.writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 		return
 	}
 
 	result, err := h.services.Org.AdminListOrgMembers(r.Context(), input)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) AdminAddOrgMember(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	orgID := r.PathValue("orgID")
@@ -190,7 +190,7 @@ func (h *Handler) AdminAddOrgMember(w http.ResponseWriter, r *http.Request) {
 		UserID string `json:"userId"`
 		Role   string `json:"role"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -200,57 +200,57 @@ func (h *Handler) AdminAddOrgMember(w http.ResponseWriter, r *http.Request) {
 		Role:    domain.OrgRole(body.Role),
 		ActorID: actor.ID,
 	}); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]string{"message": "Member added"})
+	h.writeJSON(w, http.StatusCreated, map[string]string{"message": "Member added"})
 }
 
 func (h *Handler) AdminDeleteOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	orgID := r.PathValue("orgID")
 	if err := h.services.Org.AdminDeleteOrg(r.Context(), service.AdminOrgActionInput{OrgID: orgID, ActorID: actor.ID}); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Organization deleted"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Organization deleted"})
 }
 
 func (h *Handler) AdminRemoveOrgMember(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	orgID := r.PathValue("orgID")
 	userID := r.PathValue("userID")
 	if err := h.services.Org.AdminRemoveMember(r.Context(), service.AdminRemoveMemberInput{OrgID: orgID, UserID: userID, ActorID: actor.ID}); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Member removed"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Member removed"})
 }
 
 func (h *Handler) AdminUpdateOrgMemberRole(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	orgID := r.PathValue("orgID")
@@ -259,7 +259,7 @@ func (h *Handler) AdminUpdateOrgMemberRole(w http.ResponseWriter, r *http.Reques
 	var body struct {
 		Role string `json:"role"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -269,20 +269,20 @@ func (h *Handler) AdminUpdateOrgMemberRole(w http.ResponseWriter, r *http.Reques
 		NewRole: domain.OrgRole(body.Role),
 		ActorID: actor.ID,
 	}); err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
 }
 
 func (h *Handler) AdminListUserOrgs(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
-		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
+		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
 		return
 	}
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	userID := r.PathValue("id")
@@ -300,7 +300,7 @@ func (h *Handler) AdminListUserOrgs(w http.ResponseWriter, r *http.Request) {
 		search = &s
 	}
 
-	role, ok := parseOrgRole(w, r)
+	role, ok := h.parseOrgRole(w, r)
 	if !ok {
 		return
 	}
@@ -328,17 +328,17 @@ func (h *Handler) AdminListUserOrgs(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/count") {
 		n, err := h.services.Org.AdminCountUserOrgs(r.Context(), input)
 		if err != nil {
-			writeError(w, err)
+			h.writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 		return
 	}
 
 	result, err := h.services.Org.AdminListUserOrgs(r.Context(), input)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }

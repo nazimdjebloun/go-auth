@@ -16,71 +16,71 @@ type bulkUserIDsBody struct {
 func (h *Handler) BulkBanUsers(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	var body bulkUserIDsBody
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	result, err := h.services.Admin.BulkBanUsers(r.Context(), service.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID})
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) BulkUnbanUsers(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	var body bulkUserIDsBody
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	result, err := h.services.Admin.BulkUnbanUsers(r.Context(), service.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID})
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) BulkDeleteUsers(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	var body bulkUserIDsBody
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	result, err := h.services.Admin.BulkDeleteUsers(r.Context(), service.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID})
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }
 
 func (h *Handler) BulkRevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 	var body bulkUserIDsBody
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 	result, err := h.services.Admin.BulkRevokeUserSessions(r.Context(), service.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID})
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }

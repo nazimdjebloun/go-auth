@@ -22,7 +22,7 @@ func (h *Handler) AdminListUserAuditLogs(w http.ResponseWriter, r *http.Request)
 func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request, userID *string) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
-		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
 
@@ -113,18 +113,18 @@ func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request, userID *
 	if strings.HasSuffix(r.URL.Path, "/count") {
 		n, err := h.services.Admin.CountAuditLogs(r.Context(), input)
 		if err != nil {
-			writeError(w, err)
+			h.writeError(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"count": n})
+		h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 		return
 	}
 
 	result, err := h.services.Admin.ListAuditLogs(r.Context(), input)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, result)
 }

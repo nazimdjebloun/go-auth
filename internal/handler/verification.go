@@ -12,20 +12,20 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		Email string `json:"email"`
 		Code  string `json:"code"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
 	user, err := h.services.Verify.VerifyEmail(r.Context(), body.Code)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 
 	sessResult, sessionErr := h.services.Session.Create(r.Context(), user.ID, h.ip(r), r.UserAgent())
 	if sessionErr != nil {
 		h.log.Error("failed to create session after verification", "err", sessionErr, "user_id", user.ID)
-		writeError(w, domain.ErrInternal)
+		h.writeError(w, domain.ErrInternal)
 		return
 	}
 
@@ -33,7 +33,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	middleware.SetRefreshCookie(w, h.services.Session.Config(), sessResult.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	h.writeJSON(w, http.StatusOK, map[string]interface{}{
 		"user":    user,
 		"session": sessResult.Session,
 	})
@@ -42,13 +42,13 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
-		writeError(w, domain.NewError("forbidden", "Not authenticated"))
+		h.writeError(w, domain.NewError("forbidden", "Not authenticated"))
 		return
 	}
 
 	result, err := h.services.Verify.ResendVerification(r.Context(), user.ID)
 	if err != nil {
-		writeError(w, err)
+		h.writeError(w, err)
 		return
 	}
 	// codeSent distinguishes a fresh send from a still-valid code left in
@@ -58,7 +58,7 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	if result.Sent {
 		message = "Verification email sent"
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	h.writeJSON(w, http.StatusOK, map[string]any{
 		"codeSent":  result.Sent,
 		"expiresAt": result.ExpiresAt,
 		"message":   message,
@@ -69,7 +69,7 @@ func (h *Handler) ResendVerificationPublic(w http.ResponseWriter, r *http.Reques
 	var body struct {
 		Email string `json:"email"`
 	}
-	if !decodeJSON(w, r, &body) {
+	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
@@ -80,5 +80,5 @@ func (h *Handler) ResendVerificationPublic(w http.ResponseWriter, r *http.Reques
 	// ResendVerification above is where codeSent is safe to expose.
 	_, _ = h.services.Verify.SendVerificationByEmail(r.Context(), body.Email)
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "If an account exists, a verification email has been sent"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "If an account exists, a verification email has been sent"})
 }
