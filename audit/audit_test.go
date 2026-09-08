@@ -47,7 +47,7 @@ type failSink struct {
 	err error
 }
 
-func (f *failSink) Handle(_ context.Context, _ Event) error { return f.err }
+func (f *failSink) Handle(_ context.Context, _ Event) error        { return f.err }
 func (f *failSink) HandleBatch(_ context.Context, _ []Event) error { return f.err }
 
 // ─── Cleaner Sink ───────────────────────────────────────────
@@ -58,7 +58,7 @@ type cleanerSink struct {
 	retentionD int
 }
 
-func (c *cleanerSink) Handle(_ context.Context, _ Event) error  { return nil }
+func (c *cleanerSink) Handle(_ context.Context, _ Event) error        { return nil }
 func (c *cleanerSink) HandleBatch(_ context.Context, _ []Event) error { return nil }
 func (c *cleanerSink) Cleanup(_ context.Context, retentionDays int) (int, error) {
 	c.mu.Lock()

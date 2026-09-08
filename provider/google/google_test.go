@@ -33,9 +33,9 @@ func TestName(t *testing.T) {
 
 func TestDefaultScopes(t *testing.T) {
 	g := New(Config{
-		ClientID:    "test-client",
+		ClientID:     "test-client",
 		ClientSecret: "test-secret",
-		RedirectURL: "http://localhost/callback",
+		RedirectURL:  "http://localhost/callback",
 	})
 	if len(g.cfg.Scopes) != 2 {
 		t.Fatalf("expected 2 default scopes, got %d", len(g.cfg.Scopes))

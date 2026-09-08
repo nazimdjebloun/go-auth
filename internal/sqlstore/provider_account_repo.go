@@ -9,8 +9,8 @@ import (
 )
 
 type ProviderAccountRepository struct {
-	db            *DB
-	decryptToken  func(string) (string, error)
+	db           *DB
+	decryptToken func(string) (string, error)
 }
 
 func NewProviderAccountRepository(db *DB) *ProviderAccountRepository {

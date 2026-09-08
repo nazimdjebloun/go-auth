@@ -88,10 +88,10 @@ func TestExchange_Success_WithEmail(t *testing.T) {
 		case "/user":
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":        12345,
-				"login":     "testuser",
-				"name":      "Test User",
-				"email":     "test@example.com",
+				"id":         12345,
+				"login":      "testuser",
+				"name":       "Test User",
+				"email":      "test@example.com",
 				"avatar_url": "https://avatars.githubusercontent.com/u/12345",
 			})
 		default:
@@ -165,10 +165,10 @@ func TestExchange_Success_EmailFallback(t *testing.T) {
 		case "/user":
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"id":        67890,
-				"login":     "nemail-user",
-				"name":      "No Email User",
-				"email":     "",
+				"id":         67890,
+				"login":      "nemail-user",
+				"name":       "No Email User",
+				"email":      "",
 				"avatar_url": "https://avatars.githubusercontent.com/u/67890",
 			})
 		case "/user/emails":
