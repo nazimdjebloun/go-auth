@@ -175,43 +175,43 @@ type HandlerGroup struct {
 // The validated check below is belt-and-suspenders defense in depth against
 // silently proceeding with unvalidated — and in the case of an empty
 // secret, cryptographically unsafe — settings.
-func New(config config) (*Auth, error) {
-	if !config.validated {
+func New(cfg config) (*Auth, error) {
+	if !cfg.validated {
 		return nil, fmt.Errorf(
 			"goauth: config was not built via NewConfig(opts...) — " +
 				"construct it with goauth.NewConfig(goauth.WithApp(...), ...) so " +
 				"required fields and security settings are validated",
 		)
 	}
-	if config.environment.normalize() == EnvironmentDev && config.logger != nil {
-		config.logger.Warn("goauth: running in dev environment", "cookie_secure", config.cookieSecure)
+	if cfg.environment.normalize() == EnvironmentDev && cfg.logger != nil {
+		cfg.logger.Warn("goauth: running in dev environment", "cookie_secure", cfg.cookieSecure)
 	}
 
 	// Derive all cryptographic keys from the single application secret.
-	keys := keyring.Derive([]byte(config.secret))
+	keys := keyring.Derive([]byte(cfg.secret))
 
 	// The double-submit token layer is on unless explicitly disabled. A nil
 	// CSRFToken means "build one with defaults", not "off" — middleware.CSRFToken
 	// treats a nil config as a pass-through, so disabling is expressed by
 	// leaving csrfToken nil here.
-	if config.disableCSRFToken {
-		config.csrfToken = nil
-		if config.logger != nil {
-			config.logger.Warn("goauth: CSRF double-submit token disabled",
+	if cfg.disableCSRFToken {
+		cfg.csrfToken = nil
+		if cfg.logger != nil {
+			cfg.logger.Warn("goauth: CSRF double-submit token disabled",
 				"note", "origin/referer checking still applies",
 				"fix", "re-enable by removing SecurityConfig.DisableCSRFToken")
 		}
-	} else if config.csrfToken == nil {
-		config.csrfToken = &middleware.CSRFTokenConfig{
+	} else if cfg.csrfToken == nil {
+		cfg.csrfToken = &middleware.CSRFTokenConfig{
 			CookieName: "_csrf",
 			HeaderName: "X-CSRF-Token",
 			CookiePath: "/",
 		}
 	}
-	if config.csrfToken != nil {
-		config.csrfToken.CookieSecure = config.cookieSecure
-		config.csrfToken.Secret = keys.CSRF
-		config.csrfToken.Logger = config.logger
+	if cfg.csrfToken != nil {
+		cfg.csrfToken.CookieSecure = cfg.cookieSecure
+		cfg.csrfToken.Secret = keys.CSRF
+		cfg.csrfToken.Logger = cfg.logger
 		// Default the token cookie's scope to the session cookie's. A
 		// deployment that widened the session cookie to ".example.com" so a
 		// sibling subdomain could hold a session almost certainly needs the
@@ -219,8 +219,8 @@ func New(config config) (*Auth, error) {
 		// every mutation 403s is the worst of the two failure modes, because
 		// it looks like a permissions bug rather than a cookie-scope one.
 		// An explicit CookieDomain still wins.
-		if config.csrfToken.CookieDomain == "" {
-			config.csrfToken.CookieDomain = config.cookie.Domain
+		if cfg.csrfToken.CookieDomain == "" {
+			cfg.csrfToken.CookieDomain = cfg.cookie.Domain
 		}
 
 		// SameSite=None and ExposeCSRFTokenInBody are the same decision seen from
@@ -234,14 +234,14 @@ func New(config config) (*Auth, error) {
 		// A warning, not a rejection: a native or mobile client keeps its own
 		// cookie jar and is not subject to SameSite, so either setting on its
 		// own is legitimate there.
-		if config.logger != nil {
-			crossSiteCookie := config.cookie.SameSite == http.SameSiteNoneMode
+		if cfg.logger != nil {
+			crossSiteCookie := cfg.cookie.SameSite == http.SameSiteNoneMode
 			switch {
-			case crossSiteCookie && !config.csrfToken.ExposeCSRFTokenInBody:
-				config.logger.Warn("goauth: cookie SameSite=None without CSRFTokenConfig.ExposeCSRFTokenInBody — a cross-site browser frontend receives the session cookie but cannot read the CSRF token, so every state-changing request will 403")
-			case !crossSiteCookie && config.csrfToken.ExposeCSRFTokenInBody:
-				config.logger.Warn("goauth: CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None — a cross-site browser frontend can read the CSRF token but is never sent the session cookie, so every request arrives unauthenticated",
-					"same_site", config.cookie.SameSite)
+			case crossSiteCookie && !cfg.csrfToken.ExposeCSRFTokenInBody:
+				cfg.logger.Warn("goauth: cookie SameSite=None without CSRFTokenConfig.ExposeCSRFTokenInBody — a cross-site browser frontend receives the session cookie but cannot read the CSRF token, so every state-changing request will 403")
+			case !crossSiteCookie && cfg.csrfToken.ExposeCSRFTokenInBody:
+				cfg.logger.Warn("goauth: CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None — a cross-site browser frontend can read the CSRF token but is never sent the session cookie, so every request arrives unauthenticated",
+					"same_site", cfg.cookie.SameSite)
 			}
 		}
 	}
@@ -250,10 +250,10 @@ func New(config config) (*Auth, error) {
 	var sqlDB *sqlstore.DB
 	var sessRepo *sqlstore.SessionRepository
 
-	if config.database.Driver == "" {
-		config.database.Driver = DriverPostgres
+	if cfg.database.Driver == "" {
+		cfg.database.Driver = DriverPostgres
 	}
-	switch config.database.Driver {
+	switch cfg.database.Driver {
 	case DriverPostgres:
 		// supported natively
 	case DriverSQLite:
@@ -270,34 +270,34 @@ func New(config config) (*Auth, error) {
 		}
 		// Only checkable when go-auth opens the connection itself — a
 		// consumer-provided *sql.DB is already open and its DSN is unknown.
-		if config.database.URL != "" {
-			if err := validateMySQLDSN(config.database.URL); err != nil {
+		if cfg.database.URL != "" {
+			if err := validateMySQLDSN(cfg.database.URL); err != nil {
 				return nil, err
 			}
 		}
 	default:
-		return nil, fmt.Errorf("goauth: unsupported driver %q", config.database.Driver)
+		return nil, fmt.Errorf("goauth: unsupported driver %q", cfg.database.Driver)
 	}
 
 	switch {
-	case config.database.Pool != nil:
-		pool = config.database.Pool
+	case cfg.database.Pool != nil:
+		pool = cfg.database.Pool
 		rawDB := stdlib.OpenDBFromPool(pool)
 		sqlDB = sqlstore.NewDB(rawDB, string(DriverPostgres))
 		sessRepo = sqlstore.NewSessionRepository(sqlDB)
-	case config.database.DB != nil:
-		sqlDB = sqlstore.NewDB(config.database.DB, string(config.database.Driver))
+	case cfg.database.DB != nil:
+		sqlDB = sqlstore.NewDB(cfg.database.DB, string(cfg.database.Driver))
 		sessRepo = sqlstore.NewSessionRepository(sqlDB)
-	case config.database.URL != "":
-		driverName := sqlDriverName(config.database.Driver)
-		if config.database.Driver == DriverSQLite {
+	case cfg.database.URL != "":
+		driverName := sqlDriverName(cfg.database.Driver)
+		if cfg.database.Driver == DriverSQLite {
 			// sqlDriverName assumes modernc.org/sqlite ("sqlite"), but the
 			// registration check above also accepts mattn/go-sqlite3
 			// ("sqlite3") — use whichever is actually registered so sql.Open
 			// doesn't fail with "unknown driver" after registration passed.
 			driverName = resolveSQLiteDriverName()
 		}
-		db, err := sql.Open(driverName, config.database.URL)
+		db, err := sql.Open(driverName, cfg.database.URL)
 		if err != nil {
 			return nil, fmt.Errorf("goauth: open database: %w", err)
 		}
@@ -305,16 +305,16 @@ func New(config config) (*Auth, error) {
 			db.Close()
 			return nil, fmt.Errorf("goauth: ping database: %w", err)
 		}
-		config.database.opened = true
-		sqlDB = sqlstore.NewDB(db, string(config.database.Driver))
+		cfg.database.opened = true
+		sqlDB = sqlstore.NewDB(db, string(cfg.database.Driver))
 		sessRepo = sqlstore.NewSessionRepository(sqlDB)
-		if config.database.Driver == DriverPostgres {
-			pool, err = pgxpool.New(context.Background(), config.database.URL)
+		if cfg.database.Driver == DriverPostgres {
+			pool, err = pgxpool.New(context.Background(), cfg.database.URL)
 			if err != nil {
 				db.Close()
 				return nil, fmt.Errorf("goauth: create connection pool: %w", err)
 			}
-			config.database.poolOpened = true
+			cfg.database.poolOpened = true
 		}
 	default:
 		return nil, fmt.Errorf("goauth: no database pool or DSN provided")
@@ -335,10 +335,10 @@ func New(config config) (*Auth, error) {
 	genImpl := token.New()
 
 	var mailer port.Mailer
-	if config.mailer != nil {
-		mailer = config.mailer
-	} else if config.email != nil {
-		m, err := NewSMTPMailer(*config.email)
+	if cfg.mailer != nil {
+		mailer = cfg.mailer
+	} else if cfg.email != nil {
+		m, err := NewSMTPMailer(*cfg.email)
 		if err != nil {
 			return nil, err
 		}
@@ -347,10 +347,10 @@ func New(config config) (*Auth, error) {
 
 	var templateProvider port.TemplateProvider
 	var urlValidator *port.URLValidator
-	if config.templateProvider != nil {
-		templateProvider = config.templateProvider
+	if cfg.templateProvider != nil {
+		templateProvider = cfg.templateProvider
 	} else {
-		allowHTTP := config.allowHTTPURLs
+		allowHTTP := cfg.allowHTTPURLs
 		urlValidator = &port.URLValidator{AllowHTTP: allowHTTP}
 		p, err := emailtemplate.New(urlValidator)
 		if err != nil {
@@ -362,19 +362,19 @@ func New(config config) (*Auth, error) {
 	// Audit service
 	var auditSvc *audit.AuditService
 	var auditPub service.AuditPublisher
-	if config.audit.Enabled {
+	if cfg.audit.Enabled {
 		auditCfg := audit.AuditServiceConfig{
-			FailureMode:   config.audit.FailureMode,
-			QueueSize:     config.audit.QueueSize,
-			Workers:       config.audit.Workers,
-			BatchSize:     config.audit.BatchSize,
-			FlushInterval: config.audit.FlushInterval,
-			RetentionDays: config.audit.RetentionDays,
+			FailureMode:   cfg.audit.FailureMode,
+			QueueSize:     cfg.audit.QueueSize,
+			Workers:       cfg.audit.Workers,
+			BatchSize:     cfg.audit.BatchSize,
+			FlushInterval: cfg.audit.FlushInterval,
+			RetentionDays: cfg.audit.RetentionDays,
 		}
-		auditSvc = audit.NewAuditService(auditCfg, config.logger)
+		auditSvc = audit.NewAuditService(auditCfg, cfg.logger)
 		auditSvc.AddSink(audit.NewSQLAuditSink(sqlDB.DB, sqlDB.Driver()))
-		auditSvc.AddSink(audit.NewLoggerSink(config.logger))
-		for _, sink := range append(append([]audit.EventSink(nil), config.audit.Sinks...), config.auditSinks...) {
+		auditSvc.AddSink(audit.NewLoggerSink(cfg.logger))
+		for _, sink := range append(append([]audit.EventSink(nil), cfg.audit.Sinks...), cfg.auditSinks...) {
 			auditSvc.AddSink(sink)
 		}
 		auditSvc.Start(context.Background())
@@ -382,51 +382,51 @@ func New(config config) (*Auth, error) {
 	}
 
 	commonCfg := service.CommonConfig{
-		AppName:    config.appName,
-		BaseURL:    config.baseURL,
-		SessionTTL: config.sessionTTL,
-		TokenTTL:   config.tokenTTL,
-		Logger:     config.logger,
+		AppName:    cfg.appName,
+		BaseURL:    cfg.baseURL,
+		SessionTTL: cfg.sessionTTL,
+		TokenTTL:   cfg.tokenTTL,
+		Logger:     cfg.logger,
 		Audit:      auditPub,
 	}
 
 	serviceCfg := service.Config{
 		CommonConfig:               commonCfg,
-		InviteOnly:                 !config.registration.AllowPublic,
-		EnableEmailPassword:        config.registration.EnableEmailPassword,
-		EnableOAuth:                config.registration.EnableOAuth,
-		EnableInvite:               config.registration.EnableInvite,
-		RequireEmailVerification:   config.registration.RequireEmailVerification,
-		InviteTTL:                  config.registration.InviteTTL,
-		VerificationCodeTTL:        config.registration.VerificationCodeTTL,
-		VerificationResendInterval: config.verificationResendInterval,
-		PasswordPolicy:             config.passwordPolicy,
+		InviteOnly:                 !cfg.registration.AllowPublic,
+		EnableEmailPassword:        cfg.registration.EnableEmailPassword,
+		EnableOAuth:                cfg.registration.EnableOAuth,
+		EnableInvite:               cfg.registration.EnableInvite,
+		RequireEmailVerification:   cfg.registration.RequireEmailVerification,
+		InviteTTL:                  cfg.registration.InviteTTL,
+		VerificationCodeTTL:        cfg.registration.VerificationCodeTTL,
+		VerificationResendInterval: cfg.verificationResendInterval,
+		PasswordPolicy:             cfg.passwordPolicy,
 		TemplateProvider:           templateProvider,
 		URLValidator:               urlValidator,
 
-		RequireEmail2FA:                  config.requireEmail2FA,
-		DefaultTwoFactorEnabled:          config.defaultTwoFactorEnabled,
-		TwoFactorCodeTTL:                 config.twoFactorCodeTTL,
+		RequireEmail2FA:                  cfg.requireEmail2FA,
+		DefaultTwoFactorEnabled:          cfg.defaultTwoFactorEnabled,
+		TwoFactorCodeTTL:                 cfg.twoFactorCodeTTL,
 		TwoFactorBindingKey:              keys.TwoFactor,
-		DisableTwoFactorChallengeBinding: config.disableTwoFactorChallengeBinding,
-		TwoFactorChallengeCookieName:     config.twoFactorChallengeCookieName,
-		DisableAdminTwoFactor:            config.disableAdminTwoFactor,
+		DisableTwoFactorChallengeBinding: cfg.disableTwoFactorChallengeBinding,
+		TwoFactorChallengeCookieName:     cfg.twoFactorChallengeCookieName,
+		DisableAdminTwoFactor:            cfg.disableAdminTwoFactor,
 	}
 
 	sessionCfg := service.DefaultSessionConfig()
-	sessionCfg.Duration = config.sessionTTL
-	sessionCfg.IdleTTL = config.sessionIdleTTL
-	sessionCfg.RefreshTTL = config.refreshTokenTTL
-	sessionCfg.MaxLifetime = config.maxLifetime
-	sessionCfg.GraceWindow = config.graceWindow
-	sessionCfg.TouchDebounce = config.touchDebounce
-	sessionCfg.CookieName = config.cookie.Name
-	sessionCfg.RefreshCookieName = config.cookie.RefreshName
-	sessionCfg.Domain = config.cookie.Domain
-	sessionCfg.Path = config.cookie.Path
-	sessionCfg.Secure = config.cookieSecure
-	sessionCfg.SameSite = config.cookie.SameSite
-	sessionCfg.Logger = config.logger
+	sessionCfg.Duration = cfg.sessionTTL
+	sessionCfg.IdleTTL = cfg.sessionIdleTTL
+	sessionCfg.RefreshTTL = cfg.refreshTokenTTL
+	sessionCfg.MaxLifetime = cfg.maxLifetime
+	sessionCfg.GraceWindow = cfg.graceWindow
+	sessionCfg.TouchDebounce = cfg.touchDebounce
+	sessionCfg.CookieName = cfg.cookie.Name
+	sessionCfg.RefreshCookieName = cfg.cookie.RefreshName
+	sessionCfg.Domain = cfg.cookie.Domain
+	sessionCfg.Path = cfg.cookie.Path
+	sessionCfg.Secure = cfg.cookieSecure
+	sessionCfg.SameSite = cfg.cookie.SameSite
+	sessionCfg.Logger = cfg.logger
 	sessionCfg.Audit = auditPub
 
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
@@ -448,7 +448,7 @@ func New(config config) (*Auth, error) {
 	// from the database, not by anything a caller supplies.
 	twoFactorStore := ratelimit.NewMemoryStore(
 		ratelimit.WithoutEviction(),
-		ratelimit.WithStoreLogger(config.logger),
+		ratelimit.WithStoreLogger(cfg.logger),
 	)
 	twoFactorSvc := service.NewTwoFactorService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
 
@@ -458,13 +458,13 @@ func New(config config) (*Auth, error) {
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
 
 	// Attach logger to session repository
-	if config.logger != nil {
-		sessionRepoSQL.WithLogger(config.logger)
+	if cfg.logger != nil {
+		sessionRepoSQL.WithLogger(cfg.logger)
 	}
 
 	// Build OAuth providers from registered WithProvider calls
 	oauthProviders := make(map[string]port.OAuthProvider)
-	for _, p := range config.providers {
+	for _, p := range cfg.providers {
 		if p == nil {
 			return nil, fmt.Errorf("goauth: nil provider registered via WithProvider")
 		}
@@ -486,9 +486,9 @@ func New(config config) (*Auth, error) {
 		}
 		oauthCfg := service.OAuthServiceConfig{
 			CommonConfig:             commonCfg,
-			RequireEmailVerification: config.registration.RequireEmailVerification,
-			EnableOAuth:              config.registration.EnableOAuth,
-			InviteOnly:               !config.registration.AllowPublic,
+			RequireEmailVerification: cfg.registration.RequireEmailVerification,
+			EnableOAuth:              cfg.registration.EnableOAuth,
+			InviteOnly:               !cfg.registration.AllowPublic,
 			Encryptor:                encryptor,
 		}
 		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, oauthCfg)
@@ -497,22 +497,22 @@ func New(config config) (*Auth, error) {
 	var orgSvc *service.OrgService
 	var orgInviteSvc *service.OrgInviteService
 	var orgRepo port.OrgRepository
-	if config.organizations.Enable {
+	if cfg.organizations.Enable {
 		orgRepo = sqlstore.NewOrgRepository(sqlDB)
 		orgInviteRepo := sqlstore.NewOrgInviteRepository(sqlDB)
 		orgSvc = service.NewOrgService(orgRepo, userRepo, sessRepo, sqlDB, service.OrgServiceConfig{
-			MaxOrgsPerUser: config.organizations.MaxOrgsPerUser,
-			Logger:         config.logger,
+			MaxOrgsPerUser: cfg.organizations.MaxOrgsPerUser,
+			Logger:         cfg.logger,
 			Audit:          auditPub,
 		})
 		orgInviteSvc = service.NewOrgInviteService(orgInviteRepo, orgRepo, userRepo, sqlDB, genImpl, mailer, service.OrgInviteServiceConfig{
-			MaxOrgsPerUser:   config.organizations.MaxOrgsPerUser,
-			InviteTTL:        config.organizations.InviteTTL,
-			BaseURL:          config.baseURL,
-			AppName:          config.appName,
+			MaxOrgsPerUser:   cfg.organizations.MaxOrgsPerUser,
+			InviteTTL:        cfg.organizations.InviteTTL,
+			BaseURL:          cfg.baseURL,
+			AppName:          cfg.appName,
 			TemplateProvider: templateProvider,
 			URLValidator:     urlValidator,
-			Logger:           config.logger,
+			Logger:           cfg.logger,
 			Audit:            auditPub,
 		})
 	}
@@ -523,10 +523,10 @@ func New(config config) (*Auth, error) {
 	// handlers below record it on sessions and audit events. Nil rateLimit
 	// leaves it zero, which trusts no forwarding header at all.
 	var clientIPCfg middleware.ClientIPConfig
-	if config.rateLimit != nil {
+	if cfg.rateLimit != nil {
 		clientIPCfg = middleware.ClientIPConfig{
-			Header:     config.rateLimit.IPAddressHeader,
-			TrustedIPs: config.rateLimit.TrustedIPs,
+			Header:     cfg.rateLimit.IPAddressHeader,
+			TrustedIPs: cfg.rateLimit.TrustedIPs,
 		}
 	}
 
@@ -542,33 +542,33 @@ func New(config config) (*Auth, error) {
 		OrgInvite: orgInviteSvc,
 		TwoFactor: twoFactorSvc,
 		AuditLog:  auditLogRepo,
-	}, config.logger, config.csrfToken, clientIPCfg)
+	}, cfg.logger, cfg.csrfToken, clientIPCfg)
 
 	// OAuth handlers (separate because they need baseURL and session service for cookies)
-	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, config.baseURL, config.csrfToken, clientIPCfg)
+	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, cfg.baseURL, cfg.csrfToken, clientIPCfg)
 
-	authMW := middleware.AuthMiddleware(sessSvc, userRepo, config.logger)
-	adminMW := middleware.RequireRole(domain.RoleAdmin, config.logger)
+	authMW := middleware.AuthMiddleware(sessSvc, userRepo, cfg.logger)
+	adminMW := middleware.RequireRole(domain.RoleAdmin, cfg.logger)
 	var trustedIPs []string
-	if config.rateLimit != nil {
-		config.rateLimit.Logger = config.logger
-		trustedIPs = config.rateLimit.TrustedIPs
-		if !config.rateLimit.Enabled && config.logger != nil {
-			config.logger.Warn("goauth: rate limiting is disabled — this is insecure for production",
+	if cfg.rateLimit != nil {
+		cfg.rateLimit.Logger = cfg.logger
+		trustedIPs = cfg.rateLimit.TrustedIPs
+		if !cfg.rateLimit.Enabled && cfg.logger != nil {
+			cfg.logger.Warn("goauth: rate limiting is disabled — this is insecure for production",
 				"fix", "re-enable with WithRateLimitEnabled(true) or use a trusted edge rate limiter")
 		}
-		if config.rateLimit.Enabled && config.logger != nil && ratelimit.IsDefaultStore(config.rateLimit.Store) {
+		if cfg.rateLimit.Enabled && cfg.logger != nil && ratelimit.IsDefaultStore(cfg.rateLimit.Store) {
 			// Heuristic reminder, not a diagnosis — the library has no way to
 			// detect "multiple instances" directly, so this fires on every
 			// process using the default store, dev included.
-			config.logger.Warn("goauth: rate limiting is using the default in-memory store, which does not share state across instances",
+			cfg.logger.Warn("goauth: rate limiting is using the default in-memory store, which does not share state across instances",
 				"fix", "if you run more than one instance behind a load balancer, use WithRateLimitStore with a shared store (e.g. Redis) or limits apply per-instance rather than globally")
 		}
 	}
-	rateLimitMW := middleware.RateLimit(config.rateLimit)
-	csrfMW := middleware.OriginCheck(config.allowedOrigins, config.allowMissingCSRFHeaders, trustedIPs, config.logger)
-	csrfTokenMW := middleware.CSRFToken(config.csrfToken)
-	corsMW := middleware.CORS(config.allowedOrigins)
+	rateLimitMW := middleware.RateLimit(cfg.rateLimit)
+	csrfMW := middleware.OriginCheck(cfg.allowedOrigins, cfg.allowMissingCSRFHeaders, trustedIPs, cfg.logger)
+	csrfTokenMW := middleware.CSRFToken(cfg.csrfToken)
+	corsMW := middleware.CORS(cfg.allowedOrigins)
 
 	// Org authorization: orgMemberMW verifies the authenticated user is a
 	// member of the {orgID} path segment; orgAdminMW/orgOwnerMW additionally
@@ -588,7 +588,7 @@ func New(config config) (*Auth, error) {
 	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 
 	return &Auth{
-		cfg:              config,
+		cfg:              cfg,
 		pool:             pool,
 		db:               sqlDB,
 		authMW:           authMW,

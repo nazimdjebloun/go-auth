@@ -1,19 +1,29 @@
 package goauth
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/nazimdjebloun/go-auth/internal/schema"
 )
 
-func ErrNoSchema(driver string) error {
-	return fmt.Errorf("goauth: unsupported driver %q — valid options: postgres, sqlite, mysql", driver)
+// ErrUnsupportedDriver is returned (wrapped, with the offending name) by
+// GetSchema when no embedded schema exists for the requested driver. Match it
+// with errors.Is rather than comparing error strings.
+var ErrUnsupportedDriver = errors.New("goauth: unsupported driver")
+
+// newUnsupportedDriverError wraps ErrUnsupportedDriver with the driver name the
+// caller asked for and the set of names that would have worked.
+func newUnsupportedDriverError(driver string) error {
+	return fmt.Errorf("%w %q — valid options: postgres, sqlite, mysql", ErrUnsupportedDriver, driver)
 }
 
+// GetSchema returns the embedded DDL for driver. The error wraps
+// ErrUnsupportedDriver for any driver the library has no schema for.
 func GetSchema(driver string) (string, error) {
 	s, ok := driverSchemas[driver]
 	if !ok {
-		return "", ErrNoSchema(driver)
+		return "", newUnsupportedDriverError(driver)
 	}
 	return s, nil
 }
