@@ -11,12 +11,16 @@ import (
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
-// config is the top-level configuration for go-auth. The type itself is
-// unexported (not just its fields), so NewConfig(opts...) is the only way
-// to produce one — it cannot be named, zero-valued, or hand-built from
-// outside this package, which makes NewConfig the single supported way to
-// configure go-auth rather than merely the recommended one.
-type config struct {
+// Config is the top-level configuration for go-auth. Build it with
+// NewConfig(opts...), which is the only way to produce one New() accepts.
+//
+// Every field is unexported, and that — not the name of the type — is what
+// makes NewConfig the single supported entry point: &goauth.Config{}
+// compiles but has no field a caller outside this package can set, and New()
+// rejects it. The type is exported so it can be named — held in a variable,
+// stored on a struct, returned from a helper that assembles options from the
+// environment — none of which was possible while the type was unexported.
+type Config struct {
 	appName     string
 	baseURL     string
 	environment Environment
@@ -90,23 +94,23 @@ type config struct {
 // that the With* functions keep returning the same underlying signature, and
 // consumers can name it — `[]goauth.Option{...}` — to build option sets
 // conditionally. Naming the option type does not weaken the guarantee above:
-// config itself stays unexported, so NewConfig remains the only way to
+// Config's fields stay unexported, so NewConfig remains the only way to
 // produce a value New() accepts.
-type Option = func(*config)
+type Option = func(*Config)
 
 // NewConfig applies the given option functions to a default config and
 // validates the result. If validation fails, the returned error includes
 // all invalid fields. This is the only way to produce a config that New()
 // will accept — see the config type's doc comment.
-func NewConfig(opts ...Option) (config, error) {
-	var cfg config
+func NewConfig(opts ...Option) (*Config, error) {
+	var cfg Config
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 	cfg.applyDefaults()
 	if err := (&cfg).validate(); err != nil {
-		return config{}, err
+		return nil, err
 	}
 	cfg.validated = true
-	return cfg, nil
+	return &cfg, nil
 }

@@ -283,7 +283,7 @@ func TestDefaults_NegativeDurationIsAnErrorNotDisabled(t *testing.T) {
 func TestValidate_RejectsNegativeSessionDurations(t *testing.T) {
 	// A hand-built config with a negative value must be rejected by
 	// validate, regardless of how it got there.
-	cfg := config{
+	cfg := Config{
 		appName: "Test", baseURL: "https://example.com", environment: EnvironmentProd,
 		sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour,
 		tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"},
@@ -474,7 +474,7 @@ func TestWithRateLimit_DeepCopiesDisabledPaths(t *testing.T) {
 }
 
 func TestWithAudit_DoesNotDuplicateSinksOnRepeat(t *testing.T) {
-	var cfg config
+	var cfg Config
 	sink := recordingSink{}
 	opt := WithAudit(AuditConfig{Enabled: true, Sinks: []audit.EventSink{sink}})
 	opt(&cfg)

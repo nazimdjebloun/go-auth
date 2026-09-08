@@ -30,7 +30,7 @@ import (
 // rest of the config: it is on unless explicitly disabled, inherits the
 // session cookie's scope, and warns about the SameSite/ExposeCSRFTokenInBody
 // pairing. Mutates cfg.csrfToken in place; nil there means the layer is off.
-func applyCSRFTokenDefaults(cfg *config, keys keyring.Keys) {
+func applyCSRFTokenDefaults(cfg *Config, keys keyring.Keys) {
 	// The double-submit token layer is on unless explicitly disabled. A nil
 	// CSRFToken means "build one with defaults", not "off" — middleware.CSRFToken
 	// treats a nil config as a pass-through, so disabling is expressed by
@@ -92,7 +92,7 @@ func applyCSRFTokenDefaults(cfg *config, keys keyring.Keys) {
 // consumer actually blank-imported the database/sql driver the chosen
 // backend needs — go-auth's own go.mod only pulls in pgx. Also enforces
 // MySQL's parseTime requirement when go-auth opens the connection itself.
-func requireDriverSupport(cfg *config) error {
+func requireDriverSupport(cfg *Config) error {
 	if cfg.database.Driver == "" {
 		cfg.database.Driver = DriverPostgres
 	}
@@ -128,7 +128,7 @@ func requireDriverSupport(cfg *config) error {
 // an existing pgx pool, an existing *sql.DB, or a DSN for go-auth to open
 // itself — into the one pair the rest of New needs. It records on cfg
 // whether it opened anything, which is what Close later keys off.
-func openDatabase(cfg *config) (*pgxpool.Pool, *sqlstore.DB, error) {
+func openDatabase(cfg *Config) (*pgxpool.Pool, *sqlstore.DB, error) {
 	var pool *pgxpool.Pool
 	var sqlDB *sqlstore.DB
 
@@ -176,7 +176,7 @@ func openDatabase(cfg *config) (*pgxpool.Pool, *sqlstore.DB, error) {
 // resolveMailer picks the consumer's own Mailer over the built-in SMTP one.
 // Returns nil when neither is configured — validate() has already refused
 // that combination for any feature that actually sends mail.
-func resolveMailer(cfg *config) (port.Mailer, error) {
+func resolveMailer(cfg *Config) (port.Mailer, error) {
 	var mailer port.Mailer
 	if cfg.mailer != nil {
 		mailer = cfg.mailer
@@ -194,7 +194,7 @@ func resolveMailer(cfg *config) (port.Mailer, error) {
 // one. The URLValidator comes back alongside it because only the built-in
 // templates have one — a custom provider builds its own links and is
 // trusted to decide its own http/https policy.
-func resolveTemplates(cfg *config) (port.TemplateProvider, *port.URLValidator, error) {
+func resolveTemplates(cfg *Config) (port.TemplateProvider, *port.URLValidator, error) {
 	var templateProvider port.TemplateProvider
 	var urlValidator *port.URLValidator
 	if cfg.templateProvider != nil {
@@ -215,7 +215,7 @@ func resolveTemplates(cfg *config) (port.TemplateProvider, *port.URLValidator, e
 // wiring the built-in SQL and logger sinks ahead of any the consumer added.
 // Both return values are nil when auditing is off, which every caller
 // treats as "do not publish".
-func startAuditService(cfg *config, sqlDB *sqlstore.DB) (*audit.AuditService, service.AuditPublisher) {
+func startAuditService(cfg *Config, sqlDB *sqlstore.DB) (*audit.AuditService, service.AuditPublisher) {
 	var auditSvc *audit.AuditService
 	var auditPub service.AuditPublisher
 	if cfg.audit.Enabled {
@@ -243,7 +243,7 @@ func startAuditService(cfg *config, sqlDB *sqlstore.DB) (*audit.AuditService, se
 // the service layer's own shape. It reads cfg.cookieSecure, never
 // cfg.cookie.Secure — the former is the value applyDefaults resolved, the
 // latter is unresolved consumer intent.
-func buildSessionConfig(cfg *config, auditPub service.AuditPublisher) service.SessionConfig {
+func buildSessionConfig(cfg *Config, auditPub service.AuditPublisher) service.SessionConfig {
 	sessionCfg := service.DefaultSessionConfig()
 	sessionCfg.Duration = cfg.sessionTTL
 	sessionCfg.IdleTTL = cfg.sessionIdleTTL
@@ -265,7 +265,7 @@ func buildSessionConfig(cfg *config, auditPub service.AuditPublisher) service.Se
 // collectOAuthProviders indexes the providers registered via WithProvider by
 // name, rejecting nils, empty names and duplicates — a duplicate would
 // otherwise silently win the /auth/oauth/{provider} route.
-func collectOAuthProviders(cfg *config) (map[string]port.OAuthProvider, error) {
+func collectOAuthProviders(cfg *Config) (map[string]port.OAuthProvider, error) {
 	oauthProviders := make(map[string]port.OAuthProvider)
 	for _, p := range cfg.providers {
 		if p == nil {

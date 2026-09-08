@@ -22,7 +22,7 @@ import (
 )
 
 type Auth struct {
-	cfg      config
+	cfg      Config
 	pool     *pgxpool.Pool
 	db       *sqlstore.DB
 	Services Services
@@ -169,7 +169,14 @@ type HandlerGroup struct {
 // The validated check below is belt-and-suspenders defense in depth against
 // silently proceeding with unvalidated — and in the case of an empty
 // secret, cryptographically unsafe — settings.
-func New(cfg config) (*Auth, error) {
+func New(in *Config) (*Auth, error) {
+	if in == nil {
+		return nil, fmt.Errorf("goauth: nil config — build one with goauth.NewConfig(goauth.WithApp(...), ...)")
+	}
+	// Work on a copy: New resolves defaults onto the config it is given
+	// (CSRF cookie scope, database.opened), and a caller reusing one Config
+	// for two Auth instances must not see the first one's resolutions.
+	cfg := *in
 	if !cfg.validated {
 		return nil, fmt.Errorf(
 			"goauth: config was not built via NewConfig(opts...) — " +

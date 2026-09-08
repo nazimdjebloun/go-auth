@@ -15,7 +15,7 @@ import (
 // mailerReasons lists which enabled features require a Mailer or Email
 // config, by the exported field name a consumer would recognize. Empty means
 // no configured feature sends email, so the mailer is genuinely optional.
-func (c *config) mailerReasons() []string {
+func (c *Config) mailerReasons() []string {
 	var reasons []string
 	if c.registration.EnableInvite {
 		reasons = append(reasons, "EnableInvite")
@@ -35,7 +35,7 @@ func (c *config) mailerReasons() []string {
 	return reasons
 }
 
-func (c *config) validate() error {
+func (c *Config) validate() error {
 	var errs []error
 
 	if c.database.Driver == "" {

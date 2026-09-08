@@ -35,7 +35,7 @@ func defaultRegistration() RegistrationConfig {
 // MaxOrgsPerUser (0 = default 100), VerificationResendInterval (0 = no
 // minimum), and every bool, which is why sections whose defaults include a
 // true bool are tracked with a *Set flag instead.
-func (c *config) applyDefaults() {
+func (c *Config) applyDefaults() {
 	if c.environment == "" {
 		c.environment = EnvironmentProd
 	}
@@ -132,7 +132,7 @@ func (c *config) applyDefaults() {
 // resolveAllowHTTPURLs honours an explicit SecurityConfig.AllowHTTPURLs and
 // otherwise derives it: http:// links are acceptable in a dev environment and
 // refused everywhere else.
-func (c *config) resolveAllowHTTPURLs() bool {
+func (c *Config) resolveAllowHTTPURLs() bool {
 	if c.allowHTTPURLsOpt != nil {
 		return *c.allowHTTPURLsOpt
 	}
@@ -141,7 +141,7 @@ func (c *config) resolveAllowHTTPURLs() bool {
 
 // resolveCookieSecure honours an explicit CookieConfig.Secure and otherwise
 // derives it: secure unless the app is served over http:// in development.
-func (c *config) resolveCookieSecure() bool {
+func (c *Config) resolveCookieSecure() bool {
 	if c.cookie.Secure != nil {
 		return *c.cookie.Secure
 	}

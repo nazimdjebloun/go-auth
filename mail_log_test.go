@@ -38,7 +38,7 @@ func TestLogMailer_NilLoggerDefaultsToSlogDefault(t *testing.T) {
 }
 
 func TestNewConfig_LogMailerRejectedOutsideDev(t *testing.T) {
-	opts := append(validConfigOpts(), func(c *config) {
+	opts := append(validConfigOpts(), func(c *Config) {
 		c.mailer = NewLogMailer(nil)
 		c.environment = EnvironmentStaging
 	})
@@ -52,7 +52,7 @@ func TestNewConfig_LogMailerRejectedOutsideDev(t *testing.T) {
 }
 
 func TestNewConfig_LogMailerRejectedInProd(t *testing.T) {
-	opts := append(validConfigOpts(), func(c *config) {
+	opts := append(validConfigOpts(), func(c *Config) {
 		c.mailer = NewLogMailer(nil)
 		c.environment = EnvironmentProd
 	})
@@ -63,7 +63,7 @@ func TestNewConfig_LogMailerRejectedInProd(t *testing.T) {
 }
 
 func TestNewConfig_LogMailerAllowedInDev(t *testing.T) {
-	opts := append(validConfigOpts(), func(c *config) {
+	opts := append(validConfigOpts(), func(c *Config) {
 		c.mailer = NewLogMailer(nil)
 		c.environment = EnvironmentDev
 	})
@@ -74,7 +74,7 @@ func TestNewConfig_LogMailerAllowedInDev(t *testing.T) {
 }
 
 func TestNewConfig_DevDefaultsToLogMailerWhenUnconfigured(t *testing.T) {
-	opts := append(validConfigOpts(), func(c *config) {
+	opts := append(validConfigOpts(), func(c *Config) {
 		c.environment = EnvironmentDev
 	})
 	cfg, err := NewConfig(opts...)
@@ -88,7 +88,7 @@ func TestNewConfig_DevDefaultsToLogMailerWhenUnconfigured(t *testing.T) {
 
 func TestNewConfig_DevDefaultDoesNotOverrideExplicitMailer(t *testing.T) {
 	custom := &mockMailer{}
-	opts := append(validConfigOpts(), func(c *config) {
+	opts := append(validConfigOpts(), func(c *Config) {
 		c.environment = EnvironmentDev
 		c.mailer = custom
 	})
@@ -102,7 +102,7 @@ func TestNewConfig_DevDefaultDoesNotOverrideExplicitMailer(t *testing.T) {
 }
 
 func TestNewConfig_DevDefaultDoesNotOverrideExplicitEmail(t *testing.T) {
-	opts := append(validConfigOpts(), func(c *config) {
+	opts := append(validConfigOpts(), func(c *Config) {
 		c.environment = EnvironmentDev
 		c.email = &EmailConfig{Host: "smtp.example.com", From: "auth@example.com", Port: 587}
 	})
@@ -118,7 +118,7 @@ func TestNewConfig_DevDefaultDoesNotOverrideExplicitEmail(t *testing.T) {
 func TestNewConfig_ProdOrStagingWithNoMailer_Rejected(t *testing.T) {
 	for _, env := range []Environment{EnvironmentProd, EnvironmentStaging} {
 		t.Run(string(env), func(t *testing.T) {
-			opts := append(validConfigOpts(), func(c *config) {
+			opts := append(validConfigOpts(), func(c *Config) {
 				c.environment = env
 			})
 			_, err := NewConfig(opts...)
