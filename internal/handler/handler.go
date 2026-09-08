@@ -4,9 +4,9 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 type Services struct {

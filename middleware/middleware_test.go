@@ -14,9 +14,9 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 func TestExtractIP_RemoteAddr(t *testing.T) {

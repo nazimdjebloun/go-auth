@@ -12,8 +12,8 @@ import (
 
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/port"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {

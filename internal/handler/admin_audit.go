@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 func (h *Handler) AdminListAuditLogs(w http.ResponseWriter, r *http.Request) {

@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 // parseListUsersInput reads the shared /admin/users query params. Offset,

@@ -20,9 +20,9 @@ import (
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/schema"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
-	"github.com/nazimdjebloun/go-auth/service"
 	_ "modernc.org/sqlite"
 )
 

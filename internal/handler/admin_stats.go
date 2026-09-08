@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 // GetAdminStats returns platform-wide counts for an admin dashboard —

@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 // RequireAuth protects a consumer route with the same session validation

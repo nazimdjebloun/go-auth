@@ -11,11 +11,11 @@ import (
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/emailtemplate"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/internal/sqldriver"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 // This file holds the phases New() runs through that have a narrow enough

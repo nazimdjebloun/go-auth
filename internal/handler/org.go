@@ -5,8 +5,8 @@ import (
 	"strconv"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {

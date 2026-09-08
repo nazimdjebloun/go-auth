@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/service"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 )
 
 type ctxKey string

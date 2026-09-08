@@ -3,8 +3,8 @@ package handler
 import (
 	"net/http"
 
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
-	"github.com/nazimdjebloun/go-auth/service"
 )
 
 // bulkUserIDsBody is the shared request body for every bulk user-action

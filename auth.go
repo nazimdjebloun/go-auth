@@ -13,11 +13,11 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/crypto"
 	"github.com/nazimdjebloun/go-auth/internal/handler"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
-	"github.com/nazimdjebloun/go-auth/service"
 	"github.com/nazimdjebloun/go-auth/token"
 )
 
