@@ -346,12 +346,12 @@ func resolveMailer(env goauth.Environment, smtp smtpConfig, skipCheck bool) (por
 	}
 
 	return goauth.NewSMTPMailer(goauth.EmailConfig{
-		Host:    smtp.Host,
-		Port:    smtp.Port,
-		From:    smtp.From,
-		User:    smtp.User,
-		Pass:    smtp.Pass,
-		TLSMode: smtp.TLS,
+		Host: smtp.Host,
+		Port: smtp.Port,
+		From: smtp.From,
+		User: smtp.User,
+		Pass: smtp.Pass,
+		TLS:  smtp.TLS,
 	})
 }
 

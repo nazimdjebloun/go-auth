@@ -134,10 +134,10 @@ func (c *Config) validate() error {
 		if (e.User == "") != (e.Pass == "") {
 			errs = append(errs, errors.New("email: user and pass must both be set or both be empty"))
 		}
-		if e.TLSMode < TLSStart || e.TLSMode > TLSNone {
+		if e.TLS < TLSStart || e.TLS > TLSNone {
 			errs = append(
 				errs,
-				fmt.Errorf("email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got %d", e.TLSMode),
+				fmt.Errorf("email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got %d", e.TLS),
 			)
 		}
 	}

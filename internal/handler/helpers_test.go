@@ -1526,7 +1526,7 @@ func newTestHarness() *testHarness {
 		Logger:         nil,
 	})
 
-	h := New(Services{
+	h := New(Deps{
 		Auth:      authSvc,
 		Password:  passSvc,
 		Session:   sessSvc,

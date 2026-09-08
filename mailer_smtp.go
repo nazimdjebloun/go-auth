@@ -35,7 +35,7 @@ func (m *SMTPMailer) Send(ctx context.Context, to, subject, html, text string) e
 	msg.AddAlternativeString(mail.TypeTextPlain, text)
 
 	tlsOption := mail.WithTLSPolicy(mail.NoTLS)
-	switch m.cfg.TLSMode {
+	switch m.cfg.TLS {
 	case TLSStart:
 		tlsOption = mail.WithTLSPolicy(mail.TLSMandatory)
 	case TLSImplicit:

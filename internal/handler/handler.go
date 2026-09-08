@@ -9,7 +9,10 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-type Services struct {
+// Deps is the set of services a Handler needs. It is named for what it is —
+// a dependency bundle — rather than Services, which collided with the
+// goauth.Services a consumer actually reads off Auth.
+type Deps struct {
 	Auth      *service.AuthService
 	Password  *service.PasswordService
 	Session   *service.SessionService
@@ -24,7 +27,7 @@ type Services struct {
 }
 
 type Handler struct {
-	services     Services
+	services     Deps
 	log          *slog.Logger
 	csrfTokenCfg *middleware.CSRFTokenConfig
 	// clientIP says how far to trust a forwarding header when recording the
@@ -33,11 +36,11 @@ type Handler struct {
 	clientIP middleware.ClientIPConfig
 }
 
-func New(s Services) *Handler {
+func New(s Deps) *Handler {
 	return &Handler{services: s, log: slog.Default()}
 }
 
-func NewWithLogger(s Services, logger *slog.Logger, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig) *Handler {
+func NewWithLogger(s Deps, logger *slog.Logger, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig) *Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
