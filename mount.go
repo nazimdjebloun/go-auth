@@ -176,5 +176,3 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		handle(e.pattern, e.handler)
 	}
 }
-
-// ─── Middleware accessors ───────────────────────────────────

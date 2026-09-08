@@ -20,7 +20,6 @@ const (
 )
 
 const bcryptCost = 12
-const tokenLength = 32
 
 // Duration returns a pointer to d, for SessionConfig.GraceWindow and
 // SessionConfig.TouchDebounce — Go can't take the address of a duration
@@ -30,8 +29,6 @@ const tokenLength = 32
 // the default, or set it with goauth.Duration(0) to turn the feature off,
 // goauth.Duration(10*time.Second) for a custom value, and so on.
 func Duration(d time.Duration) *time.Duration { return &d }
-
-// ─── Config sub-types ───────────────────────────────────────
 
 type TLSMode int
 

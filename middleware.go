@@ -127,7 +127,7 @@ func (a *Auth) RequireCSRF(next http.Handler) http.Handler {
 	return middleware.CSRFToken(a.cfg.csrfToken)(next)
 }
 
-// ─── Session cookie accessors ───────────────────────────────
+// Session cookie accessors.
 
 // SetSessionCookies writes the session and refresh cookies for a newly
 // issued token pair, using the configured cookie settings. Pair it with a
