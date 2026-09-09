@@ -273,10 +273,6 @@ func (s *SessionService) ListAll(ctx context.Context, userID string) ([]domain.S
 	return s.repo.ListAllByUserID(ctx, userID)
 }
 
-func (s *SessionService) Config() SessionConfig {
-	return s.config
-}
-
 func IsSessionError(err error) bool {
 	return errors.Is(err, domain.ErrSessionNotFound) || errors.Is(err, domain.ErrSessionExpired)
 }

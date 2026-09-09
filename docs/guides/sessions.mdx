@@ -17,6 +17,7 @@ goauth.WithSession(goauth.SessionConfig{
     TTL:             30 * 24 * time.Hour,        // optional, default 30d
     IdleTTL:         7 * 24 * time.Hour,         // optional, default 7d
     RefreshTokenTTL: 30 * 24 * time.Hour,        // optional, default 30d
+    TokenTTL:        time.Hour,                   // optional, default 1h
     MaxLifetime:     0,                          // optional, default 0 (no limit)
     GraceWindow:     goauth.Duration(10 * time.Second), // optional, default 5s
     TouchDebounce:   goauth.Duration(0),          // optional, default 5m — 0 turns it off
@@ -28,6 +29,7 @@ goauth.WithSession(goauth.SessionConfig{
 | `TTL` | `time.Duration` | Optional | `30d` | Absolute hard expiry — the `expiresAt` on every session in the [list responses](#listing-sessions) above. |
 | `IdleTTL` | `time.Duration` | Optional | `7d` | Timeout since last activity. Must not exceed `TTL`. |
 | `RefreshTokenTTL` | `time.Duration` | Optional | `30d` | Must not be less than `TTL`. Governs how long the transparent refresh described in [the curl note above](#a-note-on-curl-and-sessions--read-this-if-something-isnt-working) keeps working after the session itself expires. |
+| `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of verification and password-reset tokens. |
 | `MaxLifetime` | `time.Duration` | Optional | `0` — no limit | If set, must be `>= TTL`. |
 | `GraceWindow` | `*time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh don't log the user out. `nil` (leave the field out) means "use the default"; set it with `goauth.Duration(...)` — `goauth.Duration(0)` turns it off. |
 | `TouchDebounce` | `*time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes — what makes `lastActiveAt` in the list responses a few minutes stale rather than exact. Same `nil`-vs-pointer rule as `GraceWindow`; `goauth.Duration(0)` writes on every authenticated request. |
@@ -41,6 +43,7 @@ goauth.WithSession(goauth.SessionConfig{
 - `session_idle_ttl must not exceed session_ttl`
 - `refresh_token_ttl must be positive`
 - `refresh_token_ttl must not be less than session_ttl`
+- `session token_ttl must be positive` — only reachable via an explicit negative value; an omitted one defaults to `1h`.
 - `session grace_window must not be negative (use goauth.Duration(0) to turn it off)` — hint: you passed a negative duration.
 - `session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)` — same hint.
 - `session max_lifetime must not be negative (0 = no limit)`

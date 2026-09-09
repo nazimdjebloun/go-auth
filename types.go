@@ -102,3 +102,9 @@ type UpdateMemberRoleInput = service.UpdateMemberRoleInput
 type UpdateOrgInput = service.UpdateOrgInput
 type UpdateUserRoleInput = service.UpdateUserRoleInput
 type VerificationResult = service.VerificationResult
+
+// IsSessionError reports whether err is a session lookup failure
+// (not found or expired), including wrapped values. Alias for the service
+// implementation — the service package is internal and cannot be imported
+// from another module, so this is the name external callers use.
+var IsSessionError = service.IsSessionError

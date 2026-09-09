@@ -33,7 +33,6 @@ goauth.WithSecurity(goauth.SecurityConfig{
         RequireDigit:     true,
         RequireSpecial:   false,
     },
-    TokenTTL:      time.Hour,                      // optional, default 1h
     AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(), // optional, default derived from Environment
 })
 ```
@@ -45,7 +44,6 @@ goauth.WithSecurity(goauth.SecurityConfig{
 | `DisableCSRFToken` | `bool` | Optional | `false` — layer is on | Turns off the double-submit cookie layer entirely. Origin/Referer checking still applies and cannot be disabled. |
 | `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only** — leaving it `nil` does not disable anything. The double-submit token sits on top of origin checking, and unlike the origin header it *can't* be spoofed, since it requires a cookie value only the server issued. Its `CookieDomain` and `ExposeCSRFTokenInBody` fields are the ones you set when the frontend is not same-origin with the API — see [Deployment](./deployment.mdx). |
 | `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Checked on every path that sets a password: register, reset, set-password, and change-password below. |
-| `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
 | `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
 
 <Callout type="info" title="The token has to be readable, not just set">
@@ -76,8 +74,9 @@ The double-submit token layer is **on in every deployment** — `New` creates a 
 
 - `allowed_origins must include at least one origin`
 - `allowed_origins must not contain "*" — this disables CSRF protection; list specific origins instead`
-- `token_ttl must be positive` — only reachable if `TokenTTL` was explicitly set negative
 - `security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set` — each is defensible alone, but together a cross-site request carrying neither an `Origin`/`Referer` header nor a token would pass, leaving no CSRF defense at all. Keep one of the two layers.
+
+`SessionConfig.TokenTTL` is validated with the session section — see [Sessions](./sessions.mdx): `session token_ttl must be positive`, only reachable if it was explicitly set negative.
 
 ## Frontend client setup
 
@@ -331,7 +330,7 @@ Requesting a new reset invalidates any earlier unused one for the same user — 
 |---|---|---|
 | `reset_token_invalid` | 400 | Code doesn't match, or matches a token of the wrong type |
 | `reset_token_already_used` | 410 | Already redeemed |
-| `reset_token_expired` | 410 | Past `TokenTTL` (default 1h) |
+| `reset_token_expired` | 410 | Past `SessionConfig.TokenTTL` (default 1h) |
 | `weak_password` | 400 | Fails `PasswordPolicy` |
 | `user_not_found` | 404 | The user behind the token no longer exists |
 

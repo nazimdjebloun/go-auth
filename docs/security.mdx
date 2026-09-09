@@ -45,11 +45,11 @@ An OAuth-provided email is only treated as verified when the provider guarantees
 
 ## Two-factor authentication
 
-Email-based 2FA (`SecurityConfig.RequireEmail2FA` / per-user `TwoFactorEnabled`) sits on top of the mechanisms above, with four trade-offs worth stating explicitly rather than leaving implicit.
+Email-based 2FA (`TwoFactorConfig.RequireEmail2FA` / per-user `TwoFactorEnabled`) sits on top of the mechanisms above, with four trade-offs worth stating explicitly rather than leaving implicit.
 
 **Admin login requires a second factor by default, independent of every other 2FA setting.** `POST /auth/admin/login` gates on this independent of `RequireEmail2FA` and independent of the admin account's own `TwoFactorEnabled` — it applies in every deployment built via `goauth.New()` unless explicitly turned off. Concretely: a mailer becomes a hard requirement for admin login to function at all, even in a deployment that otherwise never touches any 2FA setting.
 
-Opt out with `SecurityConfig.DisableAdminTwoFactor` (via `WithSecurity`) for an API-only deployment with no email delivery at all — this is a real reduction in admin-account security (no second factor gates the highest-privilege login path), so only turn it off alongside a deliberate decision that no mailer will ever be configured; `NewConfig` still requires a mailer if `RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, or `DefaultTwoFactorEnabled` is on. See [Admin → Admin login](./guides/admin.mdx#admin-login) for the request/response shape this produces.
+Opt out with `TwoFactorConfig.DisableAdminTwoFactor` (via `WithTwoFactor`) for an API-only deployment with no email delivery at all — this is a real reduction in admin-account security (no second factor gates the highest-privilege login path), so only turn it off alongside a deliberate decision that no mailer will ever be configured; `NewConfig` still requires a mailer if `RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, or `DefaultEnabled` is on. See [Admin → Admin login](./guides/admin.mdx#admin-login) for the request/response shape this produces.
 
 **OAuth is a weakest link, not defense in depth.** 2FA gates the password login path (`Login`, `AdminLogin`, `Register`, invite registration) only — an OAuth-linked account has no second factor of its own on that path, because the identity provider is trusted to have handled that already. If a user has both a password with 2FA on *and* a linked OAuth provider, compromising the OAuth account (or the provider itself) reaches the account with zero factors checked by this library. This is a deliberate scope decision, not an oversight — go-auth doesn't second-guess a provider's own authentication — but it means "2FA is on" is a per-path guarantee, not an account-wide one. If that's not the property you want, don't offer OAuth linking on accounts that must stay single-factor-resistant.
 
@@ -57,7 +57,7 @@ Opt out with `SecurityConfig.DisableAdminTwoFactor` (via `WithSecurity`) for an 
 
 As a partial mitigation, crossing 20 failed 2FA attempts on one account within an hour fires a "someone's guessing your code" notification email — informational only, it never blocks a login. Because it's a fixed, easily-reached threshold, an attacker who already knows an account's email can trigger it more or less at will; treat it as a compromise signal worth acting on (rotate the password), not as evidence the account was actually breached, and be aware it's also a minor, bounded nuisance-email vector in its own right.
 
-**`RequireEmail2FA` couples login availability to mailer availability.** With email verification, a mailer outage only blocks new signups. With `RequireEmail2FA: true`, `Challenge` mails the code synchronously as part of every login — a mailer outage means *no one* can log in, not just new users, until it recovers. Weigh that against `DefaultTwoFactorEnabled` (per-user, opt-out via `Disable`) if you want 2FA on by default without that global availability coupling.
+**`TwoFactorConfig.RequireEmail2FA` couples login availability to mailer availability.** With email verification, a mailer outage only blocks new signups. With `RequireEmail2FA: true`, `Challenge` mails the code synchronously as part of every login — a mailer outage means *no one* can log in, not just new users, until it recovers. Weigh that against `TwoFactorConfig.DefaultEnabled` (per-user, opt-out via `Disable`) if you want 2FA on by default without that global availability coupling.
 
 ## Rate limiting
 

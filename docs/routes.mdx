@@ -21,9 +21,9 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 | Method & Path | Auth | Body | Description |
 |---|---|---|---|
-| `POST /auth/register` | Public | `` `{email, password, name}` `` | Register with email/password. Returns a session unless verification is required, or `RequireEmail2FA` is on (see [Two-factor authentication](#two-factor-authentication)). |
+| `POST /auth/register` | Public | `` `{email, password, name}` `` | Register with email/password. Returns a session unless verification is required, or `TwoFactorConfig.RequireEmail2FA` is on (see [Two-factor authentication](#two-factor-authentication)). |
 | `POST /auth/login` | Public | `` `{email, password}` `` | Log in. May return `requiresVerification: true` instead of a session, or `requiresTwoFactor: true` if the account has 2FA on. |
-| `POST /auth/admin/login` | Public | `` `{email, password}` `` | Same as login, but only succeeds for `role: admin` users. Requires a second factor unless `SecurityConfig.DisableAdminTwoFactor` is set — see [Two-factor authentication](#two-factor-authentication). |
+| `POST /auth/admin/login` | Public | `` `{email, password}` `` | Same as login, but only succeeds for `role: admin` users. Requires a second factor unless `TwoFactorConfig.DisableAdminTwoFactor` is set — see [Two-factor authentication](#two-factor-authentication). |
 | `POST /auth/logout` | Auth | none | Revokes the current session and clears its session + refresh cookies. |
 | `GET /auth/me` | Auth | none | Returns the authenticated user plus `hasPassword` and the caller's own `session` (no token hashes, includes the active org). Rate-limited. |
 | `GET /auth/csrf-token` | Public | none | Primes the CSRF cookie, which is issued by the middleware wrapping this route. Answers `204` with no body; with `CSRFTokenConfig.ExposeCSRFTokenInBody` it answers `200 {"token"}` (`Cache-Control: no-store`) for a frontend on a different registrable domain, which cannot read the cookie. Call it before your first mutating request. |
@@ -68,7 +68,7 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 ## Two-factor authentication
 
-`Login`, `AdminLogin`, `Register`, and `POST /auth/invite/register` all return the same gated shape when a second factor is still owed: `{user, requiresTwoFactor: true, codeSent, challengeId, expiresAt, message}` — no session/refresh cookie, no CSRF rotation. Alongside that body, the response sets a binding cookie (name from `SecurityConfig.TwoFactorChallengeCookieName`, default `_2fa_challenge`; HttpOnly; same `Domain`/`Path`/`Secure`/`SameSite` as the session cookie; `MaxAge` = `TwoFactorCodeTTL`) that ties the challenge to the browser that started it. `POST /auth/2fa/verify` and `POST /auth/2fa/resend` both require that cookie back — a `challengeId` alone (e.g. one that leaked into a log line) is not a usable credential without it. The cookie is skipped entirely when `SecurityConfig.DisableTwoFactorChallengeBinding` is set, for non-browser consumers.
+`Login`, `AdminLogin`, `Register`, and `POST /auth/invite/register` all return the same gated shape when a second factor is still owed: `{user, requiresTwoFactor: true, codeSent, challengeId, expiresAt, message}` — no session/refresh cookie, no CSRF rotation. Alongside that body, the response sets a binding cookie (name from `TwoFactorConfig.ChallengeCookieName`, default `_2fa_challenge`; HttpOnly; same `Domain`/`Path`/`Secure`/`SameSite` as the session cookie; `MaxAge` = `TwoFactorConfig.CodeTTL`) that ties the challenge to the browser that started it. `POST /auth/2fa/verify` and `POST /auth/2fa/resend` both require that cookie back — a `challengeId` alone (e.g. one that leaked into a log line) is not a usable credential without it. The cookie is skipped entirely when `TwoFactorConfig.DisableChallengeBinding` is set, for non-browser consumers.
 
 | Method & Path | Auth | Body | Description |
 |---|---|---|---|

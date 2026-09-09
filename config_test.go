@@ -11,20 +11,40 @@ import (
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
+func validTestConfig() Config {
+	return Config{
+		app: AppConfig{
+			Name:        "Test",
+			BaseURL:     "http://localhost",
+			Environment: EnvironmentDev,
+			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
+		},
+		session: SessionConfig{
+			TTL:             time.Hour,
+			IdleTTL:         time.Hour,
+			RefreshTokenTTL: time.Hour,
+			TokenTTL:        time.Hour,
+		},
+		cookie:   CookieConfig{Name: "s"},
+		security: SecurityConfig{AllowedOrigins: []string{"http://localhost"}},
+		secret:   "0123456789abcdef0123456789abcdef",
+	}
+}
+
 func TestApplyDefaults_Valid(t *testing.T) {
 	var cfg Config
 	cfg.applyDefaults()
-	if cfg.appName != "" {
+	if cfg.app.Name != "" {
 		t.Error("expected empty appName after applyDefaults")
 	}
-	if cfg.sessionTTL != 30*24*time.Hour {
-		t.Errorf("expected sessionTTL 30d, got %v", cfg.sessionTTL)
+	if cfg.session.TTL != 30*24*time.Hour {
+		t.Errorf("expected sessionTTL 30d, got %v", cfg.session.TTL)
 	}
-	if cfg.refreshTokenTTL != 30*24*time.Hour {
-		t.Errorf("expected refreshTokenTTL 30d, got %v", cfg.refreshTokenTTL)
+	if cfg.session.RefreshTokenTTL != 30*24*time.Hour {
+		t.Errorf("expected refreshTokenTTL 30d, got %v", cfg.session.RefreshTokenTTL)
 	}
-	if cfg.tokenTTL != 1*time.Hour {
-		t.Errorf("expected tokenTTL 1h, got %v", cfg.tokenTTL)
+	if cfg.session.TokenTTL != 1*time.Hour {
+		t.Errorf("expected tokenTTL 1h, got %v", cfg.session.TokenTTL)
 	}
 	if cfg.cookie.Name != "goauth_session" {
 		t.Errorf("expected cookie name goauth_session, got %s", cfg.cookie.Name)
@@ -35,7 +55,8 @@ func TestApplyDefaults_Valid(t *testing.T) {
 }
 
 func TestValidate_EmptyDriver(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}}
+	cfg := validTestConfig()
+	cfg.app.Database = DatabaseConfig{}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty driver")
@@ -43,7 +64,8 @@ func TestValidate_EmptyDriver(t *testing.T) {
 }
 
 func TestValidate_NoDatabase(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite}}
+	cfg := validTestConfig()
+	cfg.app.Database = DatabaseConfig{Driver: DriverSQLite}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for no database URL, DB, or Pool")
@@ -51,7 +73,7 @@ func TestValidate_NoDatabase(t *testing.T) {
 }
 
 func TestValidate_WithDB(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", environment: EnvironmentDev, sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
+	cfg := validTestConfig()
 	cfg.applyDefaults()
 	err := cfg.validate()
 	if err != nil {
@@ -60,7 +82,8 @@ func TestValidate_WithDB(t *testing.T) {
 }
 
 func TestValidate_EmptyAppName(t *testing.T) {
-	cfg := Config{baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := validTestConfig()
+	cfg.app.Name = ""
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty app name")
@@ -68,7 +91,8 @@ func TestValidate_EmptyAppName(t *testing.T) {
 }
 
 func TestValidate_ZeroSessionTTL(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := validTestConfig()
+	cfg.session.TTL = 0
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for zero SessionTTL")
@@ -76,7 +100,10 @@ func TestValidate_ZeroSessionTTL(t *testing.T) {
 }
 
 func TestValidate_IdleTTLExceedsSessionTTL(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: 30 * time.Minute, sessionIdleTTL: time.Hour, refreshTokenTTL: 30 * time.Minute, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := validTestConfig()
+	cfg.session.TTL = 30 * time.Minute
+	cfg.session.IdleTTL = time.Hour
+	cfg.session.RefreshTokenTTL = 30 * time.Minute
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error when IdleTTL > SessionTTL")
@@ -84,7 +111,9 @@ func TestValidate_IdleTTLExceedsSessionTTL(t *testing.T) {
 }
 
 func TestValidate_RefreshTTLLessThanSessionTTL(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: 30 * time.Minute, refreshTokenTTL: 30 * time.Minute, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := validTestConfig()
+	cfg.session.IdleTTL = 30 * time.Minute
+	cfg.session.RefreshTokenTTL = 30 * time.Minute
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error when RefreshTTL < SessionTTL")
@@ -92,7 +121,8 @@ func TestValidate_RefreshTTLLessThanSessionTTL(t *testing.T) {
 }
 
 func TestValidate_EmptyAllowedOrigins(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := validTestConfig()
+	cfg.security.AllowedOrigins = nil
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty allowed origins")
@@ -100,7 +130,8 @@ func TestValidate_EmptyAllowedOrigins(t *testing.T) {
 }
 
 func TestValidate_EmptyCookieName(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := validTestConfig()
+	cfg.cookie.Name = ""
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty cookie name")
@@ -108,7 +139,8 @@ func TestValidate_EmptyCookieName(t *testing.T) {
 }
 
 func TestValidate_RequiresEmailWithMailer(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, mailer: &mockMailer{}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
+	cfg := validTestConfig()
+	cfg.mailer = &mockMailer{}
 	cfg.registration.EnableEmailPassword = true
 	cfg.registration.RequireEmailVerification = true
 	cfg.applyDefaults()
@@ -119,7 +151,8 @@ func TestValidate_RequiresEmailWithMailer(t *testing.T) {
 }
 
 func TestValidate_RequiresEmailMissingMailer(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := validTestConfig()
+	cfg.mailer = nil
 	cfg.registration.RequireEmailVerification = true
 	err := cfg.validate()
 	if err == nil {
@@ -128,7 +161,8 @@ func TestValidate_RequiresEmailMissingMailer(t *testing.T) {
 }
 
 func TestValidate_WildcardOrigin(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"*"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := validTestConfig()
+	cfg.security.AllowedOrigins = []string{"*"}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error when AllowedOrigins contains *")
@@ -458,7 +492,7 @@ func TestNewConfig_RateLimitStoreIsOptional(t *testing.T) {
 	if cfg.rateLimit.Store == nil {
 		t.Fatal("expected applyDefaults to supply the in-memory store")
 	}
-	if cfg.rateLimitStoreExplicit {
+	if cfg.set.rateLimitStore {
 		t.Error("a library-built store must not be marked consumer-owned, or Close() will leak its cleanup goroutine")
 	}
 }
@@ -565,22 +599,22 @@ func TestNewConfig_RateLimitGranularOptions(t *testing.T) {
 func validConfigOpts() []Option {
 	return []Option{
 		func(c *Config) {
-			c.appName = "Test"
-			c.baseURL = "http://localhost"
-			c.database.Driver = DriverSQLite
-			c.database.URL = "file::memory:?cache=shared"
-			c.sessionTTL = 30 * 24 * time.Hour
-			c.sessionIdleTTL = 7 * 24 * time.Hour
-			c.refreshTokenTTL = 30 * 24 * time.Hour
-			c.tokenTTL = 1 * time.Hour
+			c.app.Name = "Test"
+			c.app.BaseURL = "http://localhost"
+			c.app.Database.Driver = DriverSQLite
+			c.app.Database.URL = "file::memory:?cache=shared"
+			c.session.TTL = 30 * 24 * time.Hour
+			c.session.IdleTTL = 7 * 24 * time.Hour
+			c.session.RefreshTokenTTL = 30 * 24 * time.Hour
+			c.session.TokenTTL = 1 * time.Hour
 			c.cookie.Name = "goauth_session"
-			c.allowedOrigins = []string{"http://localhost"}
+			c.security.AllowedOrigins = []string{"http://localhost"}
 			c.registration.EnableInvite = false
 			c.secret = "0123456789abcdef0123456789abcdef"
 			// EnvironmentDev so applyDefaults auto-fills a log mailer when a
 			// test doesn't provide its own WithMailer/WithEmail — the mailer
 			// requirement is unconditional now (AdminLogin always needs it).
-			c.environment = EnvironmentDev
+			c.app.Environment = EnvironmentDev
 		},
 	}
 }
@@ -590,8 +624,8 @@ func TestNewConfig_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.appName != "Test" {
-		t.Errorf("expected appName Test, got %s", cfg.appName)
+	if cfg.app.Name != "Test" {
+		t.Errorf("expected appName Test, got %s", cfg.app.Name)
 	}
 }
 
@@ -605,7 +639,7 @@ func TestNewConfig_SetsValidated(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.validated {
+	if !cfg.resolved.validated {
 		t.Error("expected NewConfig to set validated = true on success")
 	}
 }
@@ -648,12 +682,12 @@ func TestNew_RejectsDefaultConfigWithoutNewConfig(t *testing.T) {
 	// must still be rejected, since it never went through validate().
 	var cfg Config
 	cfg.applyDefaults()
-	cfg.appName = "Test"
-	cfg.baseURL = "http://localhost"
-	cfg.database.Driver = DriverSQLite
-	cfg.database.DB = &sql.DB{}
+	cfg.app.Name = "Test"
+	cfg.app.BaseURL = "http://localhost"
+	cfg.app.Database.Driver = DriverSQLite
+	cfg.app.Database.DB = &sql.DB{}
 	cfg.secret = "0123456789abcdef0123456789abcdef"
-	cfg.allowedOrigins = []string{"http://localhost"}
+	cfg.security.AllowedOrigins = []string{"http://localhost"}
 
 	_, err := New(&cfg)
 	if err == nil {
@@ -662,7 +696,7 @@ func TestNew_RejectsDefaultConfigWithoutNewConfig(t *testing.T) {
 }
 
 func TestNewConfig_Invalid(t *testing.T) {
-	_, err := NewConfig(func(c *Config) { c.appName = "" })
+	_, err := NewConfig(func(c *Config) { c.app.Name = "" })
 	if err == nil {
 		t.Fatal("expected error for invalid config")
 	}
@@ -671,17 +705,17 @@ func TestNewConfig_Invalid(t *testing.T) {
 func TestNewConfig_OverridesDefault(t *testing.T) {
 	cfg, err := NewConfig(
 		func(c *Config) {
-			c.appName = "Custom"
-			c.baseURL = "http://localhost"
-			c.environment = EnvironmentDev
-			c.database.Driver = DriverSQLite
-			c.database.URL = "file::memory:?cache=shared"
-			c.sessionTTL = 7 * 24 * time.Hour
-			c.sessionIdleTTL = 7 * 24 * time.Hour
-			c.refreshTokenTTL = 7 * 24 * time.Hour
-			c.tokenTTL = 1 * time.Hour
+			c.app.Name = "Custom"
+			c.app.BaseURL = "http://localhost"
+			c.app.Environment = EnvironmentDev
+			c.app.Database.Driver = DriverSQLite
+			c.app.Database.URL = "file::memory:?cache=shared"
+			c.session.TTL = 7 * 24 * time.Hour
+			c.session.IdleTTL = 7 * 24 * time.Hour
+			c.session.RefreshTokenTTL = 7 * 24 * time.Hour
+			c.session.TokenTTL = 1 * time.Hour
 			c.cookie.Name = "goauth_session"
-			c.allowedOrigins = []string{"http://localhost"}
+			c.security.AllowedOrigins = []string{"http://localhost"}
 			c.registration.EnableInvite = false
 			c.secret = "0123456789abcdef0123456789abcdef"
 		},
@@ -689,8 +723,8 @@ func TestNewConfig_OverridesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.sessionTTL != 7*24*time.Hour {
-		t.Errorf("expected sessionTTL 7d, got %v", cfg.sessionTTL)
+	if cfg.session.TTL != 7*24*time.Hour {
+		t.Errorf("expected sessionTTL 7d, got %v", cfg.session.TTL)
 	}
 }
 
@@ -747,7 +781,8 @@ func TestWithCookie_ExplicitOverridesDefaults(t *testing.T) {
 }
 
 func TestValidate_SecretRequired(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}}
+	cfg := validTestConfig()
+	cfg.secret = ""
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for missing secret")
@@ -758,7 +793,8 @@ func TestValidate_SecretRequired(t *testing.T) {
 }
 
 func TestValidate_SecretTooShort(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcde"}
+	cfg := validTestConfig()
+	cfg.secret = "0123456789abcdef0123456789abcde"
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for 31-byte secret")
@@ -769,7 +805,7 @@ func TestValidate_SecretTooShort(t *testing.T) {
 }
 
 func TestValidate_Secret32BytesOK(t *testing.T) {
-	cfg := Config{appName: "Test", baseURL: "http://localhost", environment: EnvironmentDev, sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"}, allowedOrigins: []string{"http://localhost"}, database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}}, secret: "0123456789abcdef0123456789abcdef"}
+	cfg := validTestConfig()
 	cfg.applyDefaults()
 	err := cfg.validate()
 	if err != nil {
@@ -793,14 +829,8 @@ func (m *mockMailer) Send(_ context.Context, _, _, _, _ string) error { return n
 // pairing yields no session at all rather than a weaker one. Catch it in
 // config instead of leaving it to look like "login succeeds but never sticks".
 func TestValidate_SameSiteNoneRequiresSecure(t *testing.T) {
-	cfg := Config{
-		appName: "Test", baseURL: "http://localhost", environment: EnvironmentDev,
-		sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour,
-		cookie:         CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode},
-		allowedOrigins: []string{"http://localhost"},
-		database:       DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
-		secret:         "0123456789abcdef0123456789abcdef",
-	}
+	cfg := validTestConfig()
+	cfg.cookie = CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode}
 	cfg.applyDefaults()
 	err := cfg.validate()
 	if err == nil {
@@ -813,14 +843,8 @@ func TestValidate_SameSiteNoneRequiresSecure(t *testing.T) {
 
 // The pairing the cross-site deployment actually needs.
 func TestValidate_SameSiteNoneWithSecureIsAccepted(t *testing.T) {
-	cfg := Config{
-		appName: "Test", baseURL: "http://localhost", environment: EnvironmentDev,
-		sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour, tokenTTL: time.Hour,
-		cookie:         CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode, Secure: SecureAlways()},
-		allowedOrigins: []string{"http://localhost"},
-		database:       DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
-		secret:         "0123456789abcdef0123456789abcdef",
-	}
+	cfg := validTestConfig()
+	cfg.cookie = CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode, Secure: SecureAlways()}
 	cfg.applyDefaults()
 	if err := cfg.validate(); err != nil {
 		t.Fatalf("SameSite=None with Secure must be accepted, got: %v", err)

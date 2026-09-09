@@ -43,8 +43,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, sessionCookies(h.services.Session.Config()), result.SessionToken)
-	middleware.SetRefreshCookie(w, sessionCookies(h.services.Session.Config()), result.RefreshToken)
+	middleware.SetSessionCookie(w, h.cookies, result.SessionToken)
+	middleware.SetRefreshCookie(w, h.cookies, result.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
@@ -84,8 +84,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, sessionCookies(h.services.Session.Config()), result.SessionToken)
-	middleware.SetRefreshCookie(w, sessionCookies(h.services.Session.Config()), result.RefreshToken)
+	middleware.SetSessionCookie(w, h.cookies, result.SessionToken)
+	middleware.SetRefreshCookie(w, h.cookies, result.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
@@ -116,8 +116,8 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, sessionCookies(h.services.Session.Config()), result.SessionToken)
-	middleware.SetRefreshCookie(w, sessionCookies(h.services.Session.Config()), result.RefreshToken)
+	middleware.SetSessionCookie(w, h.cookies, result.SessionToken)
+	middleware.SetRefreshCookie(w, h.cookies, result.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	result.SessionToken = ""
 	result.RefreshToken = ""
@@ -125,15 +125,14 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	cfg := h.services.Session.Config()
-	cookie, err := r.Cookie(cfg.CookieName)
+	cookie, err := r.Cookie(h.cookies.Name)
 	if err == nil && cookie.Value != "" {
 		if err := h.services.Session.Revoke(r.Context(), cookie.Value); err != nil {
 			h.log.Warn("logout revoke error", "err", err)
 		}
 	}
-	middleware.ClearSessionCookie(w, sessionCookies(h.services.Session.Config()))
-	middleware.ClearRefreshCookie(w, sessionCookies(h.services.Session.Config()))
+	middleware.ClearSessionCookie(w, h.cookies)
+	middleware.ClearRefreshCookie(w, h.cookies)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 }

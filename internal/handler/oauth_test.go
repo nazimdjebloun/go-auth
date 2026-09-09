@@ -205,7 +205,7 @@ func newOAuthTestHarness() *oauthTestHarness {
 		oauthCfg,
 	)
 
-	oauthHandlers := NewOAuthHandlers(oauthSvc, sessSvc, "http://localhost:3000", nil, middleware.ClientIPConfig{}, nil)
+	oauthHandlers := NewOAuthHandlers(oauthSvc, "http://localhost:3000", nil, middleware.ClientIPConfig{}, middleware.DefaultCookieSettings(), nil)
 
 	stateRaw := "test-state-token-value"
 	stateHash := sha256.Sum256([]byte(stateRaw))
@@ -516,9 +516,7 @@ func TestOAuthCallback_InvalidProvider(t *testing.T) {
 }
 
 func TestOAuthCallback_Disabled(t *testing.T) {
-	sessCfg := service.DefaultSessionConfig()
-	sessSvc := service.NewSessionService(newMockSessionRepo(), &mockTokenGen{}, sessCfg)
-	h := NewOAuthHandlers(nil, sessSvc, "http://localhost:3000", nil, middleware.ClientIPConfig{}, nil)
+	h := NewOAuthHandlers(nil, "http://localhost:3000", nil, middleware.ClientIPConfig{}, middleware.DefaultCookieSettings(), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/test/callback?code=abc&state=xyz", nil)
 	req.SetPathValue("provider", "test")

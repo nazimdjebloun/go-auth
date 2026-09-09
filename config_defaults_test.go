@@ -91,11 +91,11 @@ func TestDefaults_SecurityKeepsPasswordPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
-	if cfg.passwordPolicy != want {
-		t.Errorf("password policy = %+v, want %+v", cfg.passwordPolicy, want)
+	if cfg.security.PasswordPolicy != want {
+		t.Errorf("password policy = %+v, want %+v", cfg.security.PasswordPolicy, want)
 	}
-	if cfg.tokenTTL != time.Hour {
-		t.Errorf("tokenTTL = %v, want 1h", cfg.tokenTTL)
+	if cfg.session.TokenTTL != time.Hour {
+		t.Errorf("tokenTTL = %v, want 1h", cfg.session.TokenTTL)
 	}
 }
 
@@ -107,8 +107,8 @@ func TestDefaults_SecurityHonoursExplicitPasswordPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.passwordPolicy.MinLength != 16 || cfg.passwordPolicy.RequireDigit {
-		t.Errorf("explicit policy was not preserved: %+v", cfg.passwordPolicy)
+	if cfg.security.PasswordPolicy.MinLength != 16 || cfg.security.PasswordPolicy.RequireDigit {
+		t.Errorf("explicit policy was not preserved: %+v", cfg.security.PasswordPolicy)
 	}
 }
 
@@ -117,8 +117,8 @@ func TestDefaults_AppKeepsEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.environment != EnvironmentProd {
-		t.Errorf("environment = %q, want %q", cfg.environment, EnvironmentProd)
+	if cfg.app.Environment != EnvironmentProd {
+		t.Errorf("environment = %q, want %q", cfg.app.Environment, EnvironmentProd)
 	}
 }
 
@@ -131,11 +131,11 @@ func TestDefaults_PartialSessionKeepsGraceAndDebounce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.graceWindow != 5*time.Second {
-		t.Errorf("graceWindow = %v, want 5s", cfg.graceWindow)
+	if cfg.resolved.graceWindow != 5*time.Second {
+		t.Errorf("graceWindow = %v, want 5s", cfg.resolved.graceWindow)
 	}
-	if cfg.touchDebounce != 5*time.Minute {
-		t.Errorf("touchDebounce = %v, want 5m", cfg.touchDebounce)
+	if cfg.resolved.touchDebounce != 5*time.Minute {
+		t.Errorf("touchDebounce = %v, want 5m", cfg.resolved.touchDebounce)
 	}
 }
 
@@ -147,9 +147,9 @@ func TestDefaults_SessionExplicitZeroMeansOff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.graceWindow != 0 || cfg.touchDebounce != 0 {
+	if cfg.resolved.graceWindow != 0 || cfg.resolved.touchDebounce != 0 {
 		t.Errorf("Duration(0) must turn the feature off, got grace=%v debounce=%v",
-			cfg.graceWindow, cfg.touchDebounce)
+			cfg.resolved.graceWindow, cfg.resolved.touchDebounce)
 	}
 }
 
@@ -169,11 +169,11 @@ func TestDefaults_SessionNilLeavesDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.graceWindow != 5*time.Second {
-		t.Errorf("graceWindow = %v, want the 5s default (nil must not mean off)", cfg.graceWindow)
+	if cfg.resolved.graceWindow != 5*time.Second {
+		t.Errorf("graceWindow = %v, want the 5s default (nil must not mean off)", cfg.resolved.graceWindow)
 	}
-	if cfg.touchDebounce != 5*time.Minute {
-		t.Errorf("touchDebounce = %v, want the 5m default (nil must not mean off)", cfg.touchDebounce)
+	if cfg.resolved.touchDebounce != 5*time.Minute {
+		t.Errorf("touchDebounce = %v, want the 5m default (nil must not mean off)", cfg.resolved.touchDebounce)
 	}
 }
 
@@ -259,8 +259,8 @@ func TestCookieSecure_Resolution(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if cfg.cookieSecure != tt.want {
-				t.Errorf("cookieSecure = %v, want %v", cfg.cookieSecure, tt.want)
+			if cfg.resolved.cookieSecure != tt.want {
+				t.Errorf("cookieSecure = %v, want %v", cfg.resolved.cookieSecure, tt.want)
 			}
 		})
 	}
@@ -284,14 +284,23 @@ func TestValidate_RejectsNegativeSessionDurations(t *testing.T) {
 	// A hand-built config with a negative value must be rejected by
 	// validate, regardless of how it got there.
 	cfg := Config{
-		appName: "Test", baseURL: "https://example.com", environment: EnvironmentProd,
-		sessionTTL: time.Hour, sessionIdleTTL: time.Hour, refreshTokenTTL: time.Hour,
-		tokenTTL: time.Hour, cookie: CookieConfig{Name: "s"},
-		allowedOrigins: []string{"https://example.com"},
-		database:       DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
-		secret:         "0123456789abcdef0123456789abcdef",
-		registration:   RegistrationConfig{InviteTTL: time.Hour, VerificationCodeTTL: time.Hour},
-		maxLifetime:    -time.Hour,
+		app: AppConfig{
+			Name:        "Test",
+			BaseURL:     "https://example.com",
+			Environment: EnvironmentProd,
+			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
+		},
+		session: SessionConfig{
+			TTL:             time.Hour,
+			IdleTTL:         time.Hour,
+			RefreshTokenTTL: time.Hour,
+			TokenTTL:        time.Hour,
+			MaxLifetime:     -time.Hour,
+		},
+		cookie:       CookieConfig{Name: "s"},
+		security:     SecurityConfig{AllowedOrigins: []string{"https://example.com"}},
+		secret:       "0123456789abcdef0123456789abcdef",
+		registration: RegistrationConfig{InviteTTL: time.Hour, VerificationCodeTTL: time.Hour},
 	}
 	if err := cfg.validate(); err == nil {
 		t.Fatal("expected error for negative max_lifetime")
@@ -342,8 +351,8 @@ func TestAllowHTTPURLs_Resolution(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if cfg.allowHTTPURLs != tt.want {
-				t.Errorf("allowHTTPURLs = %v, want %v", cfg.allowHTTPURLs, tt.want)
+			if cfg.resolved.allowHTTPURLs != tt.want {
+				t.Errorf("allowHTTPURLs = %v, want %v", cfg.resolved.allowHTTPURLs, tt.want)
 			}
 		})
 	}
@@ -364,7 +373,7 @@ func TestDefaults_DevImpliesAllowHTTPURLs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.allowHTTPURLs {
+	if !cfg.resolved.allowHTTPURLs {
 		t.Error("dev environment must permit http:// links regardless of transport")
 	}
 }
@@ -378,10 +387,8 @@ func TestDefaults_NoMailerOK_WhenNoEmailFeatureNeedsOne(t *testing.T) {
 			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 		}),
 		WithSecret("0123456789abcdef0123456789abcdef"),
-		WithSecurity(SecurityConfig{
-			AllowedOrigins:        []string{"https://example.com"},
-			DisableAdminTwoFactor: true,
-		}),
+		WithSecurity(SecurityConfig{AllowedOrigins: []string{"https://example.com"}}),
+		WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: true}),
 		// No WithMailer/WithEmail, no RequireEmailVerification/EnableInvite/
 		// RequireEmail2FA/DefaultTwoFactorEnabled — an API-only deployment.
 	)
@@ -419,10 +426,8 @@ func TestDefaults_NoMailerFails_WhenEnableInviteOn(t *testing.T) {
 			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 		}),
 		WithSecret("0123456789abcdef0123456789abcdef"),
-		WithSecurity(SecurityConfig{
-			AllowedOrigins:        []string{"https://example.com"},
-			DisableAdminTwoFactor: true,
-		}),
+		WithSecurity(SecurityConfig{AllowedOrigins: []string{"https://example.com"}}),
+		WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: true}),
 		WithRegistration(RegistrationConfig{EnableEmailPassword: true, EnableInvite: true}),
 	)
 	if err == nil {
@@ -492,13 +497,13 @@ func TestCSRFToken_OnByDefault(t *testing.T) {
 	// "build one with defaults", not "off".
 	a := buildAuth(t, minimalOpts()...)
 	defer a.Close()
-	if a.cfg.csrfToken == nil {
+	if a.cfg.security.CSRFToken == nil {
 		t.Fatal("double-submit token layer must be on by default")
 	}
-	if a.cfg.csrfToken.CookieName != "_csrf" || a.cfg.csrfToken.HeaderName != "X-CSRF-Token" {
-		t.Errorf("unexpected auto-created config: %+v", a.cfg.csrfToken)
+	if a.cfg.security.CSRFToken.CookieName != "_csrf" || a.cfg.security.CSRFToken.HeaderName != "X-CSRF-Token" {
+		t.Errorf("unexpected auto-created config: %+v", a.cfg.security.CSRFToken)
 	}
-	if len(a.cfg.csrfToken.Secret) == 0 {
+	if len(a.cfg.security.CSRFToken.Secret) == 0 {
 		t.Error("signing secret was not derived into the token config")
 	}
 }
@@ -509,7 +514,7 @@ func TestCSRFToken_Disable(t *testing.T) {
 		DisableCSRFToken: true,
 	}))...)
 	defer a.Close()
-	if a.cfg.csrfToken != nil {
+	if a.cfg.security.CSRFToken != nil {
 		t.Fatal("DisableCSRFToken must leave csrfToken nil so the middleware passes through")
 	}
 }

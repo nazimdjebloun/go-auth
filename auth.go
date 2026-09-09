@@ -28,6 +28,11 @@ type Auth struct {
 	Services Services
 	Handlers HandlerGroup
 
+	// cookies is the resolved session/refresh cookie scope, built once in
+	// New() via cookiesFromSession. Facade helpers and all wiring read it —
+	// nothing pulls cookie names off the session service at request time.
+	cookies middleware.CookieSettings
+
 	authMW      func(http.Handler) http.Handler
 	adminMW     func(http.Handler) http.Handler
 	rateLimitMW func(http.Handler) http.Handler
@@ -52,24 +57,24 @@ type Auth struct {
 }
 
 type Services struct {
-	Auth      *service.AuthService
-	Password  *service.PasswordService
-	Session   *service.SessionService
-	Verify    *service.VerificationService
-	Invite    *service.InviteService
-	Admin     *service.AdminService
-	OAuth     *service.OAuthService
-	Org       *service.OrgService
-	OrgInvite *service.OrgInviteService
-	TwoFactor *service.TwoFactorService
+	Auth      *AuthService
+	Password  *PasswordService
+	Session   *SessionService
+	Verify    *VerificationService
+	Invite    *InviteService
+	Admin     *AdminService
+	OAuth     *OAuthService
+	Org       *OrgService
+	OrgInvite *OrgInviteService
+	TwoFactor *TwoFactorService
 	AuditLog  port.AuditLogRepository
 }
 
 // New builds the Auth instance from a config produced by NewConfig(opts...)
 // — the only supported way to configure go-auth. NewConfig is what runs
 // validate() (required fields, secret length, origin policy, rate-limit
-// settings, and everything else in config.validate()); the config type
-// itself is unexported, so there is no way to construct one any other way.
+// settings, and everything else in config.validate()); Config's fields are
+// unexported, so NewConfig is the only way to build one New() accepts.
 // The validated check below is belt-and-suspenders defense in depth against
 // silently proceeding with unvalidated — and in the case of an empty
 // secret, cryptographically unsafe — settings.
@@ -77,19 +82,20 @@ func New(in *Config) (*Auth, error) {
 	if in == nil {
 		return nil, fmt.Errorf("goauth: nil config — build one with goauth.NewConfig(goauth.WithApp(...), ...)")
 	}
-	// Work on a copy: New resolves defaults onto the config it is given
-	// (CSRF cookie scope, database.opened), and a caller reusing one Config
-	// for two Auth instances must not see the first one's resolutions.
-	cfg := *in
-	if !cfg.validated {
+	// Work on a deep copy: New resolves defaults onto the config it is given
+	// (CSRF cookie scope, database.opened, rate-limit logger), and a caller
+	// reusing one Config for two Auth instances must not see the first one's
+	// resolutions. clone shares only live objects the consumer owns.
+	cfg := in.clone()
+	if !cfg.resolved.validated {
 		return nil, fmt.Errorf(
 			"goauth: config was not built via NewConfig(opts...) — " +
 				"construct it with goauth.NewConfig(goauth.WithApp(...), ...) so " +
 				"required fields and security settings are validated",
 		)
 	}
-	if cfg.environment.normalize() == EnvironmentDev && cfg.logger != nil {
-		cfg.logger.Warn("goauth: running in dev environment", "cookie_secure", cfg.cookieSecure)
+	if cfg.app.Environment.normalize() == EnvironmentDev && cfg.logger != nil {
+		cfg.logger.Warn("goauth: running in dev environment", "cookie_secure", cfg.resolved.cookieSecure)
 	}
 
 	// Derive all cryptographic keys from the single application secret.
@@ -137,10 +143,10 @@ func New(in *Config) (*Auth, error) {
 	auditSvc, auditPub := startAuditService(&cfg, sqlDB)
 
 	commonCfg := service.CommonConfig{
-		AppName:    cfg.appName,
-		BaseURL:    cfg.baseURL,
-		SessionTTL: cfg.sessionTTL,
-		TokenTTL:   cfg.tokenTTL,
+		AppName:    cfg.app.Name,
+		BaseURL:    cfg.app.BaseURL,
+		SessionTTL: cfg.session.TTL,
+		TokenTTL:   cfg.session.TokenTTL,
 		Logger:     cfg.logger,
 		Audit:      auditPub,
 	}
@@ -154,21 +160,22 @@ func New(in *Config) (*Auth, error) {
 		RequireEmailVerification:   cfg.registration.RequireEmailVerification,
 		InviteTTL:                  cfg.registration.InviteTTL,
 		VerificationCodeTTL:        cfg.registration.VerificationCodeTTL,
-		VerificationResendInterval: cfg.verificationResendInterval,
-		PasswordPolicy:             cfg.passwordPolicy,
+		VerificationResendInterval: cfg.registration.VerificationResendInterval,
+		PasswordPolicy:             cfg.security.PasswordPolicy,
 		TemplateProvider:           templateProvider,
 		URLValidator:               urlValidator,
 
-		RequireEmail2FA:                  cfg.requireEmail2FA,
-		DefaultTwoFactorEnabled:          cfg.defaultTwoFactorEnabled,
-		TwoFactorCodeTTL:                 cfg.twoFactorCodeTTL,
+		RequireEmail2FA:                  cfg.twoFactor.RequireEmail2FA,
+		DefaultTwoFactorEnabled:          cfg.twoFactor.DefaultEnabled,
+		TwoFactorCodeTTL:                 cfg.twoFactor.CodeTTL,
 		TwoFactorBindingKey:              keys.TwoFactor,
-		DisableTwoFactorChallengeBinding: cfg.disableTwoFactorChallengeBinding,
-		TwoFactorChallengeCookieName:     cfg.twoFactorChallengeCookieName,
-		DisableAdminTwoFactor:            cfg.disableAdminTwoFactor,
+		DisableTwoFactorChallengeBinding: cfg.twoFactor.DisableChallengeBinding,
+		TwoFactorChallengeCookieName:     cfg.twoFactor.ChallengeCookieName,
+		DisableAdminTwoFactor:            cfg.twoFactor.DisableAdminTwoFactor,
 	}
 
 	sessionCfg := buildSessionConfig(&cfg, auditPub)
+	cookies := cookiesFromSession(sessionCfg)
 
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
 
@@ -238,8 +245,8 @@ func New(in *Config) (*Auth, error) {
 		orgInviteSvc = service.NewOrgInviteService(orgInviteRepo, orgRepo, userRepo, sqlDB, genImpl, mailer, service.OrgInviteServiceConfig{
 			MaxOrgsPerUser:   cfg.organizations.MaxOrgsPerUser,
 			InviteTTL:        cfg.organizations.InviteTTL,
-			BaseURL:          cfg.baseURL,
-			AppName:          cfg.appName,
+			BaseURL:          cfg.app.BaseURL,
+			AppName:          cfg.app.Name,
 			TemplateProvider: templateProvider,
 			URLValidator:     urlValidator,
 			Logger:           cfg.logger,
@@ -272,12 +279,12 @@ func New(in *Config) (*Auth, error) {
 		OrgInvite: orgInviteSvc,
 		TwoFactor: twoFactorSvc,
 		AuditLog:  auditLogRepo,
-	}, cfg.logger, cfg.csrfToken, clientIPCfg)
+	}, cfg.logger, cfg.security.CSRFToken, clientIPCfg, cookies)
 
-	// OAuth handlers (separate because they need baseURL and session service for cookies)
-	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, sessSvc, cfg.baseURL, cfg.csrfToken, clientIPCfg, cfg.logger)
+	// OAuth handlers (separate because they need baseURL for redirects).
+	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, cfg.app.BaseURL, cfg.security.CSRFToken, clientIPCfg, cookies, cfg.logger)
 
-	authMW := middleware.AuthMiddleware(sessSvc, userRepo, cfg.logger)
+	authMW := middleware.AuthMiddleware(sessSvc, cookies, userRepo, cfg.logger)
 	adminMW := middleware.RequireRole(domain.RoleAdmin, cfg.logger)
 	var trustedIPs []string
 	if cfg.rateLimit != nil {
@@ -296,9 +303,9 @@ func New(in *Config) (*Auth, error) {
 		}
 	}
 	rateLimitMW := middleware.RateLimit(cfg.rateLimit)
-	csrfMW := middleware.OriginCheck(cfg.allowedOrigins, cfg.allowMissingCSRFHeaders, trustedIPs, cfg.logger)
-	csrfTokenMW := middleware.CSRFToken(cfg.csrfToken)
-	corsMW := middleware.CORS(cfg.allowedOrigins)
+	csrfMW := middleware.OriginCheck(cfg.security.AllowedOrigins, cfg.security.AllowMissingCSRFHeaders, trustedIPs, cfg.logger)
+	csrfTokenMW := middleware.CSRFToken(cfg.security.CSRFToken)
+	corsMW := middleware.CORS(cfg.security.AllowedOrigins)
 
 	// Org authorization: orgMemberMW verifies the authenticated user is a
 	// member of the {orgID} path segment; orgAdminMW/orgOwnerMW additionally
@@ -321,6 +328,7 @@ func New(in *Config) (*Auth, error) {
 		cfg:              cfg,
 		pool:             pool,
 		db:               sqlDB,
+		cookies:          cookies,
 		authMW:           authMW,
 		adminMW:          adminMW,
 		rateLimitMW:      rateLimitMW,
@@ -480,7 +488,7 @@ func (a *Auth) Close() {
 	// Only close a rate-limit Store this library constructed itself (the
 	// default path, never touched by WithRateLimitStore/WithRateLimit) — a
 	// consumer-supplied Store is a live object the consumer owns.
-	if !a.cfg.rateLimitStoreExplicit && a.cfg.rateLimit != nil {
+	if !a.cfg.set.rateLimitStore && a.cfg.rateLimit != nil {
 		if closer, ok := a.cfg.rateLimit.Store.(ratelimit.StoreCloser); ok {
 			closer.Close()
 		}
@@ -489,10 +497,10 @@ func (a *Auth) Close() {
 	if closer, ok := a.twoFactorStore.(ratelimit.StoreCloser); ok {
 		closer.Close()
 	}
-	if a.cfg.database.poolOpened && a.pool != nil {
+	if a.cfg.app.Database.poolOpened && a.pool != nil {
 		a.pool.Close()
 	}
-	if a.cfg.database.opened && a.db != nil {
+	if a.cfg.app.Database.opened && a.db != nil {
 		a.db.Close()
 	}
 }

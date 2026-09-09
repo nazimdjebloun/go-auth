@@ -14,24 +14,26 @@ import (
 
 type OAuthHandlers struct {
 	oauth        *service.OAuthService
-	session      *service.SessionService
 	baseURL      string
 	csrfTokenCfg *middleware.CSRFTokenConfig
+	// cookies is the resolved session/refresh cookie scope, pushed at
+	// construction like Handler.cookies — see handler.go.
+	cookies middleware.CookieSettings
 	// clientIP — see Handler.clientIP.
 	clientIP middleware.ClientIPConfig
 	log      *slog.Logger
 }
 
-func NewOAuthHandlers(oauth *service.OAuthService, session *service.SessionService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig, logger *slog.Logger) *OAuthHandlers {
+func NewOAuthHandlers(oauth *service.OAuthService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig, cookies middleware.CookieSettings, logger *slog.Logger) *OAuthHandlers {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &OAuthHandlers{
 		oauth:        oauth,
-		session:      session,
 		baseURL:      baseURL,
 		csrfTokenCfg: csrfTokenCfg,
 		clientIP:     clientIP,
+		cookies:      cookies,
 		log:          logger,
 	}
 }
@@ -127,8 +129,8 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 // then redirects via JS. This is needed because Set-Cookie headers on cross-origin
 // 302 redirects are unreliable in some browsers.
 func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, sessionToken, refreshToken, redirectURL string) {
-	middleware.SetSessionCookie(w, sessionCookies(h.session.Config()), sessionToken)
-	middleware.SetRefreshCookie(w, sessionCookies(h.session.Config()), refreshToken)
+	middleware.SetSessionCookie(w, h.cookies, sessionToken)
+	middleware.SetRefreshCookie(w, h.cookies, refreshToken)
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'")

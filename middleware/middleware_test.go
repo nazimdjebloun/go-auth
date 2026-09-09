@@ -513,7 +513,7 @@ func TestAuthMiddleware_MissingCookie(t *testing.T) {
 	sessCfg := service.DefaultSessionConfig()
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	handler := AuthMiddleware(sessSvc, users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -550,7 +550,7 @@ func TestAuthMiddleware_ExpiredSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -578,7 +578,7 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	sessCfg := service.DefaultSessionConfig()
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	handler := AuthMiddleware(sessSvc, users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -615,7 +615,7 @@ func TestAuthMiddleware_BannedUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -654,7 +654,7 @@ func TestAuthMiddleware_DeletedUser(t *testing.T) {
 
 	users.Delete(t.Context(), "user-1")
 
-	handler := AuthMiddleware(sessSvc, users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -691,7 +691,7 @@ func TestRequireRole_CorrectRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, users, nil)(RequireRole(domain.RoleAdmin, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(RequireRole(domain.RoleAdmin, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})))
 
@@ -723,7 +723,7 @@ func TestRequireRole_WrongRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, users, nil)(RequireRole(domain.RoleAdmin, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(RequireRole(domain.RoleAdmin, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("inner handler should not be called")
 	})))
 
@@ -763,7 +763,7 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s := GetSessionFromContext(r.Context())
 		if s == nil {
 			t.Fatal("expected session in context")
@@ -836,7 +836,7 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 		shortCfg.RefreshTTL = 60 * time.Minute
 		shortCfg.IdleTTL = 0
 		shortSessSvc := service.NewSessionService(sessions, gen, shortCfg)
-		shortHandler := AuthMiddleware(shortSessSvc, users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		shortHandler := AuthMiddleware(shortSessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
@@ -898,7 +898,7 @@ func TestAuthMiddleware_MissingCookieLogsDebug(t *testing.T) {
 	sessCfg := service.DefaultSessionConfig()
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	handler := AuthMiddleware(sessSvc, users, logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -937,7 +937,7 @@ func TestAuthMiddleware_BannedUserLogsWarn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, users, logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 

@@ -10,8 +10,7 @@ import (
 
 // POST /auth/refresh
 func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
-	cfg := h.services.Session.Config()
-	cookie, err := r.Cookie(cfg.RefreshCookieName)
+	cookie, err := r.Cookie(h.cookies.RefreshName)
 	if err != nil || cookie.Value == "" {
 		h.writeError(w, domain.NewError("invalid_refresh", "No refresh token provided"))
 		return
@@ -19,14 +18,14 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	refreshResult, err := h.services.Session.RefreshSession(r.Context(), cookie.Value)
 	if err != nil {
-		middleware.ClearSessionCookie(w, sessionCookies(h.services.Session.Config()))
-		middleware.ClearRefreshCookie(w, sessionCookies(h.services.Session.Config()))
+		middleware.ClearSessionCookie(w, h.cookies)
+		middleware.ClearRefreshCookie(w, h.cookies)
 		h.writeError(w, err)
 		return
 	}
 
-	middleware.SetSessionCookie(w, sessionCookies(h.services.Session.Config()), refreshResult.SessionToken)
-	middleware.SetRefreshCookie(w, sessionCookies(h.services.Session.Config()), refreshResult.RefreshToken)
+	middleware.SetSessionCookie(w, h.cookies, refreshResult.SessionToken)
+	middleware.SetRefreshCookie(w, h.cookies, refreshResult.RefreshToken)
 	// The session goes out verbatim, like every other endpoint that returns
 	// one. The hand-built subset this replaces renamed lastActiveAt to
 	// lastActive and omitted activeOrgId/activeOrgRole, so a client that

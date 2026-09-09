@@ -45,28 +45,28 @@ func (c *Config) validate() error {
 
 func (c *Config) validateApp() []error {
 	var errs []error
-	if c.appName == "" {
+	if c.app.Name == "" {
 		errs = append(errs, errors.New("app_name cannot be empty"))
 	}
-	if c.baseURL == "" {
+	if c.app.BaseURL == "" {
 		errs = append(errs, errors.New("base_url is required"))
-	} else if parsedURL, err := url.Parse(c.baseURL); err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+	} else if parsedURL, err := url.Parse(c.app.BaseURL); err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
 		errs = append(errs, errors.New("base_url must be a valid HTTP or HTTPS URL"))
 	}
-	switch c.environment.normalize() {
+	switch c.app.Environment.normalize() {
 	case EnvironmentDev, EnvironmentStaging, EnvironmentProd:
 	default:
-		errs = append(errs, fmt.Errorf("environment must be one of dev, staging, or prod, got %q", c.environment))
+		errs = append(errs, fmt.Errorf("environment must be one of dev, staging, or prod, got %q", c.app.Environment))
 	}
 	return errs
 }
 
 func (c *Config) validateDatabase() []error {
 	var errs []error
-	if c.database.Driver == "" {
+	if c.app.Database.Driver == "" {
 		errs = append(errs, errors.New("database: driver cannot be empty"))
 	}
-	if c.database.URL == "" && c.database.DB == nil && c.database.Pool == nil {
+	if c.app.Database.URL == "" && c.app.Database.DB == nil && c.app.Database.Pool == nil {
 		errs = append(errs, errors.New("database: one of URL, DB, or Pool is required"))
 	}
 	return errs
@@ -74,35 +74,38 @@ func (c *Config) validateDatabase() []error {
 
 func (c *Config) validateSession() []error {
 	var errs []error
-	if c.sessionTTL <= 0 {
+	if c.session.TTL <= 0 {
 		errs = append(errs, errors.New("session_ttl must be positive"))
 	}
-	if c.sessionIdleTTL <= 0 {
+	if c.session.IdleTTL <= 0 {
 		errs = append(errs, errors.New("session_idle_ttl must be positive"))
 	}
-	if c.sessionIdleTTL > c.sessionTTL {
+	if c.session.IdleTTL > c.session.TTL {
 		errs = append(errs, errors.New("session_idle_ttl must not exceed session_ttl"))
 	}
-	if c.refreshTokenTTL <= 0 {
+	if c.session.RefreshTokenTTL <= 0 {
 		errs = append(errs, errors.New("refresh_token_ttl must be positive"))
 	}
-	if c.refreshTokenTTL < c.sessionTTL {
+	if c.session.RefreshTokenTTL < c.session.TTL {
 		errs = append(errs, errors.New("refresh_token_ttl must not be less than session_ttl"))
 	}
 	// A resolved value can only be negative here if the consumer explicitly
 	// set GraceWindow/TouchDebounce to a negative *time.Duration — nil
 	// (unset) resolves to the positive default, and 0 (off) is never
 	// negative, so there's no "meant to disable it" case to special-case.
-	if c.graceWindow < 0 {
+	if c.resolved.graceWindow < 0 {
 		errs = append(errs, errors.New("session grace_window must not be negative (use goauth.Duration(0) to turn it off)"))
 	}
-	if c.touchDebounce < 0 {
+	if c.resolved.touchDebounce < 0 {
 		errs = append(errs, errors.New("session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)"))
 	}
-	if c.maxLifetime < 0 {
+	if c.session.MaxLifetime < 0 {
 		errs = append(errs, errors.New("session max_lifetime must not be negative (0 = no limit)"))
-	} else if c.maxLifetime > 0 && c.maxLifetime < c.sessionTTL {
+	} else if c.session.MaxLifetime > 0 && c.session.MaxLifetime < c.session.TTL {
 		errs = append(errs, errors.New("session max_lifetime must not be less than session_ttl"))
+	}
+	if c.session.TokenTTL <= 0 {
+		errs = append(errs, errors.New("session token_ttl must be positive"))
 	}
 	return errs
 }
@@ -122,13 +125,10 @@ func (c *Config) validateSecurity() []error {
 	} else if len(c.secret) < 32 {
 		errs = append(errs, errors.New("secret: signing secret must be at least 32 bytes for HMAC-SHA256"))
 	}
-	if c.tokenTTL <= 0 {
-		errs = append(errs, errors.New("token_ttl must be positive"))
-	}
-	if len(c.allowedOrigins) == 0 {
+	if len(c.security.AllowedOrigins) == 0 {
 		errs = append(errs, errors.New("allowed_origins must include at least one origin"))
 	}
-	for _, o := range c.allowedOrigins {
+	for _, o := range c.security.AllowedOrigins {
 		if o == "*" {
 			errs = append(errs, errors.New("allowed_origins must not contain \"*\" — this disables CSRF protection; list specific origins instead"))
 		}
@@ -138,8 +138,8 @@ func (c *Config) validateSecurity() []error {
 
 func (c *Config) validateTwoFactor() []error {
 	var errs []error
-	if c.twoFactorCodeTTL <= 0 {
-		errs = append(errs, errors.New("security: two_factor_code_ttl must be positive"))
+	if c.twoFactor.CodeTTL <= 0 {
+		errs = append(errs, errors.New("two_factor: code_ttl must be positive"))
 	}
 	return errs
 }
@@ -264,7 +264,7 @@ func (c *Config) validateCoherence() []error {
 	// Both CSRF layers off at once. Either alone is a supported posture; the
 	// pair means a cross-site request with no Origin/Referer and no token is
 	// accepted.
-	if c.disableCSRFToken && c.allowMissingCSRFHeaders {
+	if c.security.DisableCSRFToken && c.security.AllowMissingCSRFHeaders {
 		errs = append(errs, errors.New(
 			"security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set — "+
 				"a cross-site request with no Origin/Referer and no token would pass; keep one of the two layers"))
@@ -275,14 +275,14 @@ func (c *Config) validateCoherence() []error {
 	// produces no session at all, from the first request, with nothing in the
 	// server logs to explain why. Catching it here beats debugging it as
 	// "login succeeds but the user is never logged in".
-	if c.cookie.SameSite == http.SameSiteNoneMode && !c.cookieSecure {
+	if c.cookie.SameSite == http.SameSiteNoneMode && !c.resolved.cookieSecure {
 		errs = append(errs, errors.New("cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()"))
 	}
 
 	// The log mailer writes codes and reset links to the application log
 	// instead of delivering them, which is a development convenience and a
 	// credential leak anywhere else.
-	if _, isLog := c.mailer.(*mailer.Log); isLog && c.environment.normalize() != EnvironmentDev {
+	if _, isLog := c.mailer.(*mailer.Log); isLog && c.app.Environment.normalize() != EnvironmentDev {
 		errs = append(errs, errors.New("mailer: mailer.Log cannot be used outside EnvironmentDev — codes and reset links would be written to application logs instead of delivered"))
 	}
 
@@ -300,8 +300,8 @@ func (c *Config) validateCoherence() []error {
 	// Options that gate a path no enabled feature can reach. Each is a no-op
 	// rather than a danger, but a consumer who set one believes it is doing
 	// something.
-	if c.requireEmail2FA && !c.registration.EnableEmailPassword {
-		errs = append(errs, errors.New("security: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path"))
+	if c.twoFactor.RequireEmail2FA && !c.registration.EnableEmailPassword {
+		errs = append(errs, errors.New("two_factor: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path"))
 	}
 	if c.registration.RequireEmailVerification && !c.registration.EnableEmailPassword && !c.registration.EnableOAuth {
 		errs = append(errs, errors.New("registration: RequireEmailVerification has no effect when both EnableEmailPassword and EnableOAuth are disabled"))
@@ -332,13 +332,13 @@ func (c *Config) mailerReasons() []string {
 	if c.registration.RequireEmailVerification {
 		reasons = append(reasons, "RequireEmailVerification")
 	}
-	if c.requireEmail2FA {
+	if c.twoFactor.RequireEmail2FA {
 		reasons = append(reasons, "RequireEmail2FA")
 	}
-	if c.defaultTwoFactorEnabled {
-		reasons = append(reasons, "DefaultTwoFactorEnabled")
+	if c.twoFactor.DefaultEnabled {
+		reasons = append(reasons, "DefaultEnabled")
 	}
-	if !c.disableAdminTwoFactor {
+	if !c.twoFactor.DisableAdminTwoFactor {
 		reasons = append(reasons, "AdminLogin two-factor (set DisableAdminTwoFactor to opt out)")
 	}
 	return reasons

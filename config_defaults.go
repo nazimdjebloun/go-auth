@@ -37,18 +37,18 @@ func defaultRegistration() RegistrationConfig {
 // minimum), and every bool, which is why sections whose defaults include a
 // true bool are tracked with a *Set flag instead.
 func (c *Config) applyDefaults() {
-	if c.environment == "" {
-		c.environment = EnvironmentProd
+	if c.app.Environment == "" {
+		c.app.Environment = EnvironmentProd
 	}
 
 	// In dev, an unconfigured mailer defaults to the log driver instead of
 	// silently no-oping every send — but only when neither WithMailer nor
 	// WithEmail was called; an explicit choice is never overridden.
-	if c.mailer == nil && c.email == nil && c.environment.normalize() == EnvironmentDev {
+	if c.mailer == nil && c.email == nil && c.app.Environment.normalize() == EnvironmentDev {
 		c.mailer = mailer.NewLog(c.logger)
 	}
 
-	if !c.registrationSet {
+	if !c.set.registration {
 		c.registration = defaultRegistration()
 	}
 	if c.registration.InviteTTL == 0 {
@@ -61,41 +61,41 @@ func (c *Config) applyDefaults() {
 		c.organizations.InviteTTL = 7 * 24 * time.Hour
 	}
 
-	if c.sessionTTL == 0 {
-		c.sessionTTL = 30 * 24 * time.Hour
+	if c.session.TTL == 0 {
+		c.session.TTL = 30 * 24 * time.Hour
 	}
-	if c.sessionIdleTTL == 0 {
-		c.sessionIdleTTL = 7 * 24 * time.Hour
+	if c.session.IdleTTL == 0 {
+		c.session.IdleTTL = 7 * 24 * time.Hour
 	}
-	if c.refreshTokenTTL == 0 {
-		c.refreshTokenTTL = 30 * 24 * time.Hour
+	if c.session.RefreshTokenTTL == 0 {
+		c.session.RefreshTokenTTL = 30 * 24 * time.Hour
 	}
 	// nil means "left unset" — apply the default. A non-nil pointer is used
 	// exactly as given, including *0 to mean "off"; a negative value is
 	// left as-is here for validate() to reject rather than silently
 	// normalized to anything.
-	if c.graceWindowOpt != nil {
-		c.graceWindow = *c.graceWindowOpt
+	if c.session.GraceWindow != nil {
+		c.resolved.graceWindow = *c.session.GraceWindow
 	} else {
-		c.graceWindow = 5 * time.Second
+		c.resolved.graceWindow = 5 * time.Second
 	}
-	if c.touchDebounceOpt != nil {
-		c.touchDebounce = *c.touchDebounceOpt
+	if c.session.TouchDebounce != nil {
+		c.resolved.touchDebounce = *c.session.TouchDebounce
 	} else {
-		c.touchDebounce = 5 * time.Minute
+		c.resolved.touchDebounce = 5 * time.Minute
 	}
-	if c.tokenTTL == 0 {
-		c.tokenTTL = 1 * time.Hour
+	if c.session.TokenTTL == 0 {
+		c.session.TokenTTL = 1 * time.Hour
 	}
-	if c.twoFactorCodeTTL == 0 {
-		c.twoFactorCodeTTL = 5 * time.Minute
+	if c.twoFactor.CodeTTL == 0 {
+		c.twoFactor.CodeTTL = 5 * time.Minute
 	}
-	if c.twoFactorChallengeCookieName == "" {
-		c.twoFactorChallengeCookieName = "_2fa_challenge"
+	if c.twoFactor.ChallengeCookieName == "" {
+		c.twoFactor.ChallengeCookieName = "_2fa_challenge"
 	}
 
-	if c.passwordPolicy == (domain.PasswordPolicy{}) {
-		c.passwordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
+	if c.security.PasswordPolicy == (domain.PasswordPolicy{}) {
+		c.security.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
 	}
 
 	if c.cookie.Name == "" {
@@ -110,7 +110,7 @@ func (c *Config) applyDefaults() {
 	if c.cookie.SameSite == 0 {
 		c.cookie.SameSite = http.SameSiteLaxMode
 	}
-	c.cookieSecure = c.resolveCookieSecure()
+	c.resolved.cookieSecure = c.resolveCookieSecure()
 
 	if c.rateLimit == nil {
 		c.rateLimit = ratelimit.DefaultRateLimitConfig()
@@ -124,20 +124,20 @@ func (c *Config) applyDefaults() {
 	// in-memory default instead of a validation error.
 	if c.rateLimit.Store == nil {
 		c.rateLimit.Store = ratelimit.NewMemoryStore(ratelimit.WithStoreLogger(c.logger))
-		c.rateLimitStoreExplicit = false // we built it, so Close owns it
+		c.set.rateLimitStore = false // we built it, so Close owns it
 	}
 
-	c.allowHTTPURLs = c.resolveAllowHTTPURLs()
+	c.resolved.allowHTTPURLs = c.resolveAllowHTTPURLs()
 }
 
 // resolveAllowHTTPURLs honours an explicit SecurityConfig.AllowHTTPURLs and
 // otherwise derives it: http:// links are acceptable in a dev environment and
 // refused everywhere else.
 func (c *Config) resolveAllowHTTPURLs() bool {
-	if c.allowHTTPURLsOpt != nil {
-		return *c.allowHTTPURLsOpt
+	if c.security.AllowHTTPURLs != nil {
+		return *c.security.AllowHTTPURLs
 	}
-	return c.environment.normalize() == EnvironmentDev
+	return c.app.Environment.normalize() == EnvironmentDev
 }
 
 // resolveCookieSecure honours an explicit CookieConfig.Secure and otherwise
@@ -146,10 +146,10 @@ func (c *Config) resolveCookieSecure() bool {
 	if c.cookie.Secure != nil {
 		return *c.cookie.Secure
 	}
-	if c.environment.normalize() != EnvironmentDev {
+	if c.app.Environment.normalize() != EnvironmentDev {
 		return true
 	}
-	parsed, err := url.Parse(c.baseURL)
+	parsed, err := url.Parse(c.app.BaseURL)
 	if err != nil {
 		return true
 	}

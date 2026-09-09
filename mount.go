@@ -34,7 +34,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	// route go-auth owns — never a catch-all — so preflight requests for paths
 	// go-auth does not own (including a consumer's own routes on a shared mux)
 	// still get a normal 404/405 and never reach the CORS layer.
-	preflight := len(a.cfg.allowedOrigins) > 0
+	preflight := len(a.cfg.security.AllowedOrigins) > 0
 	preflightPaths := make(map[string]bool)
 	handle := func(pattern string, h http.Handler) {
 		mux.Handle(pattern, h)

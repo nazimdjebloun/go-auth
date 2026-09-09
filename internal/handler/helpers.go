@@ -9,8 +9,6 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/httperr"
-	"github.com/nazimdjebloun/go-auth/internal/service"
-	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
 const maxBodySize = 1 << 16 // 64 KB
@@ -24,15 +22,14 @@ func (h *Handler) setTwoFactorBindingCookie(w http.ResponseWriter, token string)
 	if h.services.TwoFactor == nil || h.services.TwoFactor.BindingDisabled() || token == "" {
 		return
 	}
-	cfg := h.services.Session.Config()
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.services.TwoFactor.CookieName(),
 		Value:    token,
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
+		Domain:   h.cookies.Domain,
+		Path:     h.cookies.Path,
 		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
+		Secure:   h.cookies.Secure,
+		SameSite: http.SameSite(h.cookies.SameSite),
 		MaxAge:   int(h.services.TwoFactor.CookieTTL().Seconds()),
 	})
 }
@@ -41,15 +38,14 @@ func (h *Handler) clearTwoFactorBindingCookie(w http.ResponseWriter) {
 	if h.services.TwoFactor == nil {
 		return
 	}
-	cfg := h.services.Session.Config()
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.services.TwoFactor.CookieName(),
 		Value:    "",
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
+		Domain:   h.cookies.Domain,
+		Path:     h.cookies.Path,
 		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: http.SameSite(cfg.SameSite),
+		Secure:   h.cookies.Secure,
+		SameSite: http.SameSite(h.cookies.SameSite),
 		MaxAge:   -1,
 	})
 }
@@ -180,20 +176,4 @@ func (h *OAuthHandlers) writeJSON(w http.ResponseWriter, status int, v any) {
 
 func (h *OAuthHandlers) writeError(w http.ResponseWriter, err error) {
 	writeErrorTo(h.log, w, err)
-}
-
-// sessionCookies maps the service layer's session config onto the cookie
-// fields middleware writes from. The two shapes are deliberately separate --
-// see middleware.CookieSettings.
-func sessionCookies(cfg service.SessionConfig) middleware.CookieSettings {
-	return middleware.CookieSettings{
-		Name:        cfg.CookieName,
-		RefreshName: cfg.RefreshCookieName,
-		Domain:      cfg.Domain,
-		Path:        cfg.Path,
-		Secure:      cfg.Secure,
-		SameSite:    cfg.SameSite,
-		TTL:         cfg.Duration,
-		RefreshTTL:  cfg.RefreshTTL,
-	}
 }

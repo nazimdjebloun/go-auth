@@ -11,11 +11,7 @@ import (
 // WithApp configures app-level identity settings.
 func WithApp(cfg AppConfig) Option {
 	return func(c *Config) {
-		c.appName = cfg.Name
-		c.baseURL = cfg.BaseURL
-		c.database = cfg.Database
-		c.environment = cfg.Environment
-		c.verificationResendInterval = cfg.VerificationResendInterval
+		c.app = cfg
 	}
 }
 
@@ -46,19 +42,14 @@ func WithMailer(m port.Mailer) Option {
 // the built-in default templates.
 func WithTemplates(p port.TemplateProvider) Option {
 	return func(c *Config) {
-		c.templateProvider = p
+		c.templates = p
 	}
 }
 
 // WithSession groups session lifetime settings.
 func WithSession(cfg SessionConfig) Option {
 	return func(c *Config) {
-		c.sessionTTL = cfg.TTL
-		c.sessionIdleTTL = cfg.IdleTTL
-		c.refreshTokenTTL = cfg.RefreshTokenTTL
-		c.maxLifetime = cfg.MaxLifetime
-		c.graceWindowOpt = cfg.GraceWindow
-		c.touchDebounceOpt = cfg.TouchDebounce
+		c.session = cfg
 	}
 }
 
@@ -72,7 +63,7 @@ func WithSession(cfg SessionConfig) Option {
 func WithRegistration(cfg RegistrationConfig) Option {
 	return func(c *Config) {
 		c.registration = cfg
-		c.registrationSet = true
+		c.set.registration = true
 	}
 }
 
@@ -83,26 +74,29 @@ func WithOrganizations(cfg OrganizationConfig) Option {
 	}
 }
 
-// WithSecurity groups security-related settings. A zero-valued PasswordPolicy
-// or TokenTTL keeps its default — see applyDefaults.
+// WithSecurity groups CSRF, password, and email-link settings. A zero-valued
+// PasswordPolicy keeps its default — see applyDefaults. Two-factor options are
+// separate: see WithTwoFactor.
 func WithSecurity(cfg SecurityConfig) Option {
 	return func(c *Config) {
-		c.allowedOrigins = append([]string(nil), cfg.AllowedOrigins...)
-		c.allowMissingCSRFHeaders = cfg.AllowMissingCSRFHeaders
+		c.security = cfg
+		// AllowedOrigins and CSRFToken are the two reference types in this
+		// section, so they are copied rather than aliased: the consumer keeps
+		// ownership of what they passed, and New() resolves defaults onto
+		// CSRFToken in place.
+		c.security.AllowedOrigins = append([]string(nil), cfg.AllowedOrigins...)
 		if cfg.CSRFToken != nil {
-			tok := *cfg.CSRFToken // copy: do not alias the consumer's struct
-			c.csrfToken = &tok
+			tok := *cfg.CSRFToken
+			c.security.CSRFToken = &tok
 		}
-		c.passwordPolicy = cfg.PasswordPolicy
-		c.tokenTTL = cfg.TokenTTL
-		c.disableCSRFToken = cfg.DisableCSRFToken
-		c.allowHTTPURLsOpt = cfg.AllowHTTPURLs
-		c.requireEmail2FA = cfg.RequireEmail2FA
-		c.defaultTwoFactorEnabled = cfg.DefaultTwoFactorEnabled
-		c.twoFactorCodeTTL = cfg.TwoFactorCodeTTL
-		c.disableTwoFactorChallengeBinding = cfg.DisableTwoFactorChallengeBinding
-		c.twoFactorChallengeCookieName = cfg.TwoFactorChallengeCookieName
-		c.disableAdminTwoFactor = cfg.DisableAdminTwoFactor
+	}
+}
+
+// WithTwoFactor groups the email two-factor settings. A zero-valued CodeTTL or
+// ChallengeCookieName keeps its default — see applyDefaults.
+func WithTwoFactor(cfg TwoFactorConfig) Option {
+	return func(c *Config) {
+		c.twoFactor = cfg
 	}
 }
 
@@ -138,7 +132,7 @@ func WithRateLimit(cfg ratelimit.Config) Option {
 		// Only a Store the consumer actually supplied is theirs to own. A
 		// zero Store here means applyDefaults will build one, and that one
 		// is ours to close.
-		c.rateLimitStoreExplicit = cfg.Store != nil
+		c.set.rateLimitStore = cfg.Store != nil
 	}
 }
 
@@ -182,7 +176,7 @@ func WithRateLimitStore(s ratelimit.Store) Option {
 			c.rateLimit = ratelimit.DefaultRateLimitConfig()
 		}
 		c.rateLimit.Store = s
-		c.rateLimitStoreExplicit = s != nil
+		c.set.rateLimitStore = s != nil
 	}
 }
 

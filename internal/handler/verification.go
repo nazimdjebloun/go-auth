@@ -29,8 +29,8 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, sessionCookies(h.services.Session.Config()), sessResult.SessionToken)
-	middleware.SetRefreshCookie(w, sessionCookies(h.services.Session.Config()), sessResult.RefreshToken)
+	middleware.SetSessionCookie(w, h.cookies, sessResult.SessionToken)
+	middleware.SetRefreshCookie(w, h.cookies, sessResult.RefreshToken)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
 
 	h.writeJSON(w, http.StatusOK, map[string]interface{}{

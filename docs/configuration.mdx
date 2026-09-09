@@ -24,8 +24,7 @@ goauth.WithApp(goauth.AppConfig{
         // Pool: preOpenedPgxPool,         // one of URL / DB / Pool — PostgreSQL only, alternative to URL
         Driver: goauth.DriverPostgres, // required — DriverPostgres | DriverSQLite | DriverMySQL
     },
-    Environment:                goauth.EnvironmentProd, // optional, default EnvironmentProd
-    VerificationResendInterval: 0,                       // optional, default 0 (no minimum)
+    Environment: goauth.EnvironmentProd, // optional, default EnvironmentProd
 })
 ```
 
@@ -35,7 +34,6 @@ goauth.WithApp(goauth.AppConfig{
 | `BaseURL` | `string` | Required | — | Must be a valid `http://` or `https://` URL. Base for links in emails. |
 | `Database` | `DatabaseConfig` | Required | — | See table below. |
 | `Environment` | `Environment` | Optional | `EnvironmentProd` | One of `dev`, `staging`, `prod` (`development`/`production` are accepted as aliases). Drives the cookie `Secure` default and the email-link `http://` default. |
-| `VerificationResendInterval` | `time.Duration` | Optional | `0` — no minimum | Minimum time between verification email resends. |
 
 **`Database` (`DatabaseConfig`)**
 
@@ -74,7 +72,7 @@ goauth.WithSecret(os.Getenv("AUTH_SECRET"))
 
 ## `WithSecurity` — Required (`AllowedOrigins`)
 
-CSRF origin allow-list, password policy, the double-submit CSRF cookie, token TTL, and the `http://` policy for email links.
+CSRF origin allow-list, password policy, the double-submit CSRF cookie, and the `http://` policy for email links.
 
 ```go
 goauth.WithSecurity(goauth.SecurityConfig{
@@ -97,14 +95,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
         RequireDigit:     true,
         RequireSpecial:   false,
     },
-    TokenTTL:      time.Hour,                            // optional, default 1h
     AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(),       // optional, default derived from Environment
-
-    RequireEmail2FA:                  false, // optional, default false — mandatory email 2FA on every password login
-    DefaultTwoFactorEnabled:          false, // optional, default false — seeds User.TwoFactorEnabled at registration
-    TwoFactorCodeTTL:                 5 * time.Minute, // optional, default 5m
-    DisableTwoFactorChallengeBinding: false, // optional, default false — binding cookie stays on
-    TwoFactorChallengeCookieName:     "_2fa_challenge", // optional, default "_2fa_challenge"
 })
 ```
 
@@ -115,13 +106,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
 | `DisableCSRFToken` | `bool` | Optional | `false` — layer is on | Turns off the double-submit cookie layer entirely. Origin/Referer checking still applies and cannot be disabled. |
 | `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only.** Leaving it `nil` does not disable anything — see below. |
 | `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Setting any one field means you're specifying the whole policy — see note below. |
-| `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
 | `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
-| `RequireEmail2FA` | `bool` | Optional | `false` | Makes email 2FA mandatory for every password login (`Login`, `AdminLogin`, `Register`, invite registration). While on, `Enable`/`Disable` both reject — users cannot opt out. OAuth logins are not covered; see [Security](./security.mdx). |
-| `DefaultTwoFactorEnabled` | `bool` | Optional | `false` | Seeds `User.TwoFactorEnabled` at registration (email/password only). Users can still call `Disable` to opt out — use `RequireEmail2FA` if that shouldn't be possible. |
-| `TwoFactorCodeTTL` | `time.Duration` | Optional | `5m` | Lifetime of a 2FA login code. Deliberately shorter than `VerificationCodeTTL`: a 6-digit code has ~20 fewer bits of entropy than the 8-char alphanumeric codes used elsewhere. |
-| `DisableTwoFactorChallengeBinding` | `bool` | Optional | `false` | Turns off the cookie that ties a 2FA challenge to the browser that started it. Spelled as "Disable" so the zero value is the secure one. Intended for CLI/server-to-server consumers with no browser — see [Security](./security.mdx). With it set, the challenge id alone identifies the challenge, so treat it as a secret. |
-| `TwoFactorChallengeCookieName` | `string` | Optional | `_2fa_challenge` | Overrides the binding cookie name. |
 
 `PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default — if you set `RequireUppercase: true` without repeating `MinLength` or `RequireDigit`, those two are no longer applied.
 
@@ -184,8 +169,32 @@ It does not weaken the check. The cookie is still set and still compared server 
 - `CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None` — the reverse: the frontend can read the token but is never sent the session cookie, so everything arrives unauthenticated.
 
 - `cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()` — the pair yields *no* session rather than a weaker one, so this is caught in config instead of surfacing as "login succeeds but never sticks".
-- `security: two_factor_code_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `5m`.
-- `security: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path`.
+- `two_factor: code_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `5m`.
+- `two_factor: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path`.
+
+## `WithTwoFactor` — Optional
+
+Email two-factor settings are separate from CSRF and password policy.
+
+```go
+goauth.WithTwoFactor(goauth.TwoFactorConfig{
+    RequireEmail2FA:       false,             // optional, default false
+    DefaultEnabled:         false,             // optional, default false
+    CodeTTL:                5 * time.Minute,  // optional, default 5m
+    DisableChallengeBinding: false,            // optional, default false
+    ChallengeCookieName:    "_2fa_challenge", // optional, default "_2fa_challenge"
+    DisableAdminTwoFactor:  false,             // optional, default false
+})
+```
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `RequireEmail2FA` | `bool` | `false` | Makes email 2FA mandatory for password login, registration, and invite registration. |
+| `DefaultEnabled` | `bool` | `false` | Seeds `User.TwoFactorEnabled` at registration; users may still opt out. |
+| `CodeTTL` | `time.Duration` | `5m` | Lifetime of a 2FA login code. |
+| `DisableChallengeBinding` | `bool` | `false` | Turns off the browser binding cookie for non-browser consumers. |
+| `ChallengeCookieName` | `string` | `_2fa_challenge` | Overrides the binding cookie name. |
+| `DisableAdminTwoFactor` | `bool` | `false` | Turns off admin login's unconditional second factor. |
 
 ## `WithSession` — Optional
 
@@ -196,6 +205,7 @@ goauth.WithSession(goauth.SessionConfig{
     TTL:             30 * 24 * time.Hour,        // optional, default 30d
     IdleTTL:         7 * 24 * time.Hour,         // optional, default 7d
     RefreshTokenTTL: 30 * 24 * time.Hour,        // optional, default 30d
+    TokenTTL:        time.Hour,                   // optional, default 1h
     MaxLifetime:     0,                          // optional, default 0 (no limit)
     GraceWindow:     goauth.Duration(10 * time.Second), // optional, default 5s
     TouchDebounce:   goauth.Duration(0),          // optional, default 5m — 0 turns it off
@@ -207,6 +217,7 @@ goauth.WithSession(goauth.SessionConfig{
 | `TTL` | `time.Duration` | Optional | `30d` | Absolute hard expiry. |
 | `IdleTTL` | `time.Duration` | Optional | `7d` | Timeout since last activity. Must not exceed `TTL`. |
 | `RefreshTokenTTL` | `time.Duration` | Optional | `30d` | Must not be less than `TTL`. |
+| `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
 | `MaxLifetime` | `time.Duration` | Optional | `0` — no limit | If set, must be `>= TTL`. |
 | `GraceWindow` | `*time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh don't log the user out. `nil` (the zero value — leave the field out) means "use the default"; a non-nil pointer is used exactly as given, including `goauth.Duration(0)` to turn it off. Set it with `goauth.Duration(...)`, since Go can't take the address of a duration literal directly. |
 | `TouchDebounce` | `*time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes. Same `nil`-vs-pointer rule as `GraceWindow`; `goauth.Duration(0)` writes on every authenticated request. |
@@ -220,6 +231,7 @@ goauth.WithSession(goauth.SessionConfig{
 - `session_idle_ttl must not exceed session_ttl`
 - `refresh_token_ttl must be positive`
 - `refresh_token_ttl must not be less than session_ttl`
+- `session token_ttl must be positive` — only reachable via an explicit negative value; an omitted one defaults to `1h`.
 - `session grace_window must not be negative (use goauth.Duration(0) to turn it off)` — hint: you passed a negative duration.
 - `session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)` — same hint.
 - `session max_lifetime must not be negative (0 = no limit)`
@@ -270,6 +282,7 @@ goauth.WithRegistration(goauth.RegistrationConfig{
     RequireEmailVerification: false,                 // optional, default false
     InviteTTL:                7 * 24 * time.Hour,    // optional, default 7d
     VerificationCodeTTL:      15 * time.Minute,      // optional, default 15m
+    VerificationResendInterval: 0,                   // optional, default 0 (no minimum)
 })
 ```
 
@@ -282,12 +295,13 @@ goauth.WithRegistration(goauth.RegistrationConfig{
 | `RequireEmailVerification` | `bool` | Optional | `false` | A mailer is required regardless — see below. |
 | `InviteTTL` | `time.Duration` | Optional | `7d` | |
 | `VerificationCodeTTL` | `time.Duration` | Optional | `15m` | |
+| `VerificationResendInterval` | `time.Duration` | Optional | `0` — no minimum | Minimum time between verification email resends. Throttled resends return `200` with `codeSent: false` rather than an error. |
 
-A `bool` has no "unset" state — an omitted `false` looks identical to a deliberate one. Because of that, calling `WithRegistration` at all replaces every flag wholesale rather than merging into the defaults: list every method you want enabled, since anything you don't mention becomes `false`. The two TTL fields are the exception — they keep their defaults when left at zero even if you do call `WithRegistration`.
+A `bool` has no "unset" state — an omitted `false` looks identical to a deliberate one. Because of that, calling `WithRegistration` at all replaces every flag wholesale rather than merging into the defaults: list every method you want enabled, since anything you don't mention becomes `false`. The two TTL fields and `VerificationResendInterval` are the exception — they keep their defaults when left at zero even if you do call `WithRegistration`.
 
 **Expected errors**
 
-- `email: Mailer or Email config required — enabled features need it: <reasons>` — the `<reasons>` list names exactly which of `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultTwoFactorEnabled`, or AdminLogin two-factor is still requiring one; hint: call `WithMailer`/`WithEmail`, or turn off every reason listed (`SecurityConfig.DisableAdminTwoFactor` for the last one) — see [`WithMailer` / `WithEmail` / `WithTemplates`](#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off) below for the `EnvironmentDev` exception.
+- `email: Mailer or Email config required — enabled features need it: <reasons>` — the `<reasons>` list names exactly which of `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultEnabled`, or AdminLogin two-factor is still requiring one; hint: call `WithMailer`/`WithEmail`, or turn off every reason listed (`TwoFactorConfig.DisableAdminTwoFactor` for the last one) — see [`WithMailer` / `WithEmail` / `WithTemplates`](#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off) below for the `EnvironmentDev` exception.
 - `registration: invite_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `7d`.
 - `registration: verification_code_ttl must be positive` — same hint, defaults to `15m`.
 - `registration: RequireEmailVerification has no effect when both EnableEmailPassword and EnableOAuth are disabled`.
@@ -318,7 +332,7 @@ goauth.WithOrganizations(goauth.OrganizationConfig{
 
 ## `WithMailer` / `WithEmail` / `WithTemplates` — required unless every email feature is off
 
-A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultTwoFactorEnabled`, or `POST /auth/admin/login`'s two-factor challenge (on by default — see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `SecurityConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
+A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `TwoFactorConfig.RequireEmail2FA`, `TwoFactorConfig.DefaultEnabled`, or `POST /auth/admin/login`'s two-factor challenge (on by default — see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `TwoFactorConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
 
 **Exception: `EnvironmentDev`.** If neither `WithMailer` nor `WithEmail` is set and `Environment` is `EnvironmentDev`, `NewConfig` automatically defaults to a log-only mailer (`goauth.LogMailer`) instead of erroring — emails are logged (`slog`) rather than delivered, so local development works with zero mailer setup. This default only fills in when *nothing* was configured; an explicit `WithMailer`/`WithEmail` call is never overridden. Outside `EnvironmentDev`, no default is applied — a still-unconfigured mailer is a validation error.
 
@@ -350,7 +364,7 @@ goauth.WithTemplates(myTemplateProvider)
 | `WithMailer(port.Mailer)` | Your own delivery implementation | Required unless every email-sending feature is off (auto-defaulted to `LogMailer` in `EnvironmentDev` — see above) | Takes precedence over `WithEmail` if both are set. |
 | `WithEmail(EmailConfig)` | Built-in SMTP delivery | Required unless every email-sending feature is off (auto-defaulted to `LogMailer` in `EnvironmentDev` — see above) | Ignored if `WithMailer` is also set — its fields aren't even validated in that case. |
 | `WithTemplates(port.TemplateProvider)` | Replace the built-in email templates | Optional | The library still renders subject/HTML/text and hands finished strings to the mailer either way — this replaces content, `WithMailer` replaces delivery. |
-| `SecurityConfig.DisableAdminTwoFactor` | Turn off `POST /auth/admin/login`'s unconditional two-factor challenge | Optional, default off (challenge stays on) | Set via `WithSecurity`. The last of the five mailer-requiring features to disable for a mailer-free, API-only deployment. |
+| `TwoFactorConfig.DisableAdminTwoFactor` | Turn off `POST /auth/admin/login`'s unconditional two-factor challenge | Optional, default off (challenge stays on) | Set via `WithTwoFactor`. The last of the five mailer-requiring features to disable for a mailer-free, API-only deployment. |
 
 **`EmailConfig`** (only validated when `WithEmail` is set and `WithMailer` is not)
 

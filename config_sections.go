@@ -53,6 +53,7 @@ type SessionConfig struct {
 	IdleTTL         time.Duration // idle timeout after last activity (default 7d)
 	RefreshTokenTTL time.Duration // refresh token absolute expiry (default 30d)
 	MaxLifetime     time.Duration // max session lifetime from created_at (0 = no limit)
+	TokenTTL        time.Duration // how long verification/reset tokens live (default 1h)
 
 	// GraceWindow and TouchDebounce are *time.Duration, not time.Duration:
 	// nil means "left unset, use the default" (5s / 5m); a non-nil pointer
@@ -69,13 +70,14 @@ type SessionConfig struct {
 // RegistrationConfig controls which registration methods are available.
 // Login is ALWAYS unconditional regardless of these flags.
 type RegistrationConfig struct {
-	EnableEmailPassword      bool          // email+password registration (default true)
-	EnableOAuth              bool          // OAuth signup for new users (default true)
-	EnableInvite             bool          // invite-code registration (default false; requires a mailer)
-	AllowPublic              bool          // public registration is allowed (default true)
-	RequireEmailVerification bool          // require email verification on signup (default false)
-	InviteTTL                time.Duration // how long signup invites last (default 7d)
-	VerificationCodeTTL      time.Duration // how long verification codes live (default 15m)
+	EnableEmailPassword        bool          // email+password registration (default true)
+	EnableOAuth                bool          // OAuth signup for new users (default true)
+	EnableInvite               bool          // invite-code registration (default false; requires a mailer)
+	AllowPublic                bool          // public registration is allowed (default true)
+	RequireEmailVerification   bool          // require email verification on signup (default false)
+	InviteTTL                  time.Duration // how long signup invites last (default 7d)
+	VerificationCodeTTL        time.Duration // how long verification codes live (default 15m)
+	VerificationResendInterval time.Duration // minimum interval between verification resends (0 = no minimum)
 }
 
 // OrganizationConfig controls the organizations feature.
@@ -116,22 +118,22 @@ func (e Environment) normalize() Environment {
 	}
 }
 
-// AppConfig groups the three identity-level settings for the application instance.
+// AppConfig groups the identity-level settings for the application instance.
 type AppConfig struct {
-	Name                       string         // app name displayed in emails
-	BaseURL                    string         // frontend base URL for email links
-	Database                   DatabaseConfig // database connection
-	Environment                Environment    // deployment environment (dev, staging, prod)
-	VerificationResendInterval time.Duration  // minimum interval between verification resends (0 = no minimum)
+	Name        string         // app name displayed in emails
+	BaseURL     string         // frontend base URL for email links
+	Database    DatabaseConfig // database connection
+	Environment Environment    // deployment environment (dev, staging, prod)
 }
 
-// SecurityConfig groups security-related settings.
+// SecurityConfig groups CSRF, password, and email-link settings. Two-factor
+// options moved to TwoFactorConfig — they were six of this struct's thirteen
+// fields, and TOTP will add more.
 type SecurityConfig struct {
 	AllowedOrigins          []string                    // allowed origins for CSRF Origin/Referer check
 	AllowMissingCSRFHeaders bool                        // allow requests without Origin/Referer headers (default false)
 	CSRFToken               *middleware.CSRFTokenConfig // double-submit cookie CSRF (optional overrides; the layer is on by default)
 	PasswordPolicy          domain.PasswordPolicy       // password complexity (zero value = MinLength 8, RequireDigit)
-	TokenTTL                time.Duration               // how long verification/reset tokens live (default 1h)
 
 	// DisableCSRFToken turns off the double-submit cookie layer. Origin/Referer
 	// checking still applies and cannot be disabled. Intended for deployments
@@ -150,24 +152,27 @@ type SecurityConfig struct {
 	// to allow plaintext links outside a dev environment, or
 	// RequireHTTPSEmailLinks to enforce https:// even in development.
 	AllowHTTPURLs *bool
+}
 
+// TwoFactorConfig groups the email two-factor settings, split out of
+// SecurityConfig where they were six of thirteen fields.
+type TwoFactorConfig struct {
 	// RequireEmail2FA makes email two-factor mandatory for every password
 	// login. Enable/Disable both reject while it is on, so users cannot opt
 	// out. OAuth logins are not covered — see docs/security.mdx.
 	RequireEmail2FA bool
 
-	// DefaultTwoFactorEnabled seeds User.TwoFactorEnabled at registration.
-	// Users can still opt out with Disable; use RequireEmail2FA for the
-	// mandatory case.
-	DefaultTwoFactorEnabled bool
+	// DefaultEnabled seeds User.TwoFactorEnabled at registration. Users can
+	// still opt out with Disable; use RequireEmail2FA for the mandatory case.
+	DefaultEnabled bool
 
-	// TwoFactorCodeTTL is how long a 2FA login code lives (default 5m).
-	// Deliberately shorter than VerificationCodeTTL: a 6-digit code has ~20
-	// fewer bits than the 8-char alphanumeric codes used elsewhere.
-	TwoFactorCodeTTL time.Duration
+	// CodeTTL is how long a 2FA login code lives (default 5m). Deliberately
+	// shorter than VerificationCodeTTL: a 6-digit code has ~20 fewer bits than
+	// the 8-char alphanumeric codes used elsewhere.
+	CodeTTL time.Duration
 
-	// DisableTwoFactorChallengeBinding turns off the challenge binding cookie,
-	// which otherwise ties a 2FA challenge to the browser that started it.
+	// DisableChallengeBinding turns off the challenge binding cookie, which
+	// otherwise ties a 2FA challenge to the browser that started it.
 	//
 	// As with DisableCSRFToken, the zero value keeps the protection on: this is
 	// spelled as "Disable" so that forgetting it is the secure outcome. Intended
@@ -175,18 +180,18 @@ type SecurityConfig struct {
 	// where a mandatory cookie makes 2FA unusable. With it set, the challenge id
 	// alone identifies the challenge, so treat it as a secret and keep it out of
 	// logs.
-	DisableTwoFactorChallengeBinding bool
+	DisableChallengeBinding bool
 
-	// TwoFactorChallengeCookieName overrides the binding cookie name
+	// ChallengeCookieName overrides the binding cookie name
 	// (default "_2fa_challenge").
-	TwoFactorChallengeCookieName string
+	ChallengeCookieName string
 
 	// DisableAdminTwoFactor turns off the unconditional email two-factor
 	// challenge on POST /auth/admin/login. Intended for API-only deployments
 	// with no email delivery at all — every other email-gated feature
-	// (RequireEmailVerification, EnableInvite, RequireEmail2FA,
-	// DefaultTwoFactorEnabled) must also be off before a mailer becomes
-	// optional; see NewConfig's validation error if one still needs it.
+	// (RequireEmailVerification, EnableInvite, RequireEmail2FA, DefaultEnabled)
+	// must also be off before a mailer becomes optional; see NewConfig's
+	// validation error if one still needs it.
 	//
 	// The zero value keeps AdminLogin's 2FA on: this is spelled as "Disable"
 	// so that forgetting it is the secure outcome.

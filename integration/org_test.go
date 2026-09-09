@@ -32,11 +32,11 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 			TTL:             1 * time.Hour,
 			IdleTTL:         1 * time.Hour,
 			RefreshTokenTTL: 1 * time.Hour,
+			TokenTTL:        1 * time.Hour,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
 			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
 			AllowedOrigins: []string{"http://localhost:8080"},
-			TokenTTL:       1 * time.Hour,
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
 			EnableEmailPassword: true,

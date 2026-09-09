@@ -30,30 +30,30 @@ import (
 // applyCSRFTokenDefaults resolves the CSRF double-submit layer against the
 // rest of the config: it is on unless explicitly disabled, inherits the
 // session cookie's scope, and warns about the SameSite/ExposeCSRFTokenInBody
-// pairing. Mutates cfg.csrfToken in place; nil there means the layer is off.
+// pairing. Mutates cfg.security.CSRFToken in place; nil there means the layer is off.
 func applyCSRFTokenDefaults(cfg *Config, keys keyring.Keys) {
 	// The double-submit token layer is on unless explicitly disabled. A nil
 	// CSRFToken means "build one with defaults", not "off" — middleware.CSRFToken
 	// treats a nil config as a pass-through, so disabling is expressed by
 	// leaving csrfToken nil here.
-	if cfg.disableCSRFToken {
-		cfg.csrfToken = nil
+	if cfg.security.DisableCSRFToken {
+		cfg.security.CSRFToken = nil
 		if cfg.logger != nil {
 			cfg.logger.Warn("goauth: CSRF double-submit token disabled",
 				"note", "origin/referer checking still applies",
 				"fix", "re-enable by removing SecurityConfig.DisableCSRFToken")
 		}
-	} else if cfg.csrfToken == nil {
-		cfg.csrfToken = &middleware.CSRFTokenConfig{
+	} else if cfg.security.CSRFToken == nil {
+		cfg.security.CSRFToken = &middleware.CSRFTokenConfig{
 			CookieName: "_csrf",
 			HeaderName: "X-CSRF-Token",
 			CookiePath: "/",
 		}
 	}
-	if cfg.csrfToken != nil {
-		cfg.csrfToken.CookieSecure = cfg.cookieSecure
-		cfg.csrfToken.Secret = keys.CSRF
-		cfg.csrfToken.Logger = cfg.logger
+	if cfg.security.CSRFToken != nil {
+		cfg.security.CSRFToken.CookieSecure = cfg.resolved.cookieSecure
+		cfg.security.CSRFToken.Secret = keys.CSRF
+		cfg.security.CSRFToken.Logger = cfg.logger
 		// Default the token cookie's scope to the session cookie's. A
 		// deployment that widened the session cookie to ".example.com" so a
 		// sibling subdomain could hold a session almost certainly needs the
@@ -61,8 +61,8 @@ func applyCSRFTokenDefaults(cfg *Config, keys keyring.Keys) {
 		// every mutation 403s is the worst of the two failure modes, because
 		// it looks like a permissions bug rather than a cookie-scope one.
 		// An explicit CookieDomain still wins.
-		if cfg.csrfToken.CookieDomain == "" {
-			cfg.csrfToken.CookieDomain = cfg.cookie.Domain
+		if cfg.security.CSRFToken.CookieDomain == "" {
+			cfg.security.CSRFToken.CookieDomain = cfg.cookie.Domain
 		}
 
 		// SameSite=None and ExposeCSRFTokenInBody are the same decision seen from
@@ -79,9 +79,9 @@ func applyCSRFTokenDefaults(cfg *Config, keys keyring.Keys) {
 		if cfg.logger != nil {
 			crossSiteCookie := cfg.cookie.SameSite == http.SameSiteNoneMode
 			switch {
-			case crossSiteCookie && !cfg.csrfToken.ExposeCSRFTokenInBody:
+			case crossSiteCookie && !cfg.security.CSRFToken.ExposeCSRFTokenInBody:
 				cfg.logger.Warn("goauth: cookie SameSite=None without CSRFTokenConfig.ExposeCSRFTokenInBody — a cross-site browser frontend receives the session cookie but cannot read the CSRF token, so every state-changing request will 403")
-			case !crossSiteCookie && cfg.csrfToken.ExposeCSRFTokenInBody:
+			case !crossSiteCookie && cfg.security.CSRFToken.ExposeCSRFTokenInBody:
 				cfg.logger.Warn("goauth: CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None — a cross-site browser frontend can read the CSRF token but is never sent the session cookie, so every request arrives unauthenticated",
 					"same_site", cfg.cookie.SameSite)
 			}
@@ -94,10 +94,10 @@ func applyCSRFTokenDefaults(cfg *Config, keys keyring.Keys) {
 // backend needs — go-auth's own go.mod only pulls in pgx. Also enforces
 // MySQL's parseTime requirement when go-auth opens the connection itself.
 func requireDriverSupport(cfg *Config) error {
-	if cfg.database.Driver == "" {
-		cfg.database.Driver = DriverPostgres
+	if cfg.app.Database.Driver == "" {
+		cfg.app.Database.Driver = DriverPostgres
 	}
-	switch cfg.database.Driver {
+	switch cfg.app.Database.Driver {
 	case DriverPostgres:
 		// supported natively
 	case DriverSQLite:
@@ -114,13 +114,13 @@ func requireDriverSupport(cfg *Config) error {
 		}
 		// Only checkable when go-auth opens the connection itself — a
 		// consumer-provided *sql.DB is already open and its DSN is unknown.
-		if cfg.database.URL != "" {
-			if err := sqldriver.ValidateMySQLDSN(cfg.database.URL); err != nil {
+		if cfg.app.Database.URL != "" {
+			if err := sqldriver.ValidateMySQLDSN(cfg.app.Database.URL); err != nil {
 				return err
 			}
 		}
 	default:
-		return fmt.Errorf("goauth: unsupported driver %q", cfg.database.Driver)
+		return fmt.Errorf("goauth: unsupported driver %q", cfg.app.Database.Driver)
 	}
 	return nil
 }
@@ -134,22 +134,22 @@ func openDatabase(cfg *Config) (*pgxpool.Pool, *sqlstore.DB, error) {
 	var sqlDB *sqlstore.DB
 
 	switch {
-	case cfg.database.Pool != nil:
-		pool = cfg.database.Pool
+	case cfg.app.Database.Pool != nil:
+		pool = cfg.app.Database.Pool
 		rawDB := stdlib.OpenDBFromPool(pool)
 		sqlDB = sqlstore.NewDB(rawDB, string(DriverPostgres))
-	case cfg.database.DB != nil:
-		sqlDB = sqlstore.NewDB(cfg.database.DB, string(cfg.database.Driver))
-	case cfg.database.URL != "":
-		driverName := sqldriver.SQLName(string(cfg.database.Driver))
-		if cfg.database.Driver == DriverSQLite {
+	case cfg.app.Database.DB != nil:
+		sqlDB = sqlstore.NewDB(cfg.app.Database.DB, string(cfg.app.Database.Driver))
+	case cfg.app.Database.URL != "":
+		driverName := sqldriver.SQLName(string(cfg.app.Database.Driver))
+		if cfg.app.Database.Driver == DriverSQLite {
 			// sqldriver.SQLName assumes modernc.org/sqlite ("sqlite"), but the
 			// registration check in requireDriverSupport also accepts mattn/go-sqlite3
 			// ("sqlite3") — use whichever is actually registered so sql.Open
 			// doesn't fail with "unknown driver" after registration passed.
 			driverName = sqldriver.ResolveSQLiteName()
 		}
-		db, err := sql.Open(driverName, cfg.database.URL)
+		db, err := sql.Open(driverName, cfg.app.Database.URL)
 		if err != nil {
 			return nil, nil, fmt.Errorf("goauth: open database: %w", err)
 		}
@@ -157,15 +157,15 @@ func openDatabase(cfg *Config) (*pgxpool.Pool, *sqlstore.DB, error) {
 			db.Close()
 			return nil, nil, fmt.Errorf("goauth: ping database: %w", err)
 		}
-		cfg.database.opened = true
-		sqlDB = sqlstore.NewDB(db, string(cfg.database.Driver))
-		if cfg.database.Driver == DriverPostgres {
-			pool, err = pgxpool.New(context.Background(), cfg.database.URL)
+		cfg.app.Database.opened = true
+		sqlDB = sqlstore.NewDB(db, string(cfg.app.Database.Driver))
+		if cfg.app.Database.Driver == DriverPostgres {
+			pool, err = pgxpool.New(context.Background(), cfg.app.Database.URL)
 			if err != nil {
 				db.Close()
 				return nil, nil, fmt.Errorf("goauth: create connection pool: %w", err)
 			}
-			cfg.database.poolOpened = true
+			cfg.app.Database.poolOpened = true
 		}
 	default:
 		return nil, nil, fmt.Errorf("goauth: no database pool or DSN provided")
@@ -200,10 +200,10 @@ func resolveMailer(cfg *Config) (port.Mailer, error) {
 func resolveTemplates(cfg *Config) (port.TemplateProvider, *port.URLValidator, error) {
 	var templateProvider port.TemplateProvider
 	var urlValidator *port.URLValidator
-	if cfg.templateProvider != nil {
-		templateProvider = cfg.templateProvider
+	if cfg.templates != nil {
+		templateProvider = cfg.templates
 	} else {
-		allowHTTP := cfg.allowHTTPURLs
+		allowHTTP := cfg.resolved.allowHTTPURLs
 		urlValidator = &port.URLValidator{AllowHTTP: allowHTTP}
 		p, err := emailtemplate.New(urlValidator)
 		if err != nil {
@@ -243,26 +243,44 @@ func startAuditService(cfg *Config, sqlDB *sqlstore.DB) (*audit.AuditService, se
 }
 
 // buildSessionConfig maps the public SessionConfig/CookieConfig fields onto
-// the service layer's own shape. It reads cfg.cookieSecure, never
+// the service layer's own shape. It reads cfg.resolved.cookieSecure, never
 // cfg.cookie.Secure — the former is the value applyDefaults resolved, the
 // latter is unresolved consumer intent.
 func buildSessionConfig(cfg *Config, auditPub service.AuditPublisher) service.SessionConfig {
 	sessionCfg := service.DefaultSessionConfig()
-	sessionCfg.Duration = cfg.sessionTTL
-	sessionCfg.IdleTTL = cfg.sessionIdleTTL
-	sessionCfg.RefreshTTL = cfg.refreshTokenTTL
-	sessionCfg.MaxLifetime = cfg.maxLifetime
-	sessionCfg.GraceWindow = cfg.graceWindow
-	sessionCfg.TouchDebounce = cfg.touchDebounce
+	sessionCfg.Duration = cfg.session.TTL
+	sessionCfg.IdleTTL = cfg.session.IdleTTL
+	sessionCfg.RefreshTTL = cfg.session.RefreshTokenTTL
+	sessionCfg.MaxLifetime = cfg.session.MaxLifetime
+	sessionCfg.GraceWindow = cfg.resolved.graceWindow
+	sessionCfg.TouchDebounce = cfg.resolved.touchDebounce
 	sessionCfg.CookieName = cfg.cookie.Name
 	sessionCfg.RefreshCookieName = cfg.cookie.RefreshName
 	sessionCfg.Domain = cfg.cookie.Domain
 	sessionCfg.Path = cfg.cookie.Path
-	sessionCfg.Secure = cfg.cookieSecure
+	sessionCfg.Secure = cfg.resolved.cookieSecure
 	sessionCfg.SameSite = cfg.cookie.SameSite
 	sessionCfg.Logger = cfg.logger
 	sessionCfg.Audit = auditPub
 	return sessionCfg
+}
+
+// cookiesFromSession maps the service session config onto the cookie fields
+// middleware writes from. Called once in New() — handlers and middleware
+// receive the result at construction and never touch the service config for
+// cookie names again. The two shapes stay separate by design; see
+// middleware.CookieSettings.
+func cookiesFromSession(cfg service.SessionConfig) middleware.CookieSettings {
+	return middleware.CookieSettings{
+		Name:        cfg.CookieName,
+		RefreshName: cfg.RefreshCookieName,
+		Domain:      cfg.Domain,
+		Path:        cfg.Path,
+		Secure:      cfg.Secure,
+		SameSite:    cfg.SameSite,
+		TTL:         cfg.Duration,
+		RefreshTTL:  cfg.RefreshTTL,
+	}
 }
 
 // collectOAuthProviders indexes the providers registered via WithProvider by

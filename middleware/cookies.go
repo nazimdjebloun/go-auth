@@ -89,3 +89,19 @@ func ClearRefreshCookie(w http.ResponseWriter, cfg CookieSettings) {
 		MaxAge:   -1,
 	})
 }
+
+// DefaultCookieSettings mirrors the service layer's built-in session
+// defaults for tests and zero-value handlers. Production code never uses
+// this — New() builds the real value from the resolved config via
+// cookiesFromSession in wire.go.
+func DefaultCookieSettings() CookieSettings {
+	return CookieSettings{
+		Name:        "goauth_session",
+		RefreshName: "goauth_refresh",
+		Path:        "/",
+		Secure:      true,
+		SameSite:    http.SameSiteLaxMode,
+		TTL:         7 * 24 * time.Hour,
+		RefreshTTL:  30 * 24 * time.Hour,
+	}
+}

@@ -35,7 +35,7 @@ func ContextWithSession(ctx context.Context, session *domain.Session) context.Co
 	return context.WithValue(ctx, ctxSession, session)
 }
 
-func AuthMiddleware(sessionSvc *service.SessionService, userRepo interface {
+func AuthMiddleware(sessionSvc *service.SessionService, cookies CookieSettings, userRepo interface {
 	GetByID(ctx context.Context, id string) (*domain.User, error)
 }, logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
@@ -43,7 +43,7 @@ func AuthMiddleware(sessionSvc *service.SessionService, userRepo interface {
 	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			session, user, rawToken := resolveSession(w, r, sessionSvc, userRepo, logger)
+			session, user, rawToken := resolveSession(w, r, sessionSvc, cookies, userRepo, logger)
 			if session == nil || user == nil {
 				return
 			}
@@ -62,10 +62,10 @@ func AuthMiddleware(sessionSvc *service.SessionService, userRepo interface {
 // Rejections are logged at a level reflecting how actionable they are: routine
 // cases (missing cookie, expired session) at Debug/Info, and rejections of an
 // otherwise-valid session (banned or deleted user) at Warn.
-func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.SessionService, userRepo interface {
+func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.SessionService, cookies CookieSettings, userRepo interface {
 	GetByID(ctx context.Context, id string) (*domain.User, error)
 }, logger *slog.Logger) (*domain.Session, *domain.User, string) {
-	cookie, err := r.Cookie(sessionSvc.Config().CookieName)
+	cookie, err := r.Cookie(cookies.Name)
 	if err != nil {
 		// Debug: fires on every unauthenticated request, deliberately below default log level to avoid flooding — raise handler level to Debug to see these.
 		logRejectedRequest(r, logger, slog.LevelDebug, "auth rejected", "missing session cookie")
@@ -92,7 +92,7 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 		}
 
 		// Session expired — try transparent refresh before giving up.
-		refreshCookie, rcErr := r.Cookie(sessionSvc.Config().RefreshCookieName)
+		refreshCookie, rcErr := r.Cookie(cookies.RefreshName)
 		if rcErr != nil || refreshCookie.Value == "" {
 			logRejectedRequest(r, logger, slog.LevelInfo, "auth rejected", "session expired without refresh cookie")
 			writeJSON(w, http.StatusUnauthorized, map[string]string{
@@ -113,8 +113,8 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 			return nil, nil, ""
 		}
 
-		SetSessionCookie(w, sessionCookies(sessionSvc.Config()), refreshResult.SessionToken)
-		SetRefreshCookie(w, sessionCookies(sessionSvc.Config()), refreshResult.RefreshToken)
+		SetSessionCookie(w, cookies, refreshResult.SessionToken)
+		SetRefreshCookie(w, cookies, refreshResult.RefreshToken)
 
 		session = refreshResult.Session
 
@@ -182,21 +182,5 @@ func RequireRole(role domain.Role, logger *slog.Logger) func(http.Handler) http.
 			}
 			next.ServeHTTP(w, r)
 		})
-	}
-}
-
-// sessionCookies maps the service layer's session config onto the cookie
-// fields middleware writes from. The two shapes are deliberately separate --
-// see middleware.CookieSettings.
-func sessionCookies(cfg service.SessionConfig) CookieSettings {
-	return CookieSettings{
-		Name:        cfg.CookieName,
-		RefreshName: cfg.RefreshCookieName,
-		Domain:      cfg.Domain,
-		Path:        cfg.Path,
-		Secure:      cfg.Secure,
-		SameSite:    cfg.SameSite,
-		TTL:         cfg.Duration,
-		RefreshTTL:  cfg.RefreshTTL,
 	}
 }

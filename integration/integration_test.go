@@ -109,6 +109,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 			TTL:             1 * time.Hour,
 			IdleTTL:         1 * time.Hour,
 			RefreshTokenTTL: 1 * time.Hour,
+			TokenTTL:        1 * time.Hour,
 			// Off, so refresh-token reuse is detected immediately rather than
 			// tolerated for the default 5s — see TestRefreshToken_E2E.
 			GraceWindow: goauth.Duration(0),
@@ -116,7 +117,6 @@ func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 		goauth.WithSecurity(goauth.SecurityConfig{
 			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
 			AllowedOrigins: []string{"http://localhost:8080"},
-			TokenTTL:       1 * time.Hour,
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
 			EnableEmailPassword: true,
@@ -147,15 +147,13 @@ func openAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 	return a
 }
 
-// newTestAuth2FA is newTestAuth with a caller-supplied SecurityConfig and
+// newTestAuth2FA is newTestAuth with a caller-supplied TwoFactorConfig and
 // RegistrationConfig layered on top of the same sane defaults. 2FA tests each
 // need a different combination of RequireEmail2FA / DefaultTwoFactorEnabled /
 // DisableTwoFactorChallengeBinding / RequireEmailVerification, which
 // newTestAuth's one fixed config doesn't cover.
-func newTestAuth2FA(db *sql.DB, mailer port.Mailer, sec goauth.SecurityConfig, reg goauth.RegistrationConfig) (*goauth.Auth, error) {
-	if sec.TokenTTL == 0 {
-		sec.TokenTTL = 1 * time.Hour
-	}
+func newTestAuth2FA(db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorConfig, reg goauth.RegistrationConfig) (*goauth.Auth, error) {
+	sec := goauth.SecurityConfig{}
 	if sec.AllowHTTPURLs == nil {
 		sec.AllowHTTPURLs = goauth.AllowPlaintextEmailLinks()
 	}
@@ -187,9 +185,11 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, sec goauth.SecurityConfig, r
 			TTL:             1 * time.Hour,
 			IdleTTL:         1 * time.Hour,
 			RefreshTokenTTL: 1 * time.Hour,
+			TokenTTL:        1 * time.Hour,
 			GraceWindow:     goauth.Duration(0),
 		}),
 		goauth.WithSecurity(sec),
+		goauth.WithTwoFactor(twoFactor),
 		goauth.WithRegistration(reg),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(mailer),
@@ -202,10 +202,10 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, sec goauth.SecurityConfig, r
 	return goauth.New(cfg)
 }
 
-func openAuth2FA(t *testing.T, db *sql.DB, mailer port.Mailer, sec goauth.SecurityConfig, reg goauth.RegistrationConfig) *goauth.Auth {
+func openAuth2FA(t *testing.T, db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorConfig, reg goauth.RegistrationConfig) *goauth.Auth {
 	t.Helper()
 	migrateDB(t, db, "sqlite")
-	a, err := newTestAuth2FA(db, mailer, sec, reg)
+	a, err := newTestAuth2FA(db, mailer, twoFactor, reg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -737,10 +737,10 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 			TTL:             1 * time.Millisecond,
 			IdleTTL:         1 * time.Millisecond,
 			RefreshTokenTTL: 1 * time.Millisecond,
+			TokenTTL:        1 * time.Millisecond,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
 			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
-			TokenTTL:       1 * time.Millisecond,
 			AllowedOrigins: []string{"http://localhost:8080"},
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
@@ -913,10 +913,10 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 			TTL:             1 * time.Millisecond,
 			IdleTTL:         1 * time.Millisecond,
 			RefreshTokenTTL: 1 * time.Millisecond,
+			TokenTTL:        1 * time.Millisecond,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
 			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
-			TokenTTL:       1 * time.Millisecond,
 			AllowedOrigins: []string{"http://localhost:8080"},
 		}),
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
@@ -1346,7 +1346,7 @@ func TestTwoFactor_VerifyThenEnable_LaterLoginRequiresTwoFactor(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
-	a := openAuth2FA(t, db, mailer, goauth.SecurityConfig{}, goauth.RegistrationConfig{
+	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{}, goauth.RegistrationConfig{
 		RequireEmailVerification: true,
 	})
 	defer a.Close()
@@ -1411,7 +1411,7 @@ func TestTwoFactor_RegisterWithRequireEmail2FA_ChallengeThenVerify(t *testing.T)
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
-	a := openAuth2FA(t, db, mailer, goauth.SecurityConfig{RequireEmail2FA: true}, goauth.RegistrationConfig{})
+	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{RequireEmail2FA: true}, goauth.RegistrationConfig{})
 	defer a.Close()
 	ctx := context.Background()
 
@@ -1797,7 +1797,7 @@ func TestTwoFactor_ChallengeBinding_DisabledSkipsCheck(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
-	a := openAuth2FA(t, db, mailer, goauth.SecurityConfig{DisableTwoFactorChallengeBinding: true}, goauth.RegistrationConfig{})
+	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{DisableChallengeBinding: true}, goauth.RegistrationConfig{})
 	defer a.Close()
 	ctx := context.Background()
 
@@ -1825,7 +1825,7 @@ func TestTwoFactor_DefaultTwoFactorEnabled_GatedUntilDisabled(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
-	a := openAuth2FA(t, db, mailer, goauth.SecurityConfig{DefaultTwoFactorEnabled: true}, goauth.RegistrationConfig{})
+	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{DefaultEnabled: true}, goauth.RegistrationConfig{})
 	defer a.Close()
 	ctx := context.Background()
 
@@ -1879,7 +1879,7 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
-	a := openAuth2FA(t, db, mailer, goauth.SecurityConfig{RequireEmail2FA: true}, goauth.RegistrationConfig{})
+	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{RequireEmail2FA: true}, goauth.RegistrationConfig{})
 	defer a.Close()
 	ctx := context.Background()
 
