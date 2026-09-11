@@ -821,6 +821,37 @@ func TestWithSecret_SetsSecret(t *testing.T) {
 	}
 }
 
+func TestWithPepperRotatedAt_SetsTimestamp(t *testing.T) {
+	var cfg Config
+	rotatedAt := time.Date(2026, 9, 11, 18, 0, 0, 0, time.UTC)
+	WithPepperRotatedAt(rotatedAt)(&cfg)
+	if !cfg.security.PepperRotatedAt.Equal(rotatedAt) {
+		t.Fatalf("expected PepperRotatedAt %v, got %v", rotatedAt, cfg.security.PepperRotatedAt)
+	}
+}
+
+func TestWithPepperRotatedAt_DefaultIsZero(t *testing.T) {
+	// Never configured: the fixed-epoch zero default keeps the stale-pepper
+	// branch dormant rather than stamping boot time (which would disagree
+	// across instances behind a load balancer).
+	var cfg Config
+	if !cfg.security.PepperRotatedAt.IsZero() {
+		t.Fatalf("expected zero PepperRotatedAt by default, got %v", cfg.security.PepperRotatedAt)
+	}
+}
+
+func TestWithPepperRotatedAt_SurvivesClone(t *testing.T) {
+	// Rotation metadata must reach New() identically for every Auth built
+	// from one Config — clone() must not drop it.
+	cfg := validTestConfig()
+	rotatedAt := time.Date(2026, 9, 11, 18, 0, 0, 0, time.UTC)
+	WithPepperRotatedAt(rotatedAt)(&cfg)
+	cloned := cfg.clone()
+	if !cloned.security.PepperRotatedAt.Equal(rotatedAt) {
+		t.Fatalf("expected cloned PepperRotatedAt %v, got %v", rotatedAt, cloned.security.PepperRotatedAt)
+	}
+}
+
 type mockMailer struct{}
 
 func (m *mockMailer) Send(_ context.Context, _, _, _, _ string) error { return nil }

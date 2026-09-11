@@ -240,7 +240,13 @@ type TokenRepository interface {
 	// also keeps them driver-portable: MySQL has no UPDATE...RETURNING.
 	IncrementAttempts(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error)
 	MarkUsedIfUnderCap(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error)
-	UpdateForResend(ctx context.Context, id string, newHash string, newExpiresAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error)
+	// UpdateForResend refreshes the code on a challenge row: new hash, new
+	// expiry, and a refreshed created_at — the row now represents a newly
+	// issued code, so created_at must track the newest issuance, not the
+	// lineage's birth. In particular a resend after an OTP-pepper rotation
+	// has to lift the row out of rotation-stale (see service.stalePepper),
+	// or the fresh code would still compare as predating the live pepper.
+	UpdateForResend(ctx context.Context, id string, newHash string, newExpiresAt time.Time, newCreatedAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error)
 }
 
 type InviteFilter struct {

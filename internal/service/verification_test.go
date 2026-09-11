@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -17,6 +18,17 @@ import (
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// testOTPPepper must match the pepper the service under test stores codes
+// with (see newVerificationConfig) — verification codes are low-entropy OTPs
+// kept as HMAC-SHA256(pepper, code), so rows seeded directly need the same MAC.
+var testOTPPepper = []byte("test-otp-pepper-32-bytes-long!!!")
+
+func hashOTP(code string) string {
+	mac := hmac.New(sha256.New, testOTPPepper)
+	mac.Write([]byte(code))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // authErrCode extracts the Code of a *domain.AuthError for test assertions.
@@ -39,6 +51,7 @@ func newVerificationConfig() service.Config {
 		},
 		VerificationCodeTTL: 15 * time.Minute,
 		URLValidator:        &port.URLValidator{AllowHTTP: true},
+		OTPPepper:           testOTPPepper,
 	}
 }
 
@@ -318,7 +331,7 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 		ID:        "tok-1",
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hashToken(code),
+		TokenHash: hashOTP(code),
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(15 * time.Minute),
 	}
@@ -339,7 +352,7 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 		t.Fatal("expected VerifiedAt to be set")
 	}
 
-	stored, _ := tokens.GetByHash(context.Background(), hashToken(code))
+	stored, _ := tokens.GetByHash(context.Background(), hashOTP(code))
 	if stored.UsedAt == nil {
 		t.Fatal("expected token to be marked used")
 	}
@@ -379,7 +392,7 @@ func TestVerifyEmail_AlreadyUsed(t *testing.T) {
 		ID:        "tok-1",
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hashToken(code),
+		TokenHash: hashOTP(code),
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(15 * time.Minute),
 		UsedAt:    &usedAt,
@@ -411,7 +424,7 @@ func TestVerifyEmail_Expired(t *testing.T) {
 		ID:        "tok-1",
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hashToken(code),
+		TokenHash: hashOTP(code),
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(-1 * time.Hour),
 	}
@@ -423,6 +436,77 @@ func TestVerifyEmail_Expired(t *testing.T) {
 	}
 	if authErrCode(err) != "code_expired" {
 		t.Fatalf("expected code_expired, got %s", authErrCode(err))
+	}
+}
+
+func TestVerifyEmail_StalePepperReturnsExpired(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	gen := &testutil.MockTokenGen{Length: 32}
+	mailer := &testutil.MockMailer{}
+	cfg := newVerificationConfig()
+	cfg.PepperRotatedAt = time.Now().UTC()
+	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+
+	user := createUnverifiedUser(users, "stale@example.com")
+
+	// Correct code, but issued under a gone pepper: the HMAC below could not
+	// distinguish right from wrong anyway, so the answer is expired (resend),
+	// never invalid (retype).
+	code := "ABC123"
+	now := time.Now().UTC()
+	tokens.Create(context.Background(), &domain.VerificationToken{
+		ID:        "tok-stale",
+		UserID:    &user.ID,
+		Email:     user.Email,
+		TokenHash: hashOTP(code),
+		Type:      domain.TokenVerifyEmail,
+		ExpiresAt: now.Add(15 * time.Minute),
+		CreatedAt: now.Add(-time.Hour),
+	})
+
+	_, err := svc.VerifyEmail(context.Background(), code)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if authErrCode(err) != "code_expired" {
+		t.Fatalf("expected code_expired, got %s", authErrCode(err))
+	}
+}
+
+func TestSendVerification_ReplacesStaleLiveCode(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	gen := &testutil.MockTokenGen{Length: 32}
+	mailer := &testutil.MockMailer{}
+	cfg := newVerificationConfig()
+	cfg.PepperRotatedAt = time.Now().UTC()
+	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+
+	user := createUnverifiedUser(users, "stale-reuse@example.com")
+
+	// Live but rotation-stale: reusing it would hand back a dead code that
+	// VerifyEmail can only answer expired to.
+	now := time.Now().UTC()
+	tokens.Create(context.Background(), &domain.VerificationToken{
+		ID:        "tok-stale-live",
+		UserID:    &user.ID,
+		Email:     user.Email,
+		TokenHash: hashOTP("OLD12345"),
+		Type:      domain.TokenVerifyEmail,
+		ExpiresAt: now.Add(15 * time.Minute),
+		CreatedAt: now.Add(-time.Hour),
+	})
+
+	result, err := svc.SendVerification(context.Background(), user)
+	if err != nil {
+		t.Fatalf("SendVerification failed: %v", err)
+	}
+	if !result.Sent {
+		t.Fatal("expected Sent=true with a fresh code after rotation, got a stale reuse")
+	}
+	if len(mailer.Calls) != 1 {
+		t.Fatalf("expected 1 mailer call, got %d", len(mailer.Calls))
 	}
 }
 

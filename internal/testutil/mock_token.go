@@ -83,7 +83,7 @@ func (m *MockTokenRepo) MarkUsedIfUnderCap(_ context.Context, id string, maxAtte
 	return true, nil
 }
 
-func (m *MockTokenRepo) UpdateForResend(_ context.Context, id string, newHash string, newExpiresAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
+func (m *MockTokenRepo) UpdateForResend(_ context.Context, id string, newHash string, newExpiresAt time.Time, newCreatedAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tokens[id]
@@ -93,6 +93,7 @@ func (m *MockTokenRepo) UpdateForResend(_ context.Context, id string, newHash st
 	delete(m.tokens, t.TokenHash)
 	t.TokenHash = newHash
 	t.ExpiresAt = newExpiresAt
+	t.CreatedAt = newCreatedAt
 	t.ResendCount++
 	m.tokens[newHash] = t
 	return true, nil

@@ -65,6 +65,15 @@ goauth.WithSecret(os.Getenv("AUTH_SECRET"))
 |---|---|---|---|---|
 | `secret` | `string` | Required | — | Minimum 32 bytes. Used for CSRF tokens today and any future HMAC-based tokens the library adds. Source it from the environment; never commit it. |
 
+Rotate the secret and the OTP-pepper timestamp together:
+
+```go
+goauth.WithSecret(os.Getenv("AUTH_SECRET")),
+goauth.WithPepperRotatedAt(rotationTime), // UTC moment the new secret went live
+```
+
+`WithPepperRotatedAt` is optional and defaults to unset (zero): the rotation-stale branch stays dormant and verification is purely by HMAC. Set it — to the same UTC value on every instance — exactly when you rotate the secret, so pre-rotation low-entropy codes (2FA, verification, set-password, delete-account) fail as `expired` ("resend") instead of `invalid_code`. Source it like the secret itself: one shared env var or secrets-manager entry, never per-instance files that can drift — instances holding different timestamps disagree per-request about which codes are stale. See [Security → Secret rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp).
+
 **Expected errors**
 
 - `secret: signing secret is required` — hint: nothing was passed.
@@ -107,6 +116,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
 | `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only.** Leaving it `nil` does not disable anything — see below. |
 | `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Setting any one field means you're specifying the whole policy — see note below. |
 | `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
+| `PepperRotatedAt` | `time.Time` | Optional | zero (branch dormant) | Moment the current secret went live (UTC). Prefer the surgical `WithPepperRotatedAt` option over restating this struct at rotation time. Must be identical on all instances — see above. |
 
 `PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default — if you set `RequireUppercase: true` without repeating `MinLength` or `RequireDigit`, those two are no longer applied.
 

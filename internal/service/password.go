@@ -213,6 +213,11 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 		return domain.ErrInternal
 	}
 
+	if len(s.config.OTPPepper) == 0 {
+		s.log.Error("set-password request refused: no OTP pepper derived — refusing")
+		return domain.ErrInternal
+	}
+
 	now := time.Now().UTC()
 
 	if err := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenSetPass); err != nil {
@@ -224,7 +229,7 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 		ID:        generateID(),
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hashToken(raw),
+		TokenHash: hashOTP(raw, s.config.OTPPepper),
 		Type:      domain.TokenSetPass,
 		ExpiresAt: now.Add(setPasswordCodeTTL),
 	}
@@ -265,7 +270,17 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 		return err
 	}
 
-	token, err := s.tokens.GetByHash(ctx, hashToken(input.Code))
+	// The set-password code is an 8-char OTP (~40 bits): low-entropy, so it is
+	// stored as HMAC-SHA256(OTPPepper, code). The request carries the user ID,
+	// so the candidate is fetched by user+type and compared here in app code
+	// with hmac.Equal (verifyOTP) — never a SQL `=` lookup over the MAC, never
+	// bcrypt. Only one live set-password token exists per user (request clears
+	// unused first), so the latest row is the candidate.
+	if len(s.config.OTPPepper) == 0 {
+		s.log.Error("set-password confirm refused: no OTP pepper derived — refusing")
+		return domain.ErrInternal
+	}
+	token, err := s.tokens.GetLastByUserAndType(ctx, input.UserID, domain.TokenSetPass)
 	if err != nil || token == nil {
 		return domain.NewError("invalid_code", "Invalid set password code")
 	}
@@ -280,6 +295,17 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 
 	if time.Now().UTC().After(token.ExpiresAt) {
 		return domain.ErrResetTokenExpired
+	}
+
+	// A rotation-stale code predates the live pepper and can never verify.
+	// Answer expired (request a new code, don't retry) without running the
+	// HMAC — the old pepper is gone, so the outcome is unknowable either way.
+	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+		return domain.ErrResetTokenExpired
+	}
+
+	if !verifyOTP(input.Code, token.TokenHash, s.config.OTPPepper) {
+		return domain.NewError("invalid_code", "Invalid set password code")
 	}
 
 	if token.UserID == nil || *token.UserID != input.UserID {

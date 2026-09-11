@@ -46,7 +46,20 @@ func NewVerificationService(
 }
 
 func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*domain.User, error) {
-	token, err := s.tokens.GetByHash(ctx, hashToken(code))
+	// The verification code is an 8-char OTP (~40 bits): low-entropy, so the
+	// stored value is HMAC-SHA256(OTPPepper, code), not raw SHA-256. This
+	// endpoint takes a bare code with no challenge ID, so unlike 2FA Verify it
+	// cannot fetch by ID first — the DB lookup below is a locator only. The
+	// security decision happens in app code via verifyOTP (hmac.Equal,
+	// constant-time); a row found by the index but failing that check is
+	// rejected. Offline cracking of a DB dump still needs the pepper, and
+	// online guessing is bounded by code TTL plus the per-IP rate limit (this
+	// flow is deliberately not per-token attempt-capped, see below).
+	if len(s.config.OTPPepper) == 0 {
+		s.log.Error("email verification refused: no OTP pepper derived — refusing")
+		return nil, domain.ErrInternal
+	}
+	token, err := s.tokens.GetByHash(ctx, hashOTP(code, s.config.OTPPepper))
 	if err != nil || token == nil {
 		return nil, domain.NewError("code_invalid", "Invalid verification code")
 	}
@@ -61,6 +74,19 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 
 	if time.Now().UTC().After(token.ExpiresAt) {
 		return nil, domain.NewError("code_expired", "Verification code has expired")
+	}
+
+	// A rotation-stale code predates the live pepper and can never verify —
+	// the old pepper is gone, so the HMAC below couldn't distinguish right
+	// from wrong anyway. Answer expired (resend, don't retry) without running
+	// it. code_expired vs code_invalid is the client's resend-vs-retype
+	// branch, so the two must stay distinct here.
+	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+		return nil, domain.NewError("code_expired", "Verification code has expired")
+	}
+
+	if !verifyOTP(code, token.TokenHash, s.config.OTPPepper) {
+		return nil, domain.NewError("code_invalid", "Invalid verification code")
 	}
 
 	if token.UserID == nil {
@@ -121,11 +147,22 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		if err == nil && last != nil {
 			// Still usable — reuse it rather than mail a second code.
 			if last.UsedAt == nil && time.Now().UTC().Before(last.ExpiresAt) {
-				return &VerificationResult{Sent: false, ExpiresAt: last.ExpiresAt}, nil
-			}
-			// Spent or expired, but minted moments ago: throttle the refresh.
-			if s.config.VerificationResendInterval > 0 &&
+				// A live but rotation-stale code can never verify, and
+				// reusing it would hand the caller a dead code that
+				// VerifyEmail can only answer expired to. Clear it and fall
+				// through to the mint below instead of stacking a second
+				// row or throttling against a deleted one.
+				if stalePepper(last.CreatedAt, s.config.PepperRotatedAt) {
+					if derr := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenVerifyEmail); derr != nil {
+						s.log.Error("failed to clear rotation-stale verification token", "err", derr, "user_id", user.ID)
+						return nil, domain.ErrInternal
+					}
+				} else {
+					return &VerificationResult{Sent: false, ExpiresAt: last.ExpiresAt}, nil
+				}
+			} else if s.config.VerificationResendInterval > 0 &&
 				time.Since(last.CreatedAt) < s.config.VerificationResendInterval {
+				// Spent or expired, but minted moments ago: throttle the refresh.
 				return &VerificationResult{Sent: false, ExpiresAt: last.ExpiresAt}, nil
 			}
 		}
@@ -137,12 +174,17 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		return nil, domain.ErrInternal
 	}
 
+	if len(s.config.OTPPepper) == 0 {
+		s.log.Error("verification send refused: no OTP pepper derived — refusing")
+		return nil, domain.ErrInternal
+	}
+
 	now := time.Now().UTC()
 	token := &domain.VerificationToken{
 		ID:        generateID(),
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hashToken(raw),
+		TokenHash: hashOTP(raw, s.config.OTPPepper),
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(s.config.VerificationCodeTTL),
 		// Set here, not left to the repository's backfill: the resend throttle

@@ -131,11 +131,17 @@ func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*Chall
 	// are the cap), so a dead lineage is neither used nor expired. Without
 	// them the next login would answer "a code was already sent" and point at
 	// a challenge that can never verify.
+	//
+	// A rotation-stale lineage is not reusable either: its code was hashed
+	// under a gone pepper, so handing back its ID would mail nothing and
+	// Verify could only answer expired. Skipping it falls through to a fresh
+	// mint (and mail) below.
 	if existing, err := s.tokens.GetLastByUserAndType(ctx, userID, domain.TokenTwoFactor); err == nil && existing != nil {
 		if existing.UsedAt == nil &&
 			time.Now().UTC().Before(existing.ExpiresAt) &&
 			existing.Attempts < maxAttemptsPerChallenge &&
-			existing.ResendCount < maxCodeRefreshesPerChallenge {
+			existing.ResendCount < maxCodeRefreshesPerChallenge &&
+			!stalePepper(existing.CreatedAt, s.config.PepperRotatedAt) {
 			return &ChallengeResult{
 				ID:           existing.ID,
 				Sent:         false,
@@ -165,12 +171,17 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 		return nil, domain.ErrInternal
 	}
 
+	if len(s.config.OTPPepper) == 0 {
+		s.log.Error("2fa issue refused: no OTP pepper derived — refusing")
+		return nil, domain.ErrInternal
+	}
+
 	now := time.Now().UTC()
 	token := &domain.VerificationToken{
 		ID:        generateID(),
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hashToken(raw),
+		TokenHash: hashOTP(raw, s.config.OTPPepper),
 		Type:      domain.TokenTwoFactor,
 		ExpiresAt: now.Add(s.config.TwoFactorCodeTTL),
 		CreatedAt: now,
@@ -297,7 +308,20 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 		return nil, domain.ErrTwoFactorCodeExpired
 	}
 
-	if subtle.ConstantTimeCompare([]byte(hashToken(code)), []byte(token.TokenHash)) != 1 {
+	// The 6-digit code is low-entropy (~20 bits): the stored value is
+	// HMAC-SHA256(OTPPepper, code), compared here in app code with hmac.Equal
+	// (see verifyOTP) — never a SQL `=` lookup, never bcrypt. The row is
+	// already fetched by challenge ID above, so the per-lineage attempt cap
+	// below still applies to every guess.
+	//
+	// A rotation-stale code predates the live pepper and can never verify —
+	// the old pepper is gone, so running the HMAC couldn't distinguish right
+	// from wrong anyway. Answer expired (resend, don't retry) without burning
+	// attempt budget or recording a failure: the user did nothing wrong.
+	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+		return nil, domain.ErrTwoFactorCodeExpired
+	}
+	if !verifyOTP(code, token.TokenHash, s.config.OTPPepper) {
 		// A false return means the cap was already reached, by an earlier
 		// guess or a concurrent one. Either way the caller learns only
 		// "invalid" — the distinction is not theirs to see.
@@ -453,9 +477,14 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 		return nil, domain.ErrInternal
 	}
 
+	if len(s.config.OTPPepper) == 0 {
+		s.log.Error("2fa resend refused: no OTP pepper derived — refusing")
+		return nil, domain.ErrInternal
+	}
+
 	expiresAt := time.Now().UTC().Add(s.config.TwoFactorCodeTTL)
-	ok, err := s.tokens.UpdateForResend(ctx, token.ID, hashToken(raw), expiresAt,
-		maxCodeRefreshesPerChallenge, maxAttemptsPerChallenge)
+	ok, err := s.tokens.UpdateForResend(ctx, token.ID, hashOTP(raw, s.config.OTPPepper), expiresAt,
+		time.Now().UTC(), maxCodeRefreshesPerChallenge, maxAttemptsPerChallenge)
 	if err != nil {
 		s.log.Error("failed to refresh 2fa token", "err", err, "token_id", token.ID)
 		return nil, domain.ErrInternal

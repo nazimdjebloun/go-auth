@@ -16,6 +16,9 @@ func TestDerive_Deterministic(t *testing.T) {
 	if string(k1.TwoFactor) != string(k2.TwoFactor) {
 		t.Error("TwoFactor key differs across Derive calls with the same secret")
 	}
+	if string(k1.OTPPepper) != string(k2.OTPPepper) {
+		t.Error("OTPPepper key differs across Derive calls with the same secret")
+	}
 }
 
 func TestDerive_KeysArePairwiseDistinct(t *testing.T) {
@@ -29,6 +32,15 @@ func TestDerive_KeysArePairwiseDistinct(t *testing.T) {
 	}
 	if string(k.OAuthEnc) == string(k.TwoFactor) {
 		t.Error("OAuthEnc and TwoFactor keys must not be equal")
+	}
+	if string(k.CSRF) == string(k.OTPPepper) {
+		t.Error("CSRF and OTPPepper keys must not be equal")
+	}
+	if string(k.OAuthEnc) == string(k.OTPPepper) {
+		t.Error("OAuthEnc and OTPPepper keys must not be equal")
+	}
+	if string(k.TwoFactor) == string(k.OTPPepper) {
+		t.Error("TwoFactor and OTPPepper keys must not be equal")
 	}
 }
 
@@ -45,6 +57,9 @@ func TestDerive_DifferentSecretsProduceDifferentKeys(t *testing.T) {
 	if string(k1.TwoFactor) == string(k2.TwoFactor) {
 		t.Error("expected different secrets to derive different TwoFactor keys")
 	}
+	if string(k1.OTPPepper) == string(k2.OTPPepper) {
+		t.Error("expected different secrets to derive different OTPPepper keys")
+	}
 }
 
 func TestDerive_OutputLengthIs32Bytes(t *testing.T) {
@@ -58,5 +73,8 @@ func TestDerive_OutputLengthIs32Bytes(t *testing.T) {
 	}
 	if len(k.TwoFactor) != 32 {
 		t.Errorf("expected TwoFactor key to be 32 bytes, got %d", len(k.TwoFactor))
+	}
+	if len(k.OTPPepper) != 32 {
+		t.Errorf("expected OTPPepper key to be 32 bytes, got %d", len(k.OTPPepper))
 	}
 }

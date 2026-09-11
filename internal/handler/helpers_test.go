@@ -802,7 +802,7 @@ func (m *mockTokenRepo) MarkUsedIfUnderCap(_ context.Context, id string, maxAtte
 	return false, nil
 }
 
-func (m *mockTokenRepo) UpdateForResend(_ context.Context, id string, newHash string, newExpiresAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
+func (m *mockTokenRepo) UpdateForResend(_ context.Context, id string, newHash string, newExpiresAt time.Time, newCreatedAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for hash, t := range m.tokens {
@@ -813,6 +813,7 @@ func (m *mockTokenRepo) UpdateForResend(_ context.Context, id string, newHash st
 			delete(m.tokens, hash)
 			t.TokenHash = newHash
 			t.ExpiresAt = newExpiresAt
+			t.CreatedAt = newCreatedAt
 			t.ResendCount++
 			m.tokens[newHash] = t
 			return true, nil
@@ -1498,6 +1499,7 @@ func newTestHarness() *testHarness {
 		URLValidator:                 &port.URLValidator{AllowHTTP: true},
 		TwoFactorCodeTTL:             time.Hour,
 		TwoFactorBindingKey:          keys.TwoFactor,
+		OTPPepper:                    keys.OTPPepper,
 		TwoFactorChallengeCookieName: "_2fa_challenge",
 	}
 

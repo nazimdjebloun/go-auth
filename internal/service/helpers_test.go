@@ -48,7 +48,16 @@ func defaultTestConfig() Config {
 		InviteTTL:                7 * 24 * time.Hour,
 		VerificationCodeTTL:      15 * time.Minute,
 		URLValidator:             &port.URLValidator{AllowHTTP: true},
+		OTPPepper:                testOTPPepper(),
 	}
+}
+
+// testOTPPepper is the HMAC pepper unit tests store low-entropy codes with.
+// It mirrors what Auth.New derives via keyring (a 32-byte subkey under a
+// dedicated purpose string), fixed so tests can recompute the same MAC when
+// seeding rows directly.
+func testOTPPepper() []byte {
+	return []byte("test-otp-pepper-32-bytes-long!!!")
 }
 
 func newTestSessionService(repo port.SessionRepository, gen port.TokenGenerator) *SessionService {

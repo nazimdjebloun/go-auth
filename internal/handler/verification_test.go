@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -11,12 +12,19 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/keyring"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
-func hashToken(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
+// hashOTP mirrors the service's low-entropy code storage
+// (HMAC-SHA256(OTPPepper, code)) so directly-seeded verification rows match
+// what the service compares against. The pepper comes from the same test
+// secret the harness derives its keys from.
+func hashOTP(code string) string {
+	keys := keyring.Derive([]byte("test-secret-at-least-32-bytes!!"))
+	mac := hmac.New(sha256.New, keys.OTPPepper)
+	mac.Write([]byte(code))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
 // ─── POST /auth/verify-email ───────────────────────────────────────
@@ -42,7 +50,7 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 		ID:        "tok-1",
 		UserID:    &uid,
 		Email:     "test@example.com",
-		TokenHash: hashToken(code),
+		TokenHash: hashOTP(code),
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(15 * time.Minute),
 	}
@@ -101,7 +109,7 @@ func TestVerifyEmail_ExpiredCode(t *testing.T) {
 		ID:        "tok-expired",
 		UserID:    &uid,
 		Email:     "test2@example.com",
-		TokenHash: hashToken(code),
+		TokenHash: hashOTP(code),
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(-1 * time.Hour),
 	}

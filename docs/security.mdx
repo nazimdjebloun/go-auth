@@ -16,6 +16,8 @@ Passwords are hashed with **bcrypt**, cost 12, via `golang.org/x/crypto/bcrypt` 
 
 Login is timing-safe against email enumeration: when the email doesn't exist, the service still runs a dummy bcrypt comparison against a fixed hash before returning `invalid_credentials` — so a non-existent email and a wrong password take roughly the same time and return the identical error, code, and status. Whether it's the email or the password that's wrong is never revealed.
 
+**Code shapes.** Every code a user types is drawn with `crypto/rand`: 2FA codes are 6 digits (phone-keypad friendly, 5-minute default TTL), while email-verification, set-password, and delete-account codes are 8 characters from an unambiguous 32-character alphabet (`A–Z` minus `I`/`O`, `2–9` — no lookalikes, 15/10/10-minute TTLs respectively). The split is deliberate: the code entered on every login optimizes for typing friction, with a 5-guess lineage cap compensating for the smaller space, while the rarely-entered codes carry more entropy where attempt caps are thinner or absent. Render a numeric keypad for 2FA inputs and a full keyboard for the rest. Shapes and lengths are fixed in code, not configurable.
+
 ## Sessions and tokens
 
 Every session issues two opaque tokens — a session token and a refresh token — each 32 cryptographically random bytes (`crypto/rand`), hex-encoded. Only their SHA-256 hash is ever written to the database; the raw token exists solely in the `Set-Cookie` header sent to the client. A leaked database dump doesn't hand over live sessions.
@@ -85,7 +87,23 @@ When enabled, security-relevant events (login, logout, registration, password ch
 
 ## Secrets
 
-`WithSecret` supplies the one application-wide secret the library needs, and must be at least 32 bytes (`NewConfig` rejects anything shorter, since HMAC-SHA256 wants a full-strength key). It is never used directly as key material: it's run through HKDF-SHA256 once, with a distinct info string per purpose, to derive three independent subkeys — one for CSRF tokens, one for the 2FA challenge-binding cookie (which ties a 2FA challenge to the browser that started it, so a leaked `challengeId` alone isn't a usable credential — see [Two-factor authentication](#two-factor-authentication)), and one that encrypts OAuth provider tokens at rest with AES-256-GCM (a random nonce per encryption) — with room for more as the library adds HMAC-based tokens. A compromise of one derived purpose's key doesn't hand over the others. Nothing about the secret or its derived keys is logged or exposed via any endpoint. Rotating it invalidates every outstanding CSRF token and 2FA challenge binding immediately, and makes previously-stored OAuth provider tokens undecryptable; there's no dual-key rotation window today, so plan a rotation for a moment where forcing every open tab to re-fetch a CSRF token, retrying any in-flight 2FA challenge, and re-linking OAuth accounts is acceptable.
+`WithSecret` supplies the one application-wide secret the library needs, and must be at least 32 bytes (`NewConfig` rejects anything shorter, since HMAC-SHA256 wants a full-strength key). It is never used directly as key material: it's run through HKDF-SHA256 once, with a distinct info string per purpose, to derive four independent subkeys — one for CSRF tokens, one for the 2FA challenge-binding cookie (which ties a 2FA challenge to the browser that started it, so a leaked `challengeId` alone isn't a usable credential — see [Two-factor authentication](#two-factor-authentication)), one that encrypts OAuth provider tokens at rest with AES-256-GCM (a random nonce per encryption), and one OTP pepper that HMACs low-entropy codes (2FA, verification, set-password, delete-account) before storage, so a database dump alone can't be brute-forced offline. A compromise of one derived purpose's key doesn't hand over the others. Nothing about the secret or its derived keys is logged or exposed via any endpoint. Rotating it invalidates every outstanding CSRF token and 2FA challenge binding immediately, and makes previously-stored OAuth provider tokens undecryptable; there's no dual-key rotation window today, so plan a rotation for a moment where forcing every open tab to re-fetch a CSRF token, retrying any in-flight 2FA challenge, and re-linking OAuth accounts is acceptable.
+
+## Secret rotation and the OTP pepper timestamp
+
+Codes issued before a rotation were HMAC'd under a pepper that no longer exists, so they can never verify — without special handling they would fail as `invalid_code`, indistinguishable from a typo. Pair every secret rotation with `WithPepperRotatedAt`, set to the moment the new secret went live:
+
+```go
+goauth.NewConfig(
+    goauth.WithSecret(os.Getenv("AUTH_SECRET")),
+    goauth.WithPepperRotatedAt(time.Date(2026, 9, 11, 18, 0, 0, 0, time.UTC)),
+    // ...
+)
+```
+
+Pre-rotation codes then fail as `code_expired` / `two_factor_code_expired` (and the set-password / delete-account equivalents) — the client's resend branch — without running the HMAC and without burning per-challenge attempt budget. Resending always mints under the live pepper, so one resend recovers. Unset (the zero default) disables this branch: verification is purely by HMAC and rotated codes surface as `invalid_code`.
+
+This value **must be identical on every instance** behind a load balancer — it is a shared fact about when rotation happened, not a per-process observation. Source it the way you source the secret itself: one environment variable (or secrets-manager entry) read by all instances, never per-instance config files that can drift. Two instances holding different timestamps disagree per-request about whether the same code is stale, which is exactly the failure this mechanism exists to prevent. Stating "issued before last rotation" in a response is not an information leak: it reveals no keyspace bits, confirms no account existence, and the stale branch performs no comparison an attacker could oracle.
 
 ## What's not covered
 

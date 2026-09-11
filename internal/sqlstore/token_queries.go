@@ -28,6 +28,6 @@ const (
 
 	tokenMarkUsedIfUnderCapQuery = `UPDATE verification_tokens SET used_at = $1 WHERE id = $2 AND used_at IS NULL AND attempts < $3`
 
-	tokenUpdateForResendQuery = `UPDATE verification_tokens SET token_hash = $1, expires_at = $2, resend_count = resend_count + 1
-		WHERE id = $3 AND used_at IS NULL AND resend_count < $4 AND attempts < $5`
+	tokenUpdateForResendQuery = `UPDATE verification_tokens SET token_hash = $1, expires_at = $2, created_at = $3, resend_count = resend_count + 1
+		WHERE id = $4 AND used_at IS NULL AND resend_count < $5 AND attempts < $6`
 )

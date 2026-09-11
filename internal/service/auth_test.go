@@ -641,8 +641,104 @@ func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
 	if err2 == nil {
 		t.Fatal("Expected error for reused code, got nil")
 	}
-	if authErrCode(err2) != "delete_code_already_used" {
-		t.Fatalf("Expected delete_code_already_used, got %s", authErrCode(err2))
+	// User-scoped HMAC comparison (see ConfirmDeleteAccount): the old code is
+	// checked against the new user's own token lineage, not looked up
+	// globally by hash, so a code minted for one user and replayed against
+	// another is simply unknown — delete_code_invalid, not
+	// delete_code_already_used. Same-user reuse still reports already_used.
+	if authErrCode(err2) != "delete_code_invalid" {
+		t.Fatalf("Expected delete_code_invalid, got %s", authErrCode(err2))
+	}
+}
+
+func TestConfirmDeleteAccount_StalePepperReturnsExpired(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	mailer := &testutil.MockMailer{}
+	cfg := defaultTestConfig()
+	cfg.PepperRotatedAt = time.Now().UTC()
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, nil)
+
+	oauthUser := &domain.User{
+		ID:        "oauth-user-id",
+		Email:     "oauth@example.com",
+		Name:      "OAuth User",
+		Role:      domain.RoleUser,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	users.Create(context.Background(), oauthUser)
+
+	if reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID); reqErr != nil {
+		t.Fatalf("RequestDeleteAccount failed: %v", reqErr)
+	}
+	code := testutil.GetLastVerificationCode(mailer)
+	for _, tok := range tokens.List() {
+		tok.CreatedAt = time.Now().UTC().Add(-time.Hour)
+	}
+
+	err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+		UserID: oauthUser.ID,
+		Code:   code,
+	})
+	if err == nil {
+		t.Fatal("Expected error for rotation-stale code, got nil")
+	}
+	if authErrCode(err) != "delete_code_expired" {
+		t.Fatalf("Expected delete_code_expired, got %s", authErrCode(err))
+	}
+}
+
+func TestRequestDeleteAccount_ReplacesStaleLiveCode(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	mailer := &testutil.MockMailer{}
+	cfg := defaultTestConfig()
+	cfg.PepperRotatedAt = time.Now().UTC()
+
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, nil)
+
+	oauthUser := &domain.User{
+		ID:        "oauth-user-id",
+		Email:     "oauth@example.com",
+		Name:      "OAuth User",
+		Role:      domain.RoleUser,
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	users.Create(context.Background(), oauthUser)
+
+	if reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID); reqErr != nil {
+		t.Fatalf("RequestDeleteAccount failed: %v", reqErr)
+	}
+	for _, tok := range tokens.List() {
+		tok.CreatedAt = time.Now().UTC().Add(-time.Hour)
+	}
+
+	// The live code is rotation-stale: a second request must mint a fresh one
+	// rather than report "already sent" for a code that can never verify.
+	if reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID); reqErr != nil {
+		t.Fatalf("second RequestDeleteAccount failed: %v", reqErr)
+	}
+	if len(mailer.Calls) != 2 {
+		t.Fatalf("expected 2 mailer calls, got %d", len(mailer.Calls))
+	}
+
+	code := testutil.GetLastVerificationCode(mailer)
+	if err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+		UserID: oauthUser.ID,
+		Code:   code,
+	}); err != nil {
+		t.Fatalf("ConfirmDeleteAccount with fresh code failed: %v", err)
 	}
 }
 

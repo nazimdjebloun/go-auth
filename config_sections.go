@@ -152,6 +152,24 @@ type SecurityConfig struct {
 	// to allow plaintext links outside a dev environment, or
 	// RequireHTTPSEmailLinks to enforce https:// even in development.
 	AllowHTTPURLs *bool
+
+	// PepperRotatedAt records when the current WithSecret value went live, as
+	// a wall-clock time in UTC. The library HMAC-peppers low-entropy codes
+	// (2FA, verification, set-password, delete-account) with a subkey derived
+	// from the secret; a code issued before this timestamp was hashed under a
+	// previous secret and can never verify, so it is answered expired-style
+	// ("resend, don't retry") instead of invalid.
+	//
+	// Set it — via WithPepperRotatedAt — exactly when you rotate the secret,
+	// to the moment the new secret went live, on every instance alike. It is
+	// deliberately operator-set rather than derived at boot: every instance
+	// behind a load balancer must agree on one value, and a boot-stamped
+	// timestamp would make rolling deploys disagree per-request about which
+	// codes are stale. Zero (the default, fixed epoch) disables the stale
+	// branch: codes are then verified purely by HMAC, and a rotated pepper
+	// surfaces as invalid_code rather than expired. Slight future skew is
+	// self-correcting — codes read stale only until the timestamp passes.
+	PepperRotatedAt time.Time
 }
 
 // TwoFactorConfig groups the email two-factor settings, split out of

@@ -11,13 +11,20 @@ type Keys struct {
 	CSRF      []byte
 	OAuthEnc  []byte
 	TwoFactor []byte
+	OTPPepper []byte
 }
 
+// Derive is pure: the same secret always yields the same keys, on every
+// instance and every boot. It deliberately stamps no timestamps — a
+// wall-clock-at-boot rotation marker here would disagree across instances
+// during a rolling deploy (see SecurityConfig.PepperRotatedAt, which is
+// operator-set precisely so every instance shares one value).
 func Derive(secret []byte) Keys {
 	return Keys{
 		CSRF:      deriveKey(secret, []byte("goauth-csrf-signing-v1")),
 		OAuthEnc:  deriveKey(secret, []byte("goauth-oauth-encryption-v1")),
 		TwoFactor: deriveKey(secret, []byte("goauth-2fa-binding-v1")),
+		OTPPepper: deriveKey(secret, []byte("goauth-otp-pepper-v1")),
 	}
 }
 

@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ func newTwoFactorConfig() service.Config {
 		},
 		TwoFactorCodeTTL: 5 * time.Minute,
 		URLValidator:     &port.URLValidator{AllowHTTP: true},
+		OTPPepper:        []byte("test-otp-pepper-32-bytes-long!!!"),
 	}
 }
 
@@ -33,6 +35,173 @@ func newTwoFactorSvc(
 	return service.NewTwoFactorService(
 		users, nil, tokens, &testutil.MockHasher{}, mailer, nil, newTwoFactorConfig(), nil,
 	)
+}
+
+// newTwoFactorSvcWithRotation wires a service that can reach Verify's success
+// path (real session service) with an explicit pepper-rotation timestamp.
+// Binding is disabled so tests don't need a binding key — the stale-pepper
+// branch sits behind the binding check, which these tests aren't exercising.
+func newTwoFactorSvcWithRotation(
+	users *testutil.MockUserRepo,
+	tokens *testutil.MockTokenRepo,
+	mailer *testutil.MockMailer,
+	pepperRotatedAt time.Time,
+) *service.TwoFactorService {
+	cfg := newTwoFactorConfig()
+	cfg.DisableTwoFactorChallengeBinding = true
+	cfg.OTPPepper = []byte("test-otp-pepper-32-bytes-long!!!")
+	cfg.PepperRotatedAt = pepperRotatedAt
+	sessions := testutil.NewMockSessionRepo()
+	sessSvc := service.NewSessionService(sessions, &testutil.MockTokenGen{Length: 32}, service.DefaultSessionConfig())
+	return service.NewTwoFactorService(
+		users, sessions, tokens, &testutil.MockHasher{}, mailer, nil, cfg, sessSvc,
+	)
+}
+
+func lastTwoFactorCode(t *testing.T, mailer *testutil.MockMailer) string {
+	t.Helper()
+	code := testutil.GetLastVerificationCode(mailer)
+	if code == "" {
+		t.Fatal("expected a 2fa code in the last email")
+	}
+	return code
+}
+
+func wrongTwoFactorCode(real string) string {
+	if strings.HasPrefix(real, "0") {
+		return "1" + real[1:]
+	}
+	return "0" + real[1:]
+}
+
+// backdateLineage simulates a pepper rotation after issuance: every stored
+// row predates rotatedAt, so the stale-pepper branch must trigger.
+func backdateLineage(t *testing.T, tokens *testutil.MockTokenRepo, d time.Duration) {
+	t.Helper()
+	list := tokens.List()
+	if len(list) == 0 {
+		t.Fatal("expected at least one stored token to backdate")
+	}
+	for _, tok := range list {
+		tok.CreatedAt = time.Now().UTC().Add(-d)
+	}
+}
+
+func TestVerify_StalePepperReturnsExpiredWithoutBurningAttempts(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	mailer := &testutil.MockMailer{}
+	rotatedAt := time.Now().UTC()
+	svc := newTwoFactorSvcWithRotation(users, tokens, mailer, rotatedAt)
+
+	user := newTwoFactorUser(users, "stale@example.com")
+	ch, err := svc.Challenge(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("Challenge failed: %v", err)
+	}
+	backdateLineage(t, tokens, time.Hour)
+	code := lastTwoFactorCode(t, mailer)
+
+	_, err = svc.Verify(context.Background(), ch.ID, "", code, "127.0.0.1", "test-agent")
+	if err == nil {
+		t.Fatal("expected error for rotation-stale code, got nil")
+	}
+	if authErrCode(err) != "two_factor_code_expired" {
+		t.Fatalf("expected two_factor_code_expired, got %s", authErrCode(err))
+	}
+
+	stored, _ := tokens.GetByID(context.Background(), ch.ID)
+	if stored.Attempts != 0 {
+		t.Fatalf("stale-pepper failure must not burn attempt budget, attempts=%d", stored.Attempts)
+	}
+}
+
+func TestVerify_StalePepperWrongCodeAlsoExpired(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	mailer := &testutil.MockMailer{}
+	svc := newTwoFactorSvcWithRotation(users, tokens, mailer, time.Now().UTC())
+
+	user := newTwoFactorUser(users, "stale-wrong@example.com")
+	ch, err := svc.Challenge(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("Challenge failed: %v", err)
+	}
+	backdateLineage(t, tokens, time.Hour)
+	code := lastTwoFactorCode(t, mailer)
+
+	// The old pepper is gone, so right vs wrong is unknowable — both answer
+	// expired, and no guess information leaks through distinct errors.
+	_, err = svc.Verify(context.Background(), ch.ID, "", wrongTwoFactorCode(code), "127.0.0.1", "test-agent")
+	if err == nil {
+		t.Fatal("expected error for rotation-stale lineage, got nil")
+	}
+	if authErrCode(err) != "two_factor_code_expired" {
+		t.Fatalf("expected two_factor_code_expired, got %s", authErrCode(err))
+	}
+}
+
+func TestChallenge_SkipsStaleLineage(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	mailer := &testutil.MockMailer{}
+	svc := newTwoFactorSvcWithRotation(users, tokens, mailer, time.Now().UTC())
+
+	user := newTwoFactorUser(users, "stale-reuse@example.com")
+	first, err := svc.Challenge(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("first Challenge failed: %v", err)
+	}
+	backdateLineage(t, tokens, time.Hour)
+
+	// A stale lineage must not be "reused" (that would mail nothing and hand
+	// back a challenge Verify can only answer expired to).
+	second, err := svc.Challenge(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("second Challenge failed: %v", err)
+	}
+	if !second.Sent {
+		t.Fatal("expected a fresh mailed code after rotation, got Sent=false")
+	}
+	if second.ID == first.ID {
+		t.Fatal("expected a new challenge id after rotation, got the stale one back")
+	}
+	if len(mailer.Calls) != 2 {
+		t.Fatalf("expected 2 mailer calls, got %d", len(mailer.Calls))
+	}
+}
+
+func TestResend_RecoversStaleLineage(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	mailer := &testutil.MockMailer{}
+	svc := newTwoFactorSvcWithRotation(users, tokens, mailer, time.Now().UTC())
+
+	user := newTwoFactorUser(users, "stale-resend@example.com")
+	ch, err := svc.Challenge(context.Background(), user.ID)
+	if err != nil {
+		t.Fatalf("Challenge failed: %v", err)
+	}
+	backdateLineage(t, tokens, time.Hour)
+
+	resent, err := svc.Resend(context.Background(), ch.ID, "")
+	if err != nil {
+		t.Fatalf("Resend failed: %v", err)
+	}
+	if resent.ID != ch.ID {
+		t.Fatalf("expected resend to keep the challenge id, got %s", resent.ID)
+	}
+	newCode := lastTwoFactorCode(t, mailer)
+
+	// The resent code is hashed under the live pepper with a refreshed
+	// created_at, so it verifies — this is the "please resend" recovery path.
+	result, err := svc.Verify(context.Background(), ch.ID, "", newCode, "127.0.0.1", "test-agent")
+	if err != nil {
+		t.Fatalf("Verify of resent code failed: %v", err)
+	}
+	if result == nil || result.Session == nil {
+		t.Fatal("expected a session after verifying the resent code")
+	}
 }
 
 func newTwoFactorUser(users *testutil.MockUserRepo, email string) *domain.User {

@@ -2,6 +2,7 @@ package goauth
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -105,9 +106,23 @@ func WithTwoFactor(cfg TwoFactorConfig) Option {
 // used to sign CSRF tokens today and any future HMAC-based tokens this library
 // adds. It is required and must be at least 32 bytes for HMAC-SHA256. Do not
 // commit secrets to source control; supply it from the environment.
+//
+// When rotating the secret, also set WithPepperRotatedAt to the moment the
+// new secret went live, or in-flight low-entropy codes fail as invalid_code
+// instead of expired.
 func WithSecret(secret string) Option {
 	return func(c *Config) {
 		c.secret = secret
+	}
+}
+
+// WithPepperRotatedAt records when the current WithSecret value went live
+// (UTC) — set it exactly when you rotate the secret, to the same value on
+// every instance. See SecurityConfig.PepperRotatedAt. Surgical on purpose:
+// rotation must not require restating the rest of SecurityConfig.
+func WithPepperRotatedAt(t time.Time) Option {
+	return func(c *Config) {
+		c.security.PepperRotatedAt = t
 	}
 }
 

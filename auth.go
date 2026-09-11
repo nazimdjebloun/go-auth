@@ -169,6 +169,8 @@ func New(in *Config) (*Auth, error) {
 		DefaultTwoFactorEnabled:          cfg.twoFactor.DefaultEnabled,
 		TwoFactorCodeTTL:                 cfg.twoFactor.CodeTTL,
 		TwoFactorBindingKey:              keys.TwoFactor,
+		OTPPepper:                        keys.OTPPepper,
+		PepperRotatedAt:                  cfg.security.PepperRotatedAt,
 		DisableTwoFactorChallengeBinding: cfg.twoFactor.DisableChallengeBinding,
 		TwoFactorChallengeCookieName:     cfg.twoFactor.ChallengeCookieName,
 		DisableAdminTwoFactor:            cfg.twoFactor.DisableAdminTwoFactor,

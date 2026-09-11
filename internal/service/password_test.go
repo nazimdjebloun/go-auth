@@ -701,6 +701,50 @@ func TestConfirmSetPassword_AlreadyHasPassword(t *testing.T) {
 	}
 }
 
+func TestConfirmSetPassword_StalePepperReturnsExpired(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessions := testutil.NewMockSessionRepo()
+	cfg := defaultTestConfig()
+	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
+	cfg.PepperRotatedAt = time.Now().UTC()
+	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+
+	users.Create(context.Background(), &domain.User{
+		ID:        "oauth-user",
+		Email:     "oauth@example.com",
+		Name:      "OAuth",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+
+	if err := svc.RequestSetPassword(context.Background(), "oauth-user"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	code := testutil.GetLastVerificationCode(mailer)
+	if code == "" {
+		t.Fatal("expected code in email")
+	}
+	for _, tok := range tokens.List() {
+		tok.CreatedAt = time.Now().UTC().Add(-time.Hour)
+	}
+
+	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+		UserID:      "oauth-user",
+		Code:        code,
+		NewPassword: "NewPass1!",
+	})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if authErrCode(err) != "reset_token_expired" {
+		t.Fatalf("expected reset_token_expired, got %s", authErrCode(err))
+	}
+}
+
 func TestPasswordPolicyDefault(t *testing.T) {
 	tests := []struct {
 		name     string

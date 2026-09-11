@@ -68,6 +68,26 @@ type Config struct {
 
 	DisableTwoFactorChallengeBinding bool
 	TwoFactorChallengeCookieName     string
+
+	// OTPPepper peppers every low-entropy code/OTP (6-digit 2FA codes,
+	// 8-char verification / set-password / delete-account codes) via
+	// HMAC-SHA256 before storage. It is keyring's OTPPepper subkey
+	// ("goauth-otp-pepper-v1") — a distinct purpose string from
+	// TwoFactorBindingKey and from any password pepper, never the raw app
+	// secret. Empty fails closed at verify/store time. High-entropy tokens
+	// (session, reset, invite, OAuth state) do not use it; see token.go.
+	OTPPepper []byte
+
+	// PepperRotatedAt is when the current OTPPepper became live, operator-set
+	// via WithPepperRotatedAt to the same UTC value on every instance (see
+	// SecurityConfig.PepperRotatedAt). A stored code issued before it was
+	// hashed under a gone pepper and can never verify, so verifiers answer
+	// expired-style (resend, don't retry) without running the HMAC or burning
+	// attempt budget — see stalePepper. Zero (never configured) disables the
+	// stale branch: verification is purely by HMAC. It must be operator-set
+	// rather than boot-stamped so instances behind a load balancer agree —
+	// per-process timestamps would disagree during rolling deploys.
+	PepperRotatedAt time.Time
 }
 
 type AuditPublisher interface {
@@ -471,7 +491,19 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 
 	hasValid, err := s.tokens.HasValidByUserAndType(ctx, userID, domain.TokenDeleteAccount)
 	if err == nil && hasValid {
-		return nil
+		// A live but rotation-stale code can never verify — confirming it
+		// could only answer expired. Don't report "already sent" for it;
+		// clear it and fall through to mint a fresh code instead.
+		last, lerr := s.tokens.GetLastByUserAndType(ctx, userID, domain.TokenDeleteAccount)
+		if lerr != nil || last == nil || last.UsedAt != nil ||
+			time.Now().UTC().After(last.ExpiresAt) ||
+			!stalePepper(last.CreatedAt, s.config.PepperRotatedAt) {
+			return nil
+		}
+		if derr := s.tokens.DeleteUnusedByUserAndType(ctx, userID, domain.TokenDeleteAccount); derr != nil {
+			s.log.Error("failed to clear rotation-stale deletion token", "err", derr, "user_id", userID)
+			return domain.ErrInternal
+		}
 	}
 
 	raw, err := otp.Generate(8)
@@ -480,12 +512,17 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 		return domain.ErrInternal
 	}
 
+	if len(s.config.OTPPepper) == 0 {
+		s.log.Error("delete-account request refused: no OTP pepper derived — refusing")
+		return domain.ErrInternal
+	}
+
 	now := time.Now().UTC()
 	token := &domain.VerificationToken{
 		ID:        generateID(),
 		UserID:    &user.ID,
 		Email:     user.Email,
-		TokenHash: hashToken(raw),
+		TokenHash: hashOTP(raw, s.config.OTPPepper),
 		Type:      domain.TokenDeleteAccount,
 		ExpiresAt: now.Add(deleteAccountCodeTTL),
 	}
@@ -519,7 +556,16 @@ func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDel
 		return domain.ErrUserNotFound
 	}
 
-	token, err := s.tokens.GetByHash(ctx, hashToken(input.Code))
+	// The deletion code is an 8-char OTP (~40 bits): low-entropy, stored as
+	// HMAC-SHA256(OTPPepper, code). The request carries the user ID, so the
+	// candidate is fetched by user+type and compared here in app code with
+	// hmac.Equal (verifyOTP) — never a SQL `=` lookup over the MAC, never
+	// bcrypt.
+	if len(s.config.OTPPepper) == 0 {
+		s.log.Error("delete-account confirm refused: no OTP pepper derived — refusing")
+		return domain.ErrInternal
+	}
+	token, err := s.tokens.GetLastByUserAndType(ctx, input.UserID, domain.TokenDeleteAccount)
 	if err != nil || token == nil {
 		return domain.ErrDeleteCodeInvalid
 	}
@@ -534,6 +580,17 @@ func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDel
 
 	if time.Now().UTC().After(token.ExpiresAt) {
 		return domain.ErrDeleteCodeExpired
+	}
+
+	// A rotation-stale code predates the live pepper and can never verify.
+	// Answer expired (request a new code, don't retry) without running the
+	// HMAC — the old pepper is gone, so the outcome is unknowable either way.
+	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+		return domain.ErrDeleteCodeExpired
+	}
+
+	if !verifyOTP(input.Code, token.TokenHash, s.config.OTPPepper) {
+		return domain.ErrDeleteCodeInvalid
 	}
 
 	if token.UserID == nil || *token.UserID != input.UserID {

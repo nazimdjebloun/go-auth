@@ -117,7 +117,7 @@ func (r *TokenRepository) MarkUsedIfUnderCap(ctx context.Context, id string, max
 	return affected(r.db.ExecContext(ctx, tokenMarkUsedIfUnderCapQuery, time.Now().UTC(), id, maxAttemptsPerChallenge))
 }
 
-func (r *TokenRepository) UpdateForResend(ctx context.Context, id string, newHash string, newExpiresAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
+func (r *TokenRepository) UpdateForResend(ctx context.Context, id string, newHash string, newExpiresAt time.Time, newCreatedAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
 	return affected(r.db.ExecContext(ctx, tokenUpdateForResendQuery,
-		newHash, newExpiresAt, id, maxRefreshesPerChallenge, maxAttemptsPerChallenge))
+		newHash, newExpiresAt, newCreatedAt, id, maxRefreshesPerChallenge, maxAttemptsPerChallenge))
 }
