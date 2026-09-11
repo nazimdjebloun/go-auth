@@ -292,7 +292,7 @@ goauth.WithRegistration(goauth.RegistrationConfig{
     RequireEmailVerification: false,                 // optional, default false
     InviteTTL:                7 * 24 * time.Hour,    // optional, default 7d
     VerificationCodeTTL:      15 * time.Minute,      // optional, default 15m
-    VerificationResendInterval: 0,                   // optional, default 0 (no minimum)
+    VerificationResendInterval: 60 * time.Second, // optional, default 60s (negative = no minimum)
 })
 ```
 
@@ -305,7 +305,7 @@ goauth.WithRegistration(goauth.RegistrationConfig{
 | `RequireEmailVerification` | `bool` | Optional | `false` | A mailer is required regardless — see below. |
 | `InviteTTL` | `time.Duration` | Optional | `7d` | |
 | `VerificationCodeTTL` | `time.Duration` | Optional | `15m` | |
-| `VerificationResendInterval` | `time.Duration` | Optional | `0` — no minimum | Minimum time between verification email resends. Throttled resends return `200` with `codeSent: false` rather than an error. |
+| `VerificationResendInterval` | `time.Duration` | Optional | `60s` | Minimum time between verification email resends — the mail-bombing guard. Throttled resends return `200` with `codeSent: false` rather than an error. Set a negative value to opt out back to no minimum. |
 
 A `bool` has no "unset" state — an omitted `false` looks identical to a deliberate one. Because of that, calling `WithRegistration` at all replaces every flag wholesale rather than merging into the defaults: list every method you want enabled, since anything you don't mention becomes `false`. The two TTL fields and `VerificationResendInterval` are the exception — they keep their defaults when left at zero even if you do call `WithRegistration`.
 

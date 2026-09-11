@@ -238,6 +238,44 @@ func TestSendVerification_ThrottlesInsideResendInterval(t *testing.T) {
 	}
 }
 
+func TestSendVerification_NegativeIntervalDisablesThrottle(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	gen := &testutil.MockTokenGen{Length: 32}
+	mailer := &testutil.MockMailer{}
+	cfg := newVerificationConfig()
+	cfg.VerificationResendInterval = -time.Second
+	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+
+	user := createUnverifiedUser(users, "test@example.com")
+
+	// Spent moments ago: throttled under any non-negative interval, mailed
+	// with the explicit opt-out.
+	now := time.Now().UTC()
+	usedAt := now.Add(-5 * time.Second)
+	tokens.Create(context.Background(), &domain.VerificationToken{
+		ID:        "tok-spent",
+		UserID:    &user.ID,
+		Email:     user.Email,
+		TokenHash: hashToken("SPENT12"),
+		Type:      domain.TokenVerifyEmail,
+		ExpiresAt: now.Add(15 * time.Minute),
+		UsedAt:    &usedAt,
+		CreatedAt: now.Add(-10 * time.Second),
+	})
+
+	result, err := svc.SendVerification(context.Background(), user)
+	if err != nil {
+		t.Fatalf("SendVerification failed: %v", err)
+	}
+	if !result.Sent {
+		t.Fatal("expected Sent=true with the throttle opted out")
+	}
+	if len(mailer.Calls) != 1 {
+		t.Fatalf("expected 1 mailer call, got %d", len(mailer.Calls))
+	}
+}
+
 func TestSendVerification_MailsAgainOnceCodeIsSpentAndIntervalPassed(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	tokens := testutil.NewMockTokenRepo()

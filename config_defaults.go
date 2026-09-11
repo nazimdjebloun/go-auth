@@ -33,9 +33,16 @@ func defaultRegistration() RegistrationConfig {
 //
 // The rule is: zero means unset. Fields where zero is a meaningful value are
 // listed here explicitly and left alone — MaxLifetime (0 = no limit),
-// MaxOrgsPerUser (0 = default 100), VerificationResendInterval (0 = no
-// minimum), and every bool, which is why sections whose defaults include a
-// true bool are tracked with a *Set flag instead.
+// MaxOrgsPerUser (0 = default 100), and every bool, which is why sections
+// whose defaults include a true bool are tracked with a *Set flag instead.
+//
+// VerificationResendInterval is deliberately NOT in that list: its zero value
+// means unset and falls back to the 60s default below. A mail throttle that
+// defaults to off is a mail-bombing vector (authenticated resend with no
+// minimum interval floods the recipient's inbox at the per-IP rate limit's
+// pace), so the secure default is on. Set a negative value to opt back out
+// to no minimum — the service treats any non-positive interval as disabled,
+// and validate() leaves negatives on this field alone.
 func (c *Config) applyDefaults() {
 	if c.app.Environment == "" {
 		c.app.Environment = EnvironmentProd
@@ -56,6 +63,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.registration.VerificationCodeTTL == 0 {
 		c.registration.VerificationCodeTTL = 15 * time.Minute
+	}
+	if c.registration.VerificationResendInterval == 0 {
+		c.registration.VerificationResendInterval = 60 * time.Second
 	}
 	if c.organizations.InviteTTL == 0 {
 		c.organizations.InviteTTL = 7 * 24 * time.Hour

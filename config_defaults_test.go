@@ -196,8 +196,37 @@ func TestDefaults_PartialRegistrationKeepsTTLs(t *testing.T) {
 	if cfg.registration.VerificationCodeTTL != 15*time.Minute {
 		t.Errorf("VerificationCodeTTL = %v, want 15m", cfg.registration.VerificationCodeTTL)
 	}
+	if cfg.registration.VerificationResendInterval != 60*time.Second {
+		t.Errorf("VerificationResendInterval = %v, want 60s", cfg.registration.VerificationResendInterval)
+	}
 	if cfg.registration.EnableOAuth {
 		t.Error("explicit registration flags must not be merged with defaults")
+	}
+}
+
+func TestDefaults_VerificationResendInterval(t *testing.T) {
+	// Unset means the secure default (60s throttle), not disabled. Explicit
+	// values survive; negative opts back out to no minimum.
+	var unset Config
+	unset.applyDefaults()
+	if unset.registration.VerificationResendInterval != 60*time.Second {
+		t.Errorf("default VerificationResendInterval = %v, want 60s", unset.registration.VerificationResendInterval)
+	}
+
+	var explicit Config
+	explicit.registration.VerificationResendInterval = 5 * time.Minute
+	explicit.set.registration = true
+	explicit.applyDefaults()
+	if explicit.registration.VerificationResendInterval != 5*time.Minute {
+		t.Errorf("explicit VerificationResendInterval = %v, want 5m", explicit.registration.VerificationResendInterval)
+	}
+
+	var off Config
+	off.registration.VerificationResendInterval = -time.Second
+	off.set.registration = true
+	off.applyDefaults()
+	if off.registration.VerificationResendInterval != -time.Second {
+		t.Errorf("negative VerificationResendInterval = %v, want -1s (opt-out)", off.registration.VerificationResendInterval)
 	}
 }
 

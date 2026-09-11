@@ -77,7 +77,7 @@ type RegistrationConfig struct {
 	RequireEmailVerification   bool          // require email verification on signup (default false)
 	InviteTTL                  time.Duration // how long signup invites last (default 7d)
 	VerificationCodeTTL        time.Duration // how long verification codes live (default 15m)
-	VerificationResendInterval time.Duration // minimum interval between verification resends (0 = no minimum)
+	VerificationResendInterval time.Duration // minimum interval between verification resends (default 60s; negative = no minimum)
 }
 
 // OrganizationConfig controls the organizations feature.
