@@ -12,7 +12,12 @@
 
 # Output of go coverage
 *.out
+
+# Local agent tooling
+agent/
 .agents/
+.claude/
+skills-lock.json
 PLANS/
 
 
