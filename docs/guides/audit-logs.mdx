@@ -27,9 +27,9 @@ goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `Enabled` | `bool` | `false` | The two endpoints below still work while this is off — they just return no events, since none were ever published. |
-| `FailureMode` | `audit.AuditFailureMode` | fail-open | Fail-open: if publishing an event errors, the request that triggered it still succeeds. Fail-closed: that request fails instead — use this only if you have a compliance requirement that an action must not happen without a corresponding log entry. |
+| `FailureMode` | `audit.AuditFailureMode` | fail-open | Controls asynchronous sink fan-out after a sink fails: fail-open logs the error and continues to later sinks; fail-closed logs the error and stops processing that batch. It never changes whether the request that triggered the event succeeds or fails. |
 | `RetentionDays` | `int` | `0` | `0` means keep forever. |
-| `QueueSize` | `int` | `1000` | Events are published async onto this queue; if it's full, behavior follows `FailureMode`. |
+| `QueueSize` | `int` | `1000` | Events are published asynchronously onto this queue. If it is full, the event is dropped with a warning regardless of `FailureMode`; publishing never blocks or fails the triggering request. |
 | `Workers` | `int` | `3` | Background goroutines draining the queue. |
 | `BatchSize` | `int` | `50` | Events per batch write to the store. |
 | `FlushInterval` | `time.Duration` | `100ms` | Max time a partial batch waits before flushing anyway. |
