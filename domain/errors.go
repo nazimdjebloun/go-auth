@@ -61,6 +61,7 @@ var (
 	ErrDeleteCodeExpired        = NewError("delete_code_expired", "Deletion code has expired")
 	ErrDeleteCodeAlreadyUsed    = NewError("delete_code_already_used", "Deletion code has already been used")
 	ErrPasswordRequired         = NewError("password_required", "Password is required to delete account")
+	ErrPasswordUpdateConflict   = NewError("password_update_conflict", "Password changed concurrently; retry the operation")
 	ErrOrgNotFound              = NewError("org_not_found", "Organization not found")
 	ErrOrgSlugExists            = NewError("org_slug_exists", "Organization slug already in use")
 	ErrOrgSlugReserved          = NewError("org_slug_reserved", "Organization slug is reserved")

@@ -65,10 +65,23 @@ type DailyCount struct {
 	Count int       `json:"count"`
 }
 
+// PasswordHashUpdater performs the narrow, guarded credential write used by
+// login rehash, password change, and password reset. Implementations update
+// only when both oldHash and oldPepperVersion are still stored and must reject
+// a newPepperVersion lower than oldPepperVersion. False means a concurrent
+// password write won the race or the requested write would be a downgrade.
+type PasswordHashUpdater interface {
+	UpdatePasswordHash(ctx context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error)
+}
+
 type UserRepository interface {
+	PasswordHashUpdater
 	Create(ctx context.Context, user *domain.User) error
 	GetByID(ctx context.Context, id string) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)
+	// Update persists user metadata only. It must not replace PasswordHash or
+	// PasswordPepperVersion; existing credentials use PasswordHashUpdater so
+	// every such write has the same CAS and monotonic-version guarantees.
 	Update(ctx context.Context, user *domain.User) error
 	Delete(ctx context.Context, id string) error
 	// List returns a page of users. It does NOT count the full result set —
@@ -82,7 +95,7 @@ type UserRepository interface {
 	// on filter are ignored — the result is naturally bounded by the date
 	// range in filter.CreatedAfter/CreatedBefore).
 	CountByDay(ctx context.Context, filter UserFilter) ([]DailyCount, error)
-	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, tokenID string) error
+	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) error
 	SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error
 	UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error
 	SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error
@@ -222,6 +235,17 @@ type SessionRepository interface {
 	ActiveOrgSessionStore
 }
 
+// ConsumeTokenInput identifies one exact, still-valid token row. Repositories
+// must apply every predicate in the same UPDATE that stamps UsedAt so two
+// callers cannot both consume the token after racing through an earlier read.
+type ConsumeTokenInput struct {
+	ID        string
+	TokenHash string
+	UserID    string
+	Type      domain.TokenType
+	UsedAt    time.Time
+}
+
 type TokenRepository interface {
 	Create(ctx context.Context, t *domain.VerificationToken) error
 	GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error)
@@ -229,6 +253,7 @@ type TokenRepository interface {
 	GetLastByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error)
 	HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error)
 	MarkUsed(ctx context.Context, id string) error
+	ConsumeIfValid(ctx context.Context, input ConsumeTokenInput) (bool, error)
 	DeleteExpired(ctx context.Context) error
 	DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error
 

@@ -129,7 +129,7 @@ func requireDriverSupport(cfg *Config) error {
 // an existing pgx pool, an existing *sql.DB, or a DSN for go-auth to open
 // itself — into the one pair the rest of New needs. It records on cfg
 // whether it opened anything, which is what Close later keys off.
-func openDatabase(cfg *Config) (*pgxpool.Pool, *sqlstore.DB, error) {
+func openDatabase(ctx context.Context, cfg *Config) (*pgxpool.Pool, *sqlstore.DB, error) {
 	var pool *pgxpool.Pool
 	var sqlDB *sqlstore.DB
 
@@ -153,14 +153,14 @@ func openDatabase(cfg *Config) (*pgxpool.Pool, *sqlstore.DB, error) {
 		if err != nil {
 			return nil, nil, fmt.Errorf("goauth: open database: %w", err)
 		}
-		if err := db.Ping(); err != nil {
+		if err := db.PingContext(ctx); err != nil {
 			db.Close()
 			return nil, nil, fmt.Errorf("goauth: ping database: %w", err)
 		}
 		cfg.app.Database.opened = true
 		sqlDB = sqlstore.NewDB(db, string(cfg.app.Database.Driver))
 		if cfg.app.Database.Driver == DriverPostgres {
-			pool, err = pgxpool.New(context.Background(), cfg.app.Database.URL)
+			pool, err = pgxpool.New(ctx, cfg.app.Database.URL)
 			if err != nil {
 				db.Close()
 				return nil, nil, fmt.Errorf("goauth: create connection pool: %w", err)

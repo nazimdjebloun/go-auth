@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -14,6 +16,9 @@ import (
 
 const setPasswordCodeTTL = 10 * time.Minute
 
+var errResetTokenStateChanged = errors.New("service: reset token state changed")
+var errForgotPasswordDummyRollback = errors.New("service: roll back forgot-password dummy write")
+
 type PasswordService struct {
 	users     port.UserRepository
 	tokens    port.TokenRepository
@@ -22,6 +27,7 @@ type PasswordService struct {
 	mailer    port.Mailer
 	templates port.TemplateProvider
 	sessions  port.SessionRevoker // DeleteAllForUser / DeleteAllForUserExcept
+	txManager port.TxManager
 	config    Config
 	log       *slog.Logger
 	audit     AuditPublisher
@@ -34,6 +40,7 @@ func NewPasswordService(
 	gen port.TokenGenerator,
 	mailer port.Mailer,
 	sessions port.SessionRevoker,
+	txManager port.TxManager,
 	config Config,
 ) *PasswordService {
 	if config.Logger == nil {
@@ -48,6 +55,7 @@ func NewPasswordService(
 		mailer:    mailer,
 		templates: templates,
 		sessions:  sessions,
+		txManager: txManager,
 		config:    config,
 		log:       config.Logger,
 		audit:     config.Audit,
@@ -56,17 +64,16 @@ func NewPasswordService(
 
 func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswordInput) error {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
+	if s.mailer == nil {
+		// This check precedes the account lookup so a configuration failure has
+		// one response shape regardless of whether the submitted email exists.
+		return domain.NewError("email_not_configured", "Email sender is not configured")
+	}
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
 	if err != nil || user == nil {
-		// Constant-time: simulate token work to prevent timing-based email enumeration
-		_, _ = s.gen.Generate()
-		_, _ = s.gen.Generate()
+		s.burnForgotPasswordDummy(ctx)
 		return nil
-	}
-
-	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured")
 	}
 
 	raw, err := s.gen.Generate()
@@ -77,13 +84,6 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 
 	now := time.Now().UTC()
 
-	// Invalidate any previous unused reset tokens for this user so only the
-	// most recent request is valid.
-	if err := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenResetPass); err != nil {
-		s.log.Error("failed to invalidate previous tokens", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
-	}
-
 	token := &domain.VerificationToken{
 		ID:        generateID(),
 		UserID:    &user.ID,
@@ -93,13 +93,11 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 		ExpiresAt: now.Add(s.config.TokenTTL),
 	}
 
-	if err := s.tokens.Create(ctx, token); err != nil {
-		s.log.Error("failed to store reset token", "err", err, "user_id", user.ID)
+	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		return s.writePasswordResetToken(txCtx, user.ID, token)
+	}); err != nil {
+		s.log.Error("failed to replace reset token", "err", err, "user_id", user.ID)
 		return domain.ErrInternal
-	}
-
-	if s.mailer == nil {
-		return nil
 	}
 
 	url := s.config.BaseURL + "/reset-password?token=" + raw
@@ -124,6 +122,66 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 		s.audit.Publish(ctx, audit.NewPasswordResetRequestedEvent(user.Email, nil, ""))
 	}
 
+	return nil
+}
+
+// burnForgotPasswordDummy mirrors the local work of the real reset-request
+// path without sending mail or leaving attacker-triggered rows behind. The
+// deliberate sentinel makes a real token INSERT and cleanup query roll back;
+// infrastructure failures are logged but never change the public, enumeration-
+// safe response.
+func (s *PasswordService) burnForgotPasswordDummy(ctx context.Context) {
+	raw, err := s.gen.Generate()
+	if err != nil {
+		s.log.Error("forgot-password dummy token generation failed", "err", err)
+		return
+	}
+
+	now := time.Now().UTC()
+	dummyUserID := generateID()
+	dummyToken := &domain.VerificationToken{
+		ID:        generateID(),
+		Email:     "forgot-password-dummy@invalid",
+		TokenHash: hashToken(raw),
+		Type:      domain.TokenResetPass,
+		ExpiresAt: now.Add(s.config.TokenTTL),
+		CreatedAt: now,
+	}
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if err := s.writePasswordResetToken(txCtx, dummyUserID, dummyToken); err != nil {
+			return err
+		}
+		return errForgotPasswordDummyRollback
+	})
+	if err != nil && !errors.Is(err, errForgotPasswordDummyRollback) {
+		s.log.Error("forgot-password dummy database work failed", "err", err)
+	}
+
+	// Rendering is part of the real path after persistence. A render failure
+	// is operationally useful, but must not change the generic response.
+	if _, renderErr := s.templates.Render(port.PasswordResetData{
+		AppName:   s.config.AppName,
+		ResetURL:  s.config.BaseURL + "/reset-password?token=" + raw,
+		ExpiresIn: s.config.TokenTTL,
+	}); renderErr != nil {
+		s.log.Error("forgot-password dummy template render failed", "err", renderErr)
+	}
+}
+
+// writePasswordResetToken is the shared database shape for real and dummy
+// forgot-password requests. Its caller supplies the transaction boundary:
+// the real path commits, while the dummy path deliberately rolls back.
+func (s *PasswordService) writePasswordResetToken(
+	ctx context.Context,
+	userID string,
+	token *domain.VerificationToken,
+) error {
+	if err := s.tokens.DeleteUnusedByUserAndType(ctx, userID, domain.TokenResetPass); err != nil {
+		return fmt.Errorf("deleting unused password reset tokens: %w", err)
+	}
+	if err := s.tokens.Create(ctx, token); err != nil {
+		return fmt.Errorf("creating password reset token: %w", err)
+	}
 	return nil
 }
 
@@ -158,30 +216,59 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 		return domain.ErrUserNotFound
 	}
 
-	hash, err := s.hasher.Hash(input.NewPassword)
+	hash, pepperVersion, err := hashPasswordAtLeast(s.hasher, input.NewPassword, user.PasswordPepperVersion)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "user_id", user.ID)
 		return domain.ErrInternal
 	}
 
-	user.PasswordHash = &hash
-	user.UpdatedAt = time.Now().UTC()
+	now := time.Now().UTC()
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		// Reassert every security predicate while claiming the token. The
+		// earlier read only classifies friendly errors; this guarded UPDATE is
+		// the authority that serializes concurrent reset requests.
+		consumed, err := s.tokens.ConsumeIfValid(txCtx, port.ConsumeTokenInput{
+			ID:        token.ID,
+			TokenHash: token.TokenHash,
+			UserID:    user.ID,
+			Type:      domain.TokenResetPass,
+			UsedAt:    now,
+		})
+		if err != nil {
+			return fmt.Errorf("consuming password reset token: %w", err)
+		}
+		if !consumed {
+			return errResetTokenStateChanged
+		}
 
-	if err := s.users.Update(ctx, user); err != nil {
-		s.log.Error("failed to update password", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
-	}
+		updated, err := guardedPasswordUpdate(txCtx, s.users, user, hash, pepperVersion, now)
+		if err != nil {
+			return err
+		}
+		if !updated {
+			return domain.ErrPasswordUpdateConflict
+		}
 
-	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
-		s.log.Error("failed to mark token used", "err", err, "token_id", token.ID)
-		return domain.ErrInternal
-	}
-
-	// Invalidate every session after a password reset so a stolen session
-	// cookie cannot outlive credential recovery.
-	if err := s.sessions.DeleteAllForUser(ctx, user.ID); err != nil {
-		s.log.Error("failed to revoke sessions after password reset", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
+		// Session deletion participates in the same transaction, so a reset
+		// cannot commit while a stolen pre-reset session remains valid.
+		if err := s.sessions.DeleteAllForUser(txCtx, user.ID); err != nil {
+			return fmt.Errorf("revoking sessions after password reset: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, errResetTokenStateChanged):
+			if !token.ExpiresAt.After(now) {
+				return domain.ErrResetTokenExpired
+			}
+			return domain.ErrResetTokenInvalid
+		case errors.Is(err, domain.ErrPasswordUpdateConflict):
+			return domain.ErrPasswordUpdateConflict
+		default:
+			s.log.Error("failed to apply password reset transaction", "err", err, "user_id", user.ID)
+			return domain.ErrInternal
+		}
 	}
 
 	s.log.Info("password reset completed", "user_id", user.ID)
@@ -312,13 +399,13 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 		return domain.NewError("invalid_code", "Invalid set password code")
 	}
 
-	hash, err := s.hasher.Hash(input.NewPassword)
+	hash, pepperVersion, err := hashPassword(s.hasher, input.NewPassword)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal
 	}
 
-	if err := s.users.SetPasswordAndVerify(ctx, input.UserID, hash, token.ID); err != nil {
+	if err := s.users.SetPasswordAndVerify(ctx, input.UserID, hash, pepperVersion, token.ID); err != nil {
 		s.log.Error("failed to set password", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal
 	}
@@ -336,7 +423,7 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 	if !user.HasPassword() {
 		return domain.NewError("no_password", "No password set. Use set-password instead.")
 	}
-	if err := s.hasher.Compare(input.OldPassword, *user.PasswordHash); err != nil {
+	if err := comparePassword(s.hasher, input.OldPassword, *user.PasswordHash, user.PasswordPepperVersion); err != nil {
 		return domain.NewError("wrong_password", "Current password is incorrect")
 	}
 
@@ -344,30 +431,38 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 		return err
 	}
 
-	hash, err := s.hasher.Hash(input.NewPassword)
+	hash, pepperVersion, err := hashPasswordAtLeast(s.hasher, input.NewPassword, user.PasswordPepperVersion)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal
 	}
 
-	user.PasswordHash = &hash
-	user.UpdatedAt = time.Now().UTC()
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		updated, err := guardedPasswordUpdate(txCtx, s.users, user, hash, pepperVersion, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if !updated {
+			return domain.ErrPasswordUpdateConflict
+		}
 
-	if err := s.users.Update(ctx, user); err != nil {
-		s.log.Error("failed to update password", "err", err, "user_id", input.UserID)
+		if input.ExceptSessionID != "" {
+			if err := s.sessions.DeleteAllForUserExcept(txCtx, input.UserID, input.ExceptSessionID); err != nil {
+				return fmt.Errorf("revoking other sessions after password change: %w", err)
+			}
+			return nil
+		}
+		if err := s.sessions.DeleteAllForUser(txCtx, input.UserID); err != nil {
+			return fmt.Errorf("revoking sessions after password change: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, domain.ErrPasswordUpdateConflict) {
+			return domain.ErrPasswordUpdateConflict
+		}
+		s.log.Error("failed to apply password change transaction", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal
-	}
-
-	if input.ExceptSessionID != "" {
-		if err := s.sessions.DeleteAllForUserExcept(ctx, input.UserID, input.ExceptSessionID); err != nil {
-			s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
-			return domain.ErrInternal
-		}
-	} else {
-		if err := s.sessions.DeleteAllForUser(ctx, input.UserID); err != nil {
-			s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
-			return domain.ErrInternal
-		}
 	}
 
 	s.log.Info("password changed", "user_id", input.UserID)

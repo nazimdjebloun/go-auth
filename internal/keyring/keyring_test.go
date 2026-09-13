@@ -78,3 +78,34 @@ func TestDerive_OutputLengthIs32Bytes(t *testing.T) {
 		t.Errorf("expected OTPPepper key to be 32 bytes, got %d", len(k.OTPPepper))
 	}
 }
+
+func TestDerivePasswordPepper_IsDeterministicAndPurposeSeparated(t *testing.T) {
+	secret := []byte("independent password pepper secret")
+	first := DerivePasswordPepper(secret)
+	second := DerivePasswordPepper(secret)
+	if string(first) != string(second) {
+		t.Fatal("password pepper differs across calls with the same secret")
+	}
+	if len(first) != 32 {
+		t.Fatalf("password pepper length = %d, want 32", len(first))
+	}
+	keysFromSameInput := Derive(secret)
+	for name, other := range map[string][]byte{
+		"CSRF":      keysFromSameInput.CSRF,
+		"OAuthEnc":  keysFromSameInput.OAuthEnc,
+		"TwoFactor": keysFromSameInput.TwoFactor,
+		"OTPPepper": keysFromSameInput.OTPPepper,
+	} {
+		if string(first) == string(other) {
+			t.Errorf("PasswordPepper and %s keys must not be equal", name)
+		}
+	}
+}
+
+func TestDerivePasswordPepper_DifferentSecretsProduceDifferentKeys(t *testing.T) {
+	first := DerivePasswordPepper([]byte("password pepper secret one"))
+	second := DerivePasswordPepper([]byte("password pepper secret two"))
+	if string(first) == string(second) {
+		t.Fatal("different password pepper secrets derived the same key")
+	}
+}

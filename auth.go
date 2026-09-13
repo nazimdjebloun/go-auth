@@ -78,6 +78,8 @@ type Services struct {
 // The validated check below is belt-and-suspenders defense in depth against
 // silently proceeding with unvalidated — and in the case of an empty
 // secret, cryptographically unsafe — settings.
+const startupDatabaseTimeout = 10 * time.Second
+
 func New(in *Config) (*Auth, error) {
 	if in == nil {
 		return nil, fmt.Errorf("goauth: nil config — build one with goauth.NewConfig(goauth.WithApp(...), ...)")
@@ -94,26 +96,92 @@ func New(in *Config) (*Auth, error) {
 				"required fields and security settings are validated",
 		)
 	}
+	// Option is an exported function type, so a caller can technically apply
+	// one to an already validated Config. Recheck password-pepper material at
+	// the construction boundary: an empty environment value must stop startup,
+	// never derive a predictable key or silently disable peppering.
+	if err := cfg.validatePasswordPepper(); err != nil {
+		return nil, fmt.Errorf("goauth: invalid password pepper configuration: %w", err)
+	}
 	if cfg.app.Environment.normalize() == EnvironmentDev && cfg.logger != nil {
 		cfg.logger.Warn("goauth: running in dev environment", "cookie_secure", cfg.resolved.cookieSecure)
 	}
 
-	// Derive all cryptographic keys from the single application secret.
+	// Derive the core cryptographic keys from the application root secret.
+	// The optional password pepper uses independent input below.
 	keys := keyring.Derive([]byte(cfg.secret))
 
 	applyCSRFTokenDefaults(&cfg, keys)
+
+	// New password hashes use either the configured implementation or the
+	// historical bcrypt default. Verification always goes through the registry
+	// so stored hashes select their verifier by prefix. The legacy bcrypt
+	// verifier stays at cost 12: Compare reads cost from the stored hash, and
+	// using a caller's WithBcryptCost value here would only make the startup
+	// probe needlessly expensive when a custom current hasher is active.
+	const defaultBcryptCost = 12
+	currentHasher := cfg.passwordHasher
+	if currentHasher == nil {
+		cost := defaultBcryptCost
+		if cfg.bcryptCost > 0 {
+			cost = cfg.bcryptCost
+		}
+		currentHasher = hasher.New(cost)
+	}
+	hasherRegistry, err := service.NewHasherRegistry(currentHasher, hasher.New(defaultBcryptCost))
+	if err != nil {
+		return nil, fmt.Errorf("goauth: building password hasher registry: %w", err)
+	}
+	// Derive each independently managed pepper secret with the password-only
+	// purpose string. The version is persisted beside the hash and selects one
+	// exact key during verification; no request searches the keyring.
+	passwordPepperKeys := make(map[uint32][]byte, len(cfg.passwordPepper.Keys))
+	for version, secret := range cfg.passwordPepper.Keys {
+		passwordPepperKeys[version] = keyring.DerivePasswordPepper([]byte(secret))
+	}
+	passwordHasher, err := service.NewPasswordHasher(hasherRegistry, cfg.passwordPepper.CurrentVersion, passwordPepperKeys)
+	if err != nil {
+		return nil, fmt.Errorf("goauth: building password hasher: %w", err)
+	}
+	var hasherImpl port.Hasher = passwordHasher
 
 	if err := requireDriverSupport(&cfg); err != nil {
 		return nil, err
 	}
 
-	pool, sqlDB, err := openDatabase(&cfg)
+	startupCtx, cancelStartup := context.WithTimeout(context.Background(), startupDatabaseTimeout)
+	defer cancelStartup()
+	pool, sqlDB, err := openDatabase(startupCtx, &cfg)
 	if err != nil {
 		return nil, err
+	}
+	closeOwnedDatabase := func() {
+		if cfg.app.Database.poolOpened && pool != nil {
+			pool.Close()
+		}
+		if cfg.app.Database.opened && sqlDB != nil {
+			_ = sqlDB.Close()
+		}
 	}
 	sessRepo := sqlstore.NewSessionRepository(sqlDB)
 
 	userRepo := sqlstore.NewUserRepository(sqlDB)
+	// Keep the zero-config path lazy: historically New with a borrowed pgx
+	// pool did not dial it. Once any pepper key is configured, validate every
+	// version present in the database before serving requests. Omitting the
+	// option against an already-peppered database still fails closed per-row at
+	// login; it never falls back to treating a peppered hash as unpeppered.
+	if len(passwordPepperKeys) > 0 {
+		storedPepperVersions, err := userRepo.ListPasswordPepperVersions(startupCtx)
+		if err != nil {
+			closeOwnedDatabase()
+			return nil, fmt.Errorf("goauth: validating stored password pepper versions: %w", err)
+		}
+		if err := passwordHasher.ValidateStoredVersions(storedPepperVersions); err != nil {
+			closeOwnedDatabase()
+			return nil, fmt.Errorf("goauth: invalid password pepper configuration: %w", err)
+		}
+	}
 	sessionRepoSQL := sqlstore.NewSessionRepository(sqlDB)
 	tokenRepo := sqlstore.NewTokenRepository(sqlDB)
 	inviteRepo := sqlstore.NewInviteRepository(sqlDB)
@@ -124,10 +192,6 @@ func New(in *Config) (*Auth, error) {
 	}
 	auditLogRepo := sqlstore.NewAuditLogRepository(sqlDB)
 
-	// bcryptCost lives here rather than with the config sections: it is not a
-	// consumer-facing setting, it is the one place the hasher is constructed.
-	const bcryptCost = 12
-	hasherImpl := hasher.New(bcryptCost)
 	genImpl := token.New()
 
 	mailer, err := resolveMailer(&cfg)
@@ -203,7 +267,7 @@ func New(in *Config) (*Auth, error) {
 	twoFactorSvc := service.NewTwoFactorService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
 
 	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
-	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, serviceCfg)
+	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, sqlDB, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, twoFactorSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
 

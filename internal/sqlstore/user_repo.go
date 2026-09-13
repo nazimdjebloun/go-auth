@@ -42,7 +42,7 @@ type userNullables struct {
 // error in both, rather than a silent mismatch in whichever one was forgotten.
 func userScanDest(u *domain.User, n *userNullables) []any {
 	return []any{
-		&u.ID, &u.Email, &u.PasswordHash, &u.Name, &u.Role,
+		&u.ID, &u.Email, &u.PasswordHash, &u.PasswordPepperVersion, &u.Name, &u.Role,
 		&u.IsVerified, &n.verifiedAt, &u.IsBanned, &n.bannedAt, &u.TwoFactorEnabled,
 		&u.OrgOwnerCount, &n.lastLoginAt, &u.CreatedAt, &u.UpdatedAt,
 	}
@@ -74,7 +74,7 @@ func scanRow(s scanner) (*domain.User, error) {
 
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, userCreateQuery,
-		user.ID, user.Email, user.PasswordHash, user.Name, user.Role,
+		user.ID, user.Email, user.PasswordHash, user.PasswordPepperVersion, user.Name, user.Role,
 		user.IsVerified, user.VerifiedAt, user.IsBanned, user.TwoFactorEnabled,
 		user.OrgOwnerCount, user.CreatedAt, user.UpdatedAt)
 	return wrapCreateErr(r.db.Driver(), err)
@@ -104,8 +104,8 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, userUpdateQuery,
-		user.Email, user.PasswordHash, user.Name, user.Role,
-		user.IsVerified, user.VerifiedAt, user.IsBanned, user.UpdatedAt, user.ID)
+		user.Email, user.Name, user.Role, user.IsVerified, user.VerifiedAt,
+		user.IsBanned, user.UpdatedAt, user.ID)
 	return err
 }
 
@@ -120,7 +120,7 @@ func (r *UserRepository) SetTwoFactorEnabled(ctx context.Context, userID string,
 	return err
 }
 
-func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, tokenID string) error {
+func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -129,7 +129,7 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string
 
 	now := time.Now().UTC()
 
-	_, err = tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, now, now, userID)
+	_, err = tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, pepperVersion, now, now, userID)
 	if err != nil {
 		return err
 	}
@@ -141,6 +141,60 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string
 	}
 
 	return tx.Commit()
+}
+
+func (r *UserRepository) UpdatePasswordHash(ctx context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {
+	oldPepperVersionValue := int64(0)
+	if oldPepperVersion != nil {
+		oldPepperVersionValue = int64(*oldPepperVersion)
+	}
+	newPepperVersionValue := int64(0)
+	if newPepperVersion != nil {
+		newPepperVersionValue = int64(*newPepperVersion)
+	}
+	result, err := r.db.ExecContext(
+		ctx,
+		userUpdatePasswordHashQuery,
+		newHash,
+		newPepperVersion,
+		updatedAt,
+		userID,
+		oldHash,
+		oldPepperVersionValue,
+		newPepperVersionValue,
+	)
+	if err != nil {
+		return false, fmt.Errorf("updating password hash: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("reading password hash update result: %w", err)
+	}
+	return rows == 1, nil
+}
+
+func (r *UserRepository) ListPasswordPepperVersions(ctx context.Context) ([]uint32, error) {
+	rows, err := r.db.QueryContext(ctx, userPasswordPepperVersionsQuery)
+	if err != nil {
+		return nil, fmt.Errorf("listing password pepper versions: %w", err)
+	}
+	defer rows.Close()
+
+	var versions []uint32
+	for rows.Next() {
+		var version uint32
+		if err := rows.Scan(&version); err != nil {
+			return nil, fmt.Errorf("scanning password pepper version: %w", err)
+		}
+		if version == 0 {
+			return nil, fmt.Errorf("scanning password pepper version: zero is reserved for unpeppered passwords")
+		}
+		versions = append(versions, version)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating password pepper versions: %w", err)
+	}
+	return versions, nil
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {

@@ -17,6 +17,10 @@ const (
 
 	tokenMarkUsedQuery = `UPDATE verification_tokens SET used_at = $1 WHERE id = $2 AND used_at IS NULL`
 
+	tokenConsumeIfValidQuery = `UPDATE verification_tokens SET used_at = $1
+		WHERE id = $2 AND token_hash = $3 AND user_id = $4 AND type = $5
+			AND used_at IS NULL AND expires_at > $6`
+
 	tokenDeleteExpiredQuery = `DELETE FROM verification_tokens WHERE expires_at < $1`
 
 	tokenDeleteUnusedByUserAndTypeQuery = `DELETE FROM verification_tokens WHERE user_id=$1 AND type=$2 AND used_at IS NULL`

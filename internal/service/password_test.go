@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -11,12 +12,85 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
 
+type concurrentPasswordWinnerRepo struct {
+	*testutil.MockUserRepo
+	winnerHash    string
+	winnerVersion *uint32
+	updateCalls   int
+}
+
+type recordingForgotPasswordTokenRepo struct {
+	*testutil.MockTokenRepo
+	createCalls int
+	deleteCalls int
+}
+
+func (r *recordingForgotPasswordTokenRepo) Create(ctx context.Context, token *domain.VerificationToken) error {
+	r.createCalls++
+	return r.MockTokenRepo.Create(ctx, token)
+}
+
+func (r *recordingForgotPasswordTokenRepo) DeleteUnusedByUserAndType(
+	ctx context.Context,
+	userID string,
+	tokenType domain.TokenType,
+) error {
+	r.deleteCalls++
+	return r.MockTokenRepo.DeleteUnusedByUserAndType(ctx, userID, tokenType)
+}
+
+type recordingForgotPasswordTxManager struct {
+	calls       int
+	callbackErr error
+}
+
+func (m *recordingForgotPasswordTxManager) WithTx(ctx context.Context, fn func(context.Context) error) error {
+	m.calls++
+	m.callbackErr = fn(ctx)
+	return m.callbackErr
+}
+
+func (r *concurrentPasswordWinnerRepo) UpdatePasswordHash(
+	ctx context.Context,
+	userID, oldHash string,
+	oldPepperVersion *uint32,
+	newHash string,
+	newPepperVersion *uint32,
+	updatedAt time.Time,
+) (bool, error) {
+	r.updateCalls++
+	won, err := r.MockUserRepo.UpdatePasswordHash(
+		ctx,
+		userID,
+		oldHash,
+		oldPepperVersion,
+		r.winnerHash,
+		r.winnerVersion,
+		updatedAt,
+	)
+	if err != nil {
+		return false, err
+	}
+	if !won {
+		return false, errors.New("test: concurrent winner could not update password")
+	}
+	return r.MockUserRepo.UpdatePasswordHash(
+		ctx,
+		userID,
+		oldHash,
+		oldPepperVersion,
+		newHash,
+		newPepperVersion,
+		updatedAt,
+	)
+}
+
 func newTestPasswordService(users *testutil.MockUserRepo, tokens *testutil.MockTokenRepo, hasher *testutil.MockHasher, mailer *testutil.MockMailer) *PasswordService {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessions := testutil.NewMockSessionRepo()
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	return NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+	return NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
 }
 
 func extractResetToken(mailer *testutil.MockMailer) string {
@@ -72,10 +146,15 @@ func TestForgotPassword_ExistingUser(t *testing.T) {
 
 func TestForgotPassword_NonexistentUser(t *testing.T) {
 	users := testutil.NewMockUserRepo()
-	tokens := testutil.NewMockTokenRepo()
+	tokens := &recordingForgotPasswordTokenRepo{MockTokenRepo: testutil.NewMockTokenRepo()}
 	hasher := &testutil.MockHasher{}
 	mailer := &testutil.MockMailer{}
-	svc := newTestPasswordService(users, tokens, hasher, mailer)
+	txManager := &recordingForgotPasswordTxManager{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessions := testutil.NewMockSessionRepo()
+	cfg := defaultTestConfig()
+	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
+	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, txManager, cfg)
 
 	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "nobody@example.com"})
 	if err != nil {
@@ -83,6 +162,15 @@ func TestForgotPassword_NonexistentUser(t *testing.T) {
 	}
 	if len(mailer.Calls) != 0 {
 		t.Fatal("should not send email for nonexistent user")
+	}
+	if txManager.calls != 1 {
+		t.Fatalf("dummy transactions = %d, want 1", txManager.calls)
+	}
+	if !errors.Is(txManager.callbackErr, errForgotPasswordDummyRollback) {
+		t.Fatalf("dummy transaction callback error = %v, want rollback sentinel", txManager.callbackErr)
+	}
+	if tokens.deleteCalls != 1 || tokens.createCalls != 1 {
+		t.Fatalf("dummy token operations = %d deletes/%d creates, want 1/1", tokens.deleteCalls, tokens.createCalls)
 	}
 }
 
@@ -94,7 +182,7 @@ func TestForgotPassword_NilMailer(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, cfg)
+	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, cfg)
 
 	hash, _ := hasher.Hash("Passw0rd!")
 	users.Create(context.Background(), &domain.User{
@@ -118,19 +206,19 @@ func TestForgotPassword_NilMailer(t *testing.T) {
 	}
 }
 
-func TestForgotPassword_NilMailer_NonexistentUserStillSilent(t *testing.T) {
-	// The enumeration-resistant branch (user not found) must keep returning
-	// nil regardless of mailer state — it never reaches the mailer check.
+func TestForgotPassword_NilMailer_NonexistentUserMatchesExistingUser(t *testing.T) {
+	// Configuration errors must have one response shape regardless of whether
+	// the submitted email belongs to an account.
 	users := testutil.NewMockUserRepo()
 	tokens := testutil.NewMockTokenRepo()
 	hasher := &testutil.MockHasher{}
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessions := testutil.NewMockSessionRepo()
-	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, defaultTestConfig())
+	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, defaultTestConfig())
 
 	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "nobody@example.com"})
-	if err != nil {
-		t.Fatalf("should not reveal email existence even with no mailer, got error: %v", err)
+	if authErrCode(err) != "email_not_configured" {
+		t.Fatalf("Code = %q, want email_not_configured", authErrCode(err))
 	}
 }
 
@@ -140,7 +228,7 @@ func TestRequestSetPassword_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	hasher := &testutil.MockHasher{}
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessions := testutil.NewMockSessionRepo()
-	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, defaultTestConfig())
+	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, defaultTestConfig())
 
 	users.Create(context.Background(), &domain.User{
 		ID:        "user-1",
@@ -194,6 +282,85 @@ func TestResetPassword_HappyPath(t *testing.T) {
 	updated, _ := users.GetByID(context.Background(), "user-1")
 	if updated == nil {
 		t.Fatal("expected user to exist")
+	}
+	if updated.PasswordPepperVersion != nil {
+		t.Fatalf("unpeppered reset stored version = %v, want nil", *updated.PasswordPepperVersion)
+	}
+}
+
+func TestResetPassword_NewerPepperVersionWithoutKeyFailsClosed(t *testing.T) {
+	key1 := []byte("derived password pepper key version one")
+	key2 := []byte("derived password pepper key version two")
+	pipeline, registry, _ := newRecordingPasswordHasher(t, 1, map[uint32][]byte{1: key1})
+	storedHash, err := registry.Hash(pepperPassword("OldPass1!", key2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version2 := uint32(2)
+	users := testutil.NewMockUserRepo()
+	user := &domain.User{
+		ID:                    "user-reset-downgrade",
+		Email:                 "reset-downgrade@example.com",
+		PasswordHash:          &storedHash,
+		PasswordPepperVersion: &version2,
+		Name:                  "Reset Downgrade",
+		CreatedAt:             time.Now().UTC(),
+		UpdatedAt:             time.Now().UTC(),
+	}
+	if err := users.Create(context.Background(), user); err != nil {
+		t.Fatal(err)
+	}
+
+	const code = "reset-downgrade-token"
+	tokens := testutil.NewMockTokenRepo()
+	token := &domain.VerificationToken{
+		ID:        "reset-downgrade-token-id",
+		UserID:    &user.ID,
+		Email:     user.Email,
+		TokenHash: hashToken(code),
+		Type:      domain.TokenResetPass,
+		ExpiresAt: time.Now().UTC().Add(time.Hour),
+	}
+	if err := tokens.Create(context.Background(), token); err != nil {
+		t.Fatal(err)
+	}
+	sessions := testutil.NewMockSessionRepo()
+	if err := sessions.Create(context.Background(), &domain.Session{
+		ID:        "reset-downgrade-session",
+		UserID:    user.ID,
+		TokenHash: "reset-downgrade-session-hash",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultTestConfig()
+	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
+	svc := NewPasswordService(users, tokens, pipeline, &testutil.MockTokenGen{Length: 32}, nil, sessions, &testutil.MockTxManager{}, cfg)
+
+	err = svc.ResetPassword(context.Background(), ResetPasswordInput{Code: code, NewPassword: "NewPass1!"})
+	if !errors.Is(err, domain.ErrInternal) {
+		t.Fatalf("reset downgrade error = %v, want internal_error", err)
+	}
+	stored, err := users.GetByID(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.PasswordHash == nil || *stored.PasswordHash != storedHash ||
+		stored.PasswordPepperVersion == nil || *stored.PasswordPepperVersion != 2 {
+		t.Fatalf("failed reset changed stored credential: hash=%v version=%v", stored.PasswordHash, stored.PasswordPepperVersion)
+	}
+	storedToken, err := tokens.GetByID(context.Background(), token.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedToken.UsedAt != nil {
+		t.Fatal("failed reset consumed its token")
+	}
+	remaining, err := sessions.ListAllByUserID(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 1 {
+		t.Fatalf("failed reset revoked %d sessions, want none", 1-len(remaining))
 	}
 }
 
@@ -351,6 +518,76 @@ func TestChangePassword_HappyPath(t *testing.T) {
 	}
 }
 
+func TestChangePassword_ConcurrentV3WriteWinsOverV2Node(t *testing.T) {
+	key2 := []byte("derived password pepper key version two")
+	key3 := []byte("derived password pepper key version three")
+	pipeline, registry, _ := newRecordingPasswordHasher(t, 2, map[uint32][]byte{2: key2, 3: key3})
+	storedV2, err := registry.Hash(pepperPassword("OldPass1!", key2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	winnerV3, err := registry.Hash(pepperPassword("ConcurrentPass1!", key3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	version2, version3 := uint32(2), uint32(3)
+	users := &concurrentPasswordWinnerRepo{
+		MockUserRepo:  testutil.NewMockUserRepo(),
+		winnerHash:    winnerV3,
+		winnerVersion: &version3,
+	}
+	user := &domain.User{
+		ID:                    "user-change-race",
+		Email:                 "change-race@example.com",
+		PasswordHash:          &storedV2,
+		PasswordPepperVersion: &version2,
+		Name:                  "Change Race",
+		CreatedAt:             time.Now().UTC(),
+		UpdatedAt:             time.Now().UTC(),
+	}
+	if err := users.Create(context.Background(), user); err != nil {
+		t.Fatal(err)
+	}
+	sessions := testutil.NewMockSessionRepo()
+	if err := sessions.Create(context.Background(), &domain.Session{
+		ID:        "change-race-session",
+		UserID:    user.ID,
+		TokenHash: "change-race-session-hash",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultTestConfig()
+	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
+	svc := NewPasswordService(users, testutil.NewMockTokenRepo(), pipeline, &testutil.MockTokenGen{Length: 32}, nil, sessions, &testutil.MockTxManager{}, cfg)
+
+	err = svc.ChangePassword(context.Background(), ChangePasswordInput{
+		UserID:      user.ID,
+		OldPassword: "OldPass1!",
+		NewPassword: "RequestedPass1!",
+	})
+	if !errors.Is(err, domain.ErrPasswordUpdateConflict) {
+		t.Fatalf("change-password race error = %v, want password_update_conflict", err)
+	}
+	if users.updateCalls != 1 {
+		t.Fatalf("guarded password update calls = %d, want 1", users.updateCalls)
+	}
+	stored, err := users.GetByID(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.PasswordHash == nil || *stored.PasswordHash != winnerV3 ||
+		stored.PasswordPepperVersion == nil || *stored.PasswordPepperVersion != 3 {
+		t.Fatalf("losing change overwrote v3 credential: hash=%v version=%v", stored.PasswordHash, stored.PasswordPepperVersion)
+	}
+	remaining, err := sessions.ListAllByUserID(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 1 {
+		t.Fatalf("losing change revoked %d sessions, want none", 1-len(remaining))
+	}
+}
+
 func TestChangePassword_WrongOldPassword(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	tokens := testutil.NewMockTokenRepo()
@@ -465,7 +702,7 @@ func TestChangePassword_RevokesOtherSessions(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
 
 	hash, _ := hasher.Hash("OldPass1!")
 	users.Create(context.Background(), &domain.User{
@@ -504,7 +741,7 @@ func TestChangePassword_KeepsExceptSession(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
 
 	hash, _ := hasher.Hash("OldPass1!")
 	users.Create(context.Background(), &domain.User{
@@ -711,7 +948,7 @@ func TestConfirmSetPassword_StalePepperReturnsExpired(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
 	cfg.PepperRotatedAt = time.Now().UTC()
-	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
 
 	users.Create(context.Background(), &domain.User{
 		ID:        "oauth-user",

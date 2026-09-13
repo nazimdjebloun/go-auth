@@ -242,7 +242,22 @@ func (m *MockUserRepo) UpdateLastLoginAt(_ context.Context, userID string, t tim
 	return nil
 }
 
-func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, tokenID string) error {
+func (m *MockUserRepo) UpdatePasswordHash(_ context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok || u.PasswordHash == nil || *u.PasswordHash != oldHash ||
+		!sameUint32Pointer(u.PasswordPepperVersion, oldPepperVersion) ||
+		pepperVersionValue(newPepperVersion) < pepperVersionValue(oldPepperVersion) {
+		return false, nil
+	}
+	u.PasswordHash = &newHash
+	u.PasswordPepperVersion = cloneUint32Pointer(newPepperVersion)
+	u.UpdatedAt = updatedAt
+	return true, nil
+}
+
+func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -251,10 +266,47 @@ func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 	}
 	now := time.Now().UTC()
 	u.PasswordHash = &passwordHash
+	u.PasswordPepperVersion = cloneUint32Pointer(pepperVersion)
 	u.IsVerified = true
 	u.VerifiedAt = &now
 	u.UpdatedAt = now
 	return nil
+}
+
+func (m *MockUserRepo) ListPasswordPepperVersions(_ context.Context) ([]uint32, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := make(map[uint32]struct{})
+	for _, u := range m.users {
+		if u.PasswordPepperVersion != nil {
+			seen[*u.PasswordPepperVersion] = struct{}{}
+		}
+	}
+	versions := make([]uint32, 0, len(seen))
+	for version := range seen {
+		versions = append(versions, version)
+	}
+	slices.Sort(versions)
+	return versions, nil
+}
+
+func sameUint32Pointer(a, b *uint32) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
+}
+
+func cloneUint32Pointer(value *uint32) *uint32 {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
+}
+
+func pepperVersionValue(value *uint32) uint32 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // ─── MockAuditPublisher ──────────────────────────────────────────────

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
 )
 
 type MockTokenRepo struct {
@@ -44,6 +45,19 @@ func (m *MockTokenRepo) MarkUsed(_ context.Context, id string) error {
 		t.UsedAt = &now
 	}
 	return nil
+}
+
+func (m *MockTokenRepo) ConsumeIfValid(_ context.Context, input port.ConsumeTokenInput) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[input.ID]
+	if !ok || t.TokenHash != input.TokenHash || t.UserID == nil || *t.UserID != input.UserID ||
+		t.Type != input.Type || t.UsedAt != nil || !t.ExpiresAt.After(input.UsedAt) {
+		return false, nil
+	}
+	usedAt := input.UsedAt
+	t.UsedAt = &usedAt
+	return true, nil
 }
 
 func (m *MockTokenRepo) GetByID(_ context.Context, id string) (*domain.VerificationToken, error) {

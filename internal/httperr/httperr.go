@@ -42,6 +42,7 @@ var byCode = map[string]int{
 	"delete_code_expired":          http.StatusGone,
 	"delete_code_already_used":     http.StatusGone,
 	"password_required":            http.StatusBadRequest,
+	"password_update_conflict":     http.StatusConflict,
 	"org_not_found":                http.StatusNotFound,
 	"org_slug_exists":              http.StatusConflict,
 	"org_slug_reserved":            http.StatusBadRequest,

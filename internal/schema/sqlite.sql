@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
+    password_pepper_version INTEGER CHECK (password_pepper_version > 0 AND password_pepper_version <= 4294967295),
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user',
     is_verified INTEGER NOT NULL DEFAULT 0,
@@ -14,6 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
 
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,

@@ -47,6 +47,48 @@ func WithTemplates(p port.TemplateProvider) Option {
 	}
 }
 
+// WithPasswordHasher provides a custom password hasher implementation,
+// replacing the default (bcrypt). The stored hash's own format prefix
+// (e.g. "$2a$", "$argon2id$") identifies which algorithm produced it —
+// Compare must dispatch on that prefix, not on whichever hasher is
+// currently configured, so hashes written under a previous hasher remain
+// verifiable after this is changed. See rehash-on-login below.
+func WithPasswordHasher(h port.Hasher) Option {
+	return func(c *Config) {
+		c.passwordHasher = h
+	}
+}
+
+// WithPasswordPepper configures optional, versioned password peppering.
+// CurrentVersion selects the key used for new writes; zero keeps new writes
+// unpeppered. Keys may include future versions for a safe rolling rollout.
+// Every configured secret must contain at least 32 bytes of independently
+// managed key material. The map is copied when the option is applied.
+func WithPasswordPepper(cfg PasswordPepperConfig) Option {
+	return func(c *Config) {
+		c.passwordPepper = cfg
+		if cfg.Keys != nil {
+			c.passwordPepper.Keys = make(map[uint32]string, len(cfg.Keys))
+			for version, secret := range cfg.Keys {
+				c.passwordPepper.Keys[version] = secret
+			}
+		}
+	}
+}
+
+// WithBcryptCost is the narrow sugar for "stay on bcrypt, just change the
+// cost" — no WithPasswordHasher(bcrypt.New(14)) call needed for a one-int
+// tweak. Existing rows hashed at a different cost keep verifying (Compare
+// reads the cost from each stored hash, not from the hasher), and a
+// successful login against them re-hashes the password at the new cost —
+// see rehash-on-login. WithPasswordHasher, being the more specific option,
+// takes precedence over this one regardless of call order.
+func WithBcryptCost(cost int) Option {
+	return func(c *Config) {
+		c.bcryptCost = cost
+	}
+}
+
 // WithSession groups session lifetime settings.
 func WithSession(cfg SessionConfig) Option {
 	return func(c *Config) {
@@ -101,11 +143,11 @@ func WithTwoFactor(cfg TwoFactorConfig) Option {
 	}
 }
 
-// WithSecret sets the app-wide signing secret. This is the first signing key
-// material the library introduces and is intentionally general-purpose: it is
-// used to sign CSRF tokens today and any future HMAC-based tokens this library
-// adds. It is required and must be at least 32 bytes for HMAC-SHA256. Do not
-// commit secrets to source control; supply it from the environment.
+// WithSecret sets the app-wide root secret from which CSRF, OAuth, two-factor,
+// and OTP keys are derived. It is required and must be at least 32 bytes for
+// HMAC-SHA256. The optional password pepper is deliberately separate; enable
+// it with WithPasswordPepper. Do not commit secrets to source control; supply
+// them from the environment or a secrets manager.
 //
 // When rotating the secret, also set WithPepperRotatedAt to the moment the
 // new secret went live, or in-flight low-entropy codes fail as invalid_code

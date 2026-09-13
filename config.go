@@ -21,24 +21,27 @@ import (
 type Config struct {
 	// Consumer intent — exactly what the With* options were handed, unmodified.
 	// Never read a field here that has a twin in resolved; read the twin.
-	app           AppConfig
-	session       SessionConfig
-	security      SecurityConfig
-	twoFactor     TwoFactorConfig
-	cookie        CookieConfig
-	registration  RegistrationConfig
-	organizations OrganizationConfig
-	audit         AuditConfig
-	email         *EmailConfig
-	secret        string // app-wide HMAC signing key; signers MUST fail closed on empty (see csrf_token.go) — validate() only guards NewConfig
+	app            AppConfig
+	session        SessionConfig
+	security       SecurityConfig
+	twoFactor      TwoFactorConfig
+	cookie         CookieConfig
+	registration   RegistrationConfig
+	organizations  OrganizationConfig
+	audit          AuditConfig
+	email          *EmailConfig
+	secret         string               // app-wide root key; cryptographic consumers receive purpose-derived subkeys
+	passwordPepper PasswordPepperConfig // independent, versioned key material; zero value disables password peppering
 
 	// Live objects the consumer supplied, not data to snapshot.
-	mailer     port.Mailer
-	templates  port.TemplateProvider
-	providers  []port.OAuthProvider
-	auditSinks []audit.EventSink
-	logger     *slog.Logger
-	rateLimit  *ratelimit.Config
+	mailer         port.Mailer
+	templates      port.TemplateProvider
+	providers      []port.OAuthProvider
+	auditSinks     []audit.EventSink
+	logger         *slog.Logger
+	rateLimit      *ratelimit.Config
+	passwordHasher port.Hasher // WithPasswordHasher; nil = bcrypt
+	bcryptCost     int         // WithBcryptCost; 0 = default 12
 
 	resolved resolved
 	set      sectionsSet
@@ -151,6 +154,12 @@ func (c *Config) clone() Config {
 	cfg.auditSinks = append([]audit.EventSink(nil), c.auditSinks...)
 	if c.audit.Sinks != nil {
 		cfg.audit.Sinks = append([]audit.EventSink(nil), c.audit.Sinks...)
+	}
+	if c.passwordPepper.Keys != nil {
+		cfg.passwordPepper.Keys = make(map[uint32]string, len(c.passwordPepper.Keys))
+		for version, secret := range c.passwordPepper.Keys {
+			cfg.passwordPepper.Keys[version] = secret
+		}
 	}
 
 	return cfg

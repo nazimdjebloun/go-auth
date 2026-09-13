@@ -6,6 +6,6 @@ import (
 
 type MockTxManager struct{}
 
-func (m *MockTxManager) WithTx(_ context.Context, fn func(ctx context.Context) error) error {
-	return fn(context.Background())
+func (m *MockTxManager) WithTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
 }

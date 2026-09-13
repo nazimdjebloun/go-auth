@@ -71,7 +71,7 @@ func (f *fakeUserRepo) Count(ctx context.Context, filter port.UserFilter) (int, 
 func (f *fakeUserRepo) CountByDay(ctx context.Context, filter port.UserFilter) ([]port.DailyCount, error) {
 	return nil, nil
 }
-func (f *fakeUserRepo) SetPasswordAndVerify(ctx context.Context, userID, passwordHash, tokenID string) error {
+func (f *fakeUserRepo) SetPasswordAndVerify(ctx context.Context, userID, passwordHash string, pepperVersion *uint32, tokenID string) error {
 	return nil
 }
 func (f *fakeUserRepo) SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error {
@@ -79,6 +79,9 @@ func (f *fakeUserRepo) SetBanStatus(ctx context.Context, userID string, isBanned
 }
 func (f *fakeUserRepo) UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error {
 	return nil
+}
+func (f *fakeUserRepo) UpdatePasswordHash(ctx context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {
+	return false, nil
 }
 func (f *fakeUserRepo) SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error {
 	return nil

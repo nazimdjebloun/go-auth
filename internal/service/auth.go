@@ -164,7 +164,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		return nil, domain.ErrEmailAlreadyExists
 	}
 
-	hash, err := s.hasher.Hash(input.Password)
+	hash, pepperVersion, err := hashPassword(s.hasher, input.Password)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err)
 		return nil, domain.ErrInternal
@@ -173,15 +173,16 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 	now := time.Now().UTC()
 
 	user := &domain.User{
-		ID:               uuid.New().String(),
-		Email:            input.Email,
-		PasswordHash:     &hash,
-		Name:             input.Name,
-		Role:             domain.RoleUser,
-		IsBanned:         false,
-		TwoFactorEnabled: s.config.DefaultTwoFactorEnabled,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:                    uuid.New().String(),
+		Email:                 input.Email,
+		PasswordHash:          &hash,
+		PasswordPepperVersion: pepperVersion,
+		Name:                  input.Name,
+		Role:                  domain.RoleUser,
+		IsBanned:              false,
+		TwoFactorEnabled:      s.config.DefaultTwoFactorEnabled,
+		CreatedAt:             now,
+		UpdatedAt:             now,
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {
@@ -254,8 +255,12 @@ func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*doma
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
 	if err != nil || user == nil {
-		// Constant-time: dummy bcrypt prevents timing-based email enumeration
-		_ = s.hasher.Compare(input.Password, "$2a$12$.....................................................................................................")
+		// Constant-time: a dummy comparison prevents timing-based email
+		// enumeration. The registry provides the dummy hash so the burned
+		// work matches the configured hasher — a bcrypt dummy under an
+		// argon2id deployment would leave the not-found path measurably
+		// different from the wrong-password path.
+		s.burnDummyPasswordVerification(input.Password)
 		return nil, false, domain.ErrInvalidCredentials
 	}
 
@@ -268,13 +273,104 @@ func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*doma
 	}
 
 	if !user.HasPassword() {
+		s.burnDummyPasswordVerification(input.Password)
 		return nil, false, domain.ErrInvalidCredentials
 	}
-	if err := s.hasher.Compare(input.Password, *user.PasswordHash); err != nil {
+	err = comparePassword(s.hasher, input.Password, *user.PasswordHash, user.PasswordPepperVersion)
+	if err != nil {
+		// Unknown formats fail closed inside the registry, but the client
+		// still gets the same invalid_credentials response as every other
+		// failed comparison. Returning a distinct status here would turn a
+		// damaged row into an account-enumeration signal.
+		if errors.Is(err, errUnsupportedHashFormat) {
+			s.log.Error("login refused: stored password hash format unrecognized",
+				"user_id", user.ID, "hash_prefix", hashFormatPrefix(*user.PasswordHash))
+		} else if errors.Is(err, errUnsupportedPepperVersion) {
+			s.log.Error("login refused: stored password pepper version unavailable",
+				"user_id", user.ID, "pepper_version", *user.PasswordPepperVersion)
+		}
 		return nil, false, domain.ErrInvalidCredentials
 	}
 
+	// Rehash-on-login: the password just verified against an unpeppered
+	// legacy row, a legacy algorithm, or stale KDF parameters. Re-hash the
+	// just-presented plaintext through the live password pipeline (including
+	// the pepper when configured) and current hasher,
+	// then persist through one guarded update path. This is the only place a
+	// stale hash gets upgraded: no batch migration job, no forced reset. A
+	// failure here is logged, never returned — the login itself succeeded,
+	// and refusing it over a best-effort upgrade would lock the user out.
+	s.rehashIfNeeded(ctx, user, input.Password)
+
 	return user, false, nil
+}
+
+// rehashIfNeeded upgrades a verified user's stored hash when its pepper
+// version or KDF differs from current. It is
+// also the steady-state no-op: current password representation, algorithm,
+// and parameters mean no extra hash, no UPDATE, no log noise.
+func (s *AuthService) rehashIfNeeded(ctx context.Context, user *domain.User, password string) {
+	needsRehash := false
+	if pipeline, ok := s.hasher.(versionedPasswordPipeline); ok {
+		needsRehash = pipeline.needsRehash(*user.PasswordHash, user.PasswordPepperVersion)
+	} else if registry, ok := s.hasher.(rehashRegistry); ok {
+		needsRehash = registry.needsRehash(*user.PasswordHash)
+	}
+	if !needsRehash {
+		return
+	}
+	newHash, newPepperVersion, err := hashPassword(s.hasher, password)
+	if err != nil {
+		s.log.Error("rehash-on-login: failed to rehash password", "err", err, "user_id", user.ID)
+		return
+	}
+	updatedAt := time.Now().UTC()
+	updated, err := guardedPasswordUpdate(ctx, s.users, user, newHash, newPepperVersion, updatedAt)
+	if err != nil {
+		s.log.Error("rehash-on-login: failed to persist rehashed password", "err", err, "user_id", user.ID)
+		return
+	}
+	if !updated {
+		// A password reset/change won the race after Compare. Never overwrite
+		// the newer credential with a hash of the password just presented.
+		s.log.Info("rehash-on-login: skipped because password changed concurrently", "user_id", user.ID)
+		return
+	}
+	s.log.Info("rehash-on-login: password upgraded to current hasher", "user_id", user.ID)
+}
+
+// burnDummyPasswordVerification is the single timing-equalization path for
+// login attempts that have no stored password to verify. It always delegates
+// to the live password pipeline and its current-format probe, so bcrypt and
+// Argon2id deployments burn their configured KDF rather than a fixed stand-in.
+func (s *AuthService) burnDummyPasswordVerification(password string) {
+	_ = s.hasher.Compare(password, s.dummyHashForTiming())
+}
+
+// dummyHashForTiming returns a hash in the current hasher's format for the
+// no-stored-password timing comparison. Bare hashers (direct service wiring,
+// unit tests) get a bcrypt-shaped constant as before.
+func (s *AuthService) dummyHashForTiming() string {
+	if registry, ok := s.hasher.(rehashRegistry); ok {
+		if h := registry.dummyHash(); h != "" {
+			return h
+		}
+	}
+	// Matches the old constant-time path for direct wiring that passes a
+	// bare port.Hasher — same shape bcrypt Compare rejects after full work.
+	return "$2a$12$....................................................................................................."
+}
+
+// rehashRegistry is the facet hasherRegistry implements beyond port.Hasher:
+// the needsRehash decision and a current-format dummy for timing work.
+// AuthService holds port.Hasher (services must be constructible with any
+// hasher), so the upgrade path is an interface assertion rather than a field
+// type.
+type rehashRegistry interface {
+	Hash(password string) (string, error)
+	Compare(password, hash string) error
+	needsRehash(stored string) bool
+	dummyHash() string
 }
 
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, error) {
@@ -457,7 +553,7 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 	if !user.HasPassword() {
 		return domain.ErrPasswordRequired
 	}
-	if err := s.hasher.Compare(password, *user.PasswordHash); err != nil {
+	if err := comparePassword(s.hasher, password, *user.PasswordHash, user.PasswordPepperVersion); err != nil {
 		return domain.NewError("wrong_password", "Password is incorrect")
 	}
 

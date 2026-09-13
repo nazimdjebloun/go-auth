@@ -22,6 +22,8 @@ There's no `WithAdmin` flag — these routes are always mounted. What gates them
 
 `goauth seed-admin` writes an admin user directly to the database, bypassing the API entirely — it's the supported answer to the chicken-and-egg problem above, so you don't have to hand-write an `UPDATE users SET role = 'admin' WHERE email = '...'` against production.
 
+The standalone CLI does not load your application's `Config`, so it writes this bootstrap password as an unpeppered bcrypt row (`password_pepper_version = NULL`). In an application with versioned password peppering enabled, the first successful admin password check verifies that explicit legacy format and upgrades the row through the normal guarded rehash-on-login path before issuing the 2FA challenge or session. Until that first login, the bootstrap row has bcrypt protection but not the optional pepper layer.
+
 ```bash
 go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest seed-admin \
   --driver postgres --dsn "$DATABASE_URL" --env prod \

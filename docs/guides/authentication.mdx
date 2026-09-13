@@ -401,7 +401,7 @@ Same shape and same binding cookie as the register case above — see [Two-facto
 | `user_banned` | 403 | Account is banned |
 | `internal_error` | 500 | Session creation failure |
 
-`invalid_credentials` for an email that doesn't exist at all runs a dummy bcrypt comparison against a fixed hash first, so that request takes the same time as a wrong-password one — see [Security](../security.mdx) for why that matters.
+`invalid_credentials` for an email that doesn't exist at all runs comparisons against a startup-generated dummy hash in the currently configured hasher's format, so that request burns the same KDF work as a wrong-password one — see [Security](../security.mdx) for why that matters.
 
 #### curl
 

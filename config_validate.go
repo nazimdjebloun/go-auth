@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"net/mail"
 	"net/url"
+	"sort"
 	"strings"
+
+	"golang.org/x/crypto/bcrypt"
 
 	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
@@ -36,6 +39,7 @@ func (c *Config) validate() error {
 		c.validateOrganizations,
 		c.validateRateLimit,
 		c.validateProviders,
+		c.validatePasswordHasher,
 		c.validateCoherence,
 	} {
 		errs = append(errs, check()...)
@@ -248,6 +252,46 @@ func (c *Config) validateProviders() []error {
 		seen[name] = true
 	}
 	return errs
+}
+
+// validatePasswordHasher checks the hasher settings that do not require
+// invoking a consumer-supplied live object. New validates the custom hasher's
+// self-identifying output and Compare behavior when it builds the registry.
+// A cost below bcrypt.MinCost keeps hasher.New's existing default-cost
+// behavior.
+func (c *Config) validatePasswordHasher() []error {
+	var errs []error
+	// WithPasswordHasher is more specific and makes WithBcryptCost inert,
+	// regardless of option order.
+	if c.passwordHasher == nil && c.bcryptCost > bcrypt.MaxCost {
+		errs = append(errs, fmt.Errorf("bcrypt_cost %d exceeds bcrypt.MaxCost (%d)", c.bcryptCost, bcrypt.MaxCost))
+	}
+	if err := c.validatePasswordPepper(); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
+}
+
+func (c *Config) validatePasswordPepper() error {
+	versions := make([]uint32, 0, len(c.passwordPepper.Keys))
+	for version := range c.passwordPepper.Keys {
+		versions = append(versions, version)
+	}
+	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+	for _, version := range versions {
+		if version == 0 {
+			return errors.New("password_pepper: key version 0 is reserved for unpeppered passwords")
+		}
+		if len(c.passwordPepper.Keys[version]) < 32 {
+			return fmt.Errorf("password_pepper: key version %d must be at least 32 bytes", version)
+		}
+	}
+	if c.passwordPepper.CurrentVersion != 0 {
+		if _, ok := c.passwordPepper.Keys[c.passwordPepper.CurrentVersion]; !ok {
+			return fmt.Errorf("password_pepper: current version %d has no configured key", c.passwordPepper.CurrentVersion)
+		}
+	}
+	return nil
 }
 
 // validateCoherence holds every rule where each field involved is individually

@@ -172,6 +172,19 @@ type SecurityConfig struct {
 	PepperRotatedAt time.Time
 }
 
+// PasswordPepperConfig configures optional, versioned password peppering.
+// CurrentVersion selects the key used for new password writes. Zero disables
+// peppering for new writes; Keys may still contain non-zero future versions so
+// a rolling deployment can preload them before activation.
+//
+// Each stored password carries its exact pepper version. Keep every key whose
+// version is still present in the database until startup validation reports
+// that it is no longer needed.
+type PasswordPepperConfig struct {
+	CurrentVersion uint32
+	Keys           map[uint32]string
+}
+
 // TwoFactorConfig groups the email two-factor settings, split out of
 // SecurityConfig where they were six of thirteen fields.
 type TwoFactorConfig struct {

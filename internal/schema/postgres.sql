@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
+    password_pepper_version BIGINT CHECK (password_pepper_version > 0 AND password_pepper_version <= 4294967295),
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     is_verified BOOLEAN NOT NULL DEFAULT false,
@@ -17,6 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
     org_owner_count INT NOT NULL DEFAULT 0,
     last_login_at TIMESTAMPTZ
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
 
 CREATE TABLE IF NOT EXISTS organizations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

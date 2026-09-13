@@ -200,7 +200,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 		return nil, err
 	}
 
-	hash, err := s.hasher.Hash(input.Password)
+	hash, pepperVersion, err := hashPassword(s.hasher, input.Password)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "invite_id", invite.ID)
 		return nil, domain.ErrInternal
@@ -211,15 +211,16 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	// gates exactly like Register. Skipping the seed would leave every invited
 	// user with 2FA off in a default-on deployment.
 	user := &domain.User{
-		ID:               generateID(),
-		Email:            invite.Email,
-		PasswordHash:     &hash,
-		Name:             input.Name,
-		Role:             domain.RoleUser,
-		IsVerified:       true,
-		TwoFactorEnabled: s.config.DefaultTwoFactorEnabled,
-		CreatedAt:        now,
-		UpdatedAt:        now,
+		ID:                    generateID(),
+		Email:                 invite.Email,
+		PasswordHash:          &hash,
+		PasswordPepperVersion: pepperVersion,
+		Name:                  input.Name,
+		Role:                  domain.RoleUser,
+		IsVerified:            true,
+		TwoFactorEnabled:      s.config.DefaultTwoFactorEnabled,
+		CreatedAt:             now,
+		UpdatedAt:             now,
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {

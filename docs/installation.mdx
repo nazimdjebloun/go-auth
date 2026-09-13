@@ -76,7 +76,7 @@ Every aspect of the library is configured through its own option function, and a
 | Option | Configures |
 |---|---|
 | `WithApp` | App name, base URL, database connection, deployment environment |
-| `WithSecret` | The signing secret |
+| `WithSecret` | The root secret for CSRF, OAuth, 2FA, and OTP keys |
 | `WithSecurity` | Allowed origins, password policy, CSRF token |
 | `WithSession` | Session, refresh-token, and verification/reset-token lifetimes |
 | `WithTwoFactor` | Email two-factor settings |
@@ -86,6 +86,9 @@ Every aspect of the library is configured through its own option function, and a
 | `WithMailer` | A custom mailer implementation |
 | `WithEmail` | The built-in SMTP mailer |
 | `WithTemplates` | Custom email templates |
+| `WithPasswordHasher` | A self-identifying password hasher, including the built-in Argon2id implementation |
+| `WithBcryptCost` | Keep bcrypt and change its cost |
+| `WithPasswordPepper` | Configure opt-in, versioned password peppering and rotation keys |
 | `WithRateLimit` and its narrower variants | Per-route rate limiting |
 | `WithProvider` | Register an OAuth provider |
 | `WithLogger` | Structured logging |

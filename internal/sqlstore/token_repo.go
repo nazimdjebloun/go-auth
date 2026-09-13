@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
 )
 
 type TokenRepository struct {
@@ -74,6 +75,19 @@ func (r *TokenRepository) GetLastByUserAndType(ctx context.Context, userID strin
 func (r *TokenRepository) MarkUsed(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, tokenMarkUsedQuery, time.Now().UTC(), id)
 	return err
+}
+
+func (r *TokenRepository) ConsumeIfValid(ctx context.Context, input port.ConsumeTokenInput) (bool, error) {
+	return affected(r.db.ExecContext(
+		ctx,
+		tokenConsumeIfValidQuery,
+		input.UsedAt,
+		input.ID,
+		input.TokenHash,
+		input.UserID,
+		input.Type,
+		input.UsedAt,
+	))
 }
 
 func (r *TokenRepository) HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error) {

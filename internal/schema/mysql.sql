@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT,
+    password_pepper_version INT UNSIGNED,
     name TEXT NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'user',
     is_verified BOOLEAN NOT NULL DEFAULT false,
@@ -14,6 +15,8 @@ CREATE TABLE IF NOT EXISTS users (
     org_owner_count INT NOT NULL DEFAULT 0,
     last_login_at DATETIME
 ) ENGINE=InnoDB;
+
+CREATE INDEX idx_users_password_pepper_version ON users(password_pepper_version);
 
 CREATE TABLE IF NOT EXISTS organizations (
     id VARCHAR(36) PRIMARY KEY,

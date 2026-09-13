@@ -9,6 +9,22 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
 
+type recordingLoginHasher struct {
+	delegate     *testutil.MockHasher
+	compareCalls int
+	comparedHash []string
+}
+
+func (h *recordingLoginHasher) Hash(password string) (string, error) {
+	return h.delegate.Hash(password)
+}
+
+func (h *recordingLoginHasher) Compare(password, hash string) error {
+	h.compareCalls++
+	h.comparedHash = append(h.comparedHash, hash)
+	return h.delegate.Compare(password, hash)
+}
+
 func TestRegister(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
@@ -238,6 +254,47 @@ func TestLoginNonexistentUser(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Expected error for nonexistent user, got nil")
+	}
+}
+
+func TestLogin_OAuthOnlyUsesSameDummyVerificationAsUnknownEmail(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &recordingLoginHasher{delegate: &testutil.MockHasher{}}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+
+	for _, input := range []LoginInput{
+		{Email: "missing@example.com", Password: "CandidatePass1!"},
+		{Email: "oauth-only@example.com", Password: "CandidatePass1!"},
+	} {
+		if input.Email == "oauth-only@example.com" {
+			if err := users.Create(context.Background(), &domain.User{
+				ID:         "oauth-only-user",
+				Email:      input.Email,
+				Name:       "OAuth Only",
+				Role:       domain.RoleUser,
+				IsVerified: true,
+				CreatedAt:  time.Now().UTC(),
+				UpdatedAt:  time.Now().UTC(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		_, err := svc.Login(context.Background(), input)
+		if authErrCode(err) != "invalid_credentials" {
+			t.Fatalf("Login(%q) error = %v, want invalid_credentials", input.Email, err)
+		}
+	}
+
+	if hasher.compareCalls != 2 {
+		t.Fatalf("dummy Compare calls = %d, want 2", hasher.compareCalls)
+	}
+	if len(hasher.comparedHash) != 2 || hasher.comparedHash[0] != hasher.comparedHash[1] {
+		t.Fatalf("dummy hashes differ between unknown and OAuth-only paths: %q", hasher.comparedHash)
 	}
 }
 

@@ -28,6 +28,13 @@ func Derive(secret []byte) Keys {
 	}
 }
 
+// DerivePasswordPepper derives the HMAC key used by the optional password
+// pepper feature. Its input is independent from the application secret used
+// by Derive, so rotating WithSecret does not invalidate password hashes.
+func DerivePasswordPepper(secret []byte) []byte {
+	return deriveKey(secret, []byte("goauth-password-pepper-v1"))
+}
+
 func deriveKey(secret, info []byte) []byte {
 	h := hkdf.New(sha256.New, secret, []byte("goauth-v1"), info)
 	key := make([]byte, 32)

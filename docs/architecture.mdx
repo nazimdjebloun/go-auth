@@ -21,7 +21,7 @@ go-auth follows a ports-and-adapters (hexagonal) layout. Business logic in the `
 | `audit` | The audit event pipeline: `AuditService` (queue + workers + batching), the `EventSink` interface, and the built-in sinks. |
 | `emailtemplate` | The default `TemplateProvider` — embedded HTML/text templates for every email the library sends. |
 | `token` | Cryptographically random opaque token generation (`crypto/rand`, 32 bytes, hex-encoded). |
-| `hasher` | The `Hasher` implementation — bcrypt, configurable cost. |
+| `hasher` | The default bcrypt `Hasher` and optional `hasher/argon2id` implementation. Callers select the latter through `WithPasswordHasher`; wiring always adds prefix dispatch and a password pipeline whose new writes use `PasswordPepperConfig.CurrentVersion` while stored rows select an exact historical key. |
 | `internal/handler` | HTTP adapters — decodes requests, calls a service method, writes the JSON response or sets cookies. Three files: `handler.go` (auth/account/session/admin/invite), `oauth.go`, `org.go`. |
 | `internal/sqlstore` | The `port` repository interfaces implemented over `database/sql` — one `_repo.go` per aggregate, plus the `DB` wrapper described below. |
 | `internal/routes` | The central route table — the single source of truth mapping every `"METHOD /path"` pattern to its `HandlerGroup` entry (and to per-route rate limits). |
@@ -90,7 +90,7 @@ UpdateOrg       (org admin):     CORS → CSRFToken → OriginCheck → Auth →
 The library targets `database/sql` for MySQL and SQLite, and `pgx/v5` (either through its `database/sql` shim or a native `pgxpool.Pool`) for PostgreSQL. `internal/sqlstore.DB` wraps whichever one you gave it behind a single interface every repository uses, and handles two cross-driver differences transparently:
 
 - **Placeholder syntax** — queries are written with `?` placeholders; `DB.Rebind` rewrites them to `$1, $2, ...` for PostgreSQL and leaves them as `?` for MySQL/SQLite.
-- **Transactions** — `internal/sqlstore.DB` implements `port.TxManager`. `WithTx(ctx, fn)` starts a real `*sql.Tx`, stores it in the `context.Context`, and every repository call within `fn` checks the context for an active transaction and routes through it instead of the pooled connection. Calling `WithTx` again from inside `fn` joins the existing transaction rather than nesting one, so service code can compose transactional operations without knowing whether it's already inside one.
+- **Transactions** — `internal/sqlstore.DB` implements `port.TxManager`. `WithTx(ctx, fn)` starts a real `*sql.Tx`, stores it in the `context.Context`, and every repository call within `fn` checks the context for an active transaction and routes through it instead of the pooled connection. Calling `WithTx` again from inside `fn` joins the existing transaction rather than nesting one, so service code can compose transactional operations without knowing whether it's already inside one. Password reset uses this boundary for token claim + guarded credential replacement + session deletion; change-password uses it for credential replacement + session deletion. Their slow KDF work runs before the transaction so it does not hold database locks.
 
 ## Extension points
 
@@ -103,9 +103,9 @@ Everywhere the library needs to talk to the outside world, it does so through a 
 | `port.OAuthProvider` | `provider/google`, `provider/github` | Any OAuth2 provider — `Name()`, `AuthURL()`, `Exchange()` |
 | `ratelimit.Store` | bounded in-memory | A distributed store (Redis, etc.) for multi-instance deployments — one method, `Allow(ctx, key, Rate) (Result, error)` |
 | `audit.EventSink` | the SQL sink (persists to the `audit_log` table) | Kafka, NATS, a webhook — added via `WithAuditSink` alongside the built-in one |
-| `port.Hasher` | bcrypt (`hasher` package) | Not currently swappable via a `With*` option — it's constructed internally with a fixed cost |
+| `port.Hasher` | bcrypt (`hasher` package), cost 12; optional built-in `hasher/argon2id`; optional versioned HMAC layer | `WithPasswordHasher` replaces the KDF; `WithBcryptCost` changes bcrypt cost; `WithPasswordPepper` supplies the versioned pepper keyring |
 
-**Repository interfaces are segmented, not just one flat contract per aggregate.** `port.SessionRepository` composes `SessionReader` / `SessionWriter` / `SessionRevoker` / `ActiveOrgSessionStore`; `port.OrgRepository` composes `OrgCRUD` / `OrgLimitCounters`. There's no `With*` option to swap a repository today — every consumer goes through `internal/sqlstore` — but a fork or a future extension point implementing only a slice (e.g. a Redis-backed session store that only revokes and reads, never touches the active-org pointer) can depend on the narrow interface instead of every method on the composed one.
+**Repository interfaces are segmented, not just one flat contract per aggregate.** `port.UserRepository` embeds the guarded `PasswordHashUpdater` used by rehash-on-login; `port.SessionRepository` composes `SessionReader` / `SessionWriter` / `SessionRevoker` / `ActiveOrgSessionStore`; `port.OrgRepository` composes `OrgCRUD` / `OrgLimitCounters`. There's no `With*` option to swap a repository today — every consumer goes through `internal/sqlstore` — but a fork or a future extension point implementing only a slice (e.g. a Redis-backed session store that only revokes and reads, never touches the active-org pointer) can depend on the narrow interface instead of every method on the composed one.
 
 ## Testing structure
 

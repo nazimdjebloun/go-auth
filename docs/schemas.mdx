@@ -138,7 +138,7 @@ with it. The one exception is `sessions.active_org_id`, which is
 `ON DELETE SET NULL` — deleting an org clears it from any session pointing at
 it rather than destroying the session.
 
-No table stores a raw credential. Passwords are bcrypt hashes; session tokens,
+No table stores a raw credential. Passwords are bcrypt or Argon2id hashes, optionally peppered before the KDF; session tokens,
 refresh tokens, verification tokens, and both kinds of invite code are stored as
 SHA-256 hashes, and the raw value exists only in the response to the client.
 
@@ -155,6 +155,7 @@ Accounts. One row per person.
 | `id` | `UUID` | Primary key, defaults to `gen_random_uuid()` |
 | `email` | `TEXT` | Unique, not null |
 | `password_hash` | `TEXT` | **Nullable** — OAuth-only accounts have no password |
+| `password_pepper_version` | `BIGINT` | **Nullable** — `NULL` is unpeppered; a positive `uint32` value selects one configured password-pepper key |
 | `name` | `TEXT` | Defaults to `''` |
 | `role` | `TEXT` | `CHECK (role IN ('user', 'admin'))`, defaults to `user` |
 | `is_verified` / `verified_at` | `BOOLEAN` / `TIMESTAMPTZ` | Email verification state |
@@ -173,17 +174,21 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
+    password_pepper_version BIGINT CHECK (password_pepper_version > 0 AND password_pepper_version <= 4294967295),
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     is_verified BOOLEAN NOT NULL DEFAULT false,
     verified_at TIMESTAMPTZ,
     is_banned BOOLEAN NOT NULL DEFAULT false,
     banned_at TIMESTAMPTZ,
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     org_owner_count INT NOT NULL DEFAULT 0,
     last_login_at TIMESTAMPTZ
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
 ```
 
 </Tab>
@@ -194,17 +199,21 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
+    password_pepper_version INTEGER CHECK (password_pepper_version > 0 AND password_pepper_version <= 4294967295),
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user',
     is_verified INTEGER NOT NULL DEFAULT 0,
     verified_at DATETIME,
     is_banned INTEGER NOT NULL DEFAULT 0,
     banned_at DATETIME,
+    two_factor_enabled INTEGER NOT NULL DEFAULT 0,
     org_owner_count INTEGER NOT NULL DEFAULT 0,
     last_login_at DATETIME,
     created_at DATETIME NOT NULL,
     updated_at DATETIME NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
 ```
 
 </Tab>
@@ -215,17 +224,21 @@ CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT,
+    password_pepper_version INT UNSIGNED,
     name TEXT NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'user',
     is_verified BOOLEAN NOT NULL DEFAULT false,
     verified_at DATETIME,
     is_banned BOOLEAN NOT NULL DEFAULT false,
     banned_at DATETIME,
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT false,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     org_owner_count INT NOT NULL DEFAULT 0,
     last_login_at DATETIME
 ) ENGINE=InnoDB;
+
+CREATE INDEX idx_users_password_pepper_version ON users(password_pepper_version);
 ```
 
 </Tab>

@@ -10,20 +10,21 @@ const (
 )
 
 type User struct {
-	ID               string     `json:"id"`
-	Email            string     `json:"email"`
-	PasswordHash     *string    `json:"-"`
-	Name             string     `json:"name"`
-	Role             Role       `json:"role"`
-	IsVerified       bool       `json:"isVerified"`
-	VerifiedAt       *time.Time `json:"verifiedAt,omitempty"`
-	IsBanned         bool       `json:"isBanned"`
-	BannedAt         *time.Time `json:"bannedAt,omitempty"`
-	TwoFactorEnabled bool       `json:"twoFactorEnabled"`
-	LastLoginAt      *time.Time `json:"lastLoginAt,omitempty"`
-	OrgOwnerCount    int        `json:"orgOwnerCount"`
-	CreatedAt        time.Time  `json:"createdAt"`
-	UpdatedAt        time.Time  `json:"updatedAt"`
+	ID                    string     `json:"id"`
+	Email                 string     `json:"email"`
+	PasswordHash          *string    `json:"-"`
+	PasswordPepperVersion *uint32    `json:"-"`
+	Name                  string     `json:"name"`
+	Role                  Role       `json:"role"`
+	IsVerified            bool       `json:"isVerified"`
+	VerifiedAt            *time.Time `json:"verifiedAt,omitempty"`
+	IsBanned              bool       `json:"isBanned"`
+	BannedAt              *time.Time `json:"bannedAt,omitempty"`
+	TwoFactorEnabled      bool       `json:"twoFactorEnabled"`
+	LastLoginAt           *time.Time `json:"lastLoginAt,omitempty"`
+	OrgOwnerCount         int        `json:"orgOwnerCount"`
+	CreatedAt             time.Time  `json:"createdAt"`
+	UpdatedAt             time.Time  `json:"updatedAt"`
 }
 
 func (u *User) HasPassword() bool {

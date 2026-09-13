@@ -293,7 +293,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 		role = domain.RoleAdmin
 	}
 
-	hash, err := s.hasher.Hash(input.Password)
+	hash, pepperVersion, err := hashPassword(s.hasher, input.Password)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err)
 		return nil, domain.ErrInternal
@@ -301,15 +301,16 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 
 	now := time.Now().UTC()
 	user := &domain.User{
-		ID:           uuid.New().String(),
-		Email:        input.Email,
-		PasswordHash: &hash,
-		Name:         input.Name,
-		Role:         role,
-		IsVerified:   true,
-		VerifiedAt:   &now,
-		CreatedAt:    now,
-		UpdatedAt:    now,
+		ID:                    uuid.New().String(),
+		Email:                 input.Email,
+		PasswordHash:          &hash,
+		PasswordPepperVersion: pepperVersion,
+		Name:                  input.Name,
+		Role:                  role,
+		IsVerified:            true,
+		VerifiedAt:            &now,
+		CreatedAt:             now,
+		UpdatedAt:             now,
 	}
 
 	if err := s.users.Create(ctx, user); err != nil {

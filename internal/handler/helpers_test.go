@@ -244,7 +244,22 @@ func (m *mockUserRepo) UpdateLastLoginAt(_ context.Context, userID string, t tim
 	return nil
 }
 
-func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, tokenID string) error {
+func (m *mockUserRepo) UpdatePasswordHash(_ context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok || u.PasswordHash == nil || *u.PasswordHash != oldHash ||
+		!samePepperVersion(u.PasswordPepperVersion, oldPepperVersion) ||
+		pepperVersionNumber(newPepperVersion) < pepperVersionNumber(oldPepperVersion) {
+		return false, nil
+	}
+	u.PasswordHash = &newHash
+	u.PasswordPepperVersion = clonePepperVersion(newPepperVersion)
+	u.UpdatedAt = updatedAt
+	return true, nil
+}
+
+func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -253,10 +268,30 @@ func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 	}
 	now := time.Now().UTC()
 	u.PasswordHash = &passwordHash
+	u.PasswordPepperVersion = clonePepperVersion(pepperVersion)
 	u.IsVerified = true
 	u.VerifiedAt = &now
 	u.UpdatedAt = now
 	return nil
+}
+
+func samePepperVersion(a, b *uint32) bool {
+	return a == nil && b == nil || a != nil && b != nil && *a == *b
+}
+
+func clonePepperVersion(value *uint32) *uint32 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func pepperVersionNumber(value *uint32) uint32 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 type mockAuditLogRepo struct {
@@ -758,6 +793,19 @@ func (m *mockTokenRepo) MarkUsed(_ context.Context, id string) error {
 		t.UsedAt = &now
 	}
 	return nil
+}
+
+func (m *mockTokenRepo) ConsumeIfValid(_ context.Context, input port.ConsumeTokenInput) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[input.ID]
+	if !ok || t.TokenHash != input.TokenHash || t.UserID == nil || *t.UserID != input.UserID ||
+		t.Type != input.Type || t.UsedAt != nil || !t.ExpiresAt.After(input.UsedAt) {
+		return false, nil
+	}
+	usedAt := input.UsedAt
+	t.UsedAt = &usedAt
+	return true, nil
 }
 
 func (m *mockTokenRepo) GetByID(_ context.Context, id string) (*domain.VerificationToken, error) {
@@ -1509,7 +1557,7 @@ func newTestHarness() *testHarness {
 
 	twoFactorSvc := service.NewTwoFactorService(users, sessions, tokens, hasher, mailer, nil, cfg, sessSvc)
 	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, twoFactorSvc)
-	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, cfg)
+	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &mockTxManager{}, cfg)
 	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
 	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, cfg, sessSvc, twoFactorSvc)
 	providers := newMockProviderAccountRepo()
