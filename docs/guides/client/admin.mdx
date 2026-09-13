@@ -6,7 +6,7 @@ icon: "UserCog"
 
 # Admin client
 
-Wraps every endpoint from the [Admin](../admin.mdx) and [Audit Logs](../audit-logs.mdx) guides into `adminApi`, built on the [`apiRequest`](./index.mdx) helper. Every call here 403s unless the logged-in user has `role: "admin"` — this is for an admin dashboard, not a regular app surface.
+`adminApi` covers common dashboard operations from the [Admin](../admin.mdx) and [Audit Logs](../audit-logs.mdx) guides. Add any remaining admin route with the same [`apiRequest`](./index.mdx) helper. The `login` method is public; every `/admin/*` method requires a logged-in user with `role: "admin"`.
 
 ```ts
 import { apiRequest } from "./client";

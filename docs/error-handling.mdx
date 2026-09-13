@@ -15,44 +15,41 @@ Most endpoints return errors as JSON with the same shape:
 }
 ```
 
-`error` is a stable machine-readable code — match on this, not on `message`, which is meant for humans and can change wording without notice. The HTTP status carries the same information a REST client expects (`404` not found, `409` conflict, `429` rate limited, and so on).
+`error` is the stable machine-readable code. Match on it, not `message`; the message is for people and can change. The HTTP status provides the usual API signal (`404` not found, `409` conflict, `429` rate limited, and so on).
 
-This page covers **runtime** errors returned by the mounted HTTP handlers. Configuration-time errors — the ones `NewConfig` returns before your server ever starts — are documented on the [Configuration](./configuration.mdx) page instead.
+This page covers **runtime** errors from mounted HTTP handlers. For configuration errors returned by `NewConfig` before the server starts, see [Configuration](./configuration.mdx).
 
 ## Handling errors programmatically
 
-Calling the library directly — `auth.Register(...)`, `auth.Services.Auth.Login(...)`, `auth.Services.Admin.BanUser(...)`, and so on — skips the JSON envelope above entirely: you get back a plain Go `error`. Every error the library returns is a `*domain.AuthError` under the hood — `Code` and `Message` only; `AuthError` has no HTTP-status field of its own, since it's meant to be usable from non-HTTP callers too, and the built-in handlers derive the response status from `Code` internally — so the two idiomatic `errors` package patterns both work as expected:
+Direct service calls such as `auth.Register(...)`, `auth.Services.Auth.Login(...)`, and `auth.Services.Admin.BanUser(...)` return a normal Go `error`, not the JSON envelope. Library errors are `*domain.AuthError` values with `Code` and `Message`; they intentionally do not contain an HTTP status. The built-in handlers derive a status from `Code`.
 
 ```go
 result, err := auth.Services.Auth.Login(ctx, service.LoginInput{Email: email, Password: password})
 if err != nil {
     if errors.Is(err, domain.ErrInvalidCredentials) {
-        // matches by sentinel identity — works for every fixed, code-carrying
-        // error the library exports (domain.ErrX), since none of them are
-        // ever wrapped
+        // matches the exported sentinel for this fixed error
     }
 
     var authErr *domain.AuthError
     if errors.As(err, &authErr) {
-        // authErr.Code, authErr.Message — the same pair you'd get from the
-        // JSON envelope's "error"/"message" fields. If you need the HTTP
-        // status too, this page's tables give the mapping per code.
+        // Same pair as the JSON envelope's "error" and "message" fields.
+        // The tables on this page map each code to an HTTP status.
     }
 }
 ```
 
-Reach for `errors.Is` when you only care about one specific outcome (`domain.ErrInvalidCredentials`, `domain.ErrUserNotFound`, ...) and `errors.As` when you want the code/message/status generically — the same way the HTTP handlers themselves turn an `error` into a response (see `writeError` in the `handler` package, `errors.As` with a 500 `internal_error` fallback for anything that isn't a `*domain.AuthError`). A bare `err.(*domain.AuthError)` type assertion still works too, but `errors.As` is preferred: it also matches an `*AuthError` reached through a wrapped error, which a direct assertion would miss.
+Use `errors.Is` for one specific outcome, such as `domain.ErrInvalidCredentials`. Use `errors.As` when you need the code and message generically. This is also how the handlers map an error to a response; an error that is not a `*domain.AuthError` becomes `internal_error` (500). Prefer `errors.As` to a direct type assertion because it also finds an `*AuthError` inside a wrapped error.
 
 ## Not every layer uses this shape
 
-Two places in the library don't go through the JSON envelope above:
+Two paths do not use the JSON envelope:
 
 - **CSRF origin/token middleware** (`middleware.OriginCheck`, `middleware.CSRFToken`) responds with a plain-text body via `http.Error` — e.g. `Forbidden - CSRF headers missing` (403) — not JSON. It runs ahead of your handlers and has no domain error to format.
 - **OAuth callback errors** are never returned as a JSON body at all — the browser is mid-redirect at that point. They come back as a redirect to `{BaseURL}/auth/callback?error={code}&provider={provider}`, and your frontend reads `error` from the query string.
 
-Organization membership middleware (`middleware.RequireOrgMember`, `RequireOrgRole`) uses the normal envelope too — a non-member gets the same `org_member_not_found` (404) an equivalent direct call to `OrgService` would return, and an under-privileged member gets `org_forbidden` (403), so the response is identical whether a request is rejected by the middleware or would have been rejected by the service layer underneath it.
+Organization membership middleware (`middleware.RequireOrgMember`, `RequireOrgRole`) uses the normal envelope. A non-member receives `org_member_not_found` (404); an under-privileged member receives `org_forbidden` (403).
 
-Everything else below — every service-layer and handler-layer error — uses the `{"error", "message"}` envelope.
+All remaining service and handler errors use the `{"error", "message"}` envelope.
 
 ## General
 

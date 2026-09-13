@@ -33,7 +33,7 @@ Whenever `SecurityConfig.AllowedOrigins` is non-empty, Mount also registers an `
 
 | Method & Path | Auth | Params | Description |
 |---|---|---|---|
-| `GET /auth/sessions` | Auth | Query: `offset` (int, default `0`), `limit` (int, default `20`, max `100`) | Paginated list of your own sessions, plus `currentSessionId`. |
+| `GET /auth/sessions` | Auth | Query: `offset` (int, default `0`), `limit` (int, default `20`, max `100`) | Paginated list of your own sessions, with `total`, `limit`, `offset`, and `currentSessionId`. |
 | `GET /auth/sessions/all` | Auth | none | All of your sessions, unpaginated, plus `currentSessionId`. |
 | `DELETE /auth/sessions/{id}` | Auth | Path: `id` | Revokes one of your own sessions. `404 session_not_found` if it doesn't exist or isn't yours — the two cases are indistinguishable on purpose. |
 | `POST /auth/sessions/revoke` | Auth | Body: `` `{sessionIds: []string}` `` | Bulk-revokes up to 100 of your own session IDs at once; unrecognized/foreign IDs are silently skipped. Returns `revoked` count. |

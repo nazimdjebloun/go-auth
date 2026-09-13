@@ -47,7 +47,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
 | `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
 
 <Callout type="info" title="The token has to be readable, not just set">
-  The double-submit check needs the browser to send the `_csrf` cookie *and* let your JavaScript read it, so the value can be echoed in `X-CSRF-Token`. Same-origin frontends get both for free. A frontend on a sibling subdomain needs `CSRFToken.CookieDomain`, and one on a different registrable domain needs `CookieSameSite: None` plus `ExposeCSRFTokenInBody`, because no cookie scope reaches across two sites.
+  The double-submit check needs the browser to send the `_csrf` cookie and let JavaScript read it so the value can be echoed in `X-CSRF-Token`. Same-origin frontends need no additional configuration. A sibling subdomain needs `CSRFToken.CookieDomain`; a different registrable domain needs `CookieSameSite: None` and `ExposeCSRFTokenInBody` because no cookie scope reaches across two sites.
 
   Get this wrong and the failure is distinctive: every read works and every write returns `403`. The [Deployment guide](./deployment.mdx) covers all three cases.
 </Callout>

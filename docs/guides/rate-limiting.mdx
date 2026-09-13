@@ -54,7 +54,9 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 10, Windo
 
 ### A note on the default store
 
-`ratelimit.NewMemoryStore()` is a fixed-window counter held in a sharded, process-local map. It works out of the box with zero setup, but it's **per-instance**: run two copies of your app behind a load balancer and each one enforces the limit independently, so the effective limit is `N × instance count`. For a real multi-instance deployment, implement `ratelimit.Store` — one method, `Allow(ctx, key, Rate) (Result, error)` — against Redis or similar and pass it to `WithRateLimitStore` — see [Architecture → Extension points](../architecture.mdx#extension-points). The store *decides*, rather than returning a raw count for the caller to compare, so a distributed backend can make the decision atomically with the increment instead of racing between a round-trip and a local comparison.
+`ratelimit.NewMemoryStore()` is a fixed-window counter in a sharded, process-local map. It needs no configuration for one instance. It is **per-instance**, so two application instances behind a load balancer enforce an effective limit of `N × instance count`.
+
+For multi-instance deployments, implement `ratelimit.Store` with `Allow(ctx, key, Rate) (Result, error)` against Redis or another shared backend and pass it to `WithRateLimitStore`. The store makes the allow/deny decision, allowing a distributed backend to increment and decide atomically. See [Architecture → Extension points](../architecture.mdx#extension-points).
 
 `New()` logs a one-time startup warning when rate limiting is enabled and still on this default store — it's a reminder, not a diagnosis (the library has no way to detect "multiple instances" directly), so it fires in single-instance deployments too. Pass any other `ratelimit.Store` implementation via `WithRateLimitStore` to silence it.
 

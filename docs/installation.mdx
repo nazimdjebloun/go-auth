@@ -18,7 +18,7 @@ icon: "Download"
 go get github.com/nazimdjebloun/go-auth
 ```
 
-go-auth's own `go.mod` requires `pgx/v5` (PostgreSQL) and `modernc.org/sqlite` (SQLite) directly, plus the libraries it uses. The library imports the pgx stdlib driver itself, so Postgres registers out of the box. For the driver you actually use, your program needs to blank-import that driver's package so it registers itself with `database/sql`:
+go-auth's own `go.mod` requires `pgx/v5` (PostgreSQL) and `modernc.org/sqlite` (SQLite) directly, plus the libraries it uses. The library imports the pgx stdlib driver itself, so PostgreSQL is registered automatically. For SQLite or MySQL, your program must blank-import the driver package it uses so it registers with `database/sql`:
 
 | Database | Package |
 |---|---|
@@ -71,7 +71,7 @@ Nothing here is read from the environment by the library itself — go-auth has 
 
 ## The configuration pattern, at a glance
 
-Every aspect of the library is configured through its own option function, and all of them are passed to a single call: `NewConfig(opts ...Option)`. The next page covers each one field by field — this is just the map:
+Pass option functions to `NewConfig(opts ...Option)`. The table maps each option to its responsibility; [Configuration](./configuration.mdx) documents every field and validation rule.
 
 | Option | Configures |
 |---|---|

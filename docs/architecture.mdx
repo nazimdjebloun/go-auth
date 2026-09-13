@@ -6,7 +6,7 @@ icon: "Layers"
 
 # Architecture
 
-go-auth follows a ports-and-adapters (hexagonal) layout. Business logic in the `service` package never imports a database driver or an HTTP type directly — it depends on small interfaces defined in `port`, and concrete implementations of those interfaces (a Postgres/MySQL/SQLite repository, an SMTP mailer, a Google or GitHub OAuth client) are wired in once, at startup, in `auth.go`'s `New()`. Swapping an adapter — a different mailer, a Redis-backed rate limit store, a custom email template — never touches the service layer.
+go-auth uses ports and adapters. The `service` package depends on interfaces in `port`, not on HTTP types or database drivers. `New()` in `auth.go` wires repositories, mail delivery, and OAuth adapters at startup.
 
 ## Package map
 
@@ -14,7 +14,7 @@ go-auth follows a ports-and-adapters (hexagonal) layout. Business logic in the `
 |---|---|
 | `domain` | Core types (`User`, `Session`, `Organization`, ...) and every `AuthError` — no dependencies on anything else in the module. |
 | `port` | Interfaces the service layer depends on: `Mailer`, `Hasher`, `TokenGenerator`, `TemplateProvider`, `OAuthProvider`, `TxManager`, and one repository interface per aggregate (`UserRepository`, `SessionRepository`, `OrgRepository`, ...). |
-| `service` | Business logic — one file per concern (`auth.go`, `password.go`, `session_service.go`, `admin.go`, `oauth.go`, `org.go`, `org_invite.go`, `invite.go`, `verification.go`). Depends only on `domain` and `port`. |
+| `service` | Business logic, split by concern. Depends only on `domain` and `port`. |
 | `middleware` | Cross-cutting HTTP concerns: `AuthMiddleware`/`RequireRole` (session and role gating), `OriginCheck`/`CSRFToken` (CSRF), `RateLimit`, `CORS`, `RequireOrgMember`/`RequireOrgRole` (org access control, resolved from an `{orgID}` path segment), `RequireActiveOrg` (the same role check, resolved from the session's active org instead). |
 | `provider` | Built-in OAuth provider adapters (`provider/google`, `provider/github`), each implementing `port.OAuthProvider`. |
 | `ratelimit` | The rate limiter itself: `Config`, the `Store` interface, and the built-in in-memory implementation. |
@@ -22,7 +22,7 @@ go-auth follows a ports-and-adapters (hexagonal) layout. Business logic in the `
 | `emailtemplate` | The default `TemplateProvider` — embedded HTML/text templates for every email the library sends. |
 | `token` | Cryptographically random opaque token generation (`crypto/rand`, 32 bytes, hex-encoded). |
 | `hasher` | The default bcrypt `Hasher` and optional `hasher/argon2id` implementation. Callers select the latter through `WithPasswordHasher`; wiring always adds prefix dispatch and a password pipeline whose new writes use `PasswordPepperConfig.CurrentVersion` while stored rows select an exact historical key. |
-| `internal/handler` | HTTP adapters — decodes requests, calls a service method, writes the JSON response or sets cookies. Three files: `handler.go` (auth/account/session/admin/invite), `oauth.go`, `org.go`. |
+| `internal/handler` | HTTP adapters — decodes requests, calls a service method, writes the JSON response, or sets cookies. Files are split by concern, including auth, sessions, OAuth, organizations, and admin operations. |
 | `internal/sqlstore` | The `port` repository interfaces implemented over `database/sql` — one `_repo.go` per aggregate, plus the `DB` wrapper described below. |
 | `internal/routes` | The central route table — the single source of truth mapping every `"METHOD /path"` pattern to its `HandlerGroup` entry (and to per-route rate limits). |
 | `internal` | Other unexported packages not part of the public API: `schema` (the embedded SQL statements + the statement splitter), `testutil` (hand-written fakes for the `port` interfaces), and low-level `crypto`/`keyring`/`otp` helpers. |
@@ -61,7 +61,7 @@ CORS → RateLimit → CSRFToken → OriginCheck → Auth → (Admin | OrgMember
 Not every route uses every layer — a layer is only present when the route needs it:
 
 - **CORS** is outermost on every route, so a preflight `OPTIONS` request short-circuits before it can be rate-limited or otherwise rejected.
-- **RateLimit** wraps routes with meaningful abuse potential — login, register, password reset, invite creation — not read-only routes like `GET /auth/me`.
+- **RateLimit** wraps abuse-prone and expensive routes, including `GET /auth/me` and most admin reads. Some session-management routes are intentionally unwrapped; the handler wiring is the source of truth for an individual route.
 - **CSRFToken** and **OriginCheck** wrap every state-changing route (anything that isn't a plain `GET`), whether or not the caller is authenticated yet — origin checking has to happen before a session even exists, which is why it isn't folded into `Auth`.
 - **Auth** wraps anything that needs to know who's calling — it resolves the session cookie, transparently refreshes an expired session using the refresh cookie if present, and puts the user and session in `context.Context` for the handler.
 - **Admin** (`RequireRole(domain.RoleAdmin)`) additionally wraps every `/admin/*` route.

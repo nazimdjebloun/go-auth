@@ -6,7 +6,7 @@ icon: "Component"
 
 # Provider & Context
 
-`authApi` and `sessionsApi` are just functions — every component that needs to know who's logged in would otherwise call `authApi.me()` itself and manage its own loading state. This wraps that in a React context instead: one `<AuthProvider>` near the root of the app, one `useAuth()` hook everywhere else.
+`authApi` and `sessionsApi` are request helpers. This React context keeps user and loading state in one `<AuthProvider>` and exposes it through `useAuth()`.
 
 ```tsx
 "use client";
@@ -31,13 +31,24 @@ interface User {
   hasPassword: boolean;
 }
 
+interface AuthOutcome {
+  requiresVerification?: boolean;
+  requiresTwoFactor?: boolean;
+  challengeId?: string;
+  expiresAt?: string;
+  codeSent?: boolean;
+  message?: string;
+}
+
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
-  login: (input: { email: string; password: string }) => Promise<{ requiresVerification?: boolean }>;
-  register: (input: { email: string; password: string; name: string }) => Promise<{ requiresVerification?: boolean }>;
+  login: (input: { email: string; password: string }) => Promise<AuthOutcome>;
+  register: (input: { email: string; password: string; name: string }) => Promise<AuthOutcome>;
+  verifyTwoFactor: (challengeId: string, code: string) => Promise<void>;
+  resendTwoFactor: (challengeId: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -68,7 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const result = await authApi.login(input);
-      if (result.requiresVerification) return { requiresVerification: true };
+      if (result.requiresVerification || result.requiresTwoFactor) return result;
       await refresh();
       return {};
     } catch (err: any) {
@@ -81,7 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const result = await authApi.register(input);
-      if (result.requiresVerification) return { requiresVerification: true };
+      if (result.requiresVerification || result.requiresTwoFactor) return result;
       await refresh();
       return {};
     } catch (err: any) {
@@ -90,18 +101,41 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [refresh]);
 
+  const verifyTwoFactor = useCallback(async (challengeId: string, code: string) => {
+    setError(null);
+    try {
+      await authApi.verifyTwoFactor(challengeId, code);
+      await refresh();
+    } catch (err: any) {
+      setError(err.message ?? err.error);
+      throw err;
+    }
+  }, [refresh]);
+
+  const resendTwoFactor = useCallback(async (challengeId: string) => {
+    setError(null);
+    try {
+      await authApi.resendTwoFactor(challengeId);
+    } catch (err: any) {
+      setError(err.message ?? err.error);
+      throw err;
+    }
+  }, []);
+
   const logout = useCallback(async () => {
+    setError(null);
     try {
       await authApi.logout();
-    } catch {
-      // already logged out server-side, or the request itself failed — either way, proceed
+      setUser(null);
+      if (typeof window !== "undefined") window.location.href = "/login";
+    } catch (err: any) {
+      setError(err.message ?? err.error);
+      throw err;
     }
-    setUser(null);
-    if (typeof window !== "undefined") window.location.href = "/login";
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, loading, error, refresh, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, error, refresh, login, register, verifyTwoFactor, resendTwoFactor, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -116,15 +150,17 @@ export function useAuth(): AuthContextValue {
 }
 ```
 
-## What each piece is actually doing
+## How the provider works
 
-**The mount-time `refresh()`.** The browser might already be holding a valid `goauth_session` cookie from a previous visit — React doesn't know that until it asks. `useEffect(() => { refresh() }, [])` calls `GET /auth/me` once on mount specifically to hydrate `user` from whatever cookie already exists, which is the whole reason `/auth/me` exists as a "check" endpoint rather than only being reachable as a side effect of login.
+**Mount-time `refresh()`.** `useEffect(() => { refresh() }, [])` calls `GET /auth/me` once to hydrate `user` from an existing `goauth_session` cookie.
 
-**`loading`, and why it starts `true`.** Until that first `refresh()` resolves, you don't yet know if there's a user or not — `loading` distinguishes "haven't checked yet" from "checked, and there's no one." Skipping this is what causes the common flash of a logged-out UI for a split second before a valid session kicks in; gate your route rendering on `loading` being `false`, not just on `user` being non-null.
+**`loading` starts as `true`.** Before the first `refresh()` resolves, the client has not determined whether a user exists. Gate route rendering on `loading === false`, not only on `user` being non-null.
 
-**`setUnauthorizedHandler(() => setUser(null))`.** This is why [Setup](./index.mdx) exports it. A session can die on the server — revoked, banned, or expired past its refresh window — while this tab still has `user` set in memory from the last successful call. The next request that happens to hit the API will get a `401` (or `403 user_banned`), and this wiring means *any* request discovering that clears `user` app-wide, not just the component that made the unlucky call.
+**`setUnauthorizedHandler(() => setUser(null))`.** This clears app-wide user state when any request receives `401` or `403 user_banned` for a revoked, banned, or expired session.
 
-**Why `login`/`register` call `refresh()` again instead of using the response's own `user` field.** The login/register response already contains a full user object — you could use it directly and skip the extra round trip. Calling `refresh()` instead means there's exactly one code path that ever populates `user`, so it can't drift out of sync with what `/auth/me` would say. Either is correct; this trades a network call for not having two sources of truth.
+**Gated login and registration.** A response with `requiresVerification` or `requiresTwoFactor` does not create a session, so `login` and `register` return that response without calling `refresh()`. Store `challengeId` while showing a 2FA prompt, then call `verifyTwoFactor`; only a successful verification refreshes `user`.
+
+**Why `login`/`register` call `refresh()` after a session is issued.** This keeps `refresh()` as the one code path that populates `user`, at the cost of one request.
 
 ## Using it
 
@@ -166,5 +202,5 @@ function AccountMenu() {
 ## Next
 
 - [Setup](./index.mdx) — the `apiRequest` helper and `setUnauthorizedHandler` this is built on
-- [Authentication client](./authentication.mdx) — `authApi`, including `me`/`check`
+- [Authentication client](./authentication.mdx) — `authApi`, including `me` and two-factor methods
 - [Middleware](./middleware.mdx) — the server-side counterpart: redirecting unauthenticated requests before a page even renders

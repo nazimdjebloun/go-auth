@@ -39,7 +39,7 @@ The **Client** examples below call the same `apiRequest` helper defined on [Clie
 
 ## Roles
 
-Three roles, compared by weight, not by name — `RequireOrgRole(min)` at the HTTP layer checks `role.Weight() >= min.Weight()`, so "Admin or above" is really "weight 2 or above."
+Roles are compared by weight, not by name. `RequireOrgRole(min)` checks `role.Weight() >= min.Weight()`, so “Admin or above” means weight 2 or higher.
 
 | Role | Weight | Can |
 |---|---|---|
@@ -233,7 +233,7 @@ const org = await apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}`);
 
 ### Update an org — `PUT /auth/orgs/{orgID}`
 
-Auth: org admin or above. Body: `{ "name"?, "slug"? }` — both pointers, so omitting a field leaves it unchanged rather than clearing it. This is the same wholesale-vs-partial distinction as elsewhere in the library, just resolved the other way: unlike `WithRegistration`, this one really is a partial update.
+Auth: org admin or above. Body: `{ "name"?, "slug"? }`. Both fields are pointers, so omitting one leaves it unchanged rather than clearing it. Unlike `WithRegistration`, this is a partial update.
 
 ```json
 { "...": "the updated org, same shape as create" }

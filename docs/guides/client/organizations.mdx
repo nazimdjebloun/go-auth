@@ -22,6 +22,7 @@ export const orgApi = {
   // service supports, and a truthy check would silently drop it since 0 is
   // falsy. Omitting `limit` entirely gets the default page of 20 server-side.
   listMine: (params: {
+    role?: "owner" | "admin" | "member";
     search?: string;
     orderBy?: "name" | "created_at" | "member_count";
     orderDirection?: "asc" | "desc";
@@ -29,6 +30,7 @@ export const orgApi = {
     offset?: number;
   } = {}) => {
     const query = new URLSearchParams();
+    if (params.role) query.set("role", params.role);
     if (params.search) query.set("search", params.search);
     if (params.orderBy) query.set("orderBy", params.orderBy);
     if (params.orderDirection) query.set("orderDirection", params.orderDirection);
@@ -40,8 +42,13 @@ export const orgApi = {
 
   // List responses carry no `total`. Each list has a matching `/count` that
   // takes the filter params only — call it on its own cadence for the pager.
-  countMine: (search?: string) =>
-    apiRequest(API_BASE, "GET", `/auth/orgs/count${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+  countMine: (params: { role?: "owner" | "admin" | "member"; search?: string } = {}) => {
+    const query = new URLSearchParams();
+    if (params.role) query.set("role", params.role);
+    if (params.search) query.set("search", params.search);
+    const qs = query.toString();
+    return apiRequest(API_BASE, "GET", `/auth/orgs/count${qs ? `?${qs}` : ""}`);
+  },
 
   get: (orgId: string) => apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}`),
 

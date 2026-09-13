@@ -48,7 +48,7 @@ export const config = {
 
   2. **`isAdmin` doesn't check the user's role — only that *some* session cookie exists.** A logged-in non-admin who navigates to `/admin` sails past this exactly like an admin would.
 
-  Either way, the page's own API calls still go through the real `AuthMiddleware`/`adminMW` server-side and enforce both properly — this redirect is purely a UX convenience (skip rendering a page you're obviously not logged in for), not a security boundary. See Option 2 below if you want the middleware itself to actually know.
+  The page's API calls still go through server-side `AuthMiddleware`/`adminMW`. This redirect only avoids rendering a page before those checks; it is not a security boundary. Use Option 2 when the middleware itself must validate the session.
 </Callout>
 
 ## Option 2: validated via `/auth/me`

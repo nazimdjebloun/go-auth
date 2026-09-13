@@ -192,7 +192,7 @@ first and echo the cookie value back in the header.
 
 ### Where is your frontend?
 
-The double submit check needs the browser to do two things with `_csrf`: **send** it, and let your JavaScript **read** it so the value can be echoed in `X-CSRF-Token`. Which of those you get for free depends entirely on where the frontend sits relative to the API.
+The double-submit check needs the browser to **send** `_csrf` and let JavaScript **read** it so the value can be echoed in `X-CSRF-Token`. The deployment topology determines which configuration is required.
 
 | Topology | Sends? | Readable? | What to set |
 |---|---|---|---|

@@ -41,7 +41,7 @@ The **Client** examples below call a small `apiRequest(baseUrl, method, path, bo
 Every state-changing route (`POST`/`PUT`/`PATCH`/`DELETE`) runs through `middleware.OriginCheck` before it reaches a handler. By default (`AllowMissingCSRFHeaders: false`), a request with **neither** an `Origin` nor a `Referer` header gets a flat `403 Forbidden - CSRF headers missing` — which is why every `curl` example on this page below sets `-H "Origin: https://myapp.com"`. Without it, they 403 against any real deployment.
 
 <Callout type="warn" title="This is a plausibility check, not proof the request came from a browser">
-  The server only compares the header's *value* against `AllowedOrigins` — nothing cryptographically ties it to an actual browser tab on that origin. `curl -H "Origin: https://myapp.com"` satisfies it exactly as well as a real browser request does. That's normal and expected: this check exists to stop a victim's browser from being tricked into submitting a cross-site request (the classic CSRF scenario) and to block casual scripted abuse that doesn't bother setting headers — not to gate who is "allowed" to call the API directly. Anyone with the endpoint, the request shape, and a plausible `Origin` value can call it, exactly as they could fill out your real signup form. What actually can't be bypassed by spoofing a header is the CSRF token check (if you've turned on `SecurityConfig.CSRFToken` — it requires a cookie value only the server issued), rate limiting, and every application-level rule (password policy, email uniqueness, `RequireEmailVerification`, `EnableInvite`).
+  `Origin` is a browser signal, not a credential: a command-line client can send the same header. It protects a victim's browser from cross-site requests; it does not restrict direct API clients. CSRF tokens, rate limits, and application rules enforce the remaining controls.
 </Callout>
 
 ## Register
@@ -205,7 +205,7 @@ if (result.requiresVerification) {
 Only relevant when `RequireEmailVerification: true`. Two ways in: a link with a code (`POST /auth/verify-email`), or a resend if the email never arrived.
 
 <Callout type="warn" title="A mailer is required either way">
-  A mailer is required by `NewConfig` in every deployment — not just when `RequireEmailVerification: true` — since `POST /auth/admin/login` needs one to deliver its 2FA code regardless of this flag. Set `WithMailer` or `WithEmail`, or in `EnvironmentDev` only, `NewConfig` defaults to a log-only mailer automatically if you set neither. See [Configuration → WithMailer / WithEmail / WithTemplates](../configuration.mdx#withmailer--withemail--withtemplates--required) for both options, plus how to replace the email content itself with `WithTemplates`.
+  Email verification requires `WithMailer` or `WithEmail`. Admin login also requires a mailer while its default 2FA challenge is enabled. In `EnvironmentDev`, a required but unconfigured mailer defaults to log-only delivery. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off).
 </Callout>
 
 **`POST /auth/verify-email`** — body `{ "code": "..." }`. On success, the handler verifies the user **and** immediately creates a session in the same request — this is the only place verification and login happen in one step.
@@ -453,8 +453,8 @@ if (result.requiresVerification) {
 }
 ```
 
-<Callout type="warn" title="Admin login has its own page — and requires a second factor by default">
-  `POST /auth/admin/login` gets its own guide alongside the rest of the admin panel rather than living here — see [Admin → Admin login](./admin.mdx#admin-login). It's a login variant, but everything else about it (who can use it, what it manages) belongs with Admin, not Authentication. One thing worth knowing before you get there: admin login requires a second factor **by default** in every real deployment — independent of `RequireEmail2FA` or any other flag, and on unless explicitly turned off via `TwoFactorConfig.DisableAdminTwoFactor`. See [Admin → Admin login](./admin.mdx#admin-login) for what that means in practice (a mailer becomes effectively mandatory unless disabled) and [Security](../security.mdx#two-factor-authentication) for the reasoning.
+<Callout type="warn" title="Admin login has its own flow">
+  `POST /auth/admin/login` is documented in [Admin](./admin.mdx#admin-login). It requires a second factor by default, independent of other 2FA settings.
 </Callout>
 
 ## Two-factor authentication
@@ -599,7 +599,7 @@ await apiRequest(API_BASE, "POST", "/auth/2fa/disable", { password: currentPassw
 
 ### Logout — `POST /auth/logout`
 
-Takes no body. Works whether or not a session cookie is present — if one is, the session is revoked server-side; either way, both cookies are cleared and the CSRF cookie is rotated. There is no error response; it always returns `200`.
+Takes no body and requires an authenticated session. It revokes that session server-side, clears both session cookies, and rotates the CSRF cookie.
 
 ```json
 { "message": "Logged out" }

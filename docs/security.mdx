@@ -6,27 +6,43 @@ icon: "Lock"
 
 # Security
 
-go-auth is self-hosted: there's no vendor patching a shared multi-tenant system on your behalf. The library's job is to get the auth-specific details right by default — password storage, token handling, CSRF, timing safety — so the parts most homegrown implementations get wrong don't become your problem. This page describes those mechanisms directly, and is explicit about what's still on you.
+go-auth provides authentication controls; you remain responsible for deployment, transport security, secret storage, and operational response. This page describes the library's controls and their limits.
 
 ## Password hashing and hasher migration
 
-Passwords default to **bcrypt**, cost 12, via `golang.org/x/crypto/bcrypt` — never stored or logged in plaintext. Password peppering is off by default, so the selected KDF normally receives the password directly. `WithPasswordPepper` opts in with a versioned keyring; for a versioned row the library first computes `base64(HMAC-SHA256(passwordPepperKey, password))`, then bcrypt or Argon2id hashes that fixed-length, secret-keyed value. `WithBcryptCost` changes the KDF work factor without changing algorithms; `WithPasswordHasher` replaces the current KDF implementation for every newly written password hash. The configurable `PasswordPolicy` (`MinLength`, `RequireUppercase`, `RequireDigit`, `RequireSpecial`) is enforced at registration and password-change time, defaulting to `MinLength: 8, RequireDigit: true`.
+### Defaults and policy
+
+Passwords use **bcrypt** from `golang.org/x/crypto/bcrypt` at cost 12 by default. They are never stored or logged in plaintext. `WithBcryptCost` changes the work factor; `WithPasswordHasher` selects the implementation used for new password hashes.
+
+`PasswordPolicy` (`MinLength`, `RequireUppercase`, `RequireDigit`, `RequireSpecial`) runs during registration and password changes. Its default requires at least eight characters and a digit.
+
+### Argon2id
 
 Argon2id is available as the built-in `hasher/argon2id` package but is not the default, preserving bcrypt compatibility and zero-configuration behavior. Select it with `WithPasswordHasher(argon2id.New(argon2id.DefaultOptions()))`. Its standard PHC string embeds version, memory, iteration, parallelism, salt, and key data, so verification uses each stored row's own parameters and the registry can dispatch on `$argon2id$` without another interface method.
 
-Argon2id's `Memory` is a real KiB allocation for every concurrent hash or comparison. Increasing it raises attacker cost but also raises login-server capacity requirements; setting it too low gives up the memory-hard advantage and can be weaker than a well-tuned bcrypt deployment. `DefaultOptions` exactly implements [RFC 9106 section 4's memory-constrained recommendation](https://www.rfc-editor.org/rfc/rfc9106.html#section-4): 64 MiB, 3 iterations, parallelism 4, a 16-byte salt, and a 32-byte tag. Operators should still benchmark their concurrency envelope; the [official Go Argon2 documentation](https://pkg.go.dev/golang.org/x/crypto/argon2) explains how each parameter affects resource use.
+Argon2id's `Memory` is a real KiB allocation for every concurrent hash or comparison. More memory raises attacker cost and login-server capacity needs. `DefaultOptions` implements [RFC 9106 section 4's memory-constrained recommendation](https://www.rfc-editor.org/rfc/rfc9106.html#section-4): 64 MiB, 3 iterations, parallelism 4, a 16-byte salt, and a 32-byte tag. Benchmark the intended concurrency; the [Go Argon2 documentation](https://pkg.go.dev/golang.org/x/crypto/argon2) explains the parameter trade-offs.
 
-`PasswordPolicy.Validate` also caps passwords at bcrypt's hard limit — **72 bytes**, not characters, since a multi-byte passphrase crosses that threshold at fewer characters than an all-ASCII one. This compatibility cap remains in force when a custom hasher supports longer inputs, so every configured implementation accepts the same password set and switching implementations cannot strand an existing bcrypt credential.
+### Compatibility and migration
+
+`PasswordPolicy.Validate` caps passwords at bcrypt's hard limit: **72 bytes**, not characters. The limit stays in force with a custom hasher so every configured implementation accepts the same password set.
 
 Stored hashes select their verifier by their own format prefix (`$2a$`, `$2b$`, `$argon2id$`, and similar), never by blindly trying whichever hasher is current. The registry always includes the current implementation plus built-in bcrypt and Argon2id verifiers, so switching between those algorithms does not break existing users' logins. An unknown or corrupted prefix fails closed: no verifier is guessed and the current hasher is never used as a fallback. The condition is logged for operators, while the caller receives the ordinary `invalid_credentials` response so a damaged row does not become an account-enumeration oracle.
+
+### Password pepper and rehashing
+
+Password peppering is off by default. `WithPasswordPepper` enables a versioned keyring. For a versioned row, go-auth first computes `base64(HMAC-SHA256(passwordPepperKey, password))`; bcrypt or Argon2id then hashes that fixed-length value.
 
 Pepper selection is explicit, not trial-based. `users.password_pepper_version = NULL` means the row is unpeppered and the KDF receives the raw candidate; a non-zero value selects exactly one key from `PasswordPepperConfig.Keys` before the same prefix-selected KDF runs. This makes verification O(1) regardless of keyring size and gives wrong passwords the same public `invalid_credentials` shape. An unavailable version fails closed and performs a dummy comparison through the real stored KDF and parameters when parseable, or through the real current KDF when the stored hash is malformed; it never falls back to another pepper or to the raw password.
 
 After a successful comparison, go-auth checks the stored pepper version, algorithm, and self-described KDF parameters against the current configuration. An older pepper version (including `NULL`), legacy algorithm, changed Argon2id/scrypt/PBKDF2 parameter block, or bcrypt cost change triggers rehash-on-login. The password is hashed through the current configuration and both hash and version are replaced. The update is guarded by both old values, so a concurrent password reset or change wins instead of being overwritten. A stored pepper version greater than this node's current version is never downgraded, which keeps rolling deployments safe once the future key has been preloaded. A hashing or persistence failure is logged and leaves the verified login usable; the unchanged row is eligible for another upgrade attempt on its next successful login. There is no batch migration.
 
-Login remains timing-safe against email enumeration. When the email does not exist, the service compares against a startup-generated dummy hash in the current implementation's format before returning `invalid_credentials`; OAuth-only accounts run that same real-KDF dummy verification, and a missing email, OAuth-only account, wrong password, and unsupported stored prefix all have the same public error contract. Forgot-password requests for unknown accounts likewise run token generation, rollback-only cleanup and insertion queries, and template rendering while returning the same response and sending no email.
+Login remains timing-safe against email enumeration. A missing email and an OAuth-only account both run a real-KDF dummy comparison before returning `invalid_credentials`. A missing email, OAuth-only account, wrong password, and unsupported stored prefix therefore have the same public error contract. Forgot-password requests for unknown accounts also run token generation, rollback-only cleanup and insertion queries, and template rendering before returning the usual response without sending an email.
 
-**Code shapes.** Every code a user types is drawn with `crypto/rand`: 2FA codes are 6 digits (phone-keypad friendly, 5-minute default TTL), while email-verification, set-password, and delete-account codes are 8 characters from an unambiguous 32-character alphabet (`A–Z` minus `I`/`O`, `2–9` — no lookalikes, 15/10/10-minute TTLs respectively). The split is deliberate: the code entered on every login optimizes for typing friction, with a 5-guess lineage cap compensating for the smaller space, while the rarely-entered codes carry more entropy where attempt caps are thinner or absent. Render a numeric keypad for 2FA inputs and a full keyboard for the rest. Shapes and lengths are fixed in code, not configurable.
+### User-entered codes
+
+Every code a user types comes from `crypto/rand`. Two-factor codes are six digits with a five-minute default TTL. Email-verification, set-password, and delete-account codes are eight characters from an unambiguous 32-character alphabet: `A–Z` except `I` and `O`, plus `2–9`. Their default TTLs are 15, 10, and 10 minutes. The code shapes and lengths are fixed in code, not configurable.
+
+Use a numeric keypad for 2FA and a full keyboard for the other codes. The shorter 2FA code has a five-guess lineage cap; the longer codes provide more entropy where attempt caps are thinner or absent.
 
 ## Sessions and tokens
 
@@ -40,12 +56,12 @@ Cookies default to `HttpOnly` (never exposed to JavaScript) and `Secure` — the
 
 Two independent layers, applied to every state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`):
 
-1. **Origin/Referer checking** (`middleware.OriginCheck`), always on. The request's `Origin` (falling back to `Referer`) must match one of your configured `AllowedOrigins`, or be same-origin with the request itself. `Forwarded-*` headers are only trusted from IPs in your rate-limit `TrustedIPs` list, so a client can't spoof its way into a same-origin match by forging a forwarded header. `AllowedOrigins` rejects `"*"` outright — there is no way to disable this check short of listing every origin explicitly.
-2. **Double-submit cookie token** (`middleware.CSRFToken`), on by default in every deployment — a token config is created automatically, since `WithSecret` is mandatory. The cookie value is `base64url(nonce).base64url(HMAC-SHA256(csrfKey, nonce))`, generated with `crypto/rand` and signed with the CSRF-specific key derived from `WithSecret` — a forged cookie fails the signature check regardless of nonce guessing, and the comparison itself runs in constant time (`crypto/subtle.ConstantTimeCompare`) to avoid a signature side-channel. The client must echo the cookie value back in a header (default `X-CSRF-Token`); since cross-origin requests can't read cookies from your domain via JavaScript, only same-origin code can construct a matching request.
+1. **Origin/Referer checking** (`middleware.OriginCheck`) is always on. `Origin` (falling back to `Referer`) must match `AllowedOrigins` or the request itself. `Forwarded-*` headers are trusted only from IPs in the rate-limit `TrustedIPs` list. `AllowedOrigins` rejects `"*"`; every accepted origin must be listed explicitly.
+2. **Double-submit cookie token** (`middleware.CSRFToken`) is on by default. Its configuration is created automatically because `WithSecret` is mandatory. The token is `base64url(nonce).base64url(HMAC-SHA256(csrfKey, nonce))`, generated with `crypto/rand` and signed with a CSRF-specific key derived from `WithSecret`. Go-auth verifies it in constant time with `crypto/subtle.ConstantTimeCompare`. Clients echo it in `X-CSRF-Token` by default. Cross-origin JavaScript cannot read the cookie, so it cannot construct a matching request.
 
-Origin checking alone stops the vast majority of CSRF attacks and needs no configuration. The token layer sits behind it for the cases origin checking can't cover — a request arriving with no `Origin` or `Referer` at all, or headers you don't fully trust.
+Origin checking needs no configuration. The token layer also covers requests without `Origin` or `Referer`, or deployments that do not fully trust those headers.
 
-Only the second layer can be turned off, via `SecurityConfig.DisableCSRFToken`, and it's meant for deployments with no browser clients at all — a CLI or a server-to-server API, where CSRF isn't in the threat model. Turning it off logs a startup warning, and combining it with `AllowMissingCSRFHeaders: true` is rejected at configuration time: together they would let a cross-site request through with neither a trusted origin nor a token.
+Only the token layer can be disabled, through `SecurityConfig.DisableCSRFToken`. It is for CLI or server-to-server deployments with no browser clients. Disabling it logs a startup warning. Combining it with `AllowMissingCSRFHeaders: true` is rejected because a cross-site request could otherwise pass with neither a trusted origin nor a token.
 
 ## OAuth
 
@@ -57,25 +73,35 @@ An OAuth-provided email is only treated as verified when the provider guarantees
 
 ## Two-factor authentication
 
-Email-based 2FA (`TwoFactorConfig.RequireEmail2FA` / per-user `TwoFactorEnabled`) sits on top of the mechanisms above, with four trade-offs worth stating explicitly rather than leaving implicit.
+Email-based 2FA is controlled globally by `TwoFactorConfig.RequireEmail2FA` and per user by `TwoFactorEnabled`. The following limits and operational effects matter when choosing it.
 
-**Admin login requires a second factor by default, independent of every other 2FA setting.** `POST /auth/admin/login` gates on this independent of `RequireEmail2FA` and independent of the admin account's own `TwoFactorEnabled` — it applies in every deployment built via `goauth.New()` unless explicitly turned off. Concretely: a mailer becomes a hard requirement for admin login to function at all, even in a deployment that otherwise never touches any 2FA setting.
+### Admin login
 
-Opt out with `TwoFactorConfig.DisableAdminTwoFactor` (via `WithTwoFactor`) for an API-only deployment with no email delivery at all — this is a real reduction in admin-account security (no second factor gates the highest-privilege login path), so only turn it off alongside a deliberate decision that no mailer will ever be configured; `NewConfig` still requires a mailer if `RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, or `DefaultEnabled` is on. See [Admin → Admin login](./guides/admin.mdx#admin-login) for the request/response shape this produces.
+`POST /auth/admin/login` requires a second factor by default. This is independent of `RequireEmail2FA` and the admin user's `TwoFactorEnabled` setting. Therefore, a mailer is required for admin login even when the rest of the deployment does not use 2FA.
 
-**OAuth is a weakest link, not defense in depth.** 2FA gates the password login path (`Login`, `AdminLogin`, `Register`, invite registration) only — an OAuth-linked account has no second factor of its own on that path, because the identity provider is trusted to have handled that already. If a user has both a password with 2FA on *and* a linked OAuth provider, compromising the OAuth account (or the provider itself) reaches the account with zero factors checked by this library. This is a deliberate scope decision, not an oversight — go-auth doesn't second-guess a provider's own authentication — but it means "2FA is on" is a per-path guarantee, not an account-wide one. If that's not the property you want, don't offer OAuth linking on accounts that must stay single-factor-resistant.
+Use `TwoFactorConfig.DisableAdminTwoFactor` through `WithTwoFactor` only for an API-only deployment with no email delivery. It removes the second factor from the highest-privilege login path. `NewConfig` still requires a mailer when `RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, or `DefaultEnabled` is enabled. See [Admin login](./guides/admin.mdx#admin-login) for the request and response shape.
 
-**The per-challenge attempt cap is not a brute-force control by itself.** Each 2FA code (6 digits, 10⁶ space) is capped at 5 wrong guesses and 3 resends per challenge, enforced with guarded database writes so a concurrent burst can't slip past the cap via a race. But `Login`/`AdminLogin`/`Register` mint a fresh challenge — with a fresh 5-guess budget — on every call once the previous one is capped or expired; they do not refuse further attempts at the account level. The cap's job is bounding an honest-mistake loop and making each fresh guess budget cost a full login round-trip, not capping total lifetime guesses against one account. The actual brute-force control is the per-IP rate limit on `/auth/2fa/verify` (default 5/min) and `/auth/login` — which, like all IP-keyed rate limiting in this library, has the usual residual gap against an attacker distributing guesses across many IPs. If you need a tighter guarantee than that, front the endpoint with something that rate-limits per account or per credential-stuffing signal, not just per IP.
+### OAuth accounts
 
-As a partial mitigation, crossing 20 failed 2FA attempts on one account within an hour fires a "someone's guessing your code" notification email — informational only, it never blocks a login. Because it's a fixed, easily-reached threshold, an attacker who already knows an account's email can trigger it more or less at will; treat it as a compromise signal worth acting on (rotate the password), not as evidence the account was actually breached, and be aware it's also a minor, bounded nuisance-email vector in its own right.
+2FA covers password login (`Login`, `AdminLogin`, `Register`, and invite registration). It does not add a second factor to an OAuth login; go-auth trusts the provider to have authenticated the user. An account with both a password and a linked provider can therefore be accessed through that provider without this library checking its own 2FA. Do not offer OAuth linking where 2FA must protect every login path.
 
-**`TwoFactorConfig.RequireEmail2FA` couples login availability to mailer availability.** With email verification, a mailer outage only blocks new signups. With `RequireEmail2FA: true`, `Challenge` mails the code synchronously as part of every login — a mailer outage means *no one* can log in, not just new users, until it recovers. Weigh that against `TwoFactorConfig.DefaultEnabled` (per-user, opt-out via `Disable`) if you want 2FA on by default without that global availability coupling.
+### Attempt limits
+
+Each six-digit 2FA code allows five wrong guesses and three resends per challenge. Guarded database writes enforce those caps across concurrent requests. A new `Login`, `AdminLogin`, or `Register` request can mint a new challenge and a new five-guess budget; the cap is not an account-level brute-force limit.
+
+The per-IP limits on `/auth/2fa/verify` (default 5/min) and `/auth/login` provide the brute-force control. They do not stop an attacker distributing guesses across many IPs. Use an edge control that rate-limits per account or credential-stuffing signal if that guarantee is needed.
+
+Twenty failed 2FA attempts on one account within an hour send a notification email. It never blocks login. Treat it as a signal to investigate or rotate the password, not proof of compromise; someone who knows the account email can trigger it.
+
+### Mail delivery availability
+
+With email verification, a mailer outage only blocks new signups. With `RequireEmail2FA: true`, `Challenge` sends a code during each password login, so a mailer outage blocks that path. Use `TwoFactorConfig.DefaultEnabled` for per-user 2FA that is enabled by default but can be disabled.
 
 ## Rate limiting
 
-On by default, with an in-memory store and a built-in table of tighter limits on the highest-value targets — login, admin login, registration, password reset, verification resend — beyond a looser default for everything else. Disabling rate limiting logs an explicit startup warning — it's meant to be a visible, intentional choice, typically only made because you're rate limiting at the edge (a CDN, API gateway) instead.
+Rate limiting is on by default. An in-memory store applies tighter limits to login, admin login, registration, password reset, and verification resend, with a looser default for other routes. Disabling it logs a startup warning; do so only when an edge component applies equivalent limits.
 
-Where your frontend is hosted decides how much of this you get for free. Same origin needs no configuration, sibling subdomains need the CSRF cookie scoped, and a different registrable domain needs `SameSite=None` plus `ExposeCSRFTokenInBody`. See the [Deployment guide](./guides/deployment.mdx) for all three and what each one costs.
+Deployment topology determines the CSRF configuration. Same origin needs no additional configuration; sibling subdomains need a scoped CSRF cookie; different registrable domains need `SameSite=None` and `ExposeCSRFTokenInBody`. See [Deployment](./guides/deployment.mdx).
 
 **The address recorded on a session or an audit event follows the same rules.** `middleware.ClientIP` reads `IPAddressHeader` only when the immediate peer is in `TrustedIPs`, takes the rightmost hop that isn't itself a trusted proxy, and falls back to the connection address when the header is absent, untrusted, or unparseable — so a client can never write its own audit trail. It differs from the rate-limit key in one way: IPv6 is not masked to a subnet, because this is a record of who connected rather than a bucket to group them into.
 

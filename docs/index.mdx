@@ -6,36 +6,30 @@ icon: "BookOpen"
 
 # go-auth
 
-A self-hosted authentication library for Go. You configure it in your own process, point it at your own database, and it gives you registration, login, sessions, password recovery, email verification, invite-only signup, OAuth, multi-tenant organizations, an admin surface, CSRF protection, rate limiting, and audit logging — as a package you import, not a service you depend on.
+A self-hosted authentication library for Go. Run it in your application against your database for registration, sessions, password recovery, email verification, invite-only signup, OAuth, organizations, administration, CSRF protection, rate limiting, and audit logging.
 
-<Callout type="warn" title="Pre-1.0 — expect breaking changes">
+<Callout type="warn" title="Pre-1.0: expect breaking changes">
   go-auth is early and under active development. The public API (types, `With*` options, route paths, and JSON response shapes) can and will change without a deprecation period until a 1.0 release is tagged. Pin an exact version, read the changelog before upgrading, and don't treat this as a stable dependency yet.
 </Callout>
 
 ## Why it exists
 
-Authentication is small enough that every project ends up writing its own, and sharp enough that most of those homegrown versions get something wrong — session fixation, missing CSRF checks, timing-safe comparisons skipped, refresh tokens that never rotate, password reset tokens that never expire. None of that is exotic; it's just a lot of detail to get right every single time.
-
-The usual alternative is a hosted auth provider. That solves the correctness problem but introduces a different one: your user data now lives outside your infrastructure, you're billed per user or per login, and you're constrained to whatever the provider's API allows.
-
-go-auth sits in between. It's a library, not a service — your data stays in your own PostgreSQL, MySQL, or SQLite database, there's no per-user cost, and no network hop to a third party on every request. In exchange, you own the deployment: you write the Go program that imports it, and you're responsible for running it.
+Use go-auth when you want authentication to run with your Go application and data to remain in your PostgreSQL, MySQL, or SQLite database. You own the deployment, configuration, and operational security.
 
 ## What it does
 
-Registration and login support email/password, OAuth (Google and GitHub built in, or any provider you implement), and invite-only signup, with optional required email verification. Sessions use two tokens — a short-lived session token and a longer-lived refresh token — with idle timeout, an absolute maximum lifetime, and transparent rotation. Password reset, change-password, and set-password (for OAuth-only accounts) are all handled, as is email verification with resend throttling.
+Authentication supports email/password, OAuth (Google and GitHub are built in), and invite-only signup. Sessions have a session token and refresh token, rotation, idle expiry, and an optional maximum lifetime. The library also provides account recovery, email verification, organizations, administrative operations, rate limiting, audit events, and structured logging.
 
-Beyond individual accounts, it supports multi-tenant organizations with membership roles and invites, and an admin surface for listing, banning, role changes, and session revocation across users. Every request that mutates state passes through CSRF checks — origin/referer validation, with a double-submit cookie token on top that you can turn off but don't have to turn on — and every sensitive endpoint has a rate limit out of the box. Security-relevant events — logins, password changes, admin actions, org changes — can be recorded to an audit log, streamed to Kafka, NATS, a webhook, or any sink you write yourself, alongside the built-in one. Every internal component logs through a single structured `slog.Logger` you provide, so audit events, rejected requests, and startup warnings all land in your existing log pipeline.
-
-Delivery of email (verification, invites, password reset) goes through a one-method interface, so plugging in Resend, Postmark, SES, or your own SMTP server is a small amount of glue code, not a fork. The templates themselves are replaceable too — if you want your own branding or copy instead of the built-in HTML/text templates, implement one interface and hand it your own renderer.
+Use the supplied interfaces to replace email delivery, templates, OAuth providers, rate-limit storage, or audit sinks.
 
 ## Comparison
 
 | | Rolling your own | Hosted auth-as-a-service | go-auth |
 |---|---|---|---|
 | Where your data lives | Your database | Their servers | Your database |
-| Ongoing cost | Your time | Per-user / per-login pricing | Free — self-hosted |
-| Setup time | Weeks, if done carefully | Minutes | An afternoon |
-| Security review needed | All of it, on you | Handled by the provider | The library's surface is reviewed; your deployment still needs review |
+| Ongoing cost | Infrastructure and maintenance | Provider and infrastructure pricing | Infrastructure and maintenance; no go-auth per-user fee |
+| Setup effort | Build and maintain the system | Integrate the provider | Integrate the library into your service and deployment |
+| Security responsibility | Your implementation and deployment | Provider configuration and application integration | Your application integration and deployment; evaluate the library against your requirements |
 | Network dependency at runtime | None | Yes — auth calls leave your infrastructure | None |
 | Customization | Total, but you built it | Limited to what the provider exposes | Total — it's Go source you can read and, if needed, fork |
 

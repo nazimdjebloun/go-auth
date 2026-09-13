@@ -16,9 +16,21 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-async function ensureCSRFCookie(baseUrl: string) {
-  if (getCookie("_csrf")) return; // already have one
-  await fetch(`${baseUrl}/auth/csrf-token`, { method: "GET", credentials: "include" });
+async function getCSRFToken(baseUrl: string): Promise<string | null> {
+  const cookieToken = getCookie("_csrf");
+  if (cookieToken) return cookieToken;
+
+  const res = await fetch(`${baseUrl}/auth/csrf-token`, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!res.ok) throw new Error("Could not initialize CSRF protection");
+
+  // Same-origin and sibling-subdomain deployments receive 204 and can read
+  // the cookie. Different registrable domains receive { token } instead.
+  if (res.status === 204) return getCookie("_csrf");
+  const payload: { token?: unknown } = await res.json();
+  return typeof payload.token === "string" ? payload.token : null;
 }
 
 let onUnauthorized: (() => void) | null = null;
@@ -30,11 +42,11 @@ export function setUnauthorizedHandler(handler: () => void) {
 }
 
 export async function apiRequest(baseUrl: string, method: string, path: string, body?: unknown) {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
 
   if (method !== "GET") {
-    await ensureCSRFCookie(baseUrl);          // no-op once the cookie exists — the endpoint is a 204 either way
-    const csrf = getCookie("_csrf");
+    const csrf = await getCSRFToken(baseUrl);
     if (csrf) headers["X-CSRF-Token"] = csrf;
   }
 
@@ -42,7 +54,7 @@ export async function apiRequest(baseUrl: string, method: string, path: string, 
     method,
     credentials: "include",                  // required — this is how the session cookie gets sent and stored
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -60,11 +72,13 @@ export async function apiRequest(baseUrl: string, method: string, path: string, 
 }
 ```
 
-`credentials: "include"` is the load-bearing line — without it, the browser never sends or stores the `HttpOnly` session/refresh cookies, and every request looks unauthenticated regardless of what the server sets. `_csrf` and `X-CSRF-Token` are the defaults; both are configurable on `CSRFTokenConfig` (see [Configuration → WithSecurity](../../configuration.mdx#withsecurity--required-allowedorigins)) — match whatever you actually set there. Leaving `CSRFToken` `nil` server-side does **not** turn the layer off; it just means the defaults apply, so this wrapper works against a stock configuration as written. The only case where the cookie never appears is `DisableCSRFToken: true` — and the `if (csrf)` guard handles that on its own, so the same code is correct either way.
+`credentials: "include"` makes the browser send and store the `HttpOnly` session and refresh cookies. `_csrf` and `X-CSRF-Token` are the defaults; both are configurable on `CSRFTokenConfig` (see [Configuration → WithSecurity](../../configuration.mdx#withsecurity--required-allowedorigins)). `getCSRFToken` reads the cookie for same-origin and sibling-subdomain deployments, and reads the `{ "token": "..." }` body for different registrable domains. In the latter topology it calls `/auth/csrf-token` before each mutation, so it also picks up rotations that JavaScript cannot observe through `document.cookie`.
 
-`setUnauthorizedHandler` exists for one reason: a session can die on the server (revoked, banned, expired past its refresh window) while a tab is sitting open with stale `user` state in memory. The next request that tab makes will fail — `401`, or `403 user_banned` — and without this hook, only that one call would know. Wiring it up (done in the [Provider](./provider.mdx) guide) means the whole app's state clears the moment any request discovers the session is gone, not just the one that happened to ask first.
+Leaving `CSRFToken` `nil` server-side does **not** disable the layer; the server creates the default configuration. With `DisableCSRFToken: true`, `getCSRFToken` returns `null` and the wrapper sends no CSRF header.
 
-On a `429`, the thrown error additionally carries `retryAfter` — the `Retry-After` header value in seconds, parsed for you — since [rate limiting](../rate-limiting.mdx) can hit any endpoint and there's no single place that otherwise expects to read response headers.
+Use `setUnauthorizedHandler` to clear stale client state when any request finds that a session was revoked, banned, or expired. The [Provider](./provider.mdx) wires it to clear the app-wide user state on `401` or `403 user_banned`.
+
+On a `429`, the thrown error also carries `retryAfter`: the `Retry-After` header value in seconds.
 
 ## What lives where
 
