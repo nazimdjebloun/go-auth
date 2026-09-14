@@ -83,6 +83,14 @@ func createUnverifiedUser(users *testutil.MockUserRepo, email string) *domain.Us
 	return user
 }
 
+type alreadyClaimedTokenRepo struct {
+	*testutil.MockTokenRepo
+}
+
+func (r *alreadyClaimedTokenRepo) ConsumeIfValid(context.Context, port.ConsumeTokenInput) (bool, error) {
+	return false, nil
+}
+
 // ─── SendVerification ──────────────────────────────────────────────
 
 func TestSendVerification_HappyPath(t *testing.T) {
@@ -91,7 +99,7 @@ func TestSendVerification_HappyPath(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -122,7 +130,7 @@ func TestSendVerification_NilMailer(t *testing.T) {
 	tokens := testutil.NewMockTokenRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, nil, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, nil, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -145,7 +153,7 @@ func TestSendVerification_MailerError(t *testing.T) {
 		},
 	}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -170,7 +178,7 @@ func TestSendVerification_ReusesOutstandingCode(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -208,7 +216,7 @@ func TestSendVerification_ThrottlesInsideResendInterval(t *testing.T) {
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
 	cfg.VerificationResendInterval = 1 * time.Minute
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -245,7 +253,7 @@ func TestSendVerification_NegativeIntervalDisablesThrottle(t *testing.T) {
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
 	cfg.VerificationResendInterval = -time.Second
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -283,7 +291,7 @@ func TestSendVerification_MailsAgainOnceCodeIsSpentAndIntervalPassed(t *testing.
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
 	cfg.VerificationResendInterval = 1 * time.Minute
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -330,7 +338,7 @@ func TestSendVerification_FailedSendLeavesNoOutstandingCode(t *testing.T) {
 	}
 
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 	user := createUnverifiedUser(users, "test@example.com")
 
 	if _, err := svc.SendVerification(context.Background(), user); err == nil {
@@ -359,7 +367,7 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -402,7 +410,7 @@ func TestVerifyEmail_InvalidCode(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	_, err := svc.VerifyEmail(context.Background(), "NONEXISTENT")
 	if err == nil {
@@ -419,7 +427,7 @@ func TestVerifyEmail_AlreadyUsed(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -446,13 +454,49 @@ func TestVerifyEmail_AlreadyUsed(t *testing.T) {
 	}
 }
 
+func TestVerifyEmail_ConcurrentClaimLosesWithoutUpdatingUser(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := &alreadyClaimedTokenRepo{MockTokenRepo: testutil.NewMockTokenRepo()}
+	gen := &testutil.MockTokenGen{Length: 32}
+	cfg := newVerificationConfig()
+	svc := service.NewVerificationService(users, tokens, gen, nil, &testutil.MockTxManager{}, cfg)
+
+	user := createUnverifiedUser(users, "race@example.com")
+	code := "ABC123"
+	if err := tokens.Create(context.Background(), &domain.VerificationToken{
+		ID:        "tok-race",
+		UserID:    &user.ID,
+		Email:     user.Email,
+		TokenHash: hashOTP(code),
+		Type:      domain.TokenVerifyEmail,
+		ExpiresAt: time.Now().UTC().Add(15 * time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	verified, err := svc.VerifyEmail(context.Background(), code)
+	if verified != nil {
+		t.Fatalf("expected no verified user after losing token claim, got %+v", verified)
+	}
+	if authErrCode(err) != "code_already_used" {
+		t.Fatalf("expected code_already_used, got %s", authErrCode(err))
+	}
+	stored, getErr := users.GetByID(context.Background(), user.ID)
+	if getErr != nil {
+		t.Fatal(getErr)
+	}
+	if stored.IsVerified {
+		t.Fatal("user was verified even though another request claimed the token")
+	}
+}
+
 func TestVerifyEmail_Expired(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	tokens := testutil.NewMockTokenRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -484,7 +528,7 @@ func TestVerifyEmail_StalePepperReturnsExpired(t *testing.T) {
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
 	cfg.PepperRotatedAt = time.Now().UTC()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "stale@example.com")
 
@@ -519,7 +563,7 @@ func TestSendVerification_ReplacesStaleLiveCode(t *testing.T) {
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
 	cfg.PepperRotatedAt = time.Now().UTC()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "stale-reuse@example.com")
 
@@ -556,7 +600,7 @@ func TestResendVerification_HappyPath(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "test@example.com")
 
@@ -582,7 +626,7 @@ func TestResendVerification_UserNotFound(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	_, err := svc.ResendVerification(context.Background(), "nonexistent")
 	if err == nil {
@@ -599,7 +643,7 @@ func TestResendVerification_AlreadyVerified(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	svc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createVerifiedUser(users, "test@example.com")
 

@@ -500,10 +500,7 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 			"session_id", prev.ID,
 		)
 		if revokeErr := r.DeleteByID(ctx, prev.ID); revokeErr != nil {
-			r.log.Error("failed to revoke session on reuse detection",
-				"err", revokeErr,
-				"session_id", prev.ID,
-			)
+			return nil, fmt.Errorf("revoke session after refresh-token reuse detection: %w", revokeErr)
 		}
 		return nil, &port.ErrRefreshTokenReused{UserID: prev.UserID, SessionID: prev.ID}
 	}

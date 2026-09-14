@@ -15,7 +15,8 @@ const (
 
 	tokenGetLastByUserAndTypeQuery = `SELECT ` + tokenSelectColumns + ` FROM verification_tokens WHERE user_id=$1 AND type=$2 ORDER BY created_at DESC LIMIT 1`
 
-	tokenMarkUsedQuery = `UPDATE verification_tokens SET used_at = $1 WHERE id = $2 AND used_at IS NULL`
+	tokenMarkUsedQuery         = `UPDATE verification_tokens SET used_at = $1 WHERE id = $2 AND used_at IS NULL`
+	tokenMarkUsedIfUnusedQuery = `UPDATE verification_tokens SET used_at = $1 WHERE id = $2 AND used_at IS NULL`
 
 	tokenConsumeIfValidQuery = `UPDATE verification_tokens SET used_at = $1
 		WHERE id = $2 AND token_hash = $3 AND user_id = $4 AND type = $5

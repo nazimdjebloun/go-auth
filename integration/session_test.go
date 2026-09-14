@@ -2,11 +2,13 @@ package integration_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/audit"
+	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -49,5 +51,44 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 	}
 	if events[0].ActorID == nil || *events[0].ActorID != loginResult.User.ID {
 		t.Errorf("expected ActorID %s, got %+v", loginResult.User.ID, events[0].ActorID)
+	}
+}
+
+func TestSession_RefreshReuseDetection_RevocationFailurePropagates(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+	ctx := context.Background()
+
+	registered, err := a.Register(ctx, goauth.RegisterInput{
+		Email: "reuse-revoke-failure@example.com", Password: "Passw0rd!", Name: "Reuse Failure",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldRefreshToken := registered.RefreshToken
+	rotated, err := a.Services.Session.RefreshSession(ctx, oldRefreshToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := db.Exec(`CREATE TRIGGER block_reuse_revoke BEFORE DELETE ON sessions
+		BEGIN SELECT RAISE(FAIL, 'blocked reuse revocation'); END`); err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.Services.Session.RefreshSession(ctx, oldRefreshToken)
+	if err == nil {
+		t.Fatal("expected revocation failure to propagate")
+	}
+	if errors.Is(err, domain.ErrSessionRevoked) {
+		t.Fatalf("revocation failure was misreported as a successfully revoked session: %v", err)
+	}
+
+	if _, err := db.Exec("DROP TRIGGER block_reuse_revoke"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Services.Session.RefreshSession(ctx, rotated.RefreshToken); err != nil {
+		t.Fatalf("current refresh token should remain usable because deletion did not occur: %v", err)
 	}
 }

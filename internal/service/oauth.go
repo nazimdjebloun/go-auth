@@ -213,9 +213,13 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return nil, domain.NewError("state_expired", "OAuth state token has expired")
 	}
 
-	if markErr := s.tokenRepo.MarkUsed(ctx, stateToken.ID); markErr != nil {
+	claimed, markErr := s.tokenRepo.MarkUsedIfUnused(ctx, stateToken.ID)
+	if markErr != nil {
 		s.log.Error("failed to mark state token used", "err", markErr)
 		return nil, domain.ErrInternal
+	}
+	if !claimed {
+		return nil, domain.NewError("state_used", "OAuth state token already used")
 	}
 
 	codeVerifier := ""

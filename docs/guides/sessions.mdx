@@ -98,7 +98,7 @@ func myLoginHandler(a *goauth.Auth) http.HandlerFunc {
 ```
 
 - `SetSessionCookies(w, sessionToken, refreshToken)` writes both cookies using the configured `CookieConfig`/`SessionConfig` settings. Pass `""` for `refreshToken` to skip the refresh cookie — the same guard the built-in handlers use.
-- `ClearSessionCookies(w)` expires both cookies — pair with `a.Services.Session.Revoke` in a custom logout handler.
+- `ClearSessionCookies(w)` expires both cookies — in a custom logout handler, call it only after `a.Services.Session.Revoke` succeeds. A revocation error means the server-side session may still be valid and must be returned to the client instead of presenting a false-success logout.
 - `RotateCSRFToken(w)` issues a fresh CSRF token cookie. It's a separate call, not bundled into `SetSessionCookies`, because CSRF rotation is also needed on flows that don't touch cookies at all (e.g. password change) — keeping them separate means one method does one thing. It's a no-op if `SecurityConfig.DisableCSRFToken` is set.
 
 ## Frontend client setup

@@ -125,12 +125,16 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie(h.cookies.Name)
-	if err == nil && cookie.Value != "" {
-		if err := h.services.Session.Revoke(r.Context(), cookie.Value); err != nil {
-			h.log.Warn("logout revoke error", "err", err)
-		}
+	session := middleware.GetSessionFromContext(r.Context())
+	if session == nil {
+		h.writeError(w, domain.ErrSessionExpired)
+		return
 	}
+	if err := h.services.Auth.Logout(r.Context(), session.ID); err != nil {
+		h.writeError(w, err)
+		return
+	}
+
 	middleware.ClearSessionCookie(w, h.cookies)
 	middleware.ClearRefreshCookie(w, h.cookies)
 	middleware.RotateCSRFToken(w, h.csrfTokenCfg)

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -151,6 +152,11 @@ func TestLogoutInvalidatesToken(t *testing.T) {
 	req2 := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
 	req2.Header.Set("Content-Type", "application/json")
 	req2.AddCookie(&http.Cookie{Name: "goauth_session", Value: token})
+	session, err := th.handler.services.Session.Validate(context.Background(), token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req2 = req2.WithContext(middleware.ContextWithSession(req2.Context(), session))
 	w2 := httptest.NewRecorder()
 	th.handler.Logout(w2, req2)
 
@@ -160,7 +166,7 @@ func TestLogoutInvalidatesToken(t *testing.T) {
 	}
 
 	// Session should be invalid after logout
-	_, err := th.handler.services.Session.Validate(context.Background(), token)
+	_, err = th.handler.services.Session.Validate(context.Background(), token)
 	if err == nil {
 		t.Fatal("expected session to be invalid after logout")
 	}
@@ -174,6 +180,31 @@ func TestLogoutInvalidatesToken(t *testing.T) {
 	}
 	if !refreshCleared {
 		t.Error("expected refresh cookie to be cleared on logout")
+	}
+}
+
+func TestLogoutRevocationFailureKeepsCookiesAndReturnsError(t *testing.T) {
+	th := newTestHarness()
+	created, err := th.handler.services.Session.Create(context.Background(), "user-1", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	th.sessions.deleteByIDErr = errors.New("database unavailable")
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	req = req.WithContext(middleware.ContextWithSession(req.Context(), created.Session))
+	w := httptest.NewRecorder()
+	th.handler.Logout(w, req)
+
+	res := w.Result()
+	if res.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d", res.StatusCode)
+	}
+	if len(res.Cookies()) != 0 {
+		t.Fatalf("expected no cleared cookies after failed revocation, got %+v", res.Cookies())
+	}
+	if _, validateErr := th.handler.services.Session.Validate(context.Background(), created.SessionToken); validateErr != nil {
+		t.Fatalf("session should remain valid when revocation failed: %v", validateErr)
 	}
 }
 

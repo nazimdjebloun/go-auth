@@ -173,6 +173,38 @@ func (fakeRateLimitStore) Allow(_ context.Context, _ string, _ ratelimit.Rate) (
 	return ratelimit.Result{Allowed: true}, nil
 }
 
+type denyRateLimitStore struct{}
+
+func (denyRateLimitStore) Allow(_ context.Context, _ string, _ ratelimit.Rate) (ratelimit.Result, error) {
+	return ratelimit.Result{Allowed: false, ResetAt: time.Now().Add(time.Minute)}, nil
+}
+
+func TestPasswordConfirmationRoutesAreRateLimited(t *testing.T) {
+	a := buildAuth(t, minimalOpts(WithRateLimitStore(denyRateLimitStore{}))...)
+	defer a.Close()
+
+	tests := []struct {
+		name    string
+		path    string
+		method  string
+		handler http.HandlerFunc
+	}{
+		{name: "change password", path: "/auth/change-password", method: http.MethodPost, handler: a.Handlers.ChangePassword},
+		{name: "delete account", path: "/auth/account", method: http.MethodDelete, handler: a.Handlers.DeleteAccount},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			w := httptest.NewRecorder()
+			tt.handler(w, req)
+			if w.Code != http.StatusTooManyRequests {
+				t.Fatalf("status = %d, want %d", w.Code, http.StatusTooManyRequests)
+			}
+		})
+	}
+}
+
 func TestNew_WarnsWhenRateLimitUsesDefaultStore(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))

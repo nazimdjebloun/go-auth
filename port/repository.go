@@ -253,6 +253,9 @@ type TokenRepository interface {
 	GetLastByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error)
 	HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error)
 	MarkUsed(ctx context.Context, id string) error
+	// MarkUsedIfUnused atomically claims an unused token. It returns false
+	// when the token is missing or another caller already claimed it.
+	MarkUsedIfUnused(ctx context.Context, id string) (bool, error)
 	ConsumeIfValid(ctx context.Context, input ConsumeTokenInput) (bool, error)
 	DeleteExpired(ctx context.Context) error
 	DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error

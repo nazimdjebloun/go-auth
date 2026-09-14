@@ -47,6 +47,18 @@ func (m *MockTokenRepo) MarkUsed(_ context.Context, id string) error {
 	return nil
 }
 
+func (m *MockTokenRepo) MarkUsedIfUnused(_ context.Context, id string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[id]
+	if !ok || t.UsedAt != nil {
+		return false, nil
+	}
+	now := time.Now().UTC()
+	t.UsedAt = &now
+	return true, nil
+}
+
 func (m *MockTokenRepo) ConsumeIfValid(_ context.Context, input port.ConsumeTokenInput) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

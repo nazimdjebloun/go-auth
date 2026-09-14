@@ -264,18 +264,11 @@ func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*doma
 		return nil, false, domain.ErrInvalidCredentials
 	}
 
-	if user.IsBanned {
-		return nil, false, domain.ErrUserBanned
-	}
-
-	if s.config.RequireEmailVerification && !user.IsVerified && user.Role != domain.RoleAdmin {
-		return user, true, nil
-	}
-
 	if !user.HasPassword() {
 		s.burnDummyPasswordVerification(input.Password)
 		return nil, false, domain.ErrInvalidCredentials
 	}
+
 	err = comparePassword(s.hasher, input.Password, *user.PasswordHash, user.PasswordPepperVersion)
 	if err != nil {
 		// Unknown formats fail closed inside the registry, but the client
@@ -290,6 +283,14 @@ func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*doma
 				"user_id", user.ID, "pepper_version", *user.PasswordPepperVersion)
 		}
 		return nil, false, domain.ErrInvalidCredentials
+	}
+
+	if user.IsBanned {
+		return nil, false, domain.ErrUserBanned
+	}
+
+	if s.config.RequireEmailVerification && !user.IsVerified && user.Role != domain.RoleAdmin {
+		return user, true, nil
 	}
 
 	// Rehash-on-login: the password just verified against an unpeppered

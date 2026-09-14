@@ -599,7 +599,7 @@ await apiRequest(API_BASE, "POST", "/auth/2fa/disable", { password: currentPassw
 
 ### Logout — `POST /auth/logout`
 
-Takes no body and requires an authenticated session. It revokes that session server-side, clears both session cookies, and rotates the CSRF cookie.
+Takes no body and requires an authenticated session. It revokes that session server-side, then clears both session cookies and rotates the CSRF cookie. If server-side revocation fails, it returns `500 internal_error` and does not clear the cookies; the client must not discard its local authenticated state or redirect as though logout succeeded.
 
 ```json
 { "message": "Logged out" }

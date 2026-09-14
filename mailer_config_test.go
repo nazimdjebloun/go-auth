@@ -44,6 +44,29 @@ func TestNewConfig_LogMailerAllowedInDev(t *testing.T) {
 	}
 }
 
+func TestNewConfig_TLSNoneRejectedOutsideDev(t *testing.T) {
+	for _, env := range []Environment{EnvironmentStaging, EnvironmentProd} {
+		t.Run(string(env), func(t *testing.T) {
+			opts := append(validConfigOpts(), func(c *Config) {
+				c.app.Environment = env
+			})
+			opts = append(opts, WithEmail(EmailConfig{
+				Host: "smtp.example.com",
+				Port: 25,
+				From: "auth@example.com",
+				TLS:  TLSNone,
+			}))
+			_, err := NewConfig(opts...)
+			if err == nil {
+				t.Fatal("expected plaintext SMTP to be rejected")
+			}
+			if !strings.Contains(err.Error(), "TLSNone is only allowed in EnvironmentDev") {
+				t.Fatalf("expected TLSNone environment error, got: %v", err)
+			}
+		})
+	}
+}
+
 func TestNewConfig_DevDefaultsToLogMailerWhenUnconfigured(t *testing.T) {
 	opts := append(validConfigOpts(), func(c *Config) {
 		c.app.Environment = EnvironmentDev

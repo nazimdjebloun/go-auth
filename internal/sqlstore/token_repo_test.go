@@ -157,6 +157,34 @@ func TestConsumeIfValid_IsSingleUse(t *testing.T) {
 	}
 }
 
+func TestMarkUsedIfUnused_IsSingleUse(t *testing.T) {
+	db := newSQLiteTestDB(t)
+	if _, err := db.Exec(`
+		CREATE TABLE verification_tokens (
+			id TEXT PRIMARY KEY,
+			used_at DATETIME
+		)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO verification_tokens (id) VALUES (?)", "token-id"); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := NewTokenRepository(db)
+	first, err := repo.MarkUsedIfUnused(context.Background(), "token-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.MarkUsedIfUnused(context.Background(), "token-id")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first || second {
+		t.Fatalf("claim results = %v then %v, want true then false", first, second)
+	}
+}
+
 func resetTokenConsumeInput(now time.Time) port.ConsumeTokenInput {
 	return port.ConsumeTokenInput{
 		ID:        "token-id",

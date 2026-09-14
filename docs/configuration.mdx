@@ -426,7 +426,7 @@ goauth.WithEmail(goauth.EmailConfig{
     From:    "auth@myapp.com",       // required, must be a valid email address
     User:    os.Getenv("SMTP_USER"), // optional — must be set together with Pass, or both empty
     Pass:    os.Getenv("SMTP_PASS"), // optional — same pairing rule as User
-    TLSMode: goauth.TLSStart,        // optional, default TLSStart (STARTTLS) — TLSStart | TLSImplicit | TLSNone
+    TLS:     goauth.TLSStart,        // optional, default TLSStart (STARTTLS) — TLSStart | TLSImplicit | TLSNone
 })
 
 // Or your own implementation of port.Mailer (Resend, Postmark, SES, ...):
@@ -457,7 +457,7 @@ goauth.WithTemplates(myTemplateProvider)
 | `Port` | `int` | Required | — | 1–65535. |
 | `User` | `string` | Optional | — | Must be set together with `Pass`, or both left empty. |
 | `Pass` | `string` | Optional | — | Same pairing rule as `User`. |
-| `TLSMode` | `TLSMode` | Optional | `TLSStart` | One of `TLSStart` (STARTTLS, typically port 587), `TLSImplicit` (typically port 465), `TLSNone` (plaintext). The zero value is `TLSStart` — plaintext requires setting `TLSNone` explicitly. |
+| `TLS` | `TLSMode` | Optional | `TLSStart` | One of `TLSStart` (STARTTLS, typically port 587) or `TLSImplicit` (typically port 465). `TLSNone` is plaintext and is accepted only in `EnvironmentDev`. |
 
 **Expected errors**
 
@@ -468,6 +468,7 @@ goauth.WithTemplates(myTemplateProvider)
 - `email: from address "..." is not valid: ...`
 - `email: user and pass must both be set or both be empty`
 - `email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got N`
+- `email: TLSNone is only allowed in EnvironmentDev — use TLSStart or TLSImplicit outside development`
 
 ### Custom email templates
 

@@ -77,6 +77,10 @@ func (r *TokenRepository) MarkUsed(ctx context.Context, id string) error {
 	return err
 }
 
+func (r *TokenRepository) MarkUsedIfUnused(ctx context.Context, id string) (bool, error) {
+	return affected(r.db.ExecContext(ctx, tokenMarkUsedIfUnusedQuery, time.Now().UTC(), id))
+}
+
 func (r *TokenRepository) ConsumeIfValid(ctx context.Context, input port.ConsumeTokenInput) (bool, error) {
 	return affected(r.db.ExecContext(
 		ctx,

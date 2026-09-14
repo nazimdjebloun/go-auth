@@ -174,6 +174,9 @@ func (c *Config) validateMailer() []error {
 				fmt.Errorf("email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got %d", e.TLS),
 			)
 		}
+		if e.TLS == TLSNone && c.app.Environment.normalize() != EnvironmentDev {
+			errs = append(errs, errors.New("email: TLSNone is only allowed in EnvironmentDev — use TLSStart or TLSImplicit outside development"))
+		}
 	}
 	return errs
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -16,6 +17,7 @@ type VerificationService struct {
 	tokens    port.TokenRepository
 	gen       port.TokenGenerator
 	mailer    port.Mailer
+	txManager port.TxManager
 	templates port.TemplateProvider
 	config    Config
 	log       *slog.Logger
@@ -27,6 +29,7 @@ func NewVerificationService(
 	tokens port.TokenRepository,
 	gen port.TokenGenerator,
 	mailer port.Mailer,
+	txManager port.TxManager,
 	config Config,
 ) *VerificationService {
 	logger := config.Logger
@@ -38,6 +41,7 @@ func NewVerificationService(
 		tokens:    tokens,
 		gen:       gen,
 		mailer:    mailer,
+		txManager: txManager,
 		templates: resolveTemplates(config.TemplateProvider, config.URLValidator),
 		config:    config,
 		log:       logger,
@@ -104,18 +108,34 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 		return nil, domain.ErrUserNotFound
 	}
 
-	user.IsVerified = true
 	now := time.Now().UTC()
-	user.VerifiedAt = &now
-	user.UpdatedAt = now
+	verifiedUser := *user
+	verifiedUser.IsVerified = true
+	verifiedUser.VerifiedAt = &now
+	verifiedUser.UpdatedAt = now
 
-	if err := s.users.Update(ctx, user); err != nil {
-		s.log.Error("failed to update user", "err", err, "user_id", user.ID)
-		return nil, domain.ErrInternal
-	}
-
-	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
-		s.log.Error("failed to mark token used", "err", err, "token_id", token.ID)
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		consumed, consumeErr := s.tokens.ConsumeIfValid(txCtx, port.ConsumeTokenInput{
+			ID:        token.ID,
+			TokenHash: token.TokenHash,
+			UserID:    user.ID,
+			Type:      domain.TokenVerifyEmail,
+			UsedAt:    now,
+		})
+		if consumeErr != nil {
+			return consumeErr
+		}
+		if !consumed {
+			return domain.NewError("code_already_used", "This code has already been used")
+		}
+		return s.users.Update(txCtx, &verifiedUser)
+	})
+	if err != nil {
+		var authErr *domain.AuthError
+		if errors.As(err, &authErr) {
+			return nil, authErr
+		}
+		s.log.Error("failed to commit email verification", "err", err, "user_id", user.ID, "token_id", token.ID)
 		return nil, domain.ErrInternal
 	}
 
@@ -125,7 +145,7 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 		s.audit.Publish(ctx, audit.NewEmailVerifiedEvent(user.ID))
 	}
 
-	return user, nil
+	return &verifiedUser, nil
 }
 
 // SendVerification mails a verification code, skipping the send when one is

@@ -379,6 +379,44 @@ func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
 	}
 }
 
+func TestLoginUnverifiedUser_WrongPasswordDoesNotDiscloseAccount(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+
+	cfg := defaultTestConfig()
+	cfg.RequireEmailVerification = true
+	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
+
+	hash, _ := hasher.Hash("Passw0rd!")
+	if err := users.Create(context.Background(), &domain.User{
+		ID:           "unverified-user-id",
+		Email:        "unverified@example.com",
+		PasswordHash: &hash,
+		Name:         "Test",
+		Role:         domain.RoleUser,
+		IsVerified:   false,
+		CreatedAt:    time.Now().UTC(),
+		UpdatedAt:    time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := svc.Login(context.Background(), LoginInput{
+		Email:    "unverified@example.com",
+		Password: "wrong-password",
+	})
+	if result != nil {
+		t.Fatalf("expected no account data, got %+v", result)
+	}
+	if authErrCode(err) != "invalid_credentials" {
+		t.Fatalf("expected invalid_credentials, got %s", authErrCode(err))
+	}
+}
+
 func TestLogout(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
@@ -948,6 +986,17 @@ func TestAdminLogin_BannedAdmin(t *testing.T) {
 	}
 	if authErrCode(err) != "user_banned" {
 		t.Fatalf("Expected user_banned, got %s", authErrCode(err))
+	}
+
+	result, err := svc.AdminLogin(context.Background(), LoginInput{
+		Email:    "admin@example.com",
+		Password: "wrong-password",
+	})
+	if result != nil {
+		t.Fatalf("expected no account data, got %+v", result)
+	}
+	if authErrCode(err) != "invalid_credentials" {
+		t.Fatalf("Expected invalid_credentials for wrong password, got %s", authErrCode(err))
 	}
 }
 

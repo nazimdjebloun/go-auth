@@ -432,6 +432,7 @@ type mockSessionRepo struct {
 	sessions      map[string]*domain.Session
 	byID          map[string]*domain.Session
 	byRefreshHash map[string]*domain.Session
+	deleteByIDErr error
 	// clearActiveOrgCalls records session IDs passed to ClearActiveOrg.
 	clearActiveOrgCalls []string
 	// users backs GetByTokenHashWithUser, which the real repo answers with a
@@ -595,6 +596,9 @@ func (m *mockSessionRepo) Delete(_ context.Context, tokenHash string) error {
 func (m *mockSessionRepo) DeleteByID(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.deleteByIDErr != nil {
+		return m.deleteByIDErr
+	}
 	s, ok := m.byID[id]
 	if ok {
 		delete(m.byID, id)
@@ -793,6 +797,18 @@ func (m *mockTokenRepo) MarkUsed(_ context.Context, id string) error {
 		t.UsedAt = &now
 	}
 	return nil
+}
+
+func (m *mockTokenRepo) MarkUsedIfUnused(_ context.Context, id string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	t, ok := m.tokens[id]
+	if !ok || t.UsedAt != nil {
+		return false, nil
+	}
+	now := time.Now().UTC()
+	t.UsedAt = &now
+	return true, nil
 }
 
 func (m *mockTokenRepo) ConsumeIfValid(_ context.Context, input port.ConsumeTokenInput) (bool, error) {
@@ -1558,7 +1574,7 @@ func newTestHarness() *testHarness {
 	twoFactorSvc := service.NewTwoFactorService(users, sessions, tokens, hasher, mailer, nil, cfg, sessSvc)
 	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, twoFactorSvc)
 	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &mockTxManager{}, cfg)
-	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, cfg)
+	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, &mockTxManager{}, cfg)
 	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, cfg, sessSvc, twoFactorSvc)
 	providers := newMockProviderAccountRepo()
 	auditLogs := newMockAuditLogRepo()
