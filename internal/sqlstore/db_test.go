@@ -228,3 +228,36 @@ func TestWithTx_NestedJoinsOuterTransaction(t *testing.T) {
 		t.Errorf("expected 1 row after nested WithTx commits, got %d", n)
 	}
 }
+
+func TestWithTx_RollsBackOnPanic(t *testing.T) {
+	db := newSQLiteTestDB(t)
+
+	func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("expected the panic to propagate out of WithTx")
+			}
+		}()
+		_ = db.WithTx(context.Background(), func(ctx context.Context) error {
+			if _, err := db.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ($1, $2)", "a", "1"); err != nil {
+				t.Fatal(err)
+			}
+			panic("boom")
+		})
+	}()
+
+	// Without the deferred rollback, the panic would leave the transaction
+	// open — the row would still be there and the pooled connection pinned.
+	if n := countKV(t, db); n != 0 {
+		t.Errorf("expected panic path to roll back, found %d rows", n)
+	}
+	if err := db.WithTx(context.Background(), func(ctx context.Context) error {
+		_, err := db.ExecContext(ctx, "INSERT INTO kv (k, v) VALUES ($1, $2)", "b", "2")
+		return err
+	}); err != nil {
+		t.Fatalf("database unusable after panic rollback: %v", err)
+	}
+	if n := countKV(t, db); n != 1 {
+		t.Errorf("expected 1 row after recovery, got %d", n)
+	}
+}

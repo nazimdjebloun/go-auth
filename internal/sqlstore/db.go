@@ -128,10 +128,14 @@ func (d *DB) WithTx(ctx context.Context, fn func(ctx context.Context) error) err
 	if err != nil {
 		return err
 	}
+	// A panic in fn must not pin the transaction (and its pooled
+	// connection): the deferred Rollback releases it during unwinding, then
+	// the panic keeps propagating. After a successful Commit this is a
+	// harmless no-op returning ErrTxDone.
+	defer tx.Rollback()
 
 	ctx = context.WithValue(ctx, txKey{}, tx)
 	if err := fn(ctx); err != nil {
-		tx.Rollback()
 		return err
 	}
 	return tx.Commit()
