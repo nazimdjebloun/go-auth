@@ -490,36 +490,49 @@ await apiRequest(API_BASE, "PATCH", `/auth/orgs/${orgId}/members/${userId}/role`
 
 ## Active org
 
-A session can be scoped to one org at a time — stored as `sessions.active_org_id`/`active_org_role` (see [Schemas → sessions](../schemas.mdx#sessions)), returned on every session-listing response from [Sessions](./sessions.mdx#listing-sessions). Your app reads it to decide which org's data the current request should see; go-auth itself doesn't use it to filter anything — that's on you.
+A session can be scoped to one org at a time — stored as `sessions.active_org_id`/`active_org_role` (see [Schemas → sessions](../schemas.mdx#sessions)), returned on every session-listing response from [Sessions](./sessions.mdx#listing-sessions). Your app reads it to decide which org's data the current request should see.
 
-### Reading it back
+### Tenant-safe application handlers
 
-**In your own Go handlers**, if they're wrapped by `AuthMiddleware`, the active org rides along on the session already attached to the request context — no extra call needed:
+For routes that query tenant-owned application data, use `RequireActiveOrgScope`. It authenticates the request, checks that the session has an active organization with at least the required role, and invokes the handler with a non-empty `goauth.OrgScope` only after those checks succeed:
 
 ```go
-func myHandler(w http.ResponseWriter, r *http.Request) {
-    session := middleware.GetSessionFromContext(r.Context())
-    if session.ActiveOrgID == nil {
-        // no active org set — decide your own fallback (all orgs? a default org? an error?)
-        return
-    }
-    // scope your query by *session.ActiveOrgID
-    // session.ActiveOrgRole is also set, so you can gate by role without a
-    // separate GetMembership lookup
+type ProjectStore struct {
+    db *sql.DB
 }
+
+func (s *ProjectStore) Get(ctx context.Context, scope goauth.OrgScope, projectID string) (*Project, error) {
+    const query = `
+        SELECT id, name
+        FROM projects
+        WHERE org_id = $1 AND id = $2`
+
+    var project Project
+    err := s.db.QueryRowContext(ctx, query, scope.OrgID, projectID).
+        Scan(&project.ID, &project.Name)
+    return &project, err
+}
+
+func getProject(w http.ResponseWriter, r *http.Request, scope goauth.OrgScope) {
+    project, err := projects.Get(r.Context(), scope, r.PathValue("projectID"))
+    // handle err and encode project
+}
+
+mux.Handle(
+    "GET /projects/{projectID}",
+    auth.CORS(auth.RequireActiveOrgScope(domain.OrgRoleMember, getProject)),
+)
 ```
 
-That check — "is there an active org, and is its role high enough" — is common enough that it doesn't need hand-rolling. `Auth.RequireActiveOrg(role)` does exactly this and stores the resolved org ID/role in context under the same keys `RequireOrgMember` uses, so `middleware.GetOrgID`/`GetOrgRole` read back identically either way:
+`RequireActiveOrgScope` includes `RequireAuth`; do not wrap it a second time. It returns `no_active_org` (400) if the session has no active org and `org_forbidden` (403) if its role is below the required role. For a route that names the tenant in an `{orgID}` path segment, use `RequireOrgScope` with the same handler signature instead.
 
-```go
-mux.Handle("GET /projects", auth.CORS(auth.RequireAuth(auth.RequireActiveOrg(domain.OrgRoleMember)(http.HandlerFunc(listProjects)))))
-```
-
-Returns `no_active_org` (400) if the session has no active org, `org_forbidden` (403) if its role is below `role`. This is `RequireOrg`'s counterpart for routes that operate on "the org I'm currently working in" rather than one named by an `{orgID}` path segment — reach for `RequireOrg` when the org is explicit in the URL, `RequireActiveOrg` when it isn't.
-
-<Callout type="info" title="Don't confuse this with GetOrgID / GetOrgRole">
-  `middleware.GetOrgID(ctx)` and `middleware.GetOrgRole(ctx)` are a *different* mechanism — they're set by `RequireOrgMember`/`RequireOrgRole` from the `{orgID}` in the URL, for go-auth's own org-scoped routes on this page (everything above this section). `session.ActiveOrgID`/`ActiveOrgRole` from `GetSessionFromContext` is the user's session-level "current org," set via the two endpoints below, and it only means something to *your* routes — go-auth's own handlers never read it. A request to `GET /auth/orgs/{orgID}` and a request relying on the active org can legitimately disagree about which org they're talking about; they're independent. (`RequireActiveOrg` bridges the two: it reads the session-level active org but writes it into the same context keys `RequireOrgMember` uses, so downstream code doesn't need to care which one ran.)
+<Callout type="warning" title="Org authorization does not rewrite your SQL">
+  `OrgScope` makes the tenant binding an explicit handler and repository argument, but go-auth cannot inject `org_id` into queries issued by your application. Every read, update, and delete of tenant-owned data must include `scope.OrgID` in its predicate. Filtering only by a caller-controlled resource ID can expose another tenant's row, even when this middleware authorized the request itself.
 </Callout>
+
+The lower-level `RequireActiveOrg(role)` and `RequireOrg(role)` middleware remain available when a conventional `http.Handler` is required. Wrap them inside `RequireAuth`, then read the resolved tenant with `middleware.GetOrgID(ctx)` and `middleware.GetOrgRole(ctx)`. They perform the same authentication and role checks, but recovering the org from context is easier to forget than accepting `OrgScope` directly, so prefer the scoped variants for tenant-owned data routes.
+
+An explicit `{orgID}` and the session's active organization are independent selections and can legitimately differ. `RequireOrgScope` authorizes the path organization; `RequireActiveOrgScope` authorizes the active organization stored on the session. Choose one source for a route and use the resulting `scope.OrgID` all the way through its repository calls.
 
 **From a browser client**, there's no dedicated "what's my active org" endpoint — `/auth/me` returns the user, not the session. The active org is visible on the [session-listing](./sessions.mdx#listing-sessions) responses (match `currentSessionId` against the `sessions` array to find your own), but the simplest approach is usually to just track it as local state the moment you call `setActive`/`clearActive` below, rather than re-fetching to confirm it.
 
