@@ -74,6 +74,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer auth.Close()
 
 	mux := http.NewServeMux()
 	auth.Mount(mux)
