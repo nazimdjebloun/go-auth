@@ -107,6 +107,11 @@ func (r *ProviderAccountRepository) Delete(ctx context.Context, userID, provider
 	return err
 }
 
+func (r *ProviderAccountRepository) LockByUserID(ctx context.Context, userID string) error {
+	_, err := r.db.ExecContext(ctx, providerAccountLockByUserQuery, userID)
+	return err
+}
+
 func nullIfEmpty(s string) interface{} {
 	if s == "" {
 		return nil

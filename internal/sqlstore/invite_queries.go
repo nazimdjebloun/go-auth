@@ -15,5 +15,12 @@ const (
 
 	inviteDeleteQuery = `DELETE FROM invites WHERE id = $1`
 
-	inviteClaimQuery = `UPDATE invites SET status = 'accepted', accepted_at = $1 WHERE code = $2 AND status = 'pending'`
+	// The expiry predicate makes the claim honor its documented contract
+	// (false when already accepted, revoked, OR expired): an invite that
+	// lapses between the service's pre-check and this statement still loses
+	// the race. acceptedAt doubles as the comparison instant — a third
+	// placeholder rather than a reused $1, because DB.Rebind rewrites every
+	// textual $N to ? positionally for mysql/sqlite, so each occurrence
+	// needs its own backing argument.
+	inviteClaimQuery = `UPDATE invites SET status = 'accepted', accepted_at = $1 WHERE code = $2 AND status = 'pending' AND expires_at > $3`
 )

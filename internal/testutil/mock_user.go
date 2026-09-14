@@ -15,6 +15,10 @@ import (
 type MockUserRepo struct {
 	mu    sync.Mutex
 	users map[string]*domain.User
+	// claimedSetPassTokens tracks the set-password token IDs consumed through
+	// SetPasswordAndVerify, mirroring the real repository's one-time-claim
+	// contract so tests exercise the same single-use semantics.
+	claimedSetPassTokens map[string]bool
 }
 
 func NewMockUserRepo() *MockUserRepo {
@@ -257,12 +261,18 @@ func (m *MockUserRepo) UpdatePasswordHash(_ context.Context, userID, oldHash str
 	return true, nil
 }
 
-func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) error {
+func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
 	if !ok {
-		return nil
+		return false, nil
+	}
+	if m.claimedSetPassTokens == nil {
+		m.claimedSetPassTokens = make(map[string]bool)
+	}
+	if m.claimedSetPassTokens[tokenID] {
+		return false, nil
 	}
 	now := time.Now().UTC()
 	u.PasswordHash = &passwordHash
@@ -270,7 +280,8 @@ func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 	u.IsVerified = true
 	u.VerifiedAt = &now
 	u.UpdatedAt = now
-	return nil
+	m.claimedSetPassTokens[tokenID] = true
+	return true, nil
 }
 
 func (m *MockUserRepo) ListPasswordPepperVersions(_ context.Context) ([]uint32, error) {

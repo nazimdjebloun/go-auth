@@ -121,25 +121,22 @@ func (r *OrgRepository) Update(ctx context.Context, org *domain.Organization) er
 	return err
 }
 
-func (r *OrgRepository) Delete(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, orgDeleteQuery, id)
-	return err
+func (r *OrgRepository) Delete(ctx context.Context, id string) (bool, error) {
+	return affected(r.db.ExecContext(ctx, orgDeleteQuery, id))
 }
 
 func (r *OrgRepository) AddMember(ctx context.Context, member *domain.OrgMember) error {
 	_, err := r.db.ExecContext(ctx, orgAddMemberQuery,
 		member.OrgID, member.UserID, string(member.Role), member.JoinedAt)
-	return err
+	return wrapCreateErr(r.db.Driver(), err)
 }
 
-func (r *OrgRepository) RemoveMember(ctx context.Context, orgID, userID string) error {
-	_, err := r.db.ExecContext(ctx, orgRemoveMemberQuery, orgID, userID)
-	return err
+func (r *OrgRepository) RemoveMember(ctx context.Context, orgID, userID string, expectRole domain.OrgRole) (bool, error) {
+	return affected(r.db.ExecContext(ctx, orgRemoveMemberQuery, orgID, userID, string(expectRole)))
 }
 
-func (r *OrgRepository) UpdateMemberRole(ctx context.Context, orgID, userID string, role domain.OrgRole) error {
-	_, err := r.db.ExecContext(ctx, orgUpdateMemberRoleQuery, string(role), orgID, userID)
-	return err
+func (r *OrgRepository) UpdateMemberRole(ctx context.Context, orgID, userID string, expectRole, newRole domain.OrgRole) (bool, error) {
+	return affected(r.db.ExecContext(ctx, orgUpdateMemberRoleQuery, string(newRole), orgID, userID, string(expectRole)))
 }
 
 func (r *OrgRepository) GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
@@ -603,8 +600,8 @@ func (r *OrgInviteRepository) Delete(ctx context.Context, id string) error {
 	return err
 }
 
-func (r *OrgInviteRepository) ClaimInvite(ctx context.Context, id string) (bool, error) {
-	res, err := r.db.ExecContext(ctx, orgInviteClaimQuery, id, time.Now().UTC())
+func (r *OrgInviteRepository) ClaimInvite(ctx context.Context, id, codeHash string) (bool, error) {
+	res, err := r.db.ExecContext(ctx, orgInviteClaimQuery, id, codeHash, time.Now().UTC())
 	if err != nil {
 		return false, err
 	}

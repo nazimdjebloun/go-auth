@@ -205,7 +205,10 @@ func (s *OrgInviteService) AcceptInvite(ctx context.Context, input AcceptInviteI
 	}
 
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		claimed, err := s.orgInvites.ClaimInvite(txCtx, invite.ID)
+		// The claim asserts the exact code hash looked up above, not just
+		// the invite ID: an admin resend rotates code_hash, so an old code
+		// that was validated before the rotation must not redeem after it.
+		claimed, err := s.orgInvites.ClaimInvite(txCtx, invite.ID, codeHash)
 		if err != nil {
 			return err
 		}

@@ -160,11 +160,11 @@ func (m *MockOrgInviteRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *MockOrgInviteRepo) ClaimInvite(_ context.Context, id string) (bool, error) {
+func (m *MockOrgInviteRepo) ClaimInvite(_ context.Context, id, codeHash string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites[id]
-	if !ok || time.Now().UTC().After(inv.ExpiresAt) {
+	if !ok || inv.CodeHash != codeHash || time.Now().UTC().After(inv.ExpiresAt) {
 		return false, nil
 	}
 	delete(m.invites, id)

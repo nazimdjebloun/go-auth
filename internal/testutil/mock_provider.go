@@ -57,3 +57,11 @@ func (m *MockProviderAccountRepo) Delete(_ context.Context, userID, provider str
 	}
 	return nil
 }
+
+// LockByUserID is a no-op here: the mock serializes through its own mutex
+// (and MockTxManager runs the guarded sequence inline), so there is no
+// interleaving to serialize against — the real row-locking lives in
+// sqlstore.
+func (m *MockProviderAccountRepo) LockByUserID(_ context.Context, _ string) error {
+	return nil
+}

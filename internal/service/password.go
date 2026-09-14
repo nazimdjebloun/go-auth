@@ -405,9 +405,16 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 		return domain.ErrInternal
 	}
 
-	if err := s.users.SetPasswordAndVerify(ctx, input.UserID, hash, pepperVersion, token.ID); err != nil {
+	claimed, err := s.users.SetPasswordAndVerify(ctx, input.UserID, hash, pepperVersion, token.ID)
+	if err != nil {
 		s.log.Error("failed to set password", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal
+	}
+	if !claimed {
+		// Lost the race: a concurrent confirm consumed the same code
+		// between this request's pre-check and its claim. Same response as
+		// the pre-check above — the loser must request a fresh code.
+		return domain.NewError("code_used", "Set password code has already been used")
 	}
 
 	s.log.Info("password set via code", "user_id", input.UserID)

@@ -95,7 +95,13 @@ type UserRepository interface {
 	// on filter are ignored — the result is naturally bounded by the date
 	// range in filter.CreatedAfter/CreatedBefore).
 	CountByDay(ctx context.Context, filter UserFilter) ([]DailyCount, error)
-	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) error
+	// SetPasswordAndVerify atomically consumes a set-password code and sets the
+	// password in one transaction. The token claim is conditional on the
+	// token still being unused and is checked before the password write, so
+	// two concurrent confirms cannot both consume the code. Returns false
+	// when the code was already consumed (the password is left untouched);
+	// true means the password was set.
+	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error)
 	SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error
 	UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error
 	SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error
@@ -307,6 +313,13 @@ type ProviderAccountRepository interface {
 	GetByProvider(ctx context.Context, provider, providerUserID string) (*domain.ProviderAccount, error)
 	ListByUserID(ctx context.Context, userID string) ([]domain.ProviderAccount, error)
 	Delete(ctx context.Context, userID, provider string) error
+	// LockByUserID takes the write locks on every provider_accounts row the
+	// user owns, via a self-assigning UPDATE — the portable equivalent of
+	// SELECT ... FOR UPDATE (SQLite has no FOR UPDATE syntax). Call it first
+	// inside a transaction so concurrent guard-then-delete sequences for the
+	// same user (e.g. two parallel Unlink requests) serialize instead of both
+	// observing the same pre-delete provider set.
+	LockByUserID(ctx context.Context, userID string) error
 }
 
 // OrgMemberFilter narrows and orders OrgCRUD.ListMembers within one org.
@@ -351,7 +364,10 @@ type OrgCRUD interface {
 	GetByID(ctx context.Context, id string) (*domain.Organization, error)
 	GetBySlug(ctx context.Context, slug string) (*domain.Organization, error)
 	Update(ctx context.Context, org *domain.Organization) error
-	Delete(ctx context.Context, id string) error
+	// Delete removes the organization row. It returns false when no row
+	// matched — a concurrent delete already removed it — so the caller
+	// must roll back any invariant upkeep instead of applying it twice.
+	Delete(ctx context.Context, id string) (bool, error)
 	// List returns a page of organizations (platform admin); use Count for
 	// the total.
 	List(ctx context.Context, filter OrgFilter) ([]domain.Organization, error)
@@ -359,8 +375,20 @@ type OrgCRUD interface {
 	Count(ctx context.Context, filter OrgFilter) (int, error)
 
 	AddMember(ctx context.Context, member *domain.OrgMember) error
-	RemoveMember(ctx context.Context, orgID, userID string) error
-	UpdateMemberRole(ctx context.Context, orgID, userID string, role domain.OrgRole) error
+	// RemoveMember deletes the (orgID, userID) membership, but only while it
+	// still holds expectRole — a compare-and-swap guarding the denormalized
+	// owner/member counts against a concurrent removal or role change. It
+	// returns false when no row matched, in which case the caller must roll
+	// back any counter upkeep instead of applying it to a row that is gone
+	// or no longer has that role.
+	RemoveMember(ctx context.Context, orgID, userID string, expectRole domain.OrgRole) (bool, error)
+	// UpdateMemberRole sets the role from expectRole to newRole, but only
+	// while the row still holds expectRole — the same compare-and-swap
+	// guard as RemoveMember. It returns false when no row matched.
+	// Callers must resolve the no-change case themselves and never call
+	// with expectRole == newRole (MySQL's changed-rows accounting reports 0
+	// for value-identical writes, so it cannot distinguish them).
+	UpdateMemberRole(ctx context.Context, orgID, userID string, expectRole, newRole domain.OrgRole) (bool, error)
 	GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error)
 	// ListMembers returns a page of an org's members; use CountMembers for the total.
 	ListMembers(ctx context.Context, orgID string, filter OrgMemberFilter) ([]domain.OrgMemberDetail, error)
@@ -415,7 +443,13 @@ type OrgInviteRepository interface {
 	CountByOrgID(ctx context.Context, orgID string, filter OrgInviteFilter) (int, error)
 	Update(ctx context.Context, invite *domain.OrgInvite) error
 	Delete(ctx context.Context, id string) error
-	ClaimInvite(ctx context.Context, id string) (bool, error)
+	// ClaimInvite atomically consumes the invite row, but only while it
+	// still carries codeHash and has not expired. The hash binds the claim
+	// to the code the caller validated: an admin resend/rotation replaces
+	// the stored hash, so a redemption that looked the invite up under the
+	// old code loses the claim and must use the fresh code. Returns false
+	// when the invite was already claimed, rotated, deleted, or expired.
+	ClaimInvite(ctx context.Context, id, codeHash string) (bool, error)
 }
 
 type AuditLogFilter struct {

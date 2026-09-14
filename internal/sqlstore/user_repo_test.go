@@ -80,6 +80,81 @@ func TestUpdatePasswordHash_GuardsHashAndPepperVersion(t *testing.T) {
 	}
 }
 
+func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
+	db := newSQLiteTestDB(t)
+	if _, err := db.Exec(`
+		CREATE TABLE users (
+			id TEXT PRIMARY KEY,
+			password_hash TEXT,
+			password_pepper_version INTEGER,
+			is_verified INTEGER NOT NULL,
+			verified_at DATETIME,
+			updated_at DATETIME NOT NULL
+		)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`
+		CREATE TABLE verification_tokens (
+			id TEXT PRIMARY KEY,
+			used_at DATETIME
+		)`); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if _, err := db.Exec("INSERT INTO users (id, is_verified, updated_at) VALUES (?, ?, ?)", "u1", false, now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO verification_tokens (id) VALUES (?)", "tok-1"); err != nil {
+		t.Fatal(err)
+	}
+
+	repo := NewUserRepository(db)
+	ctx := context.Background()
+
+	claimed, err := repo.SetPasswordAndVerify(ctx, "u1", "hash-A", nil, "tok-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !claimed {
+		t.Fatal("first confirm did not claim the token")
+	}
+
+	// A second confirm with the same code must lose the claim and leave the
+	// first password in place — before the guarded claim, both writes
+	// landed and the later password silently won.
+	claimed, err = repo.SetPasswordAndVerify(ctx, "u1", "hash-B", nil, "tok-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed {
+		t.Fatal("second confirm claimed an already-used token")
+	}
+
+	var storedHash string
+	var verified bool
+	if err := db.QueryRowContext(ctx,
+		"SELECT password_hash, is_verified FROM users WHERE id = ?", "u1",
+	).Scan(&storedHash, &verified); err != nil {
+		t.Fatal(err)
+	}
+	if storedHash != "hash-A" {
+		t.Fatalf("stored password hash = %q, want the first confirm's hash-A", storedHash)
+	}
+	if !verified {
+		t.Fatal("first confirm did not mark the user verified")
+	}
+
+	var usedCount int
+	if err := db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM verification_tokens WHERE id = ? AND used_at IS NOT NULL", "tok-1",
+	).Scan(&usedCount); err != nil {
+		t.Fatal(err)
+	}
+	if usedCount != 1 {
+		t.Fatalf("used token rows = %d, want exactly 1", usedCount)
+	}
+}
+
 func TestUserUpdate_DoesNotReplacePasswordCredential(t *testing.T) {
 	db := newSQLiteTestDB(t)
 	if _, err := db.Exec(`

@@ -73,37 +73,52 @@ func (m *MockOrgRepo) Update(_ context.Context, org *domain.Organization) error 
 	return nil
 }
 
-func (m *MockOrgRepo) Delete(_ context.Context, id string) error {
+func (m *MockOrgRepo) Delete(_ context.Context, id string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if _, ok := m.orgs[id]; !ok {
+		return false, nil
+	}
 	delete(m.orgs, id)
-	return nil
+	return true, nil
 }
 
 func (m *MockOrgRepo) AddMember(_ context.Context, member *domain.OrgMember) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := member.OrgID + ":" + member.UserID
+	if _, ok := m.members[key]; ok {
+		// Mirrors sqlstore's unique-constraint translation
+		// (port.ErrDuplicateKey) on (org_id, user_id), so tests exercise
+		// the same contract the real repository honors.
+		return port.ErrDuplicateKey
+	}
 	m.members[key] = member
 	return nil
 }
 
-func (m *MockOrgRepo) RemoveMember(_ context.Context, orgID, userID string) error {
+func (m *MockOrgRepo) RemoveMember(_ context.Context, orgID, userID string, expectRole domain.OrgRole) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := orgID + ":" + userID
+	mem, ok := m.members[key]
+	if !ok || mem.Role != expectRole {
+		return false, nil
+	}
 	delete(m.members, key)
-	return nil
+	return true, nil
 }
 
-func (m *MockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, role domain.OrgRole) error {
+func (m *MockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, expectRole, newRole domain.OrgRole) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := orgID + ":" + userID
-	if mem, ok := m.members[key]; ok {
-		mem.Role = role
+	mem, ok := m.members[key]
+	if !ok || mem.Role != expectRole {
+		return false, nil
 	}
-	return nil
+	mem.Role = newRole
+	return true, nil
 }
 
 func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*domain.OrgMember, error) {
@@ -117,7 +132,11 @@ func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*d
 	if !ok {
 		return nil, nil
 	}
-	return mem, nil
+	// Return a copy, like sqlstore's per-query scan: callers must not
+	// observe another goroutine's in-flight CAS mutation through a shared
+	// struct, and must not mutate mock state through the result.
+	cp := *mem
+	return &cp, nil
 }
 
 func (m *MockOrgRepo) CountMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) (int, error) {
@@ -406,13 +425,19 @@ func (m *MockOrgRepo) DecrementOrgMemberCount(_ context.Context, orgID string) e
 func (m *MockOrgRepo) TryDecrementOrgOwnerCount(_ context.Context, orgID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// The service runs its guarded membership delete/update BEFORE this
+	// upkeep, so by the time this evaluates, the row being removed or
+	// demoted is already gone from the map — mirroring the real
+	// denormalized owner_count only if we refuse on zero remaining owners,
+	// not on one. (The real SQL guard is `owner_count > 1` on a counter the
+	// membership write does not touch; here the live rows ARE the counter.)
 	count := 0
 	for _, mem := range m.members {
 		if mem.OrgID == orgID && mem.Role == domain.OrgRoleOwner {
 			count++
 		}
 	}
-	if count <= 1 {
+	if count < 1 {
 		return domain.ErrCannotRemoveLastOwner
 	}
 	return nil

@@ -91,6 +91,13 @@ func (m *mockProviderAccountRepo) Delete(_ context.Context, userID, provider str
 	return nil
 }
 
+// LockByUserID is a no-op here for the same reason as in testutil's mock:
+// the in-memory map serializes through its own mutex, and handler tests
+// run sequential guard-then-delete sequences.
+func (m *mockProviderAccountRepo) LockByUserID(_ context.Context, _ string) error {
+	return nil
+}
+
 type oauthTestHarness struct {
 	oauthHandlers *OAuthHandlers
 	sessionSvc    *service.SessionService
@@ -202,6 +209,7 @@ func newOAuthTestHarness() *oauthTestHarness {
 		gen,
 		sessSvc,
 		verifySvc,
+		&mockTxManager{},
 		oauthCfg,
 	)
 

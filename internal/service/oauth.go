@@ -27,6 +27,7 @@ type OAuthService struct {
 	gen          port.TokenGenerator
 	sessionSvc   *SessionService
 	verifySvc    *VerificationService
+	txManager    port.TxManager
 	encryptor    *crypto.Encryptor
 	config       OAuthServiceConfig
 	log          *slog.Logger
@@ -54,6 +55,7 @@ func NewOAuthService(
 	gen port.TokenGenerator,
 	sessionSvc *SessionService,
 	verifySvc *VerificationService,
+	txManager port.TxManager,
 	config OAuthServiceConfig,
 ) *OAuthService {
 	logger := config.Logger
@@ -69,6 +71,7 @@ func NewOAuthService(
 		gen:          gen,
 		sessionSvc:   sessionSvc,
 		verifySvc:    verifySvc,
+		txManager:    txManager,
 		encryptor:    config.Encryptor,
 		config:       config,
 		log:          logger,
@@ -325,16 +328,23 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		newUser.VerifiedAt = &now
 	}
 
-	if err := s.userRepo.Create(ctx, newUser); err != nil {
-		if errors.Is(err, port.ErrDuplicateKey) {
-			return nil, domain.ErrEmailAlreadyExists
+	// Create the user and its provider link in one transaction: a
+	// provider-account insert failure must not leave a passwordless user
+	// row behind that subsequent retries reject as an existing email.
+	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if err := s.userRepo.Create(txCtx, newUser); err != nil {
+			if errors.Is(err, port.ErrDuplicateKey) {
+				return domain.ErrEmailAlreadyExists
+			}
+			s.log.Error("failed to create user", "err", err, "email", info.Email)
+			return domain.ErrInternal
 		}
-		s.log.Error("failed to create user", "err", err, "email", info.Email)
-		return nil, domain.ErrInternal
-	}
-
-	if _, linkErr := s.createProviderAccount(ctx, newUser.ID, info); linkErr != nil {
-		return nil, linkErr
+		if _, err := s.createProviderAccount(txCtx, newUser.ID, info); err != nil {
+			return err
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	s.log.Info("oauth register", "user_id", newUser.ID, "provider", providerName, "email_verified", info.EmailVerified)
@@ -362,25 +372,40 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 }
 
 func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) error {
-	accounts, err := s.providerRepo.ListByUserID(ctx, userID)
+	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		// Serialize concurrent unlinks on this user's provider rows before
+		// reading them: without the lock, two parallel requests can each
+		// observe two linked providers, both pass the guard below, and both
+		// delete — leaving a passwordless user with no way to authenticate.
+		if err := s.providerRepo.LockByUserID(txCtx, userID); err != nil {
+			s.log.Error("failed to lock provider accounts", "err", err, "user_id", userID)
+			return domain.ErrInternal
+		}
+
+		user, userErr := s.userRepo.GetByID(txCtx, userID)
+		if userErr != nil || user == nil {
+			return domain.ErrUserNotFound
+		}
+
+		accounts, err := s.providerRepo.ListByUserID(txCtx, userID)
+		if err != nil {
+			s.log.Error("failed to list provider accounts", "err", err, "user_id", userID)
+			return domain.ErrInternal
+		}
+
+		hasPassword := user.HasPassword()
+		if len(accounts) <= 1 && !hasPassword {
+			return domain.ErrCannotUnlinkLastProvider
+		}
+
+		if err := s.providerRepo.Delete(txCtx, userID, providerName); err != nil {
+			s.log.Error("failed to unlink provider", "err", err, "user_id", userID, "provider", providerName)
+			return domain.ErrInternal
+		}
+		return nil
+	})
 	if err != nil {
-		s.log.Error("failed to list provider accounts", "err", err, "user_id", userID)
-		return domain.ErrInternal
-	}
-
-	user, userErr := s.userRepo.GetByID(ctx, userID)
-	if userErr != nil || user == nil {
-		return domain.ErrUserNotFound
-	}
-
-	hasPassword := user.HasPassword()
-	if len(accounts) <= 1 && !hasPassword {
-		return domain.ErrCannotUnlinkLastProvider
-	}
-
-	if err := s.providerRepo.Delete(ctx, userID, providerName); err != nil {
-		s.log.Error("failed to unlink provider", "err", err, "user_id", userID, "provider", providerName)
-		return domain.ErrInternal
+		return err
 	}
 
 	s.log.Info("provider unlinked", "user_id", userID, "provider", providerName)

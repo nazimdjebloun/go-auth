@@ -67,15 +67,20 @@ var (
 	ErrOrgSlugReserved          = NewError("org_slug_reserved", "Organization slug is reserved")
 	ErrOrgMemberNotFound        = NewError("org_member_not_found", "User is not a member of this organization")
 	ErrOrgMemberExists          = NewError("org_member_exists", "User is already a member of this organization")
-	ErrCannotRemoveLastOwner    = NewError("cannot_remove_last_owner", "Cannot remove or demote the last owner of an organization")
-	ErrOrgLimitReached          = NewError("org_limit_reached", "Maximum organization limit reached for user")
-	ErrOrgMemberLimitReached    = NewError("org_member_limit_reached", "Organization member limit reached")
-	ErrOrgForbidden             = NewError("org_forbidden", "Insufficient organization permissions")
-	ErrNoActiveOrg              = NewError("no_active_org", "Select an active organization first")
-	ErrOrgInviteExpired         = NewError("org_invite_expired", "Organization invite link has expired")
-	ErrOrgInviteEmailMismatch   = NewError("org_invite_email_mismatch", "Authenticated email does not match invite recipient")
-	ErrOrgMetadataTooLarge      = NewError("org_metadata_too_large", "Organization metadata exceeds 16KB limit")
-	ErrMethodDisabled           = NewError("method_disabled", "This registration method is not available")
+	// ErrOrgMemberConflict reports a lost optimistic-concurrency race on a
+	// membership row: it was removed or its role changed between the read
+	// and the guarded write. Counters were rolled back with the write, so
+	// refetching and retrying is safe.
+	ErrOrgMemberConflict      = NewError("org_member_conflict", "Organization membership changed concurrently; retry the operation")
+	ErrCannotRemoveLastOwner  = NewError("cannot_remove_last_owner", "Cannot remove or demote the last owner of an organization")
+	ErrOrgLimitReached        = NewError("org_limit_reached", "Maximum organization limit reached for user")
+	ErrOrgMemberLimitReached  = NewError("org_member_limit_reached", "Organization member limit reached")
+	ErrOrgForbidden           = NewError("org_forbidden", "Insufficient organization permissions")
+	ErrNoActiveOrg            = NewError("no_active_org", "Select an active organization first")
+	ErrOrgInviteExpired       = NewError("org_invite_expired", "Organization invite link has expired")
+	ErrOrgInviteEmailMismatch = NewError("org_invite_email_mismatch", "Authenticated email does not match invite recipient")
+	ErrOrgMetadataTooLarge    = NewError("org_metadata_too_large", "Organization metadata exceeds 16KB limit")
+	ErrMethodDisabled         = NewError("method_disabled", "This registration method is not available")
 
 	ErrTwoFactorCodeInvalid     = NewError("two_factor_code_invalid", "Invalid two-factor code")
 	ErrTwoFactorCodeExpired     = NewError("two_factor_code_expired", "Two-factor code has expired")

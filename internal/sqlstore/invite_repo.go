@@ -226,7 +226,7 @@ func (r *InviteRepository) Delete(ctx context.Context, id string) error {
 }
 
 func (r *InviteRepository) ClaimInvite(ctx context.Context, code string, acceptedAt time.Time) (bool, error) {
-	result, err := r.db.ExecContext(ctx, inviteClaimQuery, acceptedAt, code)
+	result, err := r.db.ExecContext(ctx, inviteClaimQuery, acceptedAt, code, acceptedAt)
 	if err != nil {
 		return false, err
 	}

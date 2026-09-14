@@ -21,6 +21,10 @@ import (
 type mockUserRepo struct {
 	mu    sync.Mutex
 	users map[string]*domain.User
+	// claimedSetPassTokens tracks the set-password token IDs consumed through
+	// SetPasswordAndVerify, mirroring the real repository's one-time-claim
+	// contract so tests exercise the same single-use semantics.
+	claimedSetPassTokens map[string]bool
 }
 
 func newMockUserRepo() *mockUserRepo {
@@ -259,12 +263,18 @@ func (m *mockUserRepo) UpdatePasswordHash(_ context.Context, userID, oldHash str
 	return true, nil
 }
 
-func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) error {
+func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
 	if !ok {
-		return nil
+		return false, nil
+	}
+	if m.claimedSetPassTokens == nil {
+		m.claimedSetPassTokens = make(map[string]bool)
+	}
+	if m.claimedSetPassTokens[tokenID] {
+		return false, nil
 	}
 	now := time.Now().UTC()
 	u.PasswordHash = &passwordHash
@@ -272,7 +282,8 @@ func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 	u.IsVerified = true
 	u.VerifiedAt = &now
 	u.UpdatedAt = now
-	return nil
+	m.claimedSetPassTokens[tokenID] = true
+	return true, nil
 }
 
 func samePepperVersion(a, b *uint32) bool {
@@ -1013,40 +1024,51 @@ func (m *mockOrgRepo) Update(_ context.Context, org *domain.Organization) error 
 	return nil
 }
 
-func (m *mockOrgRepo) Delete(_ context.Context, id string) error {
+func (m *mockOrgRepo) Delete(_ context.Context, id string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if org, ok := m.orgs[id]; ok {
-		delete(m.orgs, org.Slug)
+	org, ok := m.orgs[id]
+	if !ok {
+		return false, nil
 	}
+	delete(m.orgs, org.Slug)
 	delete(m.orgs, id)
-	return nil
+	return true, nil
 }
 
 func (m *mockOrgRepo) AddMember(_ context.Context, member *domain.OrgMember) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := member.OrgID + ":" + member.UserID
+	if _, ok := m.members[key]; ok {
+		return port.ErrDuplicateKey
+	}
 	m.members[key] = member
 	return nil
 }
 
-func (m *mockOrgRepo) RemoveMember(_ context.Context, orgID, userID string) error {
+func (m *mockOrgRepo) RemoveMember(_ context.Context, orgID, userID string, expectRole domain.OrgRole) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := orgID + ":" + userID
+	mem, ok := m.members[key]
+	if !ok || mem.Role != expectRole {
+		return false, nil
+	}
 	delete(m.members, key)
-	return nil
+	return true, nil
 }
 
-func (m *mockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, role domain.OrgRole) error {
+func (m *mockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, expectRole, newRole domain.OrgRole) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := orgID + ":" + userID
-	if mem, ok := m.members[key]; ok {
-		mem.Role = role
+	mem, ok := m.members[key]
+	if !ok || mem.Role != expectRole {
+		return false, nil
 	}
-	return nil
+	mem.Role = newRole
+	return true, nil
 }
 
 func (m *mockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*domain.OrgMember, error) {
@@ -1057,7 +1079,9 @@ func (m *mockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*d
 	if !ok {
 		return nil, nil
 	}
-	return mem, nil
+	// Copy, mirroring sqlstore: no shared-struct aliasing across goroutines.
+	cp := *mem
+	return &cp, nil
 }
 
 func (m *mockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, error) {
@@ -1329,13 +1353,16 @@ func (m *mockOrgRepo) DecrementOrgMemberCount(_ context.Context, orgID string) e
 func (m *mockOrgRepo) TryDecrementOrgOwnerCount(_ context.Context, orgID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// Same post-mutation evaluation as testutil.MockOrgRepo: the service's
+	// guarded membership write already landed, so refuse only when zero
+	// owners remain.
 	count := 0
 	for _, mem := range m.members {
 		if mem.OrgID == orgID && mem.Role == domain.OrgRoleOwner {
 			count++
 		}
 	}
-	if count <= 1 {
+	if count < 1 {
 		return domain.ErrCannotRemoveLastOwner
 	}
 	return nil
@@ -1500,11 +1527,11 @@ func (m *mockOrgInviteRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
-func (m *mockOrgInviteRepo) ClaimInvite(_ context.Context, id string) (bool, error) {
+func (m *mockOrgInviteRepo) ClaimInvite(_ context.Context, id, codeHash string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites[id]
-	if !ok || time.Now().UTC().After(inv.ExpiresAt) {
+	if !ok || inv.CodeHash != codeHash || time.Now().UTC().After(inv.ExpiresAt) {
 		return false, nil
 	}
 	delete(m.invites, id)
@@ -1575,7 +1602,7 @@ func newTestHarness() *testHarness {
 	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, twoFactorSvc)
 	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &mockTxManager{}, cfg)
 	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, &mockTxManager{}, cfg)
-	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, cfg, sessSvc, twoFactorSvc)
+	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, &mockTxManager{}, cfg, sessSvc, twoFactorSvc)
 	providers := newMockProviderAccountRepo()
 	auditLogs := newMockAuditLogRepo()
 	adminSvc := service.NewAdminService(users, sessions, providers, auditLogs, hasher, cfg, sessSvc)

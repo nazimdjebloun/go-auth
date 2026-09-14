@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -518,6 +519,211 @@ func TestRemoveMember_Success(t *testing.T) {
 	member, _ := svc.GetMembership(ctx, GetOrgMembershipInput{OrgID: org.ID, UserID: "user-2"})
 	if member != nil {
 		t.Error("expected member to be removed")
+	}
+}
+
+func TestRemoveMember_ConcurrentDoubleRemove(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "race", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	// Two requests racing to remove the same member: exactly one wins the
+	// guarded delete, the other finds the membership gone. Either way the
+	// denormalized counts move exactly once.
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = svc.RemoveMember(ctx, RemoveMemberInput{OrgID: org.ID, UserID: "user-2", ActorID: "owner-1"})
+		}(i)
+	}
+	wg.Wait()
+
+	succeeded := 0
+	for _, err := range errs {
+		if err == nil {
+			succeeded++
+		} else if err != domain.ErrOrgMemberNotFound {
+			t.Fatalf("loser got %v, want org_member_not_found", err)
+		}
+	}
+	if succeeded != 1 {
+		t.Fatalf("expected exactly one successful removal, got %d", succeeded)
+	}
+	if member, _ := svc.GetMembership(ctx, GetOrgMembershipInput{OrgID: org.ID, UserID: "user-2"}); member != nil {
+		t.Fatal("member should be gone")
+	}
+}
+
+func TestUpdateMemberRole_ConcurrentIdenticalChange(t *testing.T) {
+	svc := newTestOrgService()
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "race2", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	// Two identical promotions racing: the winner applies the change, the
+	// loser observes the already-applied target role and reports a no-op
+	// instead of erroring or touching the owner counts a second time.
+	var wg sync.WaitGroup
+	errs := make([]error, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = svc.UpdateMemberRole(ctx, UpdateMemberRoleInput{
+				OrgID: org.ID, UserID: "member-1", NewRole: domain.OrgRoleAdmin, ActorID: "owner-1",
+			})
+		}(i)
+	}
+	wg.Wait()
+
+	for _, err := range errs {
+		if err != nil {
+			t.Fatalf("identical concurrent change must converge, got %v", err)
+		}
+	}
+	member, _ := svc.GetMembership(ctx, GetOrgMembershipInput{OrgID: org.ID, UserID: "member-1"})
+	if member == nil || member.Role != domain.OrgRoleAdmin {
+		t.Fatalf("expected member-1 to be admin, got %+v", member)
+	}
+}
+
+// casLoserOrgRepo simulates a concurrent membership mutation landing
+// between the service's read and its guarded write: the row is still there
+// with a different role, so every conditional write reports no match.
+type casLoserOrgRepo struct {
+	*testutil.MockOrgRepo
+}
+
+func (r *casLoserOrgRepo) RemoveMember(_ context.Context, orgID, userID string, _ domain.OrgRole) (bool, error) {
+	return false, nil
+}
+
+func (r *casLoserOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, _, _ domain.OrgRole) (bool, error) {
+	return false, nil
+}
+
+var _ port.OrgRepository = (*casLoserOrgRepo)(nil)
+
+func newCASLoserOrgService(users *testutil.MockUserRepo, orgs *testutil.MockOrgRepo) *OrgService {
+	orgs.SetUsers(users)
+	sessions := testutil.NewMockSessionRepo()
+	return NewOrgService(&casLoserOrgRepo{MockOrgRepo: orgs}, users, sessions, &testutil.MockTxManager{}, OrgServiceConfig{
+		MaxOrgsPerUser: 10,
+		Logger:         nil,
+	})
+}
+
+func TestRemoveMember_ConcurrentRoleChangeConflicts(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	orgs := testutil.NewMockOrgRepo()
+	svc := newCASLoserOrgService(users, orgs)
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "race3", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	err := svc.RemoveMember(ctx, RemoveMemberInput{OrgID: org.ID, UserID: "member-1", ActorID: "owner-1"})
+	if err != domain.ErrOrgMemberConflict {
+		t.Fatalf("expected ErrOrgMemberConflict, got %v", err)
+	}
+}
+
+func TestUpdateMemberRole_ConcurrentRoleChangeConflicts(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	orgs := testutil.NewMockOrgRepo()
+	svc := newCASLoserOrgService(users, orgs)
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "race4", OwnerID: "owner-1"})
+	svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "member-1", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+
+	err := svc.UpdateMemberRole(ctx, UpdateMemberRoleInput{
+		OrgID: org.ID, UserID: "member-1", NewRole: domain.OrgRoleAdmin, ActorID: "owner-1",
+	})
+	if err != domain.ErrOrgMemberConflict {
+		t.Fatalf("expected ErrOrgMemberConflict, got %v", err)
+	}
+}
+
+// A membership inserted concurrently between the existence check and the
+// insert loses against the unique constraint inside the transaction; the
+// loser must see org_member_exists, not an internal error. dupAddOrgRepo
+// rigs exactly that interleaving: the target lookup misses while the insert
+// collides.
+type dupAddOrgRepo struct {
+	*testutil.MockOrgRepo
+	targetUserID string
+}
+
+func (r *dupAddOrgRepo) GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
+	if userID == r.targetUserID {
+		return nil, nil
+	}
+	return r.MockOrgRepo.GetMembership(ctx, orgID, userID)
+}
+
+func (r *dupAddOrgRepo) AddMember(ctx context.Context, member *domain.OrgMember) error {
+	if member.UserID == r.targetUserID {
+		return port.ErrDuplicateKey
+	}
+	return r.MockOrgRepo.AddMember(ctx, member)
+}
+
+var _ port.OrgRepository = (*dupAddOrgRepo)(nil)
+
+func TestAddMember_DuplicateMemberExists(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	orgs := testutil.NewMockOrgRepo()
+	orgs.SetUsers(users)
+	sessions := testutil.NewMockSessionRepo()
+	svc := NewOrgService(&dupAddOrgRepo{MockOrgRepo: orgs, targetUserID: "user-2"}, users, sessions, &testutil.MockTxManager{}, OrgServiceConfig{
+		MaxOrgsPerUser: 10,
+		Logger:         nil,
+	})
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "dup", OwnerID: "owner-1"})
+
+	err := svc.AddMember(ctx, AddMemberInput{OrgID: org.ID, UserID: "user-2", Role: domain.OrgRoleMember, ActorID: "owner-1"})
+	if err != domain.ErrOrgMemberExists {
+		t.Fatalf("expected ErrOrgMemberExists, got %v", err)
+	}
+}
+
+// deletedGoneOrgRepo simulates a concurrent delete landing between
+// deleteOrgTx's lookup and its guarded delete: the row is gone, so the
+// guarded write matches nothing.
+type deletedGoneOrgRepo struct {
+	*testutil.MockOrgRepo
+}
+
+func (r *deletedGoneOrgRepo) Delete(_ context.Context, _ string) (bool, error) {
+	return false, nil
+}
+
+var _ port.OrgRepository = (*deletedGoneOrgRepo)(nil)
+
+func TestDeleteOrg_ConcurrentDeleteGone(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	orgs := testutil.NewMockOrgRepo()
+	orgs.SetUsers(users)
+	sessions := testutil.NewMockSessionRepo()
+	svc := NewOrgService(&deletedGoneOrgRepo{MockOrgRepo: orgs}, users, sessions, &testutil.MockTxManager{}, OrgServiceConfig{
+		MaxOrgsPerUser: 10,
+		Logger:         nil,
+	})
+	ctx := context.Background()
+
+	org, _ := svc.CreateOrg(ctx, CreateOrgInput{Name: "O", Slug: "gone", OwnerID: "owner-1"})
+
+	if err := svc.DeleteOrg(ctx, DeleteOrgInput{OrgID: org.ID, ActorID: "owner-1"}); err != domain.ErrOrgNotFound {
+		t.Fatalf("expected ErrOrgNotFound, got %v", err)
 	}
 }
 
@@ -1462,8 +1668,9 @@ func TestAdminAddMember_RecoversOrphanedOrg(t *testing.T) {
 	// simply gone. Simulated here via the repository directly, bypassing
 	// OrgService's own guard, since that's exactly what an out-of-band
 	// deletion would do.
-	if err := orgs.RemoveMember(ctx, org.ID, "owner-1"); err != nil {
-		t.Fatalf("failed to simulate the dangling-membership scenario: %v", err)
+	removed, err := orgs.RemoveMember(ctx, org.ID, "owner-1", domain.OrgRoleOwner)
+	if err != nil || !removed {
+		t.Fatalf("failed to simulate the dangling-membership scenario: removed=%v err=%v", removed, err)
 	}
 	result, _ := svc.AdminListOrgMembers(ctx, AdminListOrgMembersInput{OrgID: org.ID, ActorID: "admin1"})
 	if len(result.Members) != 0 {

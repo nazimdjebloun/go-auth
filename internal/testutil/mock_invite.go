@@ -119,7 +119,7 @@ func (m *MockInviteRepo) ClaimInvite(_ context.Context, code string, acceptedAt 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites[code]
-	if !ok || inv.Status != domain.InvitePending {
+	if !ok || inv.Status != domain.InvitePending || !inv.ExpiresAt.After(acceptedAt) {
 		return false, nil
 	}
 	inv.Status = domain.InviteAccepted

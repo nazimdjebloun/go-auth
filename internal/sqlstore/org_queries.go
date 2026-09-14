@@ -15,9 +15,9 @@ const (
 
 	orgAddMemberQuery = `INSERT INTO organization_members (org_id, user_id, role, joined_at) VALUES ($1, $2, $3, $4)`
 
-	orgRemoveMemberQuery = `DELETE FROM organization_members WHERE org_id = $1 AND user_id = $2`
+	orgRemoveMemberQuery = `DELETE FROM organization_members WHERE org_id = $1 AND user_id = $2 AND role = $3`
 
-	orgUpdateMemberRoleQuery = `UPDATE organization_members SET role = $1 WHERE org_id = $2 AND user_id = $3`
+	orgUpdateMemberRoleQuery = `UPDATE organization_members SET role = $1 WHERE org_id = $2 AND user_id = $3 AND role = $4`
 
 	orgGetMembershipQuery = `SELECT org_id, user_id, role, joined_at FROM organization_members WHERE org_id = $1 AND user_id = $2`
 
@@ -58,5 +58,5 @@ const (
 
 	orgInviteDeleteQuery = `DELETE FROM organization_invites WHERE id = $1`
 
-	orgInviteClaimQuery = `DELETE FROM organization_invites WHERE id = $1 AND expires_at > $2`
+	orgInviteClaimQuery = `DELETE FROM organization_invites WHERE id = $1 AND code_hash = $2 AND expires_at > $3`
 )

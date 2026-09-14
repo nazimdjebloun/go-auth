@@ -120,27 +120,32 @@ func (r *UserRepository) SetTwoFactorEnabled(ctx context.Context, userID string,
 	return err
 }
 
-func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) error {
+func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 
 	now := time.Now().UTC()
 
-	_, err = tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, pepperVersion, now, now, userID)
+	// Claim the one-time code BEFORE writing the password, gating on it
+	// still being unused: only the request that flips used_at proceeds, so
+	// concurrent confirms with the same code cannot both land — the loser
+	// rolls back without touching the winner's password.
+	claimed, err := affected(tx.ExecContext(ctx, r.db.Rebind(tokenMarkUsedIfUnusedQuery), now, tokenID))
 	if err != nil {
-		return err
+		return false, err
+	}
+	if !claimed {
+		return false, nil
 	}
 
-	_, err = tx.ExecContext(ctx, r.db.Rebind(`
-		UPDATE verification_tokens SET used_at=$1 WHERE id=$2 AND used_at IS NULL`), now, tokenID)
-	if err != nil {
-		return err
+	if _, err = tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, pepperVersion, now, now, userID); err != nil {
+		return false, err
 	}
 
-	return tx.Commit()
+	return true, tx.Commit()
 }
 
 func (r *UserRepository) UpdatePasswordHash(ctx context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {

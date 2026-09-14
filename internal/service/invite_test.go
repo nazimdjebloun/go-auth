@@ -18,7 +18,7 @@ func TestInviteRegister(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, &testutil.MockTxManager{}, defaultTestConfig(), sessSvc, nil)
 
 	raw, _ := gen.Generate()
 	now := time.Now().UTC()
@@ -67,7 +67,7 @@ func TestInviteRegisterExpired(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.InviteTTL = -1 * time.Hour
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, cfg, sessSvc, nil)
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, &testutil.MockTxManager{}, cfg, sessSvc, nil)
 
 	raw, _ := gen.Generate()
 	now := time.Now().UTC()
@@ -96,6 +96,51 @@ func TestInviteRegisterExpired(t *testing.T) {
 	}
 }
 
+// A registration that loses the claim race — or collides on email with an
+// account created through another path — must surface the domain error, not
+// an internal failure. The atomicity itself (no user without a claimed
+// invite, no claimed invite without a user) rides on the surrounding
+// transaction, which the sqlstore-backed integration tests exercise.
+func TestCompleteInviteRegistration_DuplicateEmail(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	sessions := testutil.NewMockSessionRepo()
+	invites := testutil.NewMockInviteRepo()
+	hasher := &testutil.MockHasher{}
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, &testutil.MockTxManager{}, defaultTestConfig(), sessSvc, nil)
+
+	// The address registered normally after the invite was sent: the user
+	// creation inside the redemption transaction hits the unique email
+	// constraint.
+	users.Create(context.Background(), &domain.User{
+		ID: "existing", Email: "invited@example.com", Role: domain.RoleUser,
+	})
+
+	raw, _ := gen.Generate()
+	now := time.Now().UTC()
+	invites.Create(context.Background(), &domain.Invite{
+		ID:        raw,
+		Email:     "invited@example.com",
+		Code:      hashToken(raw),
+		CreatedBy: "admin-id",
+		Status:    domain.InvitePending,
+		ExpiresAt: now.Add(defaultTestConfig().InviteTTL),
+		CreatedAt: now,
+	})
+
+	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
+		Code:            raw,
+		Name:            "Invited User",
+		Password:        "Passw0rd!",
+		ConfirmPassword: "Passw0rd!",
+	})
+	if authErrCode(err) != "email_already_exists" {
+		t.Fatalf("code = %q, want email_already_exists", authErrCode(err))
+	}
+}
+
 func TestInviteRegisterPasswordMismatch(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
@@ -104,7 +149,7 @@ func TestInviteRegisterPasswordMismatch(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, &testutil.MockTxManager{}, defaultTestConfig(), sessSvc, nil)
 
 	raw, _ := gen.Generate()
 	invite := &domain.Invite{
@@ -140,7 +185,7 @@ func TestCreateInvite_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, &testutil.MockTxManager{}, defaultTestConfig(), sessSvc, nil)
 	adminID := seedInviteAdmin(users)
 
 	_, err := svc.CreateInvite(context.Background(), CreateInviteInput{
@@ -166,7 +211,7 @@ func TestResendInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, defaultTestConfig(), sessSvc, nil)
+	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, &testutil.MockTxManager{}, defaultTestConfig(), sessSvc, nil)
 	adminID := seedInviteAdmin(users)
 
 	raw, _ := gen.Generate()
@@ -203,7 +248,7 @@ func newInviteTestService(users *testutil.MockUserRepo) (*InviteService, *testut
 	sessions := testutil.NewMockSessionRepo()
 	invites := testutil.NewMockInviteRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
-	svc := NewInviteService(users, sessions, invites, &testutil.MockHasher{}, gen, nil,
+	svc := NewInviteService(users, sessions, invites, &testutil.MockHasher{}, gen, nil, &testutil.MockTxManager{},
 		defaultTestConfig(), newTestSessionService(sessions, gen), nil)
 	return svc, invites, seedInviteAdmin(users)
 }
@@ -303,7 +348,7 @@ func newBulkInviteService(users *testutil.MockUserRepo, mailer port.Mailer) (*In
 	sessions := testutil.NewMockSessionRepo()
 	invites := testutil.NewMockInviteRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
-	svc := NewInviteService(users, sessions, invites, &testutil.MockHasher{}, gen, mailer,
+	svc := NewInviteService(users, sessions, invites, &testutil.MockHasher{}, gen, mailer, &testutil.MockTxManager{},
 		defaultTestConfig(), newTestSessionService(sessions, gen), nil)
 	return svc, invites, seedInviteAdmin(users)
 }

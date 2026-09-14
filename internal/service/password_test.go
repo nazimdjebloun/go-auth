@@ -938,6 +938,65 @@ func TestConfirmSetPassword_AlreadyHasPassword(t *testing.T) {
 	}
 }
 
+// A set-password code consumed by a concurrent request must fail this
+// request with code_used — not overwrite the winner's password. The second
+// confirm passes every pre-check (the user still has no password and the
+// token mock still shows it unused, exactly the interleaving a real race
+// produces), so only the repository's conditional claim can stop it.
+func TestConfirmSetPassword_ConsumedConcurrently(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+
+	users.Create(context.Background(), &domain.User{
+		ID:        "oauth-user",
+		Email:     "oauth@example.com",
+		Name:      "OAuth",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	})
+
+	svc.RequestSetPassword(context.Background(), "oauth-user")
+	code := testutil.GetLastVerificationCode(mailer)
+	if code == "" {
+		t.Fatal("expected code in email")
+	}
+
+	if err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+		UserID:      "oauth-user",
+		Code:        code,
+		NewPassword: "NewPass1!",
+	}); err != nil {
+		t.Fatalf("first confirm failed: %v", err)
+	}
+
+	// Simulate the losing side of the race: as far as every pre-check can
+	// tell, the code is still live and no password is set yet.
+	user, _ := users.GetByID(context.Background(), "oauth-user")
+	user.PasswordHash = nil
+	user.PasswordPepperVersion = nil
+	users.Update(context.Background(), user)
+
+	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+		UserID:      "oauth-user",
+		Code:        code,
+		NewPassword: "OtherPass2@",
+	})
+	if err == nil {
+		t.Fatal("expected error for a concurrently consumed code, got nil")
+	}
+	if authErrCode(err) != "code_used" {
+		t.Fatalf("expected code_used, got %s", authErrCode(err))
+	}
+
+	user, _ = users.GetByID(context.Background(), "oauth-user")
+	if user.PasswordHash != nil {
+		t.Fatal("losing confirm must not write a password")
+	}
+}
+
 func TestConfirmSetPassword_StalePepperReturnsExpired(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	tokens := testutil.NewMockTokenRepo()

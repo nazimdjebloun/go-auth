@@ -48,6 +48,7 @@ var byCode = map[string]int{
 	"org_slug_reserved":            http.StatusBadRequest,
 	"org_member_not_found":         http.StatusNotFound,
 	"org_member_exists":            http.StatusConflict,
+	"org_member_conflict":          http.StatusConflict,
 	"cannot_remove_last_owner":     http.StatusBadRequest,
 	"org_limit_reached":            http.StatusBadRequest,
 	"org_member_limit_reached":     http.StatusBadRequest,

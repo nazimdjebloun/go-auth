@@ -275,7 +275,19 @@ func (s *OrgService) deleteOrgTx(ctx context.Context, orgID string) (*domain.Org
 		if err := s.sessions.ClearActiveOrgForAllMembers(txCtx, orgID); err != nil {
 			return err
 		}
-		return s.orgs.Delete(txCtx, orgID)
+		// The delete is the arbiter, like the membership writes in
+		// removeMemberTx/updateMemberRoleTx: a concurrent delete that
+		// already removed the row matches zero rows here, and this
+		// transaction rolls back its owner-count upkeep instead of
+		// applying it a second time.
+		deleted, err := s.orgs.Delete(txCtx, orgID)
+		if err != nil {
+			return err
+		}
+		if !deleted {
+			return domain.ErrOrgNotFound
+		}
+		return nil
 	})
 	if err != nil {
 		s.log.Error("failed to delete org", "err", err, "org_id", orgID)
@@ -403,12 +415,21 @@ func (s *OrgService) addMemberTx(ctx context.Context, orgID, userID string, role
 			return err
 		}
 
-		return s.orgs.AddMember(txCtx, &domain.OrgMember{
+		if err := s.orgs.AddMember(txCtx, &domain.OrgMember{
 			OrgID:    orgID,
 			UserID:   userID,
 			Role:     role,
 			JoinedAt: time.Now().UTC(),
-		})
+		}); err != nil {
+			// Lost a same-member add race after the existence check above:
+			// the unique constraint is the backstop, and the loser's
+			// counter upkeep rolls back with it.
+			if errors.Is(err, port.ErrDuplicateKey) {
+				return domain.ErrOrgMemberExists
+			}
+			return err
+		}
+		return nil
 	})
 	if err != nil {
 		return err
@@ -443,17 +464,36 @@ type RemoveMemberInput struct {
 // tx body and the auth check are split across caller and helper. Returns the
 // removed member's role for the caller to log/audit.
 func (s *OrgService) removeMemberTx(ctx context.Context, orgID, userID string) (domain.OrgRole, error) {
-	member, err := s.orgs.GetMembership(ctx, orgID, userID)
-	if err != nil {
-		s.log.Error("failed to get membership for removal", "err", err, "org_id", orgID, "user_id", userID)
-		return "", err
-	}
-	if member == nil {
-		return "", domain.ErrOrgMemberNotFound
-	}
+	var removedRole domain.OrgRole
+	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		// The membership is read inside the transaction and the delete
+		// below is conditional on the role read here — it runs FIRST, so
+		// only the request that actually removes the row proceeds to the
+		// counter upkeep. A concurrent removal or role change between this
+		// read and the delete matches zero rows, and the transaction
+		// aborts before any counter moves.
+		member, err := s.orgs.GetMembership(txCtx, orgID, userID)
+		if err != nil {
+			s.log.Error("failed to get membership for removal", "err", err, "org_id", orgID, "user_id", userID)
+			return err
+		}
+		if member == nil {
+			return domain.ErrOrgMemberNotFound
+		}
 
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		if member.Role == domain.OrgRoleOwner {
+		// Snapshot the role before the conditional write below (see
+		// updateMemberRoleTx): it is the role the delete asserts and the
+		// counters are keyed to.
+		removedRole = member.Role
+		removed, err := s.orgs.RemoveMember(txCtx, orgID, userID, member.Role)
+		if err != nil {
+			return err
+		}
+		if !removed {
+			return s.membershipRaceError(txCtx, orgID, userID, removedRole)
+		}
+
+		if removedRole == domain.OrgRoleOwner {
 			if err := s.orgs.TryDecrementOrgOwnerCount(txCtx, orgID); err != nil {
 				return err
 			}
@@ -465,16 +505,32 @@ func (s *OrgService) removeMemberTx(ctx context.Context, orgID, userID string) (
 		if err := s.orgs.DecrementOrgMemberCount(txCtx, orgID); err != nil {
 			return err
 		}
-		if err := s.orgs.RemoveMember(txCtx, orgID, userID); err != nil {
-			return err
-		}
 		return s.sessions.ClearActiveOrgForUser(txCtx, userID, orgID)
 	})
 	if err != nil {
 		return "", err
 	}
-	s.log.Info("member removed", "org_id", orgID, "user_id", userID, "role", member.Role)
-	return member.Role, nil
+	s.log.Info("member removed", "org_id", orgID, "user_id", userID, "role", removedRole)
+	return removedRole, nil
+}
+
+// membershipRaceError disambiguates a guarded membership write that matched
+// zero rows: the membership either vanished concurrently (not found) or its
+// role changed under the caller (conflict — refetching and retrying with the
+// fresh role is safe, because the caller's transaction rolled back).
+func (s *OrgService) membershipRaceError(txCtx context.Context, orgID, userID string, expectRole domain.OrgRole) error {
+	current, err := s.orgs.GetMembership(txCtx, orgID, userID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return domain.ErrOrgMemberNotFound
+	}
+	if current.Role != expectRole {
+		return domain.ErrOrgMemberConflict
+	}
+	// Same role but the write still matched nothing: treat it as a lost race.
+	return domain.ErrOrgMemberConflict
 }
 
 func (s *OrgService) RemoveMember(ctx context.Context, input RemoveMemberInput) error {
@@ -509,21 +565,54 @@ type UpdateMemberRoleInput struct {
 // guard stays out of this shared helper). Returns the member's prior role
 // (empty if no change was made) for the caller to log/audit.
 func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID string, newRole domain.OrgRole) (domain.OrgRole, error) {
-	member, err := s.orgs.GetMembership(ctx, orgID, userID)
-	if err != nil {
-		s.log.Error("failed to get membership for role update", "err", err, "org_id", orgID, "user_id", userID)
-		return "", err
-	}
-	if member == nil {
-		return "", domain.ErrOrgMemberNotFound
-	}
-	if member.Role == newRole {
-		return "", nil
-	}
+	var oldRole domain.OrgRole
+	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		// Like removeMemberTx, the membership is read inside the
+		// transaction and the role update below is conditional on that
+		// role — and it runs FIRST, so only the request that actually
+		// changes the row proceeds to the counter upkeep.
+		member, err := s.orgs.GetMembership(txCtx, orgID, userID)
+		if err != nil {
+			s.log.Error("failed to get membership for role update", "err", err, "org_id", orgID, "user_id", userID)
+			return err
+		}
+		if member == nil {
+			return domain.ErrOrgMemberNotFound
+		}
+		if member.Role == newRole {
+			return nil
+		}
 
-	oldRole := member.Role
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		if member.Role == domain.OrgRoleOwner {
+		// Snapshot the pre-change role before the conditional write below:
+		// repository implementations may hand out (and then mutate) the
+		// stored struct rather than a copy, so member.Role must not be
+		// re-read after this point.
+		oldRole = member.Role
+
+		updated, err := s.orgs.UpdateMemberRole(txCtx, orgID, userID, oldRole, newRole)
+		if err != nil {
+			return err
+		}
+		if !updated {
+			// A concurrent request changed the same membership after this
+			// transaction's read: if it landed exactly the requested role
+			// this is an idempotent no-op, otherwise the caller must retry
+			// against the fresh state.
+			current, err := s.orgs.GetMembership(txCtx, orgID, userID)
+			if err != nil {
+				return err
+			}
+			if current == nil {
+				return domain.ErrOrgMemberNotFound
+			}
+			if current.Role == newRole {
+				oldRole = ""
+				return nil
+			}
+			return domain.ErrOrgMemberConflict
+		}
+
+		if oldRole == domain.OrgRoleOwner {
 			if err := s.orgs.TryDecrementOrgOwnerCount(txCtx, orgID); err != nil {
 				return err
 			}
@@ -541,16 +630,14 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 			}
 		}
 
-		if err := s.orgs.UpdateMemberRole(txCtx, orgID, userID, newRole); err != nil {
-			return err
-		}
-
 		return s.sessions.UpdateActiveOrgRoleForUser(txCtx, userID, orgID, newRole)
 	})
 	if err != nil {
 		return "", err
 	}
-	s.log.Info("member role updated", "org_id", orgID, "user_id", userID, "old_role", oldRole, "new_role", newRole)
+	if oldRole != "" {
+		s.log.Info("member role updated", "org_id", orgID, "user_id", userID, "old_role", oldRole, "new_role", newRole)
+	}
 	return oldRole, nil
 }
 

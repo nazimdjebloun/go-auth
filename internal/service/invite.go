@@ -21,6 +21,7 @@ type InviteService struct {
 	hasher       port.Hasher
 	gen          port.TokenGenerator
 	mailer       port.Mailer
+	txManager    port.TxManager
 	templates    port.TemplateProvider
 	config       Config
 	sessionSvc   *SessionService
@@ -36,6 +37,7 @@ func NewInviteService(
 	hasher port.Hasher,
 	gen port.TokenGenerator,
 	mailer port.Mailer,
+	txManager port.TxManager,
 	config Config,
 	sessionSvc *SessionService,
 	twoFactorSvc *TwoFactorService,
@@ -50,6 +52,7 @@ func NewInviteService(
 		hasher:       hasher,
 		gen:          gen,
 		mailer:       mailer,
+		txManager:    txManager,
 		templates:    resolveTemplates(config.TemplateProvider, config.URLValidator),
 		config:       config,
 		sessionSvc:   sessionSvc,
@@ -223,15 +226,40 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 		UpdatedAt:             now,
 	}
 
-	if err := s.users.Create(ctx, user); err != nil {
+	// The invite claim and the account creation are one transaction: the
+	// claim is a conditional write (status still pending), so concurrent
+	// redemptions serialize on it — losers see invite_already_used and no
+	// user is created for them — and a failed user insert rolls the claim
+	// back, leaving the invite redeemable.
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		claimed, err := s.invites.ClaimInvite(txCtx, invite.Code, time.Now().UTC())
+		if err != nil {
+			return err
+		}
+		if !claimed {
+			// Lost the race: accepted, revoked, or expired between the
+			// lookup above and this claim. A revoked invite redeems as
+			// invite_already_used by convention, not invite_revoked.
+			return domain.ErrInviteAlreadyUsed
+		}
+		if err := s.users.Create(txCtx, user); err != nil {
+			if errors.Is(err, port.ErrDuplicateKey) {
+				// The address registered through another path between the
+				// invite's creation and this redemption.
+				return domain.ErrEmailAlreadyExists
+			}
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		var authErr *domain.AuthError
+		if errors.As(err, &authErr) {
+			return nil, err
+		}
 		s.log.Error("failed to create user from invite", "err", err, "email", invite.Email)
 		return nil, domain.ErrInternal
 	}
-
-	invite.Status = domain.InviteAccepted
-	now2 := time.Now().UTC()
-	invite.AcceptedAt = &now2
-	s.invites.Update(ctx, invite)
 
 	// Same rationale as Register: gate on the global flag only, not the
 	// effective check — a code mailed to the address that just accepted the
