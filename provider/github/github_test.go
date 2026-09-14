@@ -59,8 +59,9 @@ func TestCustomScopes(t *testing.T) {
 
 func TestAuthURL(t *testing.T) {
 	g := New(Config{
-		ClientID:    "test-client",
-		RedirectURL: "http://localhost/callback",
+		ClientID:     "test-client",
+		ClientSecret: "test-secret",
+		RedirectURL:  "http://localhost/callback",
 	})
 	u := g.AuthURL("state123", "challenge456")
 	if !strings.Contains(u, "state123") {

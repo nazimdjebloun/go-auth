@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/nazimdjebloun/go-auth/provider/github"
+	"github.com/nazimdjebloun/go-auth/provider/google"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
@@ -960,5 +963,38 @@ func TestValidate_SameSiteNoneWithSecureIsAccepted(t *testing.T) {
 	cfg.applyDefaults()
 	if err := cfg.validate(); err != nil {
 		t.Fatalf("SameSite=None with Secure must be accepted, got: %v", err)
+	}
+}
+
+func TestValidate_ProviderBlankClientID(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.providers = []port.OAuthProvider{google.New(google.Config{ClientSecret: "s"})}
+	if err := cfg.validate(); err == nil {
+		t.Fatal("expected error for blank google ClientID")
+	} else if !strings.Contains(err.Error(), "client_id is required") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidate_ProviderBlankClientSecret(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.providers = []port.OAuthProvider{github.New(github.Config{ClientID: "id"})}
+	if err := cfg.validate(); err == nil {
+		t.Fatal("expected error for blank github ClientSecret")
+	} else if !strings.Contains(err.Error(), "client_secret is required") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidate_ProviderValidCredentialsAccepted(t *testing.T) {
+	cfg := validTestConfig()
+	cfg.providers = []port.OAuthProvider{
+		google.New(google.Config{ClientID: "id", ClientSecret: "secret"}),
+		github.New(github.Config{ClientID: "id", ClientSecret: "secret"}),
+	}
+	cfg.registration = RegistrationConfig{InviteTTL: time.Hour, VerificationCodeTTL: time.Minute}
+	cfg.twoFactor = TwoFactorConfig{CodeTTL: time.Minute, DisableAdminTwoFactor: true}
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("valid providers must be accepted, got: %v", err)
 	}
 }

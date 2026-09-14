@@ -46,6 +46,10 @@ func New(cfg Config) *GitHub {
 
 func (g *GitHub) Name() string { return "github" }
 
+// OAuth2Config returns the underlying OAuth2 configuration, exposing
+// ClientID and ClientSecret for startup validation.
+func (g *GitHub) OAuth2Config() *oauth2.Config { return g.cfg }
+
 func (g *GitHub) AuthURL(state string, codeChallenge string) string {
 	return g.cfg.AuthCodeURL(state, oauth2.AccessTypeOnline,
 		oauth2.SetAuthURLParam("code_challenge", codeChallenge),

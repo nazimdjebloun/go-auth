@@ -44,6 +44,10 @@ func New(cfg Config) *Google {
 
 func (g *Google) Name() string { return "google" }
 
+// OAuth2Config returns the underlying OAuth2 configuration, exposing
+// ClientID and ClientSecret for startup validation.
+func (g *Google) OAuth2Config() *oauth2.Config { return g.cfg }
+
 func (g *Google) AuthURL(state string, codeChallenge string) string {
 	return g.cfg.AuthCodeURL(state,
 		oauth2.AccessTypeOnline,

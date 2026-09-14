@@ -63,6 +63,7 @@ func TestCustomScopes(t *testing.T) {
 func TestAuthURL(t *testing.T) {
 	g := New(Config{
 		ClientID:    "test-client",
+		ClientSecret: "test-secret",
 		RedirectURL: "http://localhost/callback",
 	})
 	u := g.AuthURL("state123", "challenge456")

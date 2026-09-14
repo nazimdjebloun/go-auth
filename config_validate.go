@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/oauth2"
 
 	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
@@ -253,6 +254,15 @@ func (c *Config) validateProviders() []error {
 			errs = append(errs, fmt.Errorf("provider: duplicate provider %q", name))
 		}
 		seen[name] = true
+		if cfg, ok := p.(interface{ OAuth2Config() *oauth2.Config }); ok {
+			c := cfg.OAuth2Config()
+			if c.ClientID == "" {
+				errs = append(errs, fmt.Errorf("provider %q: client_id is required", name))
+			}
+			if c.ClientSecret == "" {
+				errs = append(errs, fmt.Errorf("provider %q: client_secret is required", name))
+			}
+		}
 	}
 	return errs
 }
