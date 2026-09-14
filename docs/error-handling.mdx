@@ -175,6 +175,7 @@ Callback errors don't arrive as JSON — see [Not every layer uses this shape](#
 | `org_slug_reserved` | 400 | Organization slug is reserved | |
 | `org_member_not_found` | 404 | User is not a member of this organization | Also returned by `RequireOrgMember` when the membership lookup comes back empty — but only for *missing* membership; a lookup that fails outright (e.g. the database is down) returns `internal_error` 500 instead, so a server problem never masquerades as a not-a-member 404. |
 | `org_member_exists` | 409 | User is already a member of this organization | |
+| `org_member_conflict` | 409 | Organization membership changed concurrently; retry the operation | Two requests raced the same membership (remove vs remove, remove vs role change, or two role changes). The loser's guarded write matched nothing, so its counter updates rolled back — refetch and retry. |
 | `cannot_remove_last_owner` | 400 | Cannot remove or demote the last owner of an organization | |
 | `org_limit_reached` | 400 | Maximum organization limit reached for user | `OrganizationConfig.MaxOrgsPerUser`. |
 | `org_member_limit_reached` | 400 | Organization member limit reached | |
