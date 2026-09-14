@@ -47,7 +47,7 @@ The dependency direction is strict: `domain` depends on nothing, `port` depends 
 
 Because `service` never touches `net/http`, every operation is reachable two ways:
 
-- **Programmatically** — `auth.Services.Auth.Register(ctx, ...)`, `auth.Services.Admin.BanUser(ctx, ...)`, and so on. No cookies, no CSRF, no rate limiting — you get back plain Go values and are responsible for whatever transport you're building (a CLI, a gRPC service, a background job). Every method that takes more than one argument of data takes it as a per-method named input struct (`service.LoginInput`, `service.RemoveMemberInput`, `service.SetActiveOrgInput`, ...) — the fields are labeled, so adjacent same-typed IDs can't be transposed silently.
+- **Programmatically** — `auth.Services.Auth.Register(ctx, ...)`, `auth.Services.Admin.BanUser(ctx, ...)`, and so on. No cookies, no CSRF, no rate limiting — you get back plain Go values and are responsible for whatever transport you're building (a CLI, a gRPC service, a background job). Every method that takes more than one argument of data takes it as a per-method named input struct (`goauth.LoginInput`, `goauth.RemoveMemberInput`, `goauth.SetActiveOrgInput`, ...) — the fields are labeled, so adjacent same-typed IDs can't be transposed silently.
 - **Over HTTP** — `auth.Mount(mux)` registers the same operations behind the full middleware chain, with `internal/handler` translating cookies and JSON into service calls.
 
 ## The middleware chain

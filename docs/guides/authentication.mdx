@@ -152,9 +152,7 @@ curl -X POST https://api.myapp.com/auth/register \
 Calling the service directly skips HTTP entirely — no cookies get set for you, so you own the raw tokens from here.
 
 ```go
-import "github.com/nazimdjebloun/go-auth/service"
-
-result, err := auth.Services.Auth.Register(ctx, service.RegisterInput{
+result, err := auth.Services.Auth.Register(ctx, goauth.RegisterInput{
     Email:     "ada@example.com",
     Password:  "correct horse battery staple 1",
     Name:      "Ada Lovelace",
@@ -321,7 +319,7 @@ curl -X POST https://api.myapp.com/auth/invite/register \
 invite, err := auth.Services.Invite.GetInviteByToken(ctx, rawToken)
 // invite.Email — pre-fill the form with this
 
-result, err := auth.Services.Invite.CompleteInviteRegistration(ctx, service.CompleteInviteInput{
+result, err := auth.Services.Invite.CompleteInviteRegistration(ctx, goauth.CompleteInviteInput{
     Code:            rawToken,
     Name:            "Ada Lovelace",
     Password:        "correct horse battery staple 1",
@@ -418,7 +416,7 @@ curl -X POST https://api.myapp.com/auth/login \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Auth.Login(ctx, service.LoginInput{
+result, err := auth.Services.Auth.Login(ctx, goauth.LoginInput{
     Email:     "ada@example.com",
     Password:  "correct horse battery staple 1",
     IP:        r.RemoteAddr,

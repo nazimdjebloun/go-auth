@@ -166,7 +166,7 @@ curl -X PUT https://api.myapp.com/auth/password \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Password.ChangePassword(ctx, service.ChangePasswordInput{
+err := auth.Services.Password.ChangePassword(ctx, goauth.ChangePasswordInput{
     UserID:          userID,
     OldPassword:     "correct horse battery staple 1",
     NewPassword:     "a new stronger passphrase 2",
@@ -260,7 +260,7 @@ curl -X POST https://api.myapp.com/auth/set-password/confirm \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Password.ConfirmSetPassword(ctx, service.ConfirmSetPasswordInput{
+err := auth.Services.Password.ConfirmSetPassword(ctx, goauth.ConfirmSetPasswordInput{
     UserID:      "b3f1...",
     Code:        "ABCD1234",
     NewPassword: "a new strong passphrase 2",
@@ -303,7 +303,7 @@ curl -X POST https://api.myapp.com/auth/forgot-password \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Password.ForgotPassword(ctx, service.ForgotPasswordInput{Email: "ada@example.com"})
+err := auth.Services.Password.ForgotPassword(ctx, goauth.ForgotPasswordInput{Email: "ada@example.com"})
 ```
 
 ---
@@ -348,7 +348,7 @@ curl -X POST https://api.myapp.com/auth/reset-password \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Password.ResetPassword(ctx, service.ResetPasswordInput{
+err := auth.Services.Password.ResetPassword(ctx, goauth.ResetPasswordInput{
     Code:        "the-code-from-the-email",
     NewPassword: "a new strong passphrase 2",
 })
@@ -541,7 +541,7 @@ curl -X POST https://api.myapp.com/auth/account/delete/confirm \
 ```go
 err := auth.Services.Auth.RequestDeleteAccount(ctx, userID)
 
-err = auth.Services.Auth.ConfirmDeleteAccount(ctx, service.ConfirmDeleteAccountInput{
+err = auth.Services.Auth.ConfirmDeleteAccount(ctx, goauth.ConfirmDeleteAccountInput{
     UserID: userID, // always the session's own ID — never take this from client input yourself either
     Code:   "ABCD1234",
 })

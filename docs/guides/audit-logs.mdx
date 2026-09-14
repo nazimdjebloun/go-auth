@@ -152,7 +152,7 @@ curl "https://api.myapp.com/admin/audit-logs?event_type=login.failed&limit=50" \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+result, err := auth.Services.Admin.ListAuditLogs(ctx, goauth.AdminListAuditLogsInput{
     ActorID:    adminID, // the admin making this call
     EventTypes: []string{"login.failed"},
     Limit:      50,
@@ -181,7 +181,7 @@ The matching total for the list, split into its own call so a paginated log view
 **Response** (`200 OK`): `{ "count": 1000 }`
 
 ```go
-n, err := auth.Services.Admin.CountAuditLogs(ctx, service.AdminListAuditLogsInput{
+n, err := auth.Services.Admin.CountAuditLogs(ctx, goauth.AdminListAuditLogsInput{
     ActorID:    adminID,
     EventTypes: []string{"login.failed"},
 })
@@ -212,7 +212,7 @@ curl "https://api.myapp.com/admin/users/b3f1.../audit-logs?limit=50" \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+result, err := auth.Services.Admin.ListAuditLogs(ctx, goauth.AdminListAuditLogsInput{
     ActorID:      adminID,
     TargetUserID: &userID,
     Limit:        50,

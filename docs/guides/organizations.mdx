@@ -98,7 +98,7 @@ curl -X POST https://api.myapp.com/auth/orgs \
 #### Programmatic (Go)
 
 ```go
-org, err := auth.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+org, err := auth.Services.Org.CreateOrg(ctx, goauth.CreateOrgInput{
     Name:    "Acme Inc",
     Slug:    "acme",
     OwnerID: userID,
@@ -165,13 +165,13 @@ curl "https://api.myapp.com/auth/orgs/count?search=acme" -b cookies.txt -c cooki
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
+result, err := auth.Services.Org.ListUserOrgs(ctx, goauth.ListUserOrgsInput{
     UserID: userID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
     OrderBy: "created_at", OrderDirection: "desc",
 })
 // result.Orgs, result.Limit, result.Offset
 
-n, err := auth.Services.Org.CountUserOrgs(ctx, service.ListUserOrgsInput{
+n, err := auth.Services.Org.CountUserOrgs(ctx, goauth.ListUserOrgsInput{
     UserID: userID, Search: &search,
 })
 ```
@@ -180,7 +180,7 @@ n, err := auth.Services.Org.CountUserOrgs(ctx, service.ListUserOrgsInput{
 
 ```go
 role := domain.OrgRoleOwner
-owned, err := auth.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
+owned, err := auth.Services.Org.ListUserOrgs(ctx, goauth.ListUserOrgsInput{
     UserID: userID, Role: &role,
 })
 ```
@@ -218,7 +218,7 @@ curl https://api.myapp.com/auth/orgs/a1b2... -b cookies.txt -c cookies.txt
 #### Programmatic (Go)
 
 ```go
-org, err := auth.Services.Org.GetByID(ctx, service.GetOrgInput{OrgID: orgID, ActorID: callerUserID})
+org, err := auth.Services.Org.GetByID(ctx, goauth.GetOrgInput{OrgID: orgID, ActorID: callerUserID})
 ```
 
 ---
@@ -263,7 +263,7 @@ curl -X PUT https://api.myapp.com/auth/orgs/a1b2... \
 
 ```go
 newName := "Acme Incorporated"
-org, err := auth.Services.Org.UpdateOrg(ctx, service.UpdateOrgInput{
+org, err := auth.Services.Org.UpdateOrg(ctx, goauth.UpdateOrgInput{
     OrgID: orgID,
     Name:  &newName, // nil Slug leaves the slug unchanged
 })
@@ -302,7 +302,7 @@ curl -X DELETE https://api.myapp.com/auth/orgs/a1b2... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.DeleteOrg(ctx, service.DeleteOrgInput{OrgID: orgID, ActorID: callerUserID})
+err := auth.Services.Org.DeleteOrg(ctx, goauth.DeleteOrgInput{OrgID: orgID, ActorID: callerUserID})
 ```
 
 ---
@@ -364,13 +364,13 @@ curl "https://api.myapp.com/auth/orgs/a1b2.../members/count?role=admin&search=ja
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Org.ListMembers(ctx, service.ListMembersInput{
+result, err := auth.Services.Org.ListMembers(ctx, goauth.ListMembersInput{
     OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
     OrderBy: "name", OrderDirection: "asc",
 })
 // result.Members, result.Limit, result.Offset
 
-n, err := auth.Services.Org.CountMembers(ctx, service.ListMembersInput{
+n, err := auth.Services.Org.CountMembers(ctx, goauth.ListMembersInput{
     OrgID: orgID, ActorID: callerUserID, Role: &role, Search: &search,
 })
 ```
@@ -424,11 +424,11 @@ curl -X POST https://api.myapp.com/auth/orgs/a1b2.../leave \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.RemoveMember(ctx, service.RemoveMemberInput{
+err := auth.Services.Org.RemoveMember(ctx, goauth.RemoveMemberInput{
     OrgID: orgID, UserID: targetUserID, ActorID: callerUserID,
 })
 // leaving is the same call with your own ID as UserID (the actor is you):
-err = auth.Services.Org.LeaveOrg(ctx, service.LeaveOrgInput{OrgID: orgID, UserID: callerUserID})
+err = auth.Services.Org.LeaveOrg(ctx, goauth.LeaveOrgInput{OrgID: orgID, UserID: callerUserID})
 ```
 
 ---
@@ -472,7 +472,7 @@ curl -X PATCH https://api.myapp.com/auth/orgs/a1b2.../members/b3f1.../role \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.UpdateMemberRole(ctx, service.UpdateMemberRoleInput{
+err := auth.Services.Org.UpdateMemberRole(ctx, goauth.UpdateMemberRoleInput{
     OrgID:   orgID,
     UserID:  targetUserID,
     NewRole: domain.OrgRoleAdmin,
@@ -563,7 +563,7 @@ curl -X PUT https://api.myapp.com/auth/orgs/active \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.SetActiveOrg(ctx, service.SetActiveOrgInput{SessionID: sessionID, UserID: userID, OrgID: orgID})
+err := auth.Services.Org.SetActiveOrg(ctx, goauth.SetActiveOrgInput{SessionID: sessionID, UserID: userID, OrgID: orgID})
 ```
 
 ---
@@ -596,7 +596,7 @@ curl -X DELETE https://api.myapp.com/auth/orgs/active \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.ClearActiveOrg(ctx, service.ClearActiveOrgInput{SessionID: sessionID})
+err := auth.Services.Org.ClearActiveOrg(ctx, goauth.ClearActiveOrgInput{SessionID: sessionID})
 ```
 
 ---
@@ -654,7 +654,7 @@ curl -X POST https://api.myapp.com/auth/orgs/a1b2.../invites \
 #### Programmatic (Go)
 
 ```go
-invite, err := auth.Services.OrgInvite.CreateOrgInvite(ctx, service.CreateOrgInviteInput{
+invite, err := auth.Services.OrgInvite.CreateOrgInvite(ctx, goauth.CreateOrgInviteInput{
     OrgID:     orgID,
     Email:     "new-hire@example.com",
     Role:      domain.OrgRoleMember,
@@ -704,7 +704,7 @@ curl -X POST https://api.myapp.com/auth/orgs/invites/accept \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.OrgInvite.AcceptInvite(ctx, service.AcceptInviteInput{
+err := auth.Services.OrgInvite.AcceptInvite(ctx, goauth.AcceptInviteInput{
     UserID:  callerUserID,
     RawCode: code,
 })
@@ -760,13 +760,13 @@ curl "https://api.myapp.com/auth/orgs/a1b2.../invites/count?status=pending&searc
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{
+result, err := auth.Services.OrgInvite.ListOrgInvites(ctx, goauth.ListOrgInvitesInput{
     OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
     Status: statusPtr("pending"), OrderBy: "created_at", OrderDirection: "desc",
 })
 // result.Invites, result.Limit, result.Offset
 
-n, err := auth.Services.OrgInvite.CountOrgInvites(ctx, service.ListOrgInvitesInput{
+n, err := auth.Services.OrgInvite.CountOrgInvites(ctx, goauth.ListOrgInvitesInput{
     OrgID: orgID, ActorID: callerUserID, Status: statusPtr("pending"),
 })
 ```

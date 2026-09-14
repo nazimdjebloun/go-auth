@@ -80,7 +80,7 @@ Full reference for both, including how they interact with everything else: [Conf
 ```go
 func myLoginHandler(a *goauth.Auth) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		result, err := a.Services.Auth.Login(r.Context(), service.LoginInput{
+		result, err := a.Services.Auth.Login(r.Context(), goauth.LoginInput{
 			Email:    r.FormValue("email"),
 			Password: r.FormValue("password"),
 		})

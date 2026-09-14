@@ -123,7 +123,7 @@ Use a separate cookie jar from your regular user session while testing — the v
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Auth.AdminLogin(ctx, service.LoginInput{
+result, err := auth.Services.Auth.AdminLogin(ctx, goauth.LoginInput{
     Email:     "root@myapp.com",
     Password:  "a very strong admin password 1",
     IP:        r.RemoteAddr,
@@ -222,7 +222,7 @@ curl "https://api.myapp.com/admin/users?limit=20&search=ada&role=user" \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Admin.ListUsers(ctx, service.AdminListUsersInput{
+result, err := auth.Services.Admin.ListUsers(ctx, goauth.AdminListUsersInput{
     Limit:  20,
     Search: goauth.String("ada"),
 })
@@ -258,7 +258,7 @@ curl "https://api.myapp.com/admin/users/count?role=user&isBanned=true" \
 #### Programmatic (Go)
 
 ```go
-n, err := auth.Services.Admin.CountUsers(ctx, service.AdminListUsersInput{
+n, err := auth.Services.Admin.CountUsers(ctx, goauth.AdminListUsersInput{
     Role: &roleUser,
 })
 ```
@@ -307,7 +307,7 @@ curl https://api.myapp.com/admin/users/b3f1... \
 #### Programmatic (Go)
 
 ```go
-detail, err := auth.Services.Admin.GetUserDetail(ctx, service.GetUserDetailInput{
+detail, err := auth.Services.Admin.GetUserDetail(ctx, goauth.GetUserDetailInput{
     UserID:  userID,
     ActorID: adminID, // the admin making this call
 })
@@ -366,7 +366,7 @@ curl -X POST https://api.myapp.com/admin/users \
 #### Programmatic (Go)
 
 ```go
-user, err := auth.Services.Admin.CreateUser(ctx, service.CreateUserInput{
+user, err := auth.Services.Admin.CreateUser(ctx, goauth.CreateUserInput{
     Email:    "newadmin@myapp.com",
     Password: "a very strong password 1",
     Name:     "New Admin",
@@ -422,7 +422,7 @@ curl -X PATCH https://api.myapp.com/admin/users/b3f1.../role \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.UpdateUserRole(ctx, service.UpdateUserRoleInput{
+err := auth.Services.Admin.UpdateUserRole(ctx, goauth.UpdateUserRoleInput{
     UserID:  userID,
     Role:    "admin",
     ActorID: adminID, // the admin making this call
@@ -467,8 +467,8 @@ curl -X PATCH https://api.myapp.com/admin/users/b3f1.../ban \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.BanUser(ctx, service.BanUserInput{UserID: userID, ActorID: adminID})
-err  = auth.Services.Admin.UnbanUser(ctx, service.UnbanUserInput{UserID: userID, ActorID: adminID})
+err := auth.Services.Admin.BanUser(ctx, goauth.BanUserInput{UserID: userID, ActorID: adminID})
+err  = auth.Services.Admin.UnbanUser(ctx, goauth.UnbanUserInput{UserID: userID, ActorID: adminID})
 ```
 
 ---
@@ -507,7 +507,7 @@ curl -X DELETE https://api.myapp.com/admin/users/b3f1... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.DeleteUser(ctx, service.DeleteUserInput{UserID: userID, ActorID: adminID})
+err := auth.Services.Admin.DeleteUser(ctx, goauth.DeleteUserInput{UserID: userID, ActorID: adminID})
 ```
 
 ---
@@ -543,7 +543,7 @@ curl "https://api.myapp.com/admin/users/b3f1.../sessions?limit=20" \
 #### Programmatic (Go)
 
 ```go
-sessions, total, err := auth.Services.Admin.ListUserSessions(ctx, service.AdminListUserSessionsInput{
+sessions, total, err := auth.Services.Admin.ListUserSessions(ctx, goauth.AdminListUserSessionsInput{
     ActorID: adminID, // the admin making this call
     UserID:  userID,
     Limit:   20,
@@ -586,10 +586,10 @@ curl -X DELETE https://api.myapp.com/admin/users/b3f1.../sessions \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.RevokeUserSession(ctx, service.RevokeUserSessionInput{
+err := auth.Services.Admin.RevokeUserSession(ctx, goauth.RevokeUserSessionInput{
     UserID: userID, SessionID: sessionID, ActorID: adminID,
 })
-err  = auth.Services.Admin.RevokeUserSessions(ctx, service.RevokeUserSessionsInput{
+err  = auth.Services.Admin.RevokeUserSessions(ctx, goauth.RevokeUserSessionsInput{
     UserID: userID, ActorID: adminID,
 }) // all of them
 ```
@@ -627,7 +627,7 @@ curl "https://api.myapp.com/admin/sessions?ip=203.0.113.9" \
 
 ```go
 ip := "203.0.113.9"
-result, err := auth.Services.Admin.ListSessions(ctx, service.AdminListSessionsInput{
+result, err := auth.Services.Admin.ListSessions(ctx, goauth.AdminListSessionsInput{
     ActorID: adminID,
     IP:      &ip,
     Limit:   20,
@@ -651,7 +651,7 @@ Total for the filter above, on its own call (same rationale as [Count users](#co
 **Response**: `{ "count": 5 }`
 
 ```go
-n, err := auth.Services.Admin.CountSessions(ctx, service.AdminListSessionsInput{
+n, err := auth.Services.Admin.CountSessions(ctx, goauth.AdminListSessionsInput{
     ActorID: adminID, IP: &ip,
 })
 ```
@@ -687,7 +687,7 @@ curl -X POST https://api.myapp.com/admin/users/bulk/ban \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Admin.BulkBanUsers(ctx, service.BulkUserActionInput{
+result, err := auth.Services.Admin.BulkBanUsers(ctx, goauth.BulkUserActionInput{
     UserIDs: []string{"b3f1...", "9e2c..."},
     ActorID: adminID,
 })
@@ -784,7 +784,7 @@ curl "https://api.myapp.com/admin/stats/registrations?from=2026-07-01T00:00:00Z&
 #### Programmatic (Go)
 
 ```go
-counts, err := auth.Services.Admin.GetRegistrationTrend(ctx, service.StatsRangeInput{
+counts, err := auth.Services.Admin.GetRegistrationTrend(ctx, goauth.StatsRangeInput{
     ActorID: adminID, From: from, To: to,
 })
 ```
@@ -829,11 +829,11 @@ curl "https://api.myapp.com/admin/stats/logins?from=2026-07-01T00:00:00Z&to=2026
 
 ```go
 // Global
-counts, err := auth.Services.Admin.GetLoginActivity(ctx, service.LoginActivityInput{
+counts, err := auth.Services.Admin.GetLoginActivity(ctx, goauth.LoginActivityInput{
     ActorID: adminID, From: from, To: to,
 })
 // One user
-counts, err = auth.Services.Admin.GetLoginActivity(ctx, service.LoginActivityInput{
+counts, err = auth.Services.Admin.GetLoginActivity(ctx, goauth.LoginActivityInput{
     ActorID: adminID, UserID: &userID, From: from, To: to,
 })
 ```
@@ -877,7 +877,7 @@ curl "https://api.myapp.com/admin/orgs?search=acme" \
 
 ```go
 search := "acme"
-result, err := auth.Services.Org.AdminListOrgs(ctx, service.AdminListOrgsInput{
+result, err := auth.Services.Org.AdminListOrgs(ctx, goauth.AdminListOrgsInput{
     ActorID: adminID,
     Search:  &search,
 })
@@ -900,7 +900,7 @@ Total for [List organizations](#list-organizations--get-adminorgs), split out fo
 **Response**: `{ "count": 42 }`
 
 ```go
-n, err := auth.Services.Org.CountOrgs(ctx, service.AdminListOrgsInput{
+n, err := auth.Services.Org.CountOrgs(ctx, goauth.AdminListOrgsInput{
     ActorID: adminID, Search: &search,
 })
 ```
@@ -927,7 +927,7 @@ curl https://api.myapp.com/admin/orgs/org-123 \
 #### Programmatic (Go)
 
 ```go
-org, err := auth.Services.Org.AdminGetOrg(ctx, service.AdminGetOrgInput{
+org, err := auth.Services.Org.AdminGetOrg(ctx, goauth.AdminGetOrgInput{
     OrgID: "org-123", ActorID: adminID,
 })
 ```
@@ -958,7 +958,7 @@ curl https://api.myapp.com/admin/orgs/org-123/members \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Org.AdminListOrgMembers(ctx, service.AdminListOrgMembersInput{
+result, err := auth.Services.Org.AdminListOrgMembers(ctx, goauth.AdminListOrgMembersInput{
     OrgID: "org-123", ActorID: adminID,
 })
 ```
@@ -980,7 +980,7 @@ Total for the list above. Accepts `role` and `search`; ignores pagination and or
 **Response**: `{ "count": 12 }`
 
 ```go
-n, err := auth.Services.Org.AdminCountOrgMembers(ctx, service.AdminListOrgMembersInput{
+n, err := auth.Services.Org.AdminCountOrgMembers(ctx, goauth.AdminListOrgMembersInput{
     OrgID: "org-123", ActorID: adminID,
 })
 ```
@@ -1016,7 +1016,7 @@ curl "https://api.myapp.com/admin/users/user-123/orgs?role=owner&orderBy=member_
 
 ```go
 role := domain.OrgRoleOwner
-result, err := auth.Services.Org.AdminListUserOrgs(ctx, service.AdminListUserOrgsInput{
+result, err := auth.Services.Org.AdminListUserOrgs(ctx, goauth.AdminListUserOrgsInput{
     ActorID: adminID, UserID: "user-123", Role: &role,
 })
 // result.Orgs, result.Limit, result.Offset
@@ -1041,7 +1041,7 @@ Total for the list above. Accepts `search` and `role`; ignores pagination and or
 **Response**: `{ "count": 3 }`
 
 ```go
-n, err := auth.Services.Org.AdminCountUserOrgs(ctx, service.AdminListUserOrgsInput{
+n, err := auth.Services.Org.AdminCountUserOrgs(ctx, goauth.AdminListUserOrgsInput{
     ActorID: adminID, UserID: "user-123",
 })
 ```
@@ -1073,7 +1073,7 @@ curl -X POST https://api.myapp.com/admin/orgs/org-123/members \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.AdminAddMember(ctx, service.AdminAddMemberInput{
+err := auth.Services.Org.AdminAddMember(ctx, goauth.AdminAddMemberInput{
     OrgID: "org-123", UserID: "b3f1...", Role: domain.OrgRoleOwner, ActorID: adminID,
 })
 ```
@@ -1108,7 +1108,7 @@ curl -X DELETE https://api.myapp.com/admin/orgs/org-123 \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.AdminDeleteOrg(ctx, service.AdminOrgActionInput{
+err := auth.Services.Org.AdminDeleteOrg(ctx, goauth.AdminOrgActionInput{
     OrgID: "org-123", ActorID: adminID,
 })
 ```
@@ -1148,11 +1148,11 @@ curl -X PATCH https://api.myapp.com/admin/orgs/org-123/members/b3f1.../role \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.AdminRemoveMember(ctx, service.AdminRemoveMemberInput{
+err := auth.Services.Org.AdminRemoveMember(ctx, goauth.AdminRemoveMemberInput{
     OrgID: "org-123", UserID: "b3f1...", ActorID: adminID,
 })
 
-err = auth.Services.Org.AdminUpdateMemberRole(ctx, service.AdminUpdateMemberRoleInput{
+err = auth.Services.Org.AdminUpdateMemberRole(ctx, goauth.AdminUpdateMemberRoleInput{
     OrgID: "org-123", UserID: "b3f1...", NewRole: domain.OrgRoleOwner, ActorID: adminID,
 })
 ```
@@ -1218,7 +1218,7 @@ curl -X POST https://api.myapp.com/admin/invites \
 #### Programmatic (Go)
 
 ```go
-invite, err := auth.Services.Invite.CreateInvite(ctx, service.CreateInviteInput{
+invite, err := auth.Services.Invite.CreateInvite(ctx, goauth.CreateInviteInput{
     Email:   "ada@example.com",
     AdminID: adminUserID,
 })
@@ -1253,7 +1253,7 @@ curl "https://api.myapp.com/admin/invites?status=pending&limit=20" \
 #### Programmatic (Go)
 
 ```go
-invites, err := auth.Services.Invite.ListInvites(ctx, service.ListInvitesInput{
+invites, err := auth.Services.Invite.ListInvites(ctx, goauth.ListInvitesInput{
     Status: "pending",
     Limit:  20,
 })
@@ -1276,7 +1276,7 @@ Total for the list, on its own call (same rationale as [Count users](#count-user
 **Response** (`200 OK`): `{ "count": 42 }`
 
 ```go
-n, err := auth.Services.Invite.CountInvites(ctx, service.ListInvitesInput{Status: "pending"})
+n, err := auth.Services.Invite.CountInvites(ctx, goauth.ListInvitesInput{Status: "pending"})
 ```
 
 ```ts
