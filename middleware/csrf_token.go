@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -266,6 +267,9 @@ func RotateCSRFToken(w http.ResponseWriter, cfg *CSRFTokenConfig) {
 func generateCSRFToken(length int, secret []byte) (string, error) {
 	if len(secret) == 0 {
 		return "", errors.New("csrf: signing secret is empty")
+	}
+	if length < 1 {
+		return "", fmt.Errorf("csrf: token length must be positive, got %d", length)
 	}
 	nonce := make([]byte, length)
 	if _, err := rand.Read(nonce); err != nil {
