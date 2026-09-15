@@ -790,6 +790,7 @@ func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...po
 	t.Helper()
 	migrateDB(t, db, "sqlite")
 	opts := []goauth.Option{
+		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",

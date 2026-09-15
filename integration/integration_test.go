@@ -97,6 +97,7 @@ func newSQLiteDB(t *testing.T) (*sql.DB, func()) {
 // as a variable/return type.
 func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 	cfg, err := goauth.NewConfig(
+		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",
@@ -173,6 +174,7 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorCo
 	}
 
 	cfg, err := goauth.NewConfig(
+		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",
@@ -725,6 +727,7 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 	defer closeDB()
 	migrateDB(t, db, "sqlite")
 	cfg, err := goauth.NewConfig(
+		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",
@@ -901,6 +904,7 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 	defer closeDB()
 	migrateDB(t, db, "sqlite")
 	cfg, err := goauth.NewConfig(
+		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",
@@ -2034,6 +2038,7 @@ func newAuthWithCSRFTopology(t *testing.T, db *sql.DB, sameSite http.SameSite, e
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	cfg, err := goauth.NewConfig(
+		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
 			Name:     "TestApp",
 			BaseURL:  "https://api.example.com",
