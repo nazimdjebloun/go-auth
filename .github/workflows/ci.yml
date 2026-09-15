@@ -2,13 +2,54 @@ name: CI
 
 on:
   push:
-    branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
+    inputs:
+      fuzz_time:
+        description: Seconds to fuzz each target in the fuzz job
+        required: false
+        default: "15"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
-  lib:
+  check:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            cmd/goauth/go.sum
+      - run: go build ./...
+      - run: go vet ./...
+
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            cmd/goauth/go.sum
+      - run: go test -count=1 -race -timeout 15m $(go list ./... | grep -v '/integration')
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18
@@ -28,25 +69,71 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: "1.26.6"
-      - run: go build ./...
-      - run: go vet ./...
-      - run: go test -count=1 -race ./...
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            cmd/goauth/go.sum
+      - run: go test -count=1 -race -timeout 30m ./integration/...
         env:
           GOAUTH_POSTGRES_DSN: postgres://goauth:goauth@localhost:5432/goauth?sslmode=disable
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   cli:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: "1.26.6"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            cmd/goauth/go.sum
       - working-directory: cmd/goauth
         run: go build ./...
       - working-directory: cmd/goauth
         run: go vet ./...
       - working-directory: cmd/goauth
-        run: go test -count=1 -race ./...
+        run: go test -count=1 -race -timeout 5m ./...
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            cmd/goauth/go.sum
+      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
       - working-directory: cmd/goauth
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  fuzz:
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      FUZZ_BUDGET: ${{ github.event.inputs.fuzz_time || '5' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            cmd/goauth/go.sum
+      - run: |
+          set -euo pipefail
+          pkgs="domain hasher/argon2id middleware internal/crypto internal/keyring internal/otp internal/schema internal/service emailtemplate token"
+          for p in $pkgs; do
+            targets="$(go test -list '^Fuzz' "./$p" | grep '^Fuzz' || true)"
+            for t in $targets; do
+              echo "fuzzing $p:$t (${FUZZ_BUDGET}s)"
+              go test -fuzz="^$t$" -fuzztime="${FUZZ_BUDGET}s" -run='^$' "./$p"
+            done
+          done
