@@ -1,0 +1,466 @@
+---
+title: "User management"
+description: "securityApi — name changes, 2FA toggle, and account deletion, built on the apiRequest helper."
+icon: "Settings"
+---
+
+# User management client
+
+`securityApi` is a compact wrapper around the self-service account management routes, built on the [`apiRequest`](./index.mdx) helper. The [User management](../user-management.mdx) guide remains the complete request and response reference.
+
+<Callout type="info" title="UI components">
+  All UI examples on this page use [shadcn/ui](https://ui.shadcn.com) with the default base variant. Only layout and styling change between projects — the component API stays the same. Install with `npx shadcn@latest add button input card label alert`.
+</Callout>
+
+## The wrapper
+
+```ts
+// lib/api/user-management.ts
+import { apiRequest } from "./client";
+
+const API_BASE = "/api";
+
+export const userManagementApi = {
+  changeName: (name: string) =>
+    apiRequest(API_BASE, "PUT", "/auth/name", { name }),
+
+  enableTwoFactor: (password: string) =>
+    apiRequest(API_BASE, "POST", "/auth/2fa/enable", { password }),
+
+  disableTwoFactor: (password: string) =>
+    apiRequest(API_BASE, "POST", "/auth/2fa/disable", { password }),
+
+  deleteAccount: (password: string) =>
+    apiRequest(API_BASE, "DELETE", "/auth/account", { password }),
+
+  requestDeleteAccount: () =>
+    apiRequest(API_BASE, "POST", "/auth/account/delete/request"),
+
+  confirmDeleteAccount: (code: string) =>
+    apiRequest(API_BASE, "POST", "/auth/account/delete/confirm", { code }),
+};
+```
+
+Each method returns the matching endpoint response without reshaping errors. For full request/response shapes and error codes, see the [User management](../user-management.mdx) guide.
+
+## Error handling
+
+Every API error returns the same shape. Handle it uniformly across all calls:
+
+```ts
+// lib/api/client.ts
+export class AuthError extends Error {
+  code: string;
+  retryAfter?: number;
+
+  constructor(body: { error: string; message: string }, status: number, retryAfter?: number) {
+    super(body.message);
+    this.name = "AuthError";
+    this.code = body.error;
+    this.retryAfter = retryAfter;
+  }
+}
+```
+
+Map error codes to user-facing messages:
+
+```ts
+// lib/auth-errors.ts
+const errorMessages: Record<string, string> = {
+  wrong_password: "Incorrect password",
+  validation_error: "Name cannot be empty",
+  two_factor_already_enforced: "Two-factor is already required",
+  password_required: "Password is required to delete your account",
+  password_account: "Use password deletion instead",
+  delete_code_invalid: "Invalid deletion code",
+  delete_code_already_used: "This code has already been used",
+  delete_code_expired: "This code has expired",
+  email_not_configured: "Email is not configured",
+  rate_limit_exceeded: "Too many attempts, please try again later",
+};
+
+export function getErrorMessage(err: { error?: string; message?: string }): string {
+  if (err.error && err.error in errorMessages) {
+    return errorMessages[err.error];
+  }
+  return err.message ?? "Something went wrong";
+}
+```
+
+Use it in forms:
+
+```tsx
+import { getErrorMessage } from "../lib/auth-errors";
+
+// inside catch block
+} catch (err: any) {
+  setError(getErrorMessage(err));
+}
+```
+
+## Change name
+
+### Change name form
+
+```tsx
+// components/change-name-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { userManagementApi } from "../lib/api/user-management";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function ChangeNameForm({ currentName }: { currentName: string }) {
+  const [name, setName] = useState(currentName);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSuccess(false);
+    setLoading(true);
+
+    try {
+      await userManagementApi.changeName(name);
+      setSuccess(true);
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Change name</CardTitle>
+        <CardDescription>Update your display name</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {success && (
+            <Alert>
+              <AlertDescription>Name updated</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
+
+          <Button type="submit" className="w-full" disabled={loading || name === currentName}>
+            {loading ? "Saving..." : "Save"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Two-factor authentication
+
+### Two-factor settings
+
+```tsx
+// components/two-factor-settings.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { userManagementApi } from "../lib/api/user-management";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function TwoFactorSettings({
+  isEnabled,
+  onToggle,
+}: {
+  isEnabled: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleToggle() {
+    setError(null);
+    setLoading(true);
+
+    try {
+      if (isEnabled) {
+        await userManagementApi.disableTwoFactor(password);
+        onToggle(false);
+      } else {
+        await userManagementApi.enableTwoFactor(password);
+        onToggle(true);
+      }
+      setPassword("");
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Two-factor authentication</CardTitle>
+        <CardDescription>
+          {isEnabled ? "Two-factor is currently enabled" : "Two-factor is currently disabled"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Current password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <Button
+            variant={isEnabled ? "destructive" : "default"}
+            className="w-full"
+            onClick={handleToggle}
+            disabled={loading || !password}
+          >
+            {loading
+              ? isEnabled
+                ? "Disabling..."
+                : "Enabling..."
+              : isEnabled
+                ? "Disable two-factor"
+                : "Enable two-factor"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Delete account
+
+### Delete with password
+
+For accounts that have a password. Immediate deletion.
+
+```tsx
+// components/delete-account-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { userManagementApi } from "../lib/api/user-management";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function DeleteAccountWithPassword() {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleDelete() {
+    setError(null);
+    setLoading(true);
+
+    try {
+      await userManagementApi.deleteAccount(password);
+      window.location.href = "/login";
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Delete account</CardTitle>
+        <CardDescription>This action cannot be undone</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <Button
+            variant="destructive"
+            className="w-full"
+            onClick={handleDelete}
+            disabled={loading || !password}
+          >
+            {loading ? "Deleting..." : "Delete account"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Delete with emailed code (OAuth-only accounts)
+
+For accounts without a password. Two-step: request a code, then confirm with it.
+
+```tsx
+// components/delete-account-oauth.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { userManagementApi } from "../lib/api/user-management";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function DeleteAccountOAuth() {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  async function handleRequestCode() {
+    setError(null);
+    setSending(true);
+
+    try {
+      await userManagementApi.requestDeleteAccount();
+      setCodeSent(true);
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleConfirm() {
+    setError(null);
+    setLoading(true);
+
+    try {
+      await userManagementApi.confirmDeleteAccount(code);
+      window.location.href = "/login";
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Delete account</CardTitle>
+        <CardDescription>This action cannot be undone</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {!codeSent ? (
+            <Button
+              variant="destructive"
+              className="w-full"
+              onClick={handleRequestCode}
+              disabled={sending}
+            >
+              {sending ? "Sending code..." : "Send deletion code"}
+            </Button>
+          ) : (
+            <>
+              <Alert>
+                <AlertDescription>Check your email for a deletion code</AlertDescription>
+              </Alert>
+
+              <div className="space-y-2">
+                <Label htmlFor="code">Deletion code</Label>
+                <Input
+                  id="code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="ABCD1234"
+                  required
+                />
+              </div>
+
+              <Button
+                variant="destructive"
+                className="w-full"
+                onClick={handleConfirm}
+                disabled={loading || !code}
+              >
+                {loading ? "Deleting..." : "Confirm deletion"}
+              </Button>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Next
+
+- [Setup](./index.mdx) — the `apiRequest` helper this is built on
+- [User management](../user-management.mdx) — full request/response/error reference for each of these endpoints

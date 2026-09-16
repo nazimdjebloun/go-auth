@@ -72,11 +72,11 @@ export async function apiRequest(baseUrl: string, method: string, path: string, 
 }
 ```
 
-`credentials: "include"` makes the browser send and store the `HttpOnly` session and refresh cookies. `_csrf` and `X-CSRF-Token` are the defaults; both are configurable on `CSRFTokenConfig` (see [Configuration → WithSecurity](../../configuration.mdx#withsecurity--required-allowedorigins)). `getCSRFToken` reads the cookie for same-origin and sibling-subdomain deployments, and reads the `{ "token": "..." }` body for different registrable domains. In the latter topology it calls `/auth/csrf-token` before each mutation, so it also picks up rotations that JavaScript cannot observe through `document.cookie`.
+`credentials: "include"` makes the browser send and store the `HttpOnly` session and refresh cookies. `_csrf` and `X-CSRF-Token` are the defaults; both are configurable on `CSRFTokenConfig` (see [Configuration → WithSecurity](../../configuration.mdx#withsecurity-required-allowedorigins)). `getCSRFToken` reads the cookie for same-origin and sibling-subdomain deployments, and reads the `{ "token": "..." }` body for different registrable domains. In the latter topology it calls `/auth/csrf-token` before each mutation, so it also picks up rotations that JavaScript cannot observe through `document.cookie`.
 
 Leaving `CSRFToken` `nil` server-side does **not** disable the layer; the server creates the default configuration. With `DisableCSRFToken: true`, `getCSRFToken` returns `null` and the wrapper sends no CSRF header.
 
-Use `setUnauthorizedHandler` to clear stale client state when any request finds that a session was revoked, banned, or expired. The [Provider](./provider.mdx) wires it to clear the app-wide user state on `401` or `403 user_banned`.
+Use `setUnauthorizedHandler` to clear stale client state when any request finds that a session was revoked, banned, or expired. The [Provider](./auth-provider.mdx) wires it to clear the app-wide user state on `401` or `403 user_banned`.
 
 On a `429`, the thrown error also carries `retryAfter`: the `Retry-After` header value in seconds.
 
@@ -84,7 +84,7 @@ On a `429`, the thrown error also carries `retryAfter`: the `Retry-After` header
 
 - The individual feature guides (e.g. [Authentication](../authentication.mdx)) show the **raw** call — `apiRequest(API_BASE, "POST", "/auth/login", ...)` — right next to the curl and Go examples for that same endpoint, so you can see the request/response map 1:1 to what's documented above it.
 - [Authentication](./authentication.mdx), [Sessions](./sessions.mdx), [Organizations](./organizations.mdx), [Security](./security.mdx), [OAuth linking](./oauth.mdx), and [Admin](./admin.mdx) wrap those same calls into named methods — `authApi.login(...)`, `sessionsApi.list(...)`, `orgApi.create(...)`, `securityApi.changePassword(...)`, `oauthApi.link(...)`, `adminApi.listUsers(...)` — the form you'd actually want in an app.
-- [Provider](./provider.mdx) wraps *those* in a React context, so components read `user`/`loading` from one hook instead of calling the API directly.
+- [Provider](./auth-provider.mdx) wraps *those* in a React context, so components read `user`/`loading` from one hook instead of calling the API directly.
 - [Middleware](./middleware.mdx) is a different layer entirely — it runs on the server, before any of the above, to redirect unauthenticated requests away from protected pages.
 
 ## Next

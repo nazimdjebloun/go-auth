@@ -71,7 +71,7 @@ goauth.WithCookie(goauth.CookieConfig{
 
 No field on `CookieConfig` reaches validation as an error — every field is defaulted before the config is checked.
 
-Full reference for both, including how they interact with everything else: [Configuration → WithSession](../configuration.mdx#withsession--optional) and [Configuration → WithCookie](../configuration.mdx#withcookie--optional).
+Full reference for both, including how they interact with everything else: [Configuration → WithSession](../configuration.mdx#withsession-optional) and [Configuration → WithCookie](../configuration.mdx#withcookie-optional).
 
 ## Writing your own login handler
 
@@ -226,6 +226,64 @@ There's no dedicated "get me" service method — the HTTP layer reads the user a
 const me = await apiRequest(API_BASE, "GET", "/auth/me");
 ```
 
+## Refreshing tokens
+
+### `POST /auth/refresh` — Refresh cookie required
+
+Rotates both the session token and refresh token. The refresh token comes from the cookie, not the body. On success, new `Set-Cookie` headers are issued for both tokens. On failure, both cookies are cleared.
+
+This is what `AuthMiddleware` calls transparently when the session cookie has expired but the refresh cookie is still valid — but you can also call it explicitly if you want to force a rotation.
+
+```json
+{
+  "session": {
+    "id": "9e2c...",
+    "userId": "b3f1...",
+    "ipAddress": "203.0.113.4",
+    "userAgent": "Mozilla/5.0 ...",
+    "isRevoked": false,
+    "expiresAt": "2026-09-08T12:00:00Z",
+    "refreshExpiresAt": "2026-09-13T12:00:00Z",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "lastActiveAt": "2026-09-06T12:31:00Z"
+  }
+}
+```
+
+| Code | Status | Cause |
+|---|---|---|
+| `invalid_refresh` | 401 | No refresh cookie, or one that expired / was revoked |
+
+---
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/refresh \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt -c cookies.txt
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+result, err := auth.Services.Session.Refresh(ctx, refreshToken)
+// result.SessionToken / result.RefreshToken are the raw values — set them as cookies yourself
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/refresh");
+// new cookies are set automatically by the browser
+```
+
+For explicit refresh usage, see [Client → Refresh tokens](./client/sessions.mdx#refresh-tokens).
+
 ## Listing sessions
 
 Both endpoints return the caller's **own** sessions only, plus `currentSessionId` so the UI can highlight the device in use and disable its own revoke button.
@@ -293,6 +351,8 @@ const { sessions, total, currentSessionId } = await apiRequest(
 );
 ```
 
+For a complete session list UI with pagination, see [Client → Sessions](./client/sessions.mdx#list-sessions-paginated).
+
 ---
 
 ### All at once — `GET /auth/sessions/all`
@@ -333,6 +393,8 @@ sessions, err := auth.Services.Session.ListAll(ctx, userID)
 ```ts
 const { sessions, currentSessionId } = await apiRequest(API_BASE, "GET", "/auth/sessions/all");
 ```
+
+For a complete session list UI, see [Client → Sessions](./client/sessions.mdx#list-all-sessions).
 
 ## Revoking sessions
 
@@ -379,6 +441,8 @@ if err == nil && !revoked {
 ```ts
 await apiRequest(API_BASE, "DELETE", `/auth/sessions/${sessionId}`);
 ```
+
+For a complete revoke button, see [Client → Sessions](./client/sessions.mdx#revoke-one-session).
 
 ---
 
@@ -428,6 +492,8 @@ const { revoked } = await apiRequest(API_BASE, "POST", "/auth/sessions/revoke", 
 });
 ```
 
+For a complete session list with revoke, see [Client → Sessions](./client/sessions.mdx#revoke-multiple-sessions).
+
 ---
 
 ### Revoke all but current — `DELETE /auth/sessions`
@@ -468,10 +534,12 @@ err := auth.Services.Session.RevokeAll(ctx, userID)
 await apiRequest(API_BASE, "DELETE", "/auth/sessions");
 ```
 
+For a complete "log out everywhere else" button, see [Client → Sessions](./client/sessions.mdx#revoke-all-except-current).
+
 ## Next
 
 - [Authentication](./authentication.mdx) — register/login/logout, and the `Origin`-checking rules these endpoints share
-- [Routes](../routes.mdx) — the full path/param reference, including admin session management
+- [Routes](../routes/sessions.mdx) — the full path/param reference, including [admin session management](../routes/admin.mdx#user-sessions)
 - [Security](../security.mdx) — session hashing, refresh rotation, and the reuse-detection grace window
 - [Deployment](./deployment.mdx) for how these cookies behave when the frontend and the API are on different hosts
 - [Schemas](../schemas.mdx#sessions) — the `sessions` table this page reads and writes

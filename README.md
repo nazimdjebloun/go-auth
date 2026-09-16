@@ -164,7 +164,7 @@ the built-in handlers, cookies, CSRF checks, and route middleware.
   rule
 - [Security](docs/security.mdx) — password migration, peppers, tokens, CSRF, 2FA,
   and enumeration protection
-- [Routes](docs/routes.mdx) — HTTP methods, paths, authentication, and bodies
+- [Routes](docs/routes/) — HTTP methods, paths, authentication, and bodies
 - [Schemas](docs/schemas.mdx) — tables, indexes, migrations, and driver differences
 - [Guides](docs/guides/) — authentication, sessions, organizations, OAuth,
   administration, rate limiting, and audit logs

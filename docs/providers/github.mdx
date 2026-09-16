@@ -93,7 +93,7 @@ window.location.href = url;
 
 GitHub redirects here itself — your frontend never calls this URL directly. On success it sets session cookies and redirects the browser to `{BaseURL}/auth/callback`; on failure, to `{BaseURL}/auth/callback?error={code}&provider=github`. Your frontend route at `{BaseURL}/auth/callback` reads that query string to know whether to show the app or an error.
 
-See [Routes](../routes.mdx#oauth--requires-enableoauth-and-at-least-one-registered-provider) for the full parameter reference, [Error Handling](../error-handling.mdx#oauth) for every error this can redirect back with, and [Guides → OAuth linking](../guides/oauth.mdx) for connecting GitHub to an account that's already logged in (a different flow from the sign-in one above).
+See [Routes](../routes/oauth.mdx) for the full parameter reference, [Error Handling](../error-handling.mdx#oauth) for every error this can redirect back with, and [Guides → OAuth linking](../guides/oauth.mdx) for connecting GitHub to an account that's already logged in (a different flow from the sign-in one above).
 
 ## Next
 

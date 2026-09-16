@@ -8,10 +8,17 @@ icon: "KeySquare"
 
 `authApi` is a compact wrapper around the common authentication routes, built on the [`apiRequest`](./index.mdx) helper. The [Authentication](../authentication.mdx) guide remains the complete request and response reference.
 
-```ts
-import { apiRequest } from "./client"; // wherever you put the Setup page's helper
+<Callout type="info" title="UI components">
+  All UI examples on this page use [shadcn/ui](https://ui.shadcn.com) with the default base variant. Only layout and styling change between projects — the component API stays the same. Install with `npx shadcn@latest add button input card label alert`.
+</Callout>
 
-const API_BASE = "https://api.myapp.com";
+## The wrapper
+
+```ts
+// lib/api/auth.ts
+import { apiRequest } from "./client";
+
+const API_BASE = "/api";
 
 export const authApi = {
   register: (input: { email: string; password: string; name: string }) =>
@@ -29,6 +36,21 @@ export const authApi = {
 
   resendTwoFactor: (challengeId: string) =>
     apiRequest(API_BASE, "POST", "/auth/2fa/resend", { challengeId }),
+
+  enableTwoFactor: (password: string) =>
+    apiRequest(API_BASE, "POST", "/auth/2fa/enable", { password }),
+
+  disableTwoFactor: (password: string) =>
+    apiRequest(API_BASE, "POST", "/auth/2fa/disable", { password }),
+
+  deleteAccount: (password: string) =>
+    apiRequest(API_BASE, "DELETE", "/auth/account", { password }),
+
+  requestDeleteAccount: () =>
+    apiRequest(API_BASE, "POST", "/auth/account/delete/request"),
+
+  confirmDeleteAccount: (code: string) =>
+    apiRequest(API_BASE, "POST", "/auth/account/delete/confirm", { code }),
 
   verifyEmail: (code: string) =>
     apiRequest(API_BASE, "POST", "/auth/verify-email", { code }),
@@ -48,40 +70,950 @@ export const authApi = {
 };
 ```
 
-Each method returns the matching endpoint response without reshaping errors. `register`, `login`, logout, verification, two-factor, and invite methods are documented on the [Authentication](../authentication.mdx) guide. `me` is documented in [Sessions → Checking who's logged in](../sessions.mdx#checking-whos-logged-in).
+Each method returns the matching endpoint response without reshaping errors. For full request/response shapes and error codes, see the [Authentication](../authentication.mdx) guide.
 
-## Using it
+## Error handling
+
+Every API error returns the same shape. Handle it uniformly across all auth calls:
 
 ```ts
-const result = await authApi.login({ email, password });
+// lib/api/client.ts
+export class AuthError extends Error {
+  code: string;
+  retryAfter?: number;
 
-if (result.requiresVerification) {
-  // show a "verify your email" screen
-} else if (result.requiresTwoFactor) {
-  // retain result.challengeId and show the emailed-code screen
-} else {
-  setUser(result.user); // cookies are already set by the browser
+  constructor(body: { error: string; message: string }, status: number, retryAfter?: number) {
+    super(body.message);
+    this.name = "AuthError";
+    this.code = body.error;
+    this.retryAfter = retryAfter;
+  }
 }
 ```
 
-```ts
-const result = await authApi.verifyTwoFactor(challengeId, code);
-setUser(result.user);
-```
+Map error codes to user-facing messages:
 
 ```ts
-try {
-  await authApi.register({ email, password, name });
-} catch (err) {
-  // err is the parsed { error, message } body — see Error Handling
-  showError(err.message ?? err.error);
+// lib/auth-errors.ts
+const errorMessages: Record<string, string> = {
+  invalid_credentials: "Wrong email or password",
+  email_already_exists: "An account with this email already exists",
+  weak_password: "Password is too weak",
+  name_required: "Name is required",
+  user_banned: "This account has been suspended",
+  method_disabled: "This registration method is not available",
+  forbidden: "Registration is invite-only",
+  code_invalid: "Invalid verification code",
+  code_already_used: "This code has already been used",
+  code_expired: "This code has expired",
+  two_factor_code_invalid: "Invalid two-factor code",
+  two_factor_code_expired: "Two-factor code has expired",
+  two_factor_already_enforced: "Two-factor is already required",
+  rate_limit_exceeded: "Too many attempts, please try again later",
+};
+
+export function getErrorMessage(err: { error?: string; message?: string }): string {
+  if (err.error && err.error in errorMessages) {
+    return errorMessages[err.error];
+  }
+  return err.message ?? "Something went wrong";
 }
 ```
 
+Use it in forms:
+
+```tsx
+import { getErrorMessage } from "../lib/auth-errors";
+
+// inside catch block
+} catch (err: any) {
+  setError(getErrorMessage(err));
+}
+```
+
+## Register
+
+### Register form
+
+```tsx
+// components/register-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { authApi } from "../lib/api/auth";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function RegisterForm() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = await authApi.register({ email, password, name });
+
+      if (result.requiresVerification) {
+        window.location.href = "/verify-email";
+      } else if (result.requiresTwoFactor) {
+        window.location.href = `/two-factor?challengeId=${result.challengeId}`;
+      } else {
+        window.location.href = "/dashboard";
+      }
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Create account</CardTitle>
+        <CardDescription>Enter your details to get started</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Creating account..." : "Create account"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Email verification
+
+### Verify email form
+
+Shown when `register()` returns `requiresVerification: true`.
+
+```tsx
+// components/verify-email-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { authApi } from "../lib/api/auth";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function VerifyEmailForm({ email }: { email: string }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      await authApi.verifyEmail(code);
+      window.location.href = "/dashboard";
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    setResending(true);
+    setResent(false);
+    try {
+      await authApi.resendVerification(email);
+      setResent(true);
+    } catch {
+      // resend failures are silent
+    } finally {
+      setResending(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Verify your email</CardTitle>
+        <CardDescription>
+          We sent a code to {email}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {resent && (
+            <Alert>
+              <AlertDescription>Code resent — check your inbox</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="code">Verification code</Label>
+            <Input
+              id="code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="000000"
+              required
+            />
+          </div>
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Verifying..." : "Verify email"}
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={handleResend}
+            disabled={resending}
+          >
+            {resending ? "Sending..." : "Resend code"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Invite registration
+
+### Invite registration form
+
+Shown when a user arrives via an invite link (`/invite?token=...`). Looks up the invite to show the invited email, then completes registration.
+
+```tsx
+// components/invite-register-form.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { authApi } from "../lib/api/auth";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function InviteRegisterForm({ token }: { token: string }) {
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fetching, setFetching] = useState(true);
+
+  useEffect(() => {
+    authApi
+      .getInviteInfo(token)
+      .then((res) => setEmail(res.email))
+      .catch(() => setError("Invalid or expired invite"))
+      .finally(() => setFetching(false));
+  }, [token]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (password !== confirmPassword) {
+      setError("Passwords don't match");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await authApi.completeInviteRegistration({
+        code: token,
+        name,
+        password,
+        confirmPassword,
+      });
+
+      if (result.requiresTwoFactor) {
+        window.location.href = `/two-factor?challengeId=${result.challengeId}`;
+      } else {
+        window.location.href = "/dashboard";
+      }
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (fetching) {
+    return (
+      <Card className="w-full max-w-sm">
+        <CardContent className="pt-6">
+          <p className="text-sm text-muted-foreground">Loading invite...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Accept invite</CardTitle>
+        <CardDescription>
+          {email ? `You've been invited as ${email}` : "Invalid or expired invite"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="confirmPassword">Confirm password</Label>
+            <Input
+              id="confirmPassword"
+              type="password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <Button type="submit" className="w-full" disabled={loading || !email}>
+            {loading ? "Creating account..." : "Create account"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Login
+
+### Login flow
+
+The login response branches into three paths. Handle all three:
+
 ```ts
-await authApi.logout();
-setUser(null);
-window.location.href = "/login";
+// hooks/use-login.ts
+import { authApi } from "../lib/api/auth";
+
+type LoginOutcome =
+  | { success: true; user: User }
+  | { success: false; requiresVerification: true }
+  | { success: false; requiresTwoFactor: true; challengeId: string };
+
+export async function login(
+  email: string,
+  password: string
+): Promise<LoginOutcome> {
+  const result = await authApi.login({ email, password });
+
+  if (result.requiresVerification) {
+    return { success: false, requiresVerification: true };
+  }
+
+  if (result.requiresTwoFactor) {
+    return { success: false, requiresTwoFactor: true, challengeId: result.challengeId };
+  }
+
+  return { success: true, user: result.user };
+}
+```
+
+### Login form
+
+```tsx
+// components/login-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { login } from "../hooks/use-login";
+
+export function LoginForm() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      const result = await login(email, password);
+
+      if (result.success) {
+        window.location.href = "/dashboard";
+      } else if (result.requiresVerification) {
+        window.location.href = "/verify-email";
+      } else if (result.requiresTwoFactor) {
+        window.location.href = `/two-factor?challengeId=${result.challengeId}`;
+      }
+    } catch (err: any) {
+      setError(err.message ?? err.error ?? "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Log in</CardTitle>
+        <CardDescription>Enter your email and password</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Logging in..." : "Log in"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Two-factor authentication
+
+### Verify form
+
+Shown when `login()` or `register()` returns `requiresTwoFactor: true`. The `challengeId` comes from the login response.
+
+```tsx
+// components/two-factor-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { authApi } from "../lib/api/auth";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function TwoFactorForm({ challengeId }: { challengeId: string }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
+
+    try {
+      await authApi.verifyTwoFactor(challengeId, code);
+      window.location.href = "/dashboard";
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    setResending(true);
+    try {
+      await authApi.resendTwoFactor(challengeId);
+    } catch {
+      // resend failures are silent — the user can try again
+    } finally {
+      setResending(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Two-factor authentication</CardTitle>
+        <CardDescription>Enter the code sent to your email</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="code">Code</Label>
+            <Input
+              id="code"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              placeholder="000000"
+              required
+            />
+          </div>
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? "Verifying..." : "Verify"}
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            className="w-full"
+            onClick={handleResend}
+            disabled={resending}
+          >
+            {resending ? "Sending..." : "Resend code"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Enable/disable form
+
+Shown in account settings. Both require the user's current password.
+
+```tsx
+// components/two-factor-settings.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { authApi } from "../lib/api/auth";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function TwoFactorSettings({
+  isEnabled,
+  onToggle,
+}: {
+  isEnabled: boolean;
+  onToggle: (enabled: boolean) => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleToggle() {
+    setError(null);
+    setLoading(true);
+
+    try {
+      if (isEnabled) {
+        await authApi.disableTwoFactor(password);
+        onToggle(false);
+      } else {
+        await authApi.enableTwoFactor(password);
+        onToggle(true);
+      }
+      setPassword("");
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Two-factor authentication</CardTitle>
+        <CardDescription>
+          {isEnabled ? "Two-factor is currently enabled" : "Two-factor is currently disabled"}
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Current password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <Button
+            variant={isEnabled ? "destructive" : "default"}
+            className="w-full"
+            onClick={handleToggle}
+            disabled={loading || !password}
+          >
+            {loading
+              ? isEnabled
+                ? "Disabling..."
+                : "Enabling..."
+              : isEnabled
+                ? "Disable two-factor"
+                : "Enable two-factor"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Logout
+
+### Logout button
+
+```tsx
+// components/logout-button.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { authApi } from "../lib/api/auth";
+
+export function LogoutButton() {
+  const [loading, setLoading] = useState(false);
+
+  async function handleLogout() {
+    setLoading(true);
+    try {
+      await authApi.logout();
+      window.location.href = "/login";
+    } catch {
+      // logout failed — keep the user on the page, don't clear local state
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Button variant="ghost" onClick={handleLogout} disabled={loading}>
+      {loading ? "Logging out..." : "Log out"}
+    </Button>
+  );
+}
+```
+
+<Callout type="warn" title="Don't clear local state on failure">
+  If `POST /auth/logout` returns an error, the session is still valid server-side. Do not clear user state or redirect — the user is still logged in.
+</Callout>
+
+## Delete account
+
+Two paths depending on whether the account has a password.
+
+### Delete with password
+
+For accounts that have a password. Immediate deletion.
+
+```tsx
+// components/delete-account-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { authApi } from "../lib/api/auth";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function DeleteAccountWithPassword() {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleDelete() {
+    setError(null);
+    setLoading(true);
+
+    try {
+      await authApi.deleteAccount(password);
+      window.location.href = "/login";
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Delete account</CardTitle>
+        <CardDescription>This action cannot be undone</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <Label htmlFor="password">Password</Label>
+            <Input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+          </div>
+
+          <Button
+            variant="destructive"
+            className="w-full"
+            onClick={handleDelete}
+            disabled={loading || !password}
+          >
+            {loading ? "Deleting..." : "Delete account"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Delete with emailed code (OAuth-only accounts)
+
+For accounts without a password. Two-step: request a code, then confirm with it.
+
+```tsx
+// components/delete-account-oauth.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { authApi } from "../lib/api/auth";
+import { getErrorMessage } from "../lib/auth-errors";
+
+export function DeleteAccountOAuth() {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [sending, setSending] = useState(false);
+
+  async function handleRequestCode() {
+    setError(null);
+    setSending(true);
+
+    try {
+      await authApi.requestDeleteAccount();
+      setCodeSent(true);
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleConfirm() {
+    setError(null);
+    setLoading(true);
+
+    try {
+      await authApi.confirmDeleteAccount(code);
+      window.location.href = "/login";
+    } catch (err: any) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card className="w-full max-w-sm">
+      <CardHeader>
+        <CardTitle>Delete account</CardTitle>
+        <CardDescription>This action cannot be undone</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+
+          {!codeSent ? (
+            <Button
+              variant="destructive"
+              className="w-full"
+              onClick={handleRequestCode}
+              disabled={sending}
+            >
+              {sending ? "Sending code..." : "Send deletion code"}
+            </Button>
+          ) : (
+            <>
+              <Alert>
+                <AlertDescription>Check your email for a deletion code</AlertDescription>
+              </Alert>
+
+              <div className="space-y-2">
+                <Label htmlFor="code">Deletion code</Label>
+                <Input
+                  id="code"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  placeholder="ABCD1234"
+                  required
+                />
+              </div>
+
+              <Button
+                variant="destructive"
+                className="w-full"
+                onClick={handleConfirm}
+                disabled={loading || !code}
+              >
+                {loading ? "Deleting..." : "Confirm deletion"}
+              </Button>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 ```
 
 ## Next

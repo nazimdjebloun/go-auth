@@ -1,0 +1,11 @@
+{
+  "title": "Routes",
+  "pages": [
+    "index",
+    "auth",
+    "oauth",
+    "sessions",
+    "orgs",
+    "admin"
+  ]
+}

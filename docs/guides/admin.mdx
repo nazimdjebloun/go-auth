@@ -8,7 +8,7 @@ icon: "ShieldUser"
 
 Everything here requires `role: "admin"` on the calling user — routes are wrapped in `RequireRole(domain.RoleAdmin, nil)` on top of the normal `AuthMiddleware`, so an expired or missing session fails the same way it does everywhere else, and a valid session with `role: "user"` gets `403 forbidden`.
 
-For the full path/param reference see [Routes](../routes.mdx#admin--users). For viewing what admins (and everyone else) have done, see [Audit Logs](./audit-logs.mdx).
+For the full path/param reference see [Routes](../routes/admin.mdx#user-management). For viewing what admins (and everyone else) have done, see [Audit Logs](./audit-logs.mdx).
 
 ## Configuration
 
@@ -43,7 +43,7 @@ That email is fixed HTML-and-text content with no app name, links, or configurab
 | Skip the mailer send | `--skip-mailer-check` | — | Still builds a mailer if SMTP config is present; just doesn't require the send to succeed. Prints a loud warning either way. |
 | Allow a second admin | `--force` | — | Without it, seeding refuses outright if any `role: admin` row already exists. |
 
-**`--env dev` with no SMTP flags/env set** uses a log-only mailer instead of real SMTP — the same [`LogMailer`](../configuration.mdx#withmailer--withemail--withtemplates--required) `NewConfig` defaults to automatically in `EnvironmentDev`. The "verification email" is written to the command's log output instead of actually sent, so local bootstrapping needs no SMTP setup at all:
+**`--env dev` with no SMTP flags/env set** uses a log-only mailer instead of real SMTP — the same [`LogMailer`](../configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off) `NewConfig` defaults to automatically in `EnvironmentDev`. The "verification email" is written to the command's log output instead of actually sent, so local bootstrapping needs no SMTP setup at all:
 
 ```bash
 go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest seed-admin \
@@ -70,7 +70,7 @@ Same request shape as [Login](./authentication.mdx#login), but only succeeds for
 | `password` | `string` | Required |
 
 <Callout type="warn" title="Admin login requires a second factor by default">
-  `POST /auth/admin/login` sends a 2FA challenge regardless of `RequireEmail2FA` and the account's `TwoFactorEnabled` setting. It therefore requires a mailer unless `TwoFactorConfig.DisableAdminTwoFactor` is set. Disabling it reduces protection for the highest-privilege login path. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off) and [Security](../security.mdx#two-factor-authentication).
+  `POST /auth/admin/login` sends a 2FA challenge regardless of `RequireEmail2FA` and the account's `TwoFactorEnabled` setting. It therefore requires a mailer unless `TwoFactorConfig.DisableAdminTwoFactor` is set. Disabling it reduces protection for the highest-privilege login path. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off) and [Security](../security.mdx#two-factor-authentication).
 </Callout>
 
 **Response** (`200 OK`) — never a session directly. A correct admin password returns a gated challenge, the same shape [Login](./authentication.mdx#login) uses:
@@ -1393,4 +1393,4 @@ await apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}/hard`);
 - [Audit Logs](./audit-logs.mdx) — every admin action above (and everything else) shows up here
 - [Sessions](./sessions.mdx) — the self-service version of session listing/revocation
 - [Organizations → Invites](./organizations.mdx#invites) — the other kind of invite, scoped to one org
-- [Routes](../routes.mdx#admin--users) — full param reference
+- [Routes](../routes/admin.mdx#user-management) — full param reference

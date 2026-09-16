@@ -8,7 +8,7 @@ icon: "KeyRound"
 
 This page walks through the three entry points to a session — register, login, logout — end to end: which config flags turn each path on, exactly what each endpoint takes and returns, every error it can produce, and three ways to call it: `curl`, directly in Go via `Auth.Services`, and from a browser client.
 
-For the full path/param reference across every route (not just these three), see [Routes](../routes.mdx). For the error envelope shape and codes shared across the whole API, see [Error Handling](../error-handling.mdx).
+For the full path/param reference across every route (not just these three), see [Routes](../routes/). For the error envelope shape and codes shared across the whole API, see [Error Handling](../error-handling.mdx).
 
 ## Configuration
 
@@ -196,6 +196,8 @@ if (result.requiresVerification) {
 }
 ```
 
+For a complete register form with error handling, see [Client → Register](./client/authentication.mdx#register).
+
 ---
 
 ### Verifying the email
@@ -203,7 +205,7 @@ if (result.requiresVerification) {
 Only relevant when `RequireEmailVerification: true`. Two ways in: a link with a code (`POST /auth/verify-email`), or a resend if the email never arrived.
 
 <Callout type="warn" title="A mailer is required either way">
-  Email verification requires `WithMailer` or `WithEmail`. Admin login also requires a mailer while its default 2FA challenge is enabled. In `EnvironmentDev`, a required but unconfigured mailer defaults to log-only delivery. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off).
+  Email verification requires `WithMailer` or `WithEmail`. Admin login also requires a mailer while its default 2FA challenge is enabled. In `EnvironmentDev`, a required but unconfigured mailer defaults to log-only delivery. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off).
 </Callout>
 
 **`POST /auth/verify-email`** — body `{ "code": "..." }`. On success, the handler verifies the user **and** immediately creates a session in the same request — this is the only place verification and login happen in one step.
@@ -259,6 +261,8 @@ result, err := auth.Services.Session.Create(ctx, user.ID, r.RemoteAddr, r.UserAg
 const result = await apiRequest(API_BASE, "POST", "/auth/verify-email", { code });
 // result.user.isVerified is now true, session cookies are set
 ```
+
+For a complete email verification form with resend, see [Client → Email verification](./client/authentication.mdx#email-verification).
 
 ---
 
@@ -345,6 +349,10 @@ const result = await apiRequest(API_BASE, "POST", "/auth/invite/register", {
   confirmPassword,
 });
 ```
+
+For a complete invite registration form, see [Client → Invite registration](./client/authentication.mdx#invite-registration).
+
+---
 
 ## Login
 
@@ -451,6 +459,8 @@ if (result.requiresVerification) {
 }
 ```
 
+For a complete login form with branching logic and error handling, see [Client → Login](./client/authentication.mdx#login).
+
 <Callout type="warn" title="Admin login has its own flow">
   `POST /auth/admin/login` is documented in [Admin](./admin.mdx#admin-login). It requires a second factor by default, independent of other 2FA settings.
 </Callout>
@@ -521,6 +531,8 @@ const result = await apiRequest(API_BASE, "POST", "/auth/2fa/verify", {
 setUser(result.user); // cookies are already set
 ```
 
+For a complete two-factor form with resend, see [Client → Two-factor](./client/authentication.mdx#two-factor-authentication).
+
 ---
 
 ### Resending the code — `POST /auth/2fa/resend`
@@ -555,43 +567,9 @@ result, err := auth.Services.TwoFactor.Resend(ctx, challengeID, bindingToken)
 await apiRequest(API_BASE, "POST", "/auth/2fa/resend", { challengeId });
 ```
 
----
+For a complete two-factor form with resend, see [Client → Two-factor](./client/authentication.mdx#two-factor-authentication).
 
-### Turning 2FA on or off
-
-Both require the account's password, even for an OAuth-authenticated session — this is what stops a compromised OAuth session from turning your second factor off. Rejected with `two_factor_already_enforced` if `RequireEmail2FA` is on.
-
-**`POST /auth/2fa/enable`** — body `{ "password": "...", "keepOtherSessions": false }`. `keepOtherSessions` defaults to `false` if omitted — every other session gets revoked, on the theory that turning 2FA on is usually a response to "I think someone else has my password." Set it to `true` to keep other sessions alive.
-
-**`POST /auth/2fa/disable`** — body `{ "password": "..." }`. No session revocation — turning 2FA off isn't the same signal.
-
-#### curl
-
-```bash
-curl -X POST https://api.myapp.com/auth/2fa/enable \
-  -H "Content-Type: application/json" \
-  -H "Origin: https://myapp.com" \
-  -b cookies.txt \
-  -d '{"password":"correct horse battery staple 1"}'
-```
-
----
-
-#### Programmatic (Go)
-
-```go
-err := auth.Services.TwoFactor.Enable(ctx, userID, password, keepOtherSessions, callerSessionID)
-err = auth.Services.TwoFactor.Disable(ctx, userID, password)
-```
-
----
-
-#### Client
-
-```ts
-await apiRequest(API_BASE, "POST", "/auth/2fa/enable", { password: currentPassword });
-await apiRequest(API_BASE, "POST", "/auth/2fa/disable", { password: currentPassword });
-```
+For enabling and disabling 2FA, see [User management → Two-factor](./user-management.mdx#two-factor-authentication).
 
 ## Logout
 
@@ -621,7 +599,7 @@ The HTTP handler revokes by the raw session token — the same value stored in t
 err := auth.Services.Session.Revoke(ctx, sessionToken) // sessionToken is the raw value from the cookie, not the session's ID
 ```
 
-If you only have the session ID instead (e.g. an admin ending one specific session — see [Routes → Sessions](../routes.mdx)), use `auth.Services.Auth.Logout(ctx, sessionID)` instead — same effect, looked up differently.
+If you only have the session ID instead (e.g. an admin ending one specific session — see [Routes → Sessions](../routes/sessions.mdx)), use `auth.Services.Auth.Logout(ctx, sessionID)` instead — same effect, looked up differently.
 
 ---
 
@@ -633,10 +611,15 @@ setUser(null);
 window.location.href = "/login";
 ```
 
+For a complete logout button with error handling, see [Client → Logout](./client/authentication.mdx#logout).
+
+For account deletion and name changes, see [User management](./user-management.mdx).
+
 ## Next
 
-- [Security](./security.mdx) — password/name changes, verification resend, and account deletion
+- [User management](./user-management.mdx) — name changes, 2FA toggle, and account deletion
+- [Security](./security.mdx) — password changes and verification resend
 - [Admin](./admin.mdx) — admin login and platform-wide user management
-- [Routes](../routes.mdx) — every other endpoint, including sessions, password, and account management
+- [Routes](../routes/auth.mdx) — every other endpoint, including sessions, password, and account management
 - [Error Handling](../error-handling.mdx) — the full error code list
 - [Providers](../providers/index.mdx) — OAuth setup for GitHub and Google

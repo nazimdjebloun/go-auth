@@ -1,0 +1,410 @@
+---
+title: "Organizations"
+description: "Orgs, members, invites, and the per-session active org."
+icon: "Building2"
+---
+
+# Organizations
+
+Mounted only when organizations are enabled. Every route needs the session cookie. With the feature off, each route answers `404 {"error": "not_found", "message": "Organizations not enabled"}` instead. Roles are `owner`, `admin`, `member`; an invalid `role` query value is `400 invalid_input`. See the [Organizations guide](../guides/organizations.mdx) for flows and role rules.
+
+Orgs serialize camelCase:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "My Organization",
+  "slug": "my-org",
+  "ownerCount": 1,
+  "memberCount": 3,
+  "createdAt": "2025-01-01T00:00:00Z",
+  "updatedAt": "2025-01-01T00:00:00Z"
+}
+```
+
+List routes share pagination semantics: absent or unparsable `limit` means the default page of 20; `limit=0` means unlimited. Other values are capped at `100`.
+
+### Create org
+
+POST /auth/orgs
+
+Creates an org; the caller becomes its owner. `Auth:` Session.
+
+**Request body:**
+
+```json
+{
+  "name": "...",
+  "slug": "..."
+}
+```
+
+**Response `201 Created`:** the org object.
+
+**Errors:** `invalid_slug` (over 255 characters), `org_slug_exists` (slug already in use).
+
+### List my orgs
+
+GET /auth/orgs
+
+Lists the caller's orgs. `Auth:` Session.
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Omit for the default page; `0` = unlimited; else capped at `100` |
+| `search` | string | none | Optional | Matches name or slug |
+| `role` | string | none | Optional | `owner`, `admin`, or `member`; anything else is `400 invalid_input` |
+| `orderBy` | string | `name` | Optional | Or `created_at`, `member_count` |
+| `orderDirection` | string | `asc` | Optional | Or `desc` |
+
+### Count my orgs
+
+GET /auth/orgs/count
+
+Total for the list above. Same `search`/`role` params, no pagination. `Auth:` Session.
+
+**Response `200 OK`:**
+
+```json
+{ "count": 3 }
+```
+
+### Get org
+
+GET /auth/orgs/\{orgID\}
+
+One org; membership required. `Auth:` Session.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Response `200 OK`:** the org object.
+
+**Errors:** `org_not_found` (`404`), `org_member_not_found` (`404`, same shape so membership cannot be probed).
+
+### Update org
+
+PUT /auth/orgs/\{orgID\}
+
+Renames or re-slugs an org. Both fields optional (pointers: omitted leaves the value alone). `Auth:` Session, org admin.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Request body:**
+
+```json
+{
+  "name": "...",
+  "slug": "..."
+}
+```
+
+**Response `200 OK`:** the org object.
+
+**Errors:** `org_not_found`, `org_member_not_found`, `org_forbidden` (`403`, under-privileged member), `invalid_slug`.
+
+### Delete org
+
+DELETE /auth/orgs/\{orgID\}
+
+Deletes the org. `Auth:` Session, org owner.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Organization deleted" }
+```
+
+**Errors:** `org_not_found`, `org_member_not_found`, `org_forbidden`.
+
+### List members
+
+GET /auth/orgs/\{orgID\}/members
+
+Lists members with embedded user objects. `Auth:` Session, member.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Omit for the default page; `0` = unlimited; else capped at `100` |
+| `search` | string | none | Optional | Matches name or email |
+| `role` | string | none | Optional | `owner`, `admin`, or `member`; anything else is `400 invalid_input` |
+| `orderBy` | string | `joined_at` | Optional | Or `role`, `name`, `email` |
+| `orderDirection` | string | `asc` | Optional | Or `desc` |
+
+### Count members
+
+GET /auth/orgs/\{orgID\}/members/count
+
+Total for the list above. `Auth:` Session, member.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Response `200 OK`:**
+
+```json
+{ "count": 3 }
+```
+
+### Remove member
+
+DELETE /auth/orgs/\{orgID\}/members/\{userID\}
+
+Removes a member. Only an owner can remove another owner; the last owner cannot be removed. `Auth:` Session, org admin. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+| `userID` | string | Required | The member's user UUID |
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Member removed" }
+```
+
+**Errors:** `org_not_found`, `org_member_not_found`, `cannot_remove_last_owner`.
+
+### Change member role
+
+PATCH /auth/orgs/\{orgID\}/members/\{userID\}/role
+
+Changes a member's role. Granting or keeping `owner` requires the caller to already be an owner. `Auth:` Session, org admin.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+| `userID` | string | Required | The member's user UUID |
+
+**Request body:**
+
+```json
+{ "role": "admin" }
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Role updated" }
+```
+
+**Errors:** `org_member_not_found`, `invalid_role`, `org_forbidden` (granting `owner` as a non-owner), `cannot_remove_last_owner` (demoting the last owner).
+
+### Leave org
+
+POST /auth/orgs/\{orgID\}/leave
+
+Leaves the org. Refused for the last owner. `Auth:` Session, member. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Left organization" }
+```
+
+**Errors:** `org_member_not_found`, `cannot_remove_last_owner` (last owner cannot leave).
+
+### Set active org
+
+PUT /auth/orgs/active
+
+Points the current session at one of the caller's orgs. `Auth:` Session.
+
+**Request body:**
+
+```json
+{ "orgId": "..." }
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Active org updated" }
+```
+
+**Errors:** `org_not_found`, `org_member_not_found`.
+
+### Clear active org
+
+DELETE /auth/orgs/active
+
+Clears the session's active org. `Auth:` Session. No body.
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Active org cleared" }
+```
+
+### Create org invite
+
+POST /auth/orgs/\{orgID\}/invites
+
+Invites an email address with a role. Inviting as `owner` requires the caller to be an owner. `Auth:` Session, org admin.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Request body:**
+
+```json
+{
+  "email": "...",
+  "role": "member"
+}
+```
+
+**Response `201 Created`:** the invite, including `rawCode` (shown only here, never in lists).
+
+**Errors:** `org_not_found`, `org_member_not_found`, `org_forbidden`, `invalid_role`, `email_failed` (`500`).
+
+### Accept org invite
+
+POST /auth/orgs/invites/accept
+
+Accepts an invite with the emailed code. `Auth:` Session.
+
+**Request body:**
+
+```json
+{ "code": "..." }
+```
+
+(empty: `invalid_code`).
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Invite accepted" }
+```
+
+**Errors:** `invalid_code` (empty code), `org_invite_expired` (`410`), `org_invite_email_mismatch` (signed in as a different email than the invite names), `invite_not_found` (`404`).
+
+### List org invites
+
+GET /auth/orgs/\{orgID\}/invites
+
+Lists pending invitations. `Auth:` Session, org admin.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Omit for the default page; `0` = unlimited; else capped at `100` |
+| `search` | string | none | Optional | Matches email |
+| `role` | string | none | Optional | `owner`, `admin`, or `member`; anything else is `400 invalid_input` |
+| `status` | string | none | Optional | `pending` or `expired`; anything else is ignored |
+| `orderBy` | string | `created_at` | Optional | Or `expires_at`, `email`, `role` |
+| `orderDirection` | string | `desc` | Optional | Or `asc` |
+
+### Count org invites
+
+GET /auth/orgs/\{orgID\}/invites/count
+
+Total for the list above. `Auth:` Session, org admin.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Response `200 OK`:**
+
+```json
+{ "count": 2 }
+```
+
+### Resend org invite
+
+POST /auth/orgs/\{orgID\}/invites/\{inviteID\}/resend
+
+Mails a fresh code for the invite. `Auth:` Session, org admin. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+| `inviteID` | string | Required | The invite UUID |
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Invite email resent" }
+```
+
+**Errors:** `org_not_found`, `invite_not_found`, `email_failed` (`500`).
+
+### Delete org invite
+
+DELETE /auth/orgs/\{orgID\}/invites/\{inviteID\}
+
+Deletes the invite. `Auth:` Session, org admin. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+| `inviteID` | string | Required | The invite UUID |
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Invite deleted" }
+```
+
+**Errors:** `org_not_found`, `invite_not_found`.
+
+## Next
+
+- [Admin](./admin.mdx): platform-wide org oversight, users, sessions, audit

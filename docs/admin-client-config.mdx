@@ -1,0 +1,426 @@
+---
+title: "Admin Client Integration"
+description: "Setting up an admin dashboard to call go-auth — cross-origin concerns, role checking, and the admin API surface."
+icon: "Shield"
+---
+
+# Admin Client Integration
+
+An admin dashboard is a separate frontend that manages users, sessions, and audit logs. It usually runs on a different host than the API, which brings cross-origin cookie and CSRF concerns that a same-origin user app doesn't have.
+
+## File convention
+
+Recommended file names and locations in your project:
+
+```
+lib/
+  api/
+    http.ts          ← the fetch wrapper (apiRequest, getCSRFToken, setUnauthorizedHandler)
+    auth.ts          ← admin auth methods (login, verifyTwoFactor, resendTwoFactor, me)
+    admin.ts         ← admin API methods (users, sessions, stats, invites, audit logs)
+providers/
+  auth-provider.tsx  ← admin AuthProvider with requireAdmin() + useAuth() hook
+```
+
+Keep the admin client separate from the user-facing client — they share the same pattern but have different API surfaces and role requirements.
+
+## How it differs from a user-facing app
+
+| Concern | User-facing app | Admin dashboard |
+|---------|-----------------|-----------------|
+| Origin | Same-origin (proxied) | Usually cross-origin |
+| CSRF cookie | Readable by default | Needs `CookieDomain` or body token |
+| Session | Any authenticated user | Must check `role === "admin"` |
+| Typical stack | Next.js + `rewrites` | Vite/React + `VITE_API_URL` |
+
+## Server-side requirements
+
+The API must be configured for cross-origin admin access:
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{
+    AllowedOrigins: []string{"https://admin.myapp.com"},
+    CSRFToken: &middleware.CSRFTokenConfig{
+        // Option A: sibling subdomains
+        CookieDomain: ".myapp.com",
+
+        // Option B: different registrable domains
+        CookieSameSite:        http.SameSiteNoneMode,
+        ExposeCSRFTokenInBody: true,
+    },
+})
+```
+
+For the full topology guide, see [Deployment](./guides/deployment.mdx).
+
+<Callout type="warn" title="Session cookie vs CSRF cookie">
+  The **session cookie** doesn't need `CookieDomain` — it's sent to the API's host automatically, even cross-origin (with `SameSite=None`).
+
+  The **CSRF cookie** needs `CookieDomain` because JavaScript must *read* it. Without it, the cookie is host-only to the API and `document.cookie` on the admin panel can't see it — every write returns `403` while reads work fine.
+</Callout>
+
+## The fetch wrapper
+
+Same pattern as the user-facing client, but with cross-origin notes:
+
+```ts
+const API_BASE = import.meta.env.VITE_API_URL ?? ""
+
+function getCookie(name: string): string | null {
+  if (typeof document === "undefined") return null
+  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
+  return match ? decodeURIComponent(match[1]) : null
+}
+
+async function getCSRFToken(): Promise<string | null> {
+  const cookieToken = getCookie("_csrf")
+  if (cookieToken) return cookieToken
+
+  const res = await fetch(`${API_BASE}/auth/csrf-token`, {
+    method: "GET",
+    credentials: "include",
+  })
+  if (!res.ok) throw new Error("Could not initialize CSRF protection")
+
+  // Same-origin: 204, read token from cookie
+  // Different registrable domain: 200 with { token } in body
+  if (res.status === 204) return getCookie("_csrf")
+  const payload: { token?: unknown } = await res.json()
+  return typeof payload.token === "string" ? payload.token : null
+}
+
+let onUnauthorized: (() => void) | null = null
+
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler
+}
+
+export async function apiRequest<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal
+): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers["Content-Type"] = "application/json"
+
+  if (method !== "GET") {
+    const csrf = await getCSRFToken()
+    if (csrf) headers["X-CSRF-Token"] = csrf
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    credentials: "include",
+    headers,
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    if (res.status === 401 || (res.status === 403 && err.error === "user_banned")) {
+      onUnauthorized?.()
+    }
+    if (res.status === 429) {
+      err.retryAfter = Number(res.headers.get("Retry-After")) || undefined
+    }
+    throw err
+  }
+
+  return res.status === 204 ? (undefined as T) : res.json()
+}
+```
+
+## Admin API methods
+
+```ts
+// admin.ts
+import { apiRequest } from "./http"
+
+export const adminApi = {
+  login: (email: string, password: string) =>
+    apiRequest("POST", "/auth/admin/login", { email, password }),
+
+  // --- Users ---
+
+  listUsers: (params: Record<string, string | number> = {}) =>
+    apiRequest("GET", `/admin/users?${new URLSearchParams(params as Record<string, string>)}`),
+
+  countUsers: (params: Record<string, string | number> = {}) =>
+    apiRequest("GET", `/admin/users/count?${new URLSearchParams(params as Record<string, string>)}`),
+
+  getUser: (userId: string) =>
+    apiRequest("GET", `/admin/users/${userId}`),
+
+  createUser: (input: { email: string; password: string; name: string; role?: "user" | "admin" }) =>
+    apiRequest("POST", "/admin/users", input),
+
+  updateRole: (userId: string, role: "user" | "admin") =>
+    apiRequest("PATCH", `/admin/users/${userId}/role`, { role }),
+
+  ban: (userId: string) =>
+    apiRequest("PATCH", `/admin/users/${userId}/ban`),
+
+  unban: (userId: string) =>
+    apiRequest("PATCH", `/admin/users/${userId}/unban`),
+
+  deleteUser: (userId: string) =>
+    apiRequest("DELETE", `/admin/users/${userId}`),
+
+  // --- User sessions ---
+
+  listUserSessions: (userId: string, offset = 0, limit = 20) =>
+    apiRequest("GET", `/admin/users/${userId}/sessions?offset=${offset}&limit=${limit}`),
+
+  revokeUserSession: (userId: string, sessionId: string) =>
+    apiRequest("DELETE", `/admin/users/${userId}/sessions/${sessionId}`),
+
+  revokeUserSessions: (userId: string) =>
+    apiRequest("DELETE", `/admin/users/${userId}/sessions`),
+
+  // --- Stats ---
+
+  getStats: () =>
+    apiRequest("GET", "/admin/stats"),
+
+  getRegistrationTrend: (from: string, to: string) =>
+    apiRequest("GET", `/admin/stats/registrations?from=${from}&to=${to}`),
+
+  getLoginActivity: (from: string, to: string, userId?: string) =>
+    apiRequest("GET", `/admin/stats/logins?from=${from}&to=${to}${userId ? `&userId=${userId}` : ""}`),
+
+  // --- Audit logs ---
+
+  listAuditLogs: (params: Record<string, string | number> = {}) =>
+    apiRequest("GET", `/admin/audit-logs?${new URLSearchParams(params as Record<string, string>)}`),
+
+  countAuditLogs: (params: Record<string, string | number> = {}) =>
+    apiRequest("GET", `/admin/audit-logs/count?${new URLSearchParams(params as Record<string, string>)}`),
+
+  // --- Platform invites ---
+
+  createInvite: (email: string) =>
+    apiRequest("POST", "/admin/invites", { email }),
+
+  listInvites: (params: Record<string, string | number> = {}) =>
+    apiRequest("GET", `/admin/invites?${new URLSearchParams(params as Record<string, string>)}`),
+
+  revokeInvite: (inviteId: string) =>
+    apiRequest("DELETE", `/admin/invites/${inviteId}`),
+
+  resendInvite: (inviteId: string) =>
+    apiRequest("POST", `/admin/invites/${inviteId}/resend`),
+
+  deleteInvite: (inviteId: string) =>
+    apiRequest("DELETE", `/admin/invites/${inviteId}/hard`),
+}
+```
+
+## React context with role checking
+
+The admin `AuthProvider` adds a critical check: a valid session is not necessarily an admin session.
+
+```tsx
+import { useState, useEffect, useCallback, type ReactNode } from "react"
+import { authApi } from "./auth-api"
+import { setUnauthorizedHandler } from "./http"
+
+interface AuthUser {
+  id: string
+  email: string
+  name: string
+  role: string
+}
+
+interface TwoFactorChallenge {
+  challengeId: string
+  expiresAt: string
+  codeSent: boolean
+}
+
+interface AuthContextValue {
+  user: AuthUser | null
+  loading: boolean
+  challenge: TwoFactorChallenge | null
+  login: (input: { email: string; password: string }) => Promise<void>
+  verifyTwoFactor: (code: string) => Promise<void>
+  resendTwoFactor: () => Promise<void>
+  logout: () => Promise<void>
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null)
+
+/**
+ * A valid session is not necessarily an admin session. Cookies are scoped to
+ * the host and ignore the port, so a regular user signed into the app on
+ * another localhost port arrives here authenticated with no admin rights.
+ * Without this the panel renders its whole shell and then 403s on every
+ * /admin/* call it makes.
+ */
+function requireAdmin(user: AuthUser): AuthUser | null {
+  return user.role === "admin" ? user : null
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [challenge, setChallenge] = useState<TwoFactorChallenge | null>(null)
+
+  const refresh = useCallback(async () => {
+    try {
+      setUser(requireAdmin(await authApi.me()))
+    } catch {
+      setUser(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => setUser(null))
+    refresh()
+  }, [refresh])
+
+  const login = useCallback(async (input: { email: string; password: string }) => {
+    setChallenge(null)
+    const result = await authApi.login(input)
+    if (result.requiresTwoFactor) {
+      setChallenge(result)
+      return
+    }
+    await refresh()
+  }, [refresh])
+
+  const verifyTwoFactor = useCallback(async (code: string) => {
+    if (!challenge) throw new Error("No active 2FA challenge")
+    const result = await authApi.verifyTwoFactor(challenge.challengeId, code)
+    setChallenge(null)
+    setUser(requireAdmin(result.user))
+  }, [challenge])
+
+  const resendTwoFactor = useCallback(async () => {
+    if (!challenge) throw new Error("No active 2FA challenge")
+    await authApi.resendTwoFactor(challenge.challengeId)
+  }, [challenge])
+
+  const logout = useCallback(async () => {
+    try {
+      await authApi.logout()
+    } catch {
+      // already logged out or request failed
+    }
+    setUser(null)
+    setChallenge(null)
+    if (typeof window !== "undefined") window.location.href = "/login"
+  }, [])
+
+  return (
+    <AuthContext.Provider value={{ user, loading, challenge, login, verifyTwoFactor, resendTwoFactor, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export function useAuth() {
+  const ctx = useContext(AuthContext)
+  if (!ctx) throw new Error("useAuth must be used within an AuthProvider")
+  return ctx
+}
+```
+
+### Why `requireAdmin`?
+
+When the admin panel and user app share a cookie (same host or widened `CookieDomain`), a regular user signed into the app arrives at the panel **already authenticated**. `POST /auth/admin/login` gates the login itself, but nothing gates a session minted elsewhere.
+
+Every `/admin/*` route checks `role` server-side and returns `403`, so there's no security hole — but the panel renders its entire shell before discovering that, then fails on every request.
+
+```ts
+// Check once, on session load:
+const user = requireAdmin(await authApi.me())
+setUser(user) // null if not admin → shows login screen
+```
+
+This turns a dashboard full of failed requests into a clean login screen.
+
+## Admin login flow
+
+Admin login always requires 2FA (unless `DisableAdminTwoFactor` is set):
+
+```ts
+const login = useCallback(async (input: { email: string; password: string }) => {
+  setChallenge(null)
+  const result = await authApi.login(input)
+  if (result.requiresTwoFactor) {
+    setChallenge(result) // show 2FA code input
+    return
+  }
+  await refresh() // only if 2FA is disabled
+}, [refresh])
+
+const verifyTwoFactor = useCallback(async (code: string) => {
+  const result = await authApi.verifyTwoFactor(challenge.challengeId, code)
+  setChallenge(null)
+  setUser(requireAdmin(result.user))
+}, [challenge])
+```
+
+## Vite environment variables
+
+```bash
+# .env.local
+VITE_API_URL=https://api.myapp.com
+```
+
+```ts
+// vite.config.ts
+export default defineConfig({
+  define: {
+    "import.meta.env.VITE_API_URL": JSON.stringify(process.env.VITE_API_URL),
+  },
+})
+```
+
+<Callout type="info" title="Build time, not runtime">
+  `VITE_API_URL` is baked into the bundle at build time. A different API URL means a different build. For runtime configuration, use a small config endpoint or environment injection.
+</Callout>
+
+## Organizations admin
+
+Admin endpoints for organization management:
+
+```ts
+export const orgAdminApi = {
+  listOrgs: (params: Record<string, string | number> = {}) =>
+    apiRequest("GET", `/admin/orgs?${new URLSearchParams(params as Record<string, string>)}`),
+
+  countOrgs: (params: Record<string, string | number> = {}) =>
+    apiRequest("GET", `/admin/orgs/count?${new URLSearchParams(params as Record<string, string>)}`),
+
+  getOrg: (orgId: string) =>
+    apiRequest("GET", `/admin/orgs/${orgId}`),
+
+  listMembers: (orgId: string) =>
+    apiRequest("GET", `/admin/orgs/${orgId}/members`),
+
+  addMember: (orgId: string, userId: string, role: string) =>
+    apiRequest("POST", `/admin/orgs/${orgId}/members`, { userId, role }),
+
+  removeMember: (orgId: string, userId: string) =>
+    apiRequest("DELETE", `/admin/orgs/${orgId}/members/${userId}`),
+
+  deleteOrg: (orgId: string) =>
+    apiRequest("DELETE", `/admin/orgs/${orgId}`),
+}
+```
+
+## Complete admin panel coming soon
+
+A full-featured admin dashboard built with Vite is on the way — user management, session revocation, audit logs, organization admin, and role-based access, all wired up and ready to fork.
+
+## Next
+
+- [Client Integration](./client-config.mdx) — the base fetch wrapper and React context pattern
+- [Deployment](./guides/deployment.mdx) — cross-origin topology requirements
+- [Admin Guide](./guides/admin.mdx) — full admin API reference
+- [Audit Logs](./guides/audit-logs.mdx) — event types and query params

@@ -3,12 +3,13 @@
   "pages": [
     "index",
     "authentication",
+    "user-management",
     "sessions",
     "organizations",
     "security",
     "oauth",
     "admin",
-    "provider",
+    "auth-provider",
     "middleware"
   ]
 }

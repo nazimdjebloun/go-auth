@@ -1,0 +1,912 @@
+---
+title: "Admin"
+description: "Platform administration: users, sessions, audit, stats, orgs, invites."
+icon: "ShieldUser"
+---
+
+# Admin
+
+Every route here needs an admin session. `middleware.RequireRole(domain.RoleAdmin, ...)` wraps the handlers: no session is `401 unauthorized`, a non-admin session is `403 forbidden`. See the [Admin guide](../guides/admin.mdx) for flows and examples.
+
+## Login
+
+### Admin login
+
+POST /auth/admin/login
+
+Same body as [Login](./auth.mdx) (`{ "email": "...", "password": "..." }`), but only `role: "admin"` accounts pass (a correct non-admin password fails exactly like a wrong one). Always returns the 2FA challenge below unless `TwoFactorConfig.DisableAdminTwoFactor` is set. See [Admin login](../guides/admin.mdx#admin-login).
+
+**Response** (`200 OK`):
+
+```json
+{
+  "user": { "...": "role: admin" },
+  "requiresTwoFactor": true,
+  "codeSent": true,
+  "challengeId": "c4a1...",
+  "expiresAt": "2026-08-09T12:05:00Z",
+  "message": "Two-factor code sent to your email"
+}
+```
+
+Complete with `POST /auth/2fa/verify` (`{challengeId, code}`).
+
+**Errors**: `invalid_credentials` (`401`).
+
+## User management
+
+### List users
+
+GET /admin/users
+
+Paginated user list with filters. Invalid `role` values and unparsable dates are ignored, not errors.
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Capped at `100` |
+| `email` | string | none | Optional | Exact match |
+| `search` | string | none | Optional | Matches name or email |
+| `role` | string | none | Optional | `admin` or `user` |
+| `isBanned` | bool | none | Optional | `true` or `false` |
+| `isVerified` | bool | none | Optional | `true` or `false` |
+| `twoFactorEnabled` | bool | none | Optional | `true` or `false` |
+| `neverLoggedIn` | bool | none | Optional | `true` only (`last_login_at IS NULL`) |
+| `lastLoginBefore` | RFC3339 | none | Optional | `last_login_at < X` |
+| `orderBy` | string | `created_at` | Optional | Or `updated_at` |
+| `orderDirection` | string | `desc` | Optional | Or `asc` |
+
+**Response** (`200 OK`):
+
+```json
+{ "users": [...], "total": 150, "limit": 20, "offset": 0 }
+```
+
+---
+
+### Count users
+
+GET /admin/users/count
+
+Same filters as list; pagination and ordering are ignored.
+
+**Response** (`200 OK`):
+
+```json
+{ "count": 150 }
+```
+
+---
+
+### Get user detail
+
+GET /admin/users/\{id\}
+
+The user plus `activeSessionCount`, `hasPassword` (`false` for OAuth-only accounts; the hash is never returned), and linked providers.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Response** (`200 OK`):
+
+```json
+{
+  "user": { "...": "same shape as list" },
+  "activeSessionCount": 2,
+  "hasPassword": true,
+  "providers": [{ "provider": "github", "providerUserID": "12345" }]
+}
+```
+
+**Errors**: `user_not_found` (`404`).
+
+---
+
+### Create a user
+
+POST /admin/users
+
+Creates the user pre-verified. No session is issued.
+
+**Request body**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `email` | `string` | Required | |
+| `password` | `string` | Required | Must pass `PasswordPolicy` |
+| `name` | `string` | Required | Must not be blank |
+| `role` | `string` | Optional | `"user"` (default) or `"admin"` |
+
+**Response** (`201 Created`): the user object.
+
+**Errors**: `name_required`, `weak_password`, `email_already_exists` (`409`).
+
+---
+
+### Change role
+
+PATCH /admin/users/\{id\}/role
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Request body**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `role` | `string` | Required | Must be `"user"` or `"admin"` |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "Role updated" }
+```
+
+**Errors**: `invalid_role`, `user_not_found`, `last_admin` (cannot demote the last admin).
+
+---
+
+### Ban
+
+PATCH /admin/users/\{id\}/ban
+
+Bans the user and revokes all their sessions. `isBanned` is checked on every request. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "User banned successfully" }
+```
+
+**Errors**: `user_not_found`, `already_banned`, `last_admin` (cannot ban the last admin).
+
+---
+
+### Unban
+
+PATCH /admin/users/\{id\}/unban
+
+No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "User unbanned successfully" }
+```
+
+**Errors**: `user_not_found`, `not_banned`
+
+---
+
+### Delete
+
+DELETE /admin/users/\{id\}
+
+Revokes all sessions, then deletes the row. Irreversible. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "User deleted successfully" }
+```
+
+**Errors**: `user_not_found`, `last_admin`
+
+## User sessions
+
+### List a user's sessions
+
+GET /admin/users/\{id\}/sessions
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Capped at `100` |
+
+**Response** (`200 OK`):
+
+```json
+{ "sessions": [...], "total": 5 }
+```
+
+**Errors**: `user_not_found`.
+
+---
+
+### Revoke one session
+
+DELETE /admin/users/\{id\}/sessions/\{sessionId\}
+
+No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+| `sessionId` | string | Required | The session UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "Session revoked" }
+```
+
+**Errors**: `user_not_found`, `session_not_found`
+
+---
+
+### Revoke all sessions
+
+DELETE /admin/users/\{id\}/sessions
+
+No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "Sessions revoked" }
+```
+
+**Errors**: `user_not_found`.
+
+## Sessions across every user
+
+### List sessions
+
+GET /admin/sessions
+
+Active sessions platform-wide. Same base condition as user sessions (not revoked, not expired), plus filters.
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Capped at `100` |
+| `userId` | string | none | Optional | One user's sessions |
+| `ip` | string | none | Optional | Exact IP match |
+| `search` | string | none | Optional | Matches user email/name |
+| `createdAfter` | RFC3339 | none | Optional | Unparsable values ignored |
+| `createdBefore` | RFC3339 | none | Optional | Unparsable values ignored |
+| `expiresAfter` | RFC3339 | none | Optional | Unparsable values ignored |
+| `expiresBefore` | RFC3339 | none | Optional | Unparsable values ignored |
+| `lastActiveAfter` | RFC3339 | none | Optional | Unparsable values ignored |
+| `lastActiveBefore` | RFC3339 | none | Optional | Unparsable values ignored |
+| `orderBy` | string | `created_at` | Optional | Or `expires_at`, `last_active_at` |
+| `orderDirection` | string | `desc` | Optional | Or `asc` |
+
+**Response** (`200 OK`):
+
+```json
+{ "sessions": [...], "limit": 20, "offset": 0 }
+```
+
+No total; use the count route.
+
+---
+
+### Count sessions
+
+GET /admin/sessions/count
+
+Same params as list.
+
+**Response** (`200 OK`):
+
+```json
+{ "count": 5 }
+```
+
+## Bulk user actions
+
+Bulk ban, unban, delete, revoke-sessions:
+
+POST /admin/users/bulk/ban, POST /admin/users/bulk/unban, POST /admin/users/bulk/delete, POST /admin/users/bulk/revoke-sessions
+
+Applies one action to many users, sequentially, not atomically. One user's failure does not stop or roll back the rest.
+
+**Request body**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `userIds` | `string[]` | Required | 1 to 100 IDs (`invalid_input` otherwise) |
+
+**Response** (`200 OK`):
+
+```json
+{
+  "succeeded": ["id1"],
+  "failed": [{ "userId": "id2", "code": "last_admin", "message": "Cannot ban the last admin" }]
+}
+```
+
+Per-item codes are the single-user action's codes (`already_banned`, `last_admin`, `user_not_found`, ...).
+
+## Audit logs
+
+User audit rows with resolved actor/target emails. The per-user route overrides any `target_user_id`/`targetEmail` query params with the path ID.
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | none | Optional | Passed to the service as given |
+| `limit` | int | none | Optional | Passed to the service as given |
+| `event_type` | string | none | Optional | Comma-separated list |
+| `actor_id` | string | none | Optional | Actor user UUID |
+| `actorEmail` | string | none | Optional | Actor email match |
+| `target_user_id` | string | none | Optional | Target user UUID |
+| `targetEmail` | string | none | Optional | Target email match |
+| `session_id` | string | none | Optional | Session UUID |
+| `org_id` | string | none | Optional | Org UUID |
+| `deviceType` | string | none | Optional | `mobile`, `desktop`, `tablet`, `bot` (from the parsed user agent) |
+| `ip` | string | none | Optional | Exact IP match |
+| `search` | string | none | Optional | Text search |
+| `from` | RFC3339 | none | Optional | Unparsable values ignored |
+| `to` | RFC3339 | none | Optional | Unparsable values ignored |
+| `success` | bool | none | Optional | `true` or `false` |
+
+### List audit logs
+
+GET /admin/audit-logs
+
+**Response** (`200 OK`):
+
+```json
+{ "events": [...] }
+```
+
+---
+
+### Count audit logs
+
+GET /admin/audit-logs/count
+
+**Response** (`200 OK`):
+
+```json
+{ "count": 42 }
+```
+
+---
+
+### List a user's audit logs
+
+GET /admin/users/\{id\}/audit-logs
+
+Scoped to one user; same query params.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID (overrides `target_user_id`/`targetEmail`) |
+
+**Response** (`200 OK`):
+
+```json
+{ "events": [...] }
+```
+
+---
+
+### Count a user's audit logs
+
+GET /admin/users/\{id\}/audit-logs/count
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "count": 3 }
+```
+
+## Stats and activity
+
+### Overview
+
+GET /admin/stats
+
+Platform-wide counts. No params.
+
+**Response** (`200 OK`):
+
+```json
+{
+  "totalUsers": 1204,
+  "verifiedUsers": 1150,
+  "bannedUsers": 3,
+  "twoFactorEnabledUsers": 812,
+  "neverLoggedInUsers": 47,
+  "activeSessions": 389
+}
+```
+
+---
+
+### Registration trend
+
+GET /admin/stats/registrations
+
+**Query**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `from` | RFC3339 | Required | Range start |
+| `to` | RFC3339 | Required | Range end; range capped at 400 days |
+
+**Response** (`200 OK`): one bucket per day with at least one registration:
+
+```json
+{ "registrations": [{ "date": "2026-08-01T00:00:00Z", "count": 4 }] }
+```
+
+**Errors**: `invalid_input` (missing or unparsable `from`/`to`).
+
+---
+
+### Login activity
+
+GET /admin/stats/logins
+
+**Query**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `from` | RFC3339 | Required | Range start |
+| `to` | RFC3339 | Required | Range end |
+| `userId` | string | Optional | Omit for the global heatmap |
+
+Counts `login.success` audit events, so it only returns data when audit logging is enabled.
+
+**Response** (`200 OK`):
+
+```json
+{ "logins": [{ "date": "2026-08-01T00:00:00Z", "count": 12 }] }
+```
+
+**Errors**: `invalid_input` (missing or unparsable `from`/`to`).
+
+## Organizations: requires organizations enabled
+
+Platform-wide org oversight regardless of the caller's own membership. Disabled feature: `404 not_found`. List routes share the pointer-limit semantics from [Organizations](./orgs.mdx) (omit for the default `20`; `0` = unlimited; else capped at `100`).
+
+### List organizations
+
+GET /admin/orgs
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Omit for the default page; `0` = unlimited; else capped at `100` |
+| `search` | string | none | Optional | Matches name or slug |
+| `createdAfter` | RFC3339 | none | Optional | Unparsable values ignored |
+| `createdBefore` | RFC3339 | none | Optional | Unparsable values ignored |
+| `orderBy` | string | `name` | Optional | Or `created_at`, `member_count` |
+| `orderDirection` | string | `asc` | Optional | Or `desc` |
+
+**Response** (`200 OK`):
+
+```json
+{ "orgs": [...], "limit": 20, "offset": 0 }
+```
+
+(no total; use the count route).
+
+---
+
+### Count organizations
+
+GET /admin/orgs/count
+
+**Response** (`200 OK`):
+
+```json
+{ "count": 42 }
+```
+
+---
+
+### Get organization
+
+GET /admin/orgs/\{orgID\}
+
+Returns the org regardless of the caller's membership. Publishes `admin.org.viewed`.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Response** (`200 OK`): the org object.
+
+**Errors**: `org_not_found` (`404`).
+
+---
+
+### List org members
+
+GET /admin/orgs/\{orgID\}/members
+
+Same params as the self-service members list, without the membership check. Publishes `admin.org.viewed`.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Omit for the default page; `0` = unlimited; else capped at `100` |
+| `search` | string | none | Optional | Matches name or email |
+| `role` | string | none | Optional | `owner`, `admin`, or `member`; anything else is `400 invalid_input` |
+| `orderBy` | string | `joined_at` | Optional | Or `role`, `name`, `email` |
+| `orderDirection` | string | `asc` | Optional | Or `desc` |
+
+**Response** (`200 OK`):
+
+```json
+{ "members": [...], "limit": 20, "offset": 0 }
+```
+
+(no total; use the count route).
+
+---
+
+### Count org members
+
+GET /admin/orgs/\{orgID\}/members/count
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "count": 12 }
+```
+
+---
+
+### Add org member
+
+POST /admin/orgs/\{orgID\}/members
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Request body**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `userId` | `string` | Required | Must belong to an existing user |
+| `role` | `string` | Required | `"owner"`, `"admin"`, or `"member"` |
+
+**Response** (`201 Created`):
+
+```json
+{ "message": "Member added" }
+```
+
+**Errors**: `user_not_found`, `invalid_role`, `org_member_exists`.
+
+---
+
+### Delete organization
+
+DELETE /admin/orgs/\{orgID\}
+
+No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "Organization deleted" }
+```
+
+**Errors**: `org_not_found`.
+
+---
+
+### Remove org member
+
+DELETE /admin/orgs/\{orgID\}/members/\{userID\}
+
+Refuses to remove the last owner. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+| `userID` | string | Required | The member's user UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "Member removed" }
+```
+
+**Errors**: `org_member_not_found`, `cannot_remove_last_owner`.
+
+---
+
+### Change member role
+
+PATCH /admin/orgs/\{orgID\}/members/\{userID\}/role
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `orgID` | string | Required | The org UUID |
+| `userID` | string | Required | The member's user UUID |
+
+**Request body**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `role` | `string` | Required | `"owner"`, `"admin"`, or `"member"` |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "Role updated" }
+```
+
+**Errors**: `org_member_not_found`, `invalid_role`, `org_forbidden` (granting `owner` as a non-owner).
+
+---
+
+### List a user's organizations
+
+GET /admin/users/\{id\}/orgs
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Omit for the default page; `0` = unlimited; else capped at `100` |
+| `search` | string | none | Optional | Matches name or slug |
+| `role` | string | none | Optional | `owner`, `admin`, or `member` |
+| `orderBy` | string | `name` | Optional | Or `created_at`, `member_count` |
+| `orderDirection` | string | `asc` | Optional | Or `desc` |
+
+**Response** (`200 OK`):
+
+```json
+{ "orgs": [...], "limit": 20, "offset": 0 }
+```
+
+(no total; use the count route).
+
+---
+
+### Count a user's organizations
+
+GET /admin/users/\{id\}/orgs/count
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The user UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "count": 3 }
+```
+
+## Platform invites: requires `EnableInvite`
+
+### Create invite
+
+POST /admin/invites
+
+**Request body**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `email` | `string` | Required | The code is emailed directly and returned once as `rawCode`; lists never include it |
+
+**Response** (`201 Created`): the invite object.
+
+**Errors**: `method_disabled`, `email_failed`, `invite_already_exists`.
+
+---
+
+### List invites
+
+GET /admin/invites
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Capped at `100` |
+| `search` | string | none | Optional | Matches email |
+| `status` | string | none | Optional | `pending`, `accepted`, `revoked`, or `expired` |
+| `orderBy` | string | `created_at` | Optional | Or `expires_at`, `email`, `status` |
+| `orderDirection` | string | `desc` | Optional | Or `asc` |
+
+**Response** (`200 OK`):
+
+```json
+{ "invites": [...] }
+```
+
+---
+
+### Count invites
+
+GET /admin/invites/count
+
+**Response** (`200 OK`):
+
+```json
+{ "count": 42 }
+```
+
+---
+
+### Revoke invite
+
+DELETE /admin/invites/\{id\}
+
+Soft-cancels (`status: "revoked"`). The row stays visible in lists; redeeming it fails with `invite_already_used`. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The invite UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "Invite revoked" }
+```
+
+**Errors**: `invite_not_found`.
+
+---
+
+### Resend invite
+
+POST /admin/invites/\{id\}/resend
+
+Mails a fresh code; the old one stops working. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The invite UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "Invite resent" }
+```
+
+**Errors**: `invite_not_found`, `email_failed`.
+
+---
+
+### Hard-delete invite
+
+DELETE /admin/invites/\{id\}/hard
+
+Removes the row outright. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `id` | string | Required | The invite UUID |
+
+**Response** (`200 OK`):
+
+```json
+{ "message": "Invite deleted" }
+```
+
+**Errors**: `invite_not_found`.
+
+---
+
+### Bulk invite actions
+
+POST /admin/invites/bulk/send, POST /admin/invites/bulk/resend, POST /admin/invites/bulk/revoke, POST /admin/invites/bulk/delete
+
+Send takes emails; the rest take invite IDs. Per-item results, not atomic.
+
+**Request body**
+
+| Route | Field | Type | Required | Notes |
+|---|---|---|---|---|
+| `send` | `emails` | `string[]` | Required | Max 25 (`invalid_input` otherwise) |
+| `resend` | `inviteIds` | `string[]` | Required | Max 25 |
+| `revoke`, `delete` | `inviteIds` | `string[]` | Required | Max 100 |
+
+**Response** (`200 OK`):
+
+```json
+{ "succeeded": [...], "failed": [{ "inviteId": "...", "email": "...", "code": "...", "message": "..." }] }
+```
+
+(`email` only on send failures, `inviteId` otherwise).

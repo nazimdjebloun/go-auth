@@ -9,9 +9,10 @@ icon: "Cable"
 Wraps every endpoint from the [OAuth linking](../oauth.mdx) guide into `oauthApi`, built on the [`apiRequest`](./index.mdx) helper.
 
 ```ts
+// lib/api/oauth.ts
 import { apiRequest } from "./client";
 
-const API_BASE = "https://api.myapp.com";
+const API_BASE = "/api";
 
 export const oauthApi = {
   link: async (provider: string) => {
@@ -26,12 +27,14 @@ export const oauthApi = {
 };
 ```
 
-## Using it
+## Link provider
 
 ```ts
 // Settings page — "Connect GitHub" button
 <button onClick={() => oauthApi.link("github")}>Connect GitHub</button>
 ```
+
+## Unlink provider
 
 ```ts
 try {
@@ -42,6 +45,8 @@ try {
   }
 }
 ```
+
+## List connected providers
 
 ```ts
 const { providers } = await oauthApi.listConnected();

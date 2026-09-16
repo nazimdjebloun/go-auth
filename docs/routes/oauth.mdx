@@ -1,0 +1,116 @@
+---
+title: "OAuth"
+description: "Provider login, callback, link, unlink, and connected accounts."
+icon: "KeyRound"
+---
+
+# OAuth
+
+Mounted only when `EnableOAuth` is true and at least one provider is registered with `WithProvider`. `Auth` is either `Public` or `Session` as marked. Provider tokens are never exposed: the connected-accounts route returns profile fields only.
+
+### Initiate login
+
+GET /auth/oauth/\{provider\}
+
+Starts a login. Returns the provider authorization URL as JSON; the frontend navigates there itself. `Auth:` Public.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `provider` | string | Required | A registered provider name (e.g. `github`) |
+
+**Response `200 OK`:**
+
+```json
+{ "url": "https://provider.example/authorize?..." }
+```
+
+**Errors:** `provider_not_found` (unknown provider name).
+
+### Callback
+
+GET /auth/oauth/\{provider\}/callback, POST /auth/oauth/\{provider\}/callback
+
+Provider redirect target (redirect URI ends here). Reads `code` and `state` from the form values, so both methods work. No JSON responses: every outcome is a redirect or an HTML page. `Auth:` Public.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `provider` | string | Required | A registered provider name |
+
+**Outcomes:**
+
+- Missing `code`/`state`: `302` to `{BaseURL}/auth/callback?error=invalid_request&provider={provider}`.
+- Failure: `302` to `{BaseURL}/auth/callback?error={code}&provider={provider}`, where `{code}` is the `error` code (e.g. `state_used`, `state_expired`).
+- Link flow (caller already had a session): `302` to `{BaseURL}/auth/callback`. No new session is issued.
+- Verification required: `302` to `{BaseURL}/auth/callback?requiresVerification=true&provider={provider}`.
+- Normal login: `200` HTML page that sets both cookies via `Set-Cookie` and redirects client-side with `window.location.replace("{BaseURL}/auth/callback")`. Cookies go in headers (not a bare `302`) because `Set-Cookie` on cross-origin redirects is unreliable in some browsers.
+
+### Link provider
+
+POST /auth/oauth/\{provider\}/link
+
+Starts linking a provider to the logged-in account. Returns the authorization URL as JSON. `Auth:` Session.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `provider` | string | Required | A registered provider name |
+
+**Response `200 OK`:**
+
+```json
+{ "url": "https://provider.example/authorize?..." }
+```
+
+**Errors:** `provider_not_found`.
+
+### Unlink provider
+
+POST /auth/oauth/\{provider\}/unlink
+
+Removes the provider link. Blocked when it is the account's last login method. `Auth:` Session. No body.
+
+**Path params:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `provider` | string | Required | A registered provider name |
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Provider unlinked" }
+```
+
+**Errors:** `provider_not_found`, `cannot_unlink_last_provider` (last login method; set a password first).
+
+### List connected providers
+
+GET /auth/oauth/providers
+
+Lists the caller's connected providers. Profile fields only. `Auth:` Session.
+
+**Response `200 OK`:**
+
+```json
+{
+  "providers": [
+    {
+      "provider": "github",
+      "email": "user@example.com",
+      "name": "Ada",
+      "avatarUrl": "https://...",
+      "createdAt": "2025-01-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+## Next
+
+- [Sessions](./sessions.mdx): refresh, list, revoke, CSRF token
+- [Organizations](./orgs.mdx): orgs, members, invites, active org

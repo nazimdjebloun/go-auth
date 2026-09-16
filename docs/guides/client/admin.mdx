@@ -120,6 +120,8 @@ const { logins: userLogins } = await adminApi.getLoginActivity(from, to, userId)
 
 ## Audit logs
 
+`listAuditLogs()` with no filters returns everything in the audit log, paginated — it's never a 404, even if audit logging was never enabled server-side (that just means the table is empty).
+
 ```ts
 const { events } = await adminApi.listAuditLogs({ event_type: "login.failed", limit: 50 });
 const { count } = await adminApi.countAuditLogs({ event_type: "login.failed" });
@@ -135,7 +137,153 @@ const byActor = await adminApi.listAuditLogs({ actorEmail: "ada@example.com" });
 const mobileLogins = await adminApi.listAuditLogs({ event_type: "login.success", deviceType: "mobile" });
 ```
 
-`listAuditLogs()` with no filters returns everything in the audit log, paginated — it's never a 404, even if audit logging was never enabled server-side (that just means the table is empty).
+### Audit logs data table
+
+```tsx
+// components/audit-logs-table.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { adminApi } from "../lib/api/admin";
+
+interface AuditEvent {
+  id: string;
+  type: string;
+  severity: "info" | "warning" | "error" | "critical";
+  success: boolean;
+  actorId: string | null;
+  actorEmail: string | null;
+  targetUserId: string | null;
+  targetEmail: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export function AuditLogsTable() {
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [filters, setFilters] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const limit = 25;
+
+  useEffect(() => { loadEvents(); }, [offset, filters]);
+
+  async function loadEvents() {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = { ...filters, limit, offset };
+      const result = await adminApi.listAuditLogs(params);
+      setEvents(result.events);
+      const countResult = await adminApi.countAuditLogs(filters);
+      setTotal(countResult.count);
+    } catch (err: any) {
+      setError(err.message ?? err.error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function severityVariant(severity: string) {
+    if (severity === "critical") return "destructive";
+    if (severity === "error") return "destructive";
+    if (severity === "warning") return "secondary";
+    return "outline";
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Audit log ({total})</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Input
+            placeholder="Search events, IP, user agent..."
+            className="flex-1 min-w-[200px]"
+            onChange={(e) => { setFilters({ ...filters, search: e.target.value }); setOffset(0); }}
+          />
+          <Input
+            placeholder="Event type (e.g. login.failed)"
+            className="w-48"
+            onChange={(e) => { setFilters({ ...filters, event_type: e.target.value }); setOffset(0); }}
+          />
+          <Input
+            placeholder="Actor email"
+            className="w-48"
+            onChange={(e) => { setFilters({ ...filters, actorEmail: e.target.value }); setOffset(0); }}
+          />
+        </div>
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        ) : events.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No audit events match these filters.</p>
+        ) : (
+          <div className="space-y-2">
+            {events.map((event) => (
+              <div key={event.id} className="flex items-center justify-between rounded-md border p-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium truncate">{event.type}</p>
+                    <Badge variant={event.success ? "outline" : "destructive"}>
+                      {event.success ? "Success" : "Failed"}
+                    </Badge>
+                    {event.severity !== "info" && (
+                      <Badge variant={severity variant(event.severity)}>
+                        {event.severity}
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground truncate">
+                    {event.actorEmail ?? event.actorId ?? "—"}
+                    {event.targetEmail ? ` → ${event.targetEmail}` : ""}
+                    {event.ip ? ` · ${event.ip}` : ""}
+                    {` · ${new Date(event.createdAt).toLocaleString()}`}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-between">
+          <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(offset - limit)}>
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {offset + 1}–{Math.min(offset + limit, total)} of {total}
+          </span>
+          <Button variant="outline" size="sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>
+            Next
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Per-user audit logs
+
+For a user detail page, scope the query to one user:
+
+```ts
+const { events } = await adminApi.listUserAuditLogs(userId, { event_type: "login.failed" });
+const { count } = await adminApi.countUserAuditLogs(userId);
+```
 
 ## Platform invites
 

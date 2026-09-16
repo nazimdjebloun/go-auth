@@ -4,12 +4,12 @@ description: "What go-auth is, why it exists, what it does, and how it compares 
 icon: "BookOpen"
 ---
 
-# go-auth
+# Introduction
 
 A self-hosted authentication library for Go. Run it in your application against your database for registration, sessions, password recovery, email verification, invite-only signup, OAuth, organizations, administration, CSRF protection, rate limiting, and audit logging.
 
 <Callout type="warn" title="Pre-1.0: expect breaking changes">
-  go-auth is early and under active development. The public API (types, `With*` options, route paths, and JSON response shapes) can and will change without a deprecation period until a 1.0 release is tagged. Pin an exact version, read the changelog before upgrading, and don't treat this as a stable dependency yet.
+  go-auth is early and under active development. The public API (types, `With*` options, route paths, and JSON response shapes) can and will change without a deprecation period until a 1.0 release is tagged. Pin an exact version, read the changelog before upgrading, and do not treat this as a stable dependency yet.
 </Callout>
 
 ## Why it exists
@@ -30,33 +30,33 @@ Use the supplied interfaces to replace email delivery, templates, OAuth provider
 | Ongoing cost | Infrastructure and maintenance | Provider and infrastructure pricing | Infrastructure and maintenance; no go-auth per-user fee |
 | Setup effort | Build and maintain the system | Integrate the provider | Integrate the library into your service and deployment |
 | Security responsibility | Your implementation and deployment | Provider configuration and application integration | Your application integration and deployment; evaluate the library against your requirements |
-| Network dependency at runtime | None | Yes — auth calls leave your infrastructure | None |
-| Customization | Total, but you built it | Limited to what the provider exposes | Total — it's Go source you can read and, if needed, fork |
+| Network dependency at runtime | None | Yes: auth calls leave your infrastructure | None |
+| Customization | Total, but you built it | Limited to what the provider exposes | Total: Go source you can read and fork if needed |
 
 ## Features
 
-**Authentication** — email/password and OAuth registration and login, invite-only signup, optional required email verification, admin login separate from regular login.
+**Authentication**: email/password and OAuth registration and login, invite-only signup, optional required email verification, admin login separate from regular login.
 
-**Sessions** — dual-token (session + refresh) with rotation, idle timeout, absolute max lifetime, configurable grace window for racing refresh requests, and a debounce on activity tracking.
+**Sessions**: dual-token (session + refresh) with rotation, idle timeout, absolute max lifetime, configurable grace window for racing refresh requests, and a debounce on activity tracking.
 
-**Account lifecycle** — forgot/reset password, change password, set password for OAuth-only accounts, change name, self-service and admin-initiated account deletion.
+**Account lifecycle**: forgot/reset password, change password, set password for OAuth-only accounts, change name, self-service and admin-initiated account deletion.
 
-**Organizations** — multi-tenant orgs with owner/admin/member roles, invites, and an active-org concept per session.
+**Organizations**: multi-tenant orgs with owner/admin/member roles, invites, and an active-org concept per session.
 
-**Admin** — list/detail/ban/unban/role-change/delete for users, per-user session listing and revocation, platform-wide org oversight, invite management, audit log viewing.
+**Admin**: list/detail/ban/unban/role-change/delete for users, per-user session listing and revocation, platform-wide org oversight, invite management, audit log viewing.
 
 
-**Security** — CSRF origin checking plus a double-submit cookie layer, both on by default, per-route rate limiting, configurable password policy, tri-state cookie `Secure` and email-link `http://` policy that default sensibly per environment.
+**Security**: CSRF origin checking plus a double-submit cookie layer, both on by default, per-route rate limiting, configurable password policy, tri-state cookie `Secure` and email-link `http://` policy with per-environment defaults.
 
-**Audit logging** — off by default; opt in with one flag for an async, non-blocking event pipeline with a built-in database sink; add your own sinks (Kafka, NATS, a webhook, anything implementing one interface) to stream the same events elsewhere, with fail-open or fail-closed behavior your choice.
+**Audit logging**: off by default. Opt in with one flag for an async, non-blocking event pipeline with a built-in database sink. Add your own sinks (Kafka, NATS, a webhook, anything implementing one interface) with fail-open or fail-closed behavior.
 
-**Logging** — a single structured `slog.Logger` used everywhere in the library (sessions, CSRF, rate limiting, audit, admin actions) — bring your own handler (JSON, text, or a third-party `slog` backend) and everything shows up there.
+**Logging**: a single structured `slog.Logger` used everywhere in the library (sessions, CSRF, rate limiting, audit, admin actions). Bring your own handler (JSON, text, or a third-party `slog` backend).
 
-**Extensibility** — every external dependency is a small interface you can replace: `OAuthProvider` for adding providers beyond the built-in two (Google, GitHub), `Mailer` for email delivery (Resend, Postmark, SES, your own SMTP client), `TemplateProvider` for replacing the built-in email templates with your own branding, `ratelimit.Store` for a distributed rate limiter, and `audit.EventSink` for custom audit destinations.
+**Extensibility**: every external dependency is a small interface you can replace: `OAuthProvider` for providers beyond the built-in two (Google, GitHub), `Mailer` for email delivery (Resend, Postmark, SES, your own SMTP client), `TemplateProvider` for your own email branding, `ratelimit.Store` for a distributed rate limiter, and `audit.EventSink` for custom audit destinations.
 
-**Storage** — PostgreSQL, MySQL, or SQLite, with the schema embedded in the library.
+**Storage**: PostgreSQL, MySQL, or SQLite, with the schema embedded in the library.
 
 ## Next
 
-- [Installation](./installation.mdx) — prerequisites and what you'll need before configuring
-- [Configuration](./configuration.mdx) — every option, field by field
+- [Installation](./installation.mdx): prerequisites and what you need before configuring
+- [Configuration](./configuration.mdx): every option, field by field

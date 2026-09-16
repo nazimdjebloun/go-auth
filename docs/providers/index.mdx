@@ -1,15 +1,57 @@
 ---
 title: "Providers"
 description: "OAuth providers built into go-auth, and how registering one works."
-icon: "IdCard"
+icon: "KeyRound"
 ---
 
 # Providers
 
-An OAuth provider is anything implementing `port.OAuthProvider` — three methods: `Name() string`, `AuthURL(state, codeChallenge string) string`, and `Exchange(ctx, code, codeVerifier string) (*port.OAuthProfile, error)`. Register one with `WithProvider`, and its routes (`/auth/oauth/{provider}`, `/auth/oauth/{provider}/callback`, `/auth/oauth/{provider}/link`, `/auth/oauth/{provider}/unlink`) are mounted automatically — see [Routes](../routes.mdx#oauth--requires-enableoauth-and-at-least-one-registered-provider). You can register more than one provider at once; each needs a unique `Name()`.
+An OAuth provider is anything implementing `port.OAuthProvider` — three methods: `Name() string`, `AuthURL(state, codeChallenge string) string`, and `Exchange(ctx, code, codeVerifier string) (*port.OAuthProfile, error)`. Register one with `WithProvider` and its routes (`GET /auth/oauth/{provider}`, `GET`/`POST /auth/oauth/{provider}/callback`, `POST /auth/oauth/{provider}/link`, `POST /auth/oauth/{provider}/unlink`, `GET /auth/oauth/providers`) are mounted automatically — see [Routes → OAuth](../routes/oauth.mdx). You can register more than one provider at once; each needs a unique `Name()`.
 
-For linking/unlinking a provider on an already-logged-in account and listing what's connected — rather than the initial sign-up/sign-in flow covered below — see [Guides → OAuth linking](../guides/oauth.mdx).
+OAuth routes only exist when `RegistrationConfig.EnableOAuth` is `true` **and** at least one provider is registered — otherwise the paths are unmounted entirely, not 404 stubs.
 
-Every built-in provider uses PKCE (S256) regardless of whether the provider strictly requires it — see [Security](../security.mdx#oauth) for why that matters.
+Every built-in provider uses PKCE (S256) regardless of whether the provider strictly requires it: go-auth generates the verifier, stores it alongside a single-use `oauth_state` token, and hands it to `Exchange` on the callback — see [Security](../security.mdx#oauth) for why that matters.
 
 Currently built in: **GitHub** and **Google**. More can be added the same way `provider/github` and `provider/google` are built — implementing `port.OAuthProvider` against any OAuth2 provider's token and userinfo endpoints.
+
+## Setup
+
+```go
+import "github.com/nazimdjebloun/go-auth/provider/github"
+
+goauth.WithProvider(github.New(github.Config{
+    ClientID:     os.Getenv("GITHUB_CLIENT_ID"),     // required
+    ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"), // required
+    RedirectURL:  "https://myapp.com/auth/oauth/github/callback", // required
+}))
+```
+
+## Available providers
+
+| Provider | Import path | Setup |
+|---|---|---|
+| GitHub | `github.com/nazimdjebloun/go-auth/provider/github` | [GitHub](./github.mdx) |
+| Google | `github.com/nazimdjebloun/go-auth/provider/google` | [Google](./google.mdx) |
+
+## How sign-in works
+
+1. The frontend calls `GET /auth/oauth/{provider}`, which returns the authorization URL as JSON (`{ "url": ... }`) — the frontend navigates the browser there itself.
+2. The provider redirects back to `GET`/`POST /auth/oauth/{provider}/callback` with `code` and `state`.
+3. go-auth checks the single-use state token, exchanges the code (PKCE verifier attached), and looks up the provider account by **provider + provider user ID** — never by email alone.
+4. Known provider account → session: cookies are set and the browser ends up at `{BaseURL}/auth/callback`. No token ever travels in the URL.
+5. Unknown account → a new user is created (in the same transaction as the provider link) when `EnableOAuth` is true — unless `InviteOnly` is on. If the email already belongs to another account, the callback fails with `email_already_exists` (409): go-auth never auto-links a provider onto a possibly-different person's account. The user logs in with their password first, then links explicitly.
+6. `RequireEmailVerification` with an unverified email diverts to the verification flow instead of issuing a session; banned users are rejected.
+
+## Linking, unlinking, connected accounts
+
+Connecting a provider to an already-logged-in account, removing one, and listing what's connected are covered in [Guides → OAuth linking](../guides/oauth.mdx) — the callback route is the same one as login, with a different outcome. Two notes that bite:
+
+- Unlinking is blocked when the provider is the account's last login method (`cannot_unlink_last_provider`) — set a password first via [Security → Set a password](../guides/security.mdx#set-a-password-oauth-only-accounts).
+- OAuth-only accounts have no password hash; the set-password flow is two-step (`POST /auth/set-password/request`, then `/confirm`).
+
+## Next
+
+- [GitHub](./github.mdx) — setup, scopes, and email handling
+- [Google](./google.mdx) — setup and email handling
+- [OAuth linking](../guides/oauth.mdx) — link/unlink/list on an existing account
+- [Routes → OAuth](../routes/oauth.mdx) — full param reference

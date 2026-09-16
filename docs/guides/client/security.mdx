@@ -1,21 +1,26 @@
 ---
 title: "Security"
-description: "securityApi — name/password changes, verification resend, and account deletion, built on the apiRequest helper."
+description: "securityApi — password changes, forgot/reset flow, verification resend, built on the apiRequest helper."
 icon: "ShieldHalf"
 ---
 
 # Security client
 
-Wraps every endpoint from the [Security](../security.mdx) guide into `securityApi`, built on the [`apiRequest`](./index.mdx) helper.
+Wraps every endpoint from the [Security](../security.mdx) guide into `securityApi`, built on the [`apiRequest`](./index.mdx) helper. Account deletion lives on [User management](./user-management.mdx).
+
+<Callout type="info" title="UI components">
+  All UI examples on this page use [shadcn/ui](https://ui.shadcn.com) with the default base variant. Only layout and styling change between projects — the component API stays the same. Install with `npx shadcn@latest add button input card label alert`.
+</Callout>
+
+## The wrapper
 
 ```ts
+// lib/api/security.ts
 import { apiRequest } from "./client";
 
-const API_BASE = "https://api.myapp.com";
+const API_BASE = "/api";
 
 export const securityApi = {
-  changeName: (name: string) => apiRequest(API_BASE, "PUT", "/auth/name", { name }),
-
   changePassword: (oldPassword: string, newPassword: string) =>
     apiRequest(API_BASE, "POST", "/auth/change-password", { oldPassword, newPassword }),
 
@@ -34,48 +39,512 @@ export const securityApi = {
 
   resendVerificationByEmail: (email: string) =>
     apiRequest(API_BASE, "POST", "/auth/verify-email/resend", { email }),
-
-  deleteAccount: (password: string) =>
-    apiRequest(API_BASE, "DELETE", "/auth/account", { password }),
-
-  requestDeleteAccount: () => apiRequest(API_BASE, "POST", "/auth/account/delete/request"),
-
-  confirmDeleteAccount: (code: string) =>
-    apiRequest(API_BASE, "POST", "/auth/account/delete/confirm", { code }),
 };
 ```
 
-## Using it
+## Error handling
 
 ```ts
-try {
-  await securityApi.changePassword(oldPassword, newPassword);
-} catch (err) {
-  // wrong_password / weak_password / no_password — see the Security guide
-  showError(err.message ?? err.error);
+// lib/security-errors.ts
+const errorMessages: Record<string, string> = {
+  wrong_password: "Current password is incorrect",
+  weak_password: "Password doesn't meet requirements",
+  no_password: "No password set — use set-password instead",
+  invalid_code: "Invalid or expired code",
+  code_expired: "Code has expired — request a new one",
+  user_not_found: "User not found",
+  email_not_verified: "Email not verified",
+  rate_limit_exceeded: "Too many attempts — try again later",
+};
+
+export function getSecurityErrorMessage(err: { error?: string; message?: string }): string {
+  if (err.error && err.error in errorMessages) {
+    return errorMessages[err.error];
+  }
+  return err.message ?? "Something went wrong";
 }
 ```
 
-```ts
-// OAuth-only account with no password yet
-await securityApi.requestSetPassword();
-// ...user clicks the emailed link, lands on a confirm page with the code...
-await securityApi.confirmSetPassword(userId, code, newPassword);
+---
+
+## Change password
+
+For accounts that already have a password.
+
+```tsx
+// components/change-password-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { securityApi } from "../lib/api/security";
+import { getSecurityErrorMessage } from "../lib/security-errors";
+
+export function ChangePasswordForm() {
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await securityApi.changePassword(oldPassword, newPassword);
+      setSuccess(true);
+      setOldPassword("");
+      setNewPassword("");
+    } catch (err: any) {
+      setError(getSecurityErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Change password</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert>
+              <AlertDescription>Password changed.</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="oldPassword">Current password</Label>
+            <Input id="oldPassword" type="password" value={oldPassword} onChange={(e) => setOldPassword(e.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="newPassword">New password</Label>
+            <Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+          </div>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Changing..." : "Change password"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
 ```
 
-```ts
-// Account with a password
-await securityApi.deleteAccount(password);
-setUser(null);
+---
 
-// OAuth-only account
-await securityApi.requestDeleteAccount();
-// ...user enters the emailed code...
-await securityApi.confirmDeleteAccount(code);
-setUser(null);
+## Forgot password
+
+Public page for a user who's locked out — no session required.
+
+```tsx
+// components/forgot-password-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { securityApi } from "../lib/api/security";
+import { getSecurityErrorMessage } from "../lib/security-errors";
+
+export function ForgotPasswordForm() {
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await securityApi.forgotPassword(email);
+      setSuccess(true);
+    } catch (err: any) {
+      setError(getSecurityErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Reset your password</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert>
+              <AlertDescription>Check your email for a reset link.</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Sending..." : "Send reset link"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
 ```
+
+---
+
+## Reset password
+
+Public page — user lands here from the emailed link. The `code` comes from the URL query params.
+
+```tsx
+// components/reset-password-form.tsx
+"use client";
+
+import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { securityApi } from "../lib/api/security";
+import { getSecurityErrorMessage } from "../lib/security-errors";
+
+export function ResetPasswordForm() {
+  const searchParams = useSearchParams();
+  const code = searchParams.get("code") ?? "";
+  const [newPassword, setNewPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await securityApi.resetPassword(code, newPassword);
+      setSuccess(true);
+    } catch (err: any) {
+      setError(getSecurityErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Set new password</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert>
+              <AlertDescription>Password reset. You can now log in.</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="newPassword">New password</Label>
+            <Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+          </div>
+          <Button type="submit" disabled={loading || !code}>
+            {loading ? "Resetting..." : "Reset password"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Set password (OAuth-only accounts)
+
+For accounts created via OAuth that don't have a password yet. Two-step flow: request the email, then confirm from the link.
+
+```tsx
+// components/set-password-request.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { securityApi } from "../lib/api/security";
+import { getSecurityErrorMessage } from "../lib/security-errors";
+
+export function SetPasswordRequest() {
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleRequest() {
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await securityApi.requestSetPassword();
+      setSuccess(true);
+    } catch (err: any) {
+      setError(getSecurityErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Set a password</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        {success && (
+          <Alert>
+            <AlertDescription>Check your email for a link to set your password.</AlertDescription>
+          </Alert>
+        )}
+        <p className="text-sm text-muted-foreground">
+          Your account was created with OAuth. Set a password so you can also log in with email.
+        </p>
+        <Button onClick={handleRequest} disabled={loading}>
+          {loading ? "Sending..." : "Send set-password link"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+```tsx
+// components/set-password-confirm.tsx
+"use client";
+
+import { useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { securityApi } from "../lib/api/security";
+import { getSecurityErrorMessage } from "../lib/security-errors";
+
+export function SetPasswordConfirm() {
+  const searchParams = useSearchParams();
+  const code = searchParams.get("code") ?? "";
+  const userId = searchParams.get("userId") ?? "";
+  const [newPassword, setNewPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await securityApi.confirmSetPassword(userId, code, newPassword);
+      setSuccess(true);
+    } catch (err: any) {
+      setError(getSecurityErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Set your password</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert>
+              <AlertDescription>Password set. You can now log in with email and password.</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="newPassword">New password</Label>
+            <Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
+          </div>
+          <Button type="submit" disabled={loading || !code || !userId}>
+            {loading ? "Setting..." : "Set password"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Resend verification
+
+Two variants: logged-in user (resends to their own email) and public (for a different device).
+
+```tsx
+// components/resend-verification.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { securityApi } from "../lib/api/security";
+import { getSecurityErrorMessage } from "../lib/security-errors";
+
+export function ResendVerificationButton() {
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleResend() {
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await securityApi.resendVerification();
+      setSuccess(true);
+    } catch (err: any) {
+      setError(getSecurityErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {success && (
+        <Alert>
+          <AlertDescription>Verification email sent.</AlertDescription>
+        </Alert>
+      )}
+      <Button variant="outline" size="sm" onClick={handleResend} disabled={loading}>
+        {loading ? "Sending..." : "Resend verification email"}
+      </Button>
+    </div>
+  );
+}
+```
+
+```tsx
+// components/resend-verification-email.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { securityApi } from "../lib/api/security";
+import { getSecurityErrorMessage } from "../lib/security-errors";
+
+export function ResendVerificationByEmailForm() {
+  const [email, setEmail] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await securityApi.resendVerificationByEmail(email);
+      setSuccess(true);
+    } catch (err: any) {
+      setError(getSecurityErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Resend verification email</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert>
+              <AlertDescription>If an account exists with that email, a verification link was sent.</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Sending..." : "Resend"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
 
 ## Next
 
 - [Setup](./index.mdx) — the `apiRequest` helper this is built on
 - [Security](../security.mdx) — full request/response/error reference and `SecurityConfig`
+- [User management](./user-management.mdx) — account deletion

@@ -44,8 +44,8 @@ Use `errors.Is` for one specific outcome, such as `domain.ErrInvalidCredentials`
 
 Two paths do not use the JSON envelope:
 
-- **CSRF origin/token middleware** (`middleware.OriginCheck`, `middleware.CSRFToken`) responds with a plain-text body via `http.Error` — e.g. `Forbidden - CSRF headers missing` (403) — not JSON. It runs ahead of your handlers and has no domain error to format.
-- **OAuth callback errors** are never returned as a JSON body at all — the browser is mid-redirect at that point. They come back as a redirect to `{BaseURL}/auth/callback?error={code}&provider={provider}`, and your frontend reads `error` from the query string.
+- **CSRF origin/token middleware** (`middleware.OriginCheck`, `middleware.CSRFToken`) responds with a plain-text body via `http.Error`, e.g. `Forbidden - CSRF headers missing` (403), not JSON. It runs ahead of your handlers and has no domain error to format.
+- **OAuth callback errors** are never returned as a JSON body at all. The browser is mid-redirect at that point. They come back as a redirect to `{BaseURL}/auth/callback?error={code}&provider={provider}`, and your frontend reads `error` from the query string.
 
 Organization membership middleware (`middleware.RequireOrgMember`, `RequireOrgRole`) uses the normal envelope. A non-member receives `org_member_not_found` (404); an under-privileged member receives `org_forbidden` (403).
 
@@ -56,45 +56,45 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 | Code | Status | Message |
 |---|---|---|
 | `internal_error` | 500 | Internal server error |
-| `invalid_json` | 400 | Invalid request body — malformed JSON on any endpoint that decodes one |
+| `invalid_json` | 400 | Invalid request body (malformed JSON on any endpoint that decodes one) |
 | `invalid_input` | 400 | Generic input validation failure (exact message varies, e.g. `sessionIds must not be empty`) |
-| `forbidden` | 403 | You do not have permission / Insufficient permissions |
+| `forbidden` | 403 | You do not have permission |
 | `rate_limit_exceeded` | 429 | Too many requests, please try again later |
 | `method_disabled` | 405 | This registration method is not available |
 
-`internal_error` always means: something failed that the caller can't fix by changing their request (a database error, a failed hash, etc.). It's logged server-side with detail; the client only ever sees the generic message.
+`internal_error` always means: something failed that the caller cannot fix by changing their request (a database error, a failed hash, etc.). It is logged server-side with detail; the client only ever sees the generic message.
 
 ## Authentication (register, login, session cookie)
 
 | Code | Status | Message | Hint |
 |---|---|---|---|
-| `email_already_exists` / `account_already_exists` | 409 | An account with this email already exists | Both codes mean the same thing; register uses the first. Also returned to the loser of a race between two concurrent registrations for the same email — the database's unique constraint is the real backstop, and the loser gets this code, not a 500. |
-| `invalid_credentials` | 401 | Invalid email or password | Deliberately the same message whether the email doesn't exist or the password is wrong — no account enumeration. |
+| `email_already_exists` / `account_already_exists` | 409 | An account with this email already exists | Both codes mean the same thing; register uses the first. Also returned to the loser of a race between two concurrent registrations for the same email. The database unique constraint is the real backstop, and the loser gets this code, not a 500. |
+| `invalid_credentials` | 401 | Invalid email or password | Deliberately the same message whether the email does not exist or the password is wrong. No account enumeration. |
 | `user_banned` | 403 | This account has been banned | Returned on login and on every authenticated request once a session resolves to a banned user. |
 | `email_not_verified` | 403 | Please verify your email first | Only when `RequireEmailVerification` is on. |
 | `weak_password` | 400 | Password must be at least 8 characters (or the specific policy rule that failed) | From your configured `PasswordPolicy`. |
 | `invalid_email` | 400 | Invalid email format | |
 | `name_required` | 400 | Name is required | |
 | `unauthorized` | 401 | Invalid session / User not found | From the auth middleware, not a specific service call. |
-| `session_expired` | 401 | Missing session cookie / Session has expired | Also from the auth middleware — see [Sessions](#sessions) below for the token-level version. |
+| `session_expired` | 401 | Missing session cookie / Session has expired | Also from the auth middleware. See [Sessions](#sessions) below for the token-level version. |
 
 ## Two-factor authentication
 
 | Code | Status | Message | Hint |
 |---|---|---|---|
-| `two_factor_code_invalid` | 400 | Invalid two-factor code | Also returned for a wrong binding cookie and for a code submitted after the lineage's 5-guess cap is hit — the client can't distinguish "wrong code" from "capped" or "wrong browser," on purpose. |
-| `two_factor_code_expired` | 410 | Two-factor code has expired | Also what `POST /auth/2fa/resend` returns once a lineage is used up (5 wrong guesses or 3 resends) — starting over with a fresh `Login`/`Register` call works. |
+| `two_factor_code_invalid` | 400 | Invalid two-factor code | Also returned for a wrong binding cookie and for a code submitted after the lineage's 5-guess cap is hit. The client cannot distinguish "wrong code" from "capped" or "wrong browser," on purpose. |
+| `two_factor_code_expired` | 410 | Two-factor code has expired | Also what `POST /auth/2fa/resend` returns once a lineage is used up (5 wrong guesses or 3 resends). Starting over with a fresh `Login`/`Register` call works. |
 | `two_factor_code_already_used` | 410 | This two-factor code has already been used | |
-| `two_factor_already_enforced` | 409 | Two-factor authentication is required and cannot be changed | Returned by `POST /auth/2fa/enable` and `POST /auth/2fa/disable` when `TwoFactorConfig.RequireEmail2FA` is on — mandatory 2FA can't be toggled per-user. |
-| `two_factor_password_required` | 400 | Password is required to change two-factor settings | From `POST /auth/2fa/enable`/`disable`. Deliberately its own code, not the pre-existing `password_required` (delete-account) — same shape, different endpoint, different message; sharing a code would make the two indistinguishable to a client matching on `error`. |
-| `challenge_not_found` | 200 | If the challenge is valid, a new code has been sent | Yes, HTTP 200 — `POST /auth/2fa/resend` never reveals whether a `challengeId` is real, so an unrecognized or binding-mismatched one gets the same generic response as a real resend. |
-| `email_not_configured` | 500 | Email sender is not configured | 2FA requires a mailer the same way email verification does — see [Configuration](./configuration.mdx). |
+| `two_factor_already_enforced` | 409 | Two-factor authentication is required and cannot be changed | Returned by `POST /auth/2fa/enable` and `POST /auth/2fa/disable` when `TwoFactorConfig.RequireEmail2FA` is on. Mandatory 2FA cannot be toggled per-user. |
+| `two_factor_password_required` | 400 | Password is required to change two-factor settings | From `POST /auth/2fa/enable`/`disable`. Deliberately its own code, not the pre-existing `password_required` (delete-account). Same shape, different endpoint, different message; sharing a code would make the two indistinguishable to a client matching on `error`. |
+| `challenge_not_found` | 200 | If the challenge is valid, a new code has been sent | HTTP 200 on purpose: `POST /auth/2fa/resend` never reveals whether a `challengeId` is real, so an unrecognized or binding-mismatched one gets the same generic response as a real resend. |
+| `email_not_configured` | 500 | Email sender is not configured | 2FA requires a mailer the same way email verification does. See [Configuration](./configuration.mdx). |
 
 ## Sessions
 
 | Code | Status | Message | Hint |
 |---|---|---|---|
-| `session_not_found` | 404 | Session not found | Returned by revoke-by-ID when the session doesn't exist *or* belongs to someone else — the two cases are indistinguishable on purpose, so one user can't probe another's session IDs. |
+| `session_not_found` | 404 | Session not found | Returned by revoke-by-ID when the session does not exist *or* belongs to someone else. The two cases are indistinguishable on purpose, so one user cannot probe another's session IDs. |
 | `session_expired` | 401 | Session has expired | |
 | `session_revoked` | 401 | Session has been revoked | |
 | `invalid_refresh_token` | 401 | Refresh token is invalid | |
@@ -115,7 +115,7 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 | `wrong_password` | 400 | Password is incorrect / Current password is incorrect | Used both by delete-account and change-password. |
 | `password_update_conflict` | 409 | Password changed concurrently; retry the operation | Change-password or reset-password read a credential that another request replaced before the guarded write. The winning hash/version remains stored. Reset's transaction rolls back its token claim; neither losing path revokes sessions. |
 | `no_password` | 400 | No password set. Use set-password instead. | For OAuth-only accounts calling change-password instead of set-password. |
-| `already_set` | 400 | User already has a password | The reverse case — calling set-password when one already exists. |
+| `already_set` | 400 | User already has a password | The reverse case: calling set-password when one already exists. |
 | `invalid_code` | 400 | Invalid set password code | |
 | `code_used` | 400 | Set password code has already been used | |
 | `email_not_configured` | 500 | Email sender is not configured | Only reachable on the confirm-delete-account flow, which requires a mailer explicitly. |
@@ -135,7 +135,7 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 | `code_already_used` | 410 | This code has already been used | |
 | `code_expired` | 410 | Verification code has expired | |
 | `already_verified` | 400 | Email is already verified | |
-| `email_not_found` | 200 | If an account exists, a verification email has been sent | Yes, HTTP 200 — resend-verification never reveals whether the email exists, so a non-existent address gets the same success response as a real one. |
+| `email_not_found` | 200 | If an account exists, a verification email has been sent | HTTP 200 on purpose: resend-verification never reveals whether the email exists, so a non-existent address gets the same success response as a real one. |
 
 ## Invites (self-service, invite-only signup)
 
@@ -153,18 +153,18 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 
 | Code | Status | Message | Hint |
 |---|---|---|---|
-| `provider_not_found` | 404 | Unrecognized provider | The `{provider}` path segment doesn't match any registered `WithProvider`. |
-| `provider_already_linked` / `already_linked` | 409 | This provider is already linked to another account | Two codes for the same condition at different call sites — treat them the same. |
+| `provider_not_found` | 404 | Unrecognized provider | The `{provider}` path segment does not match any registered `WithProvider`. |
+| `provider_already_linked` / `already_linked` | 409 | This provider is already linked to another account | Two codes for the same condition at different call sites. Treat them the same. |
 | `provider_not_linked` | 404 | This provider is not linked to your account | |
 | `cannot_unlink_last_provider` | 400 | Cannot unlink last login method — set a password first | Prevents locking yourself out of an OAuth-only account. |
 | `invalid_state` | 400 | Invalid or expired OAuth state | The anti-CSRF state token on the callback didn't match. |
 | `state_used` | 400 | OAuth state token already used | State tokens are single-use. |
 | `state_expired` | 400 | OAuth state token has expired | |
-| `provider_error` | 502 | Failed to authenticate with provider | The provider's own API rejected the exchange — not something the caller can fix. |
+| `provider_error` | 502 | Failed to authenticate with provider | The provider's own API rejected the exchange. Not something the caller can fix. |
 | `unauthorized` | 401 | Authentication required | Link/unlink require an existing session. |
-| `email_already_exists` | 409 | An account with this email already exists | Logging in via OAuth when a password account already exists for that email — go-auth never auto-links the two; the user has to log in with the password and use [Link](#oauth) explicitly. See [OAuth guide](./guides/oauth.mdx#logging-in-with-an-email-that-already-has-a-password-account). |
+| `email_already_exists` | 409 | An account with this email already exists | Logging in via OAuth when a password account already exists for that email. go-auth never auto-links the two; the user has to log in with the password and use [link](./guides/oauth.mdx#linking-a-provider) explicitly. See [OAuth guide](./guides/oauth.mdx#logging-in-with-an-email-that-already-has-a-password-account). |
 
-Callback errors don't arrive as JSON — see [Not every layer uses this shape](#not-every-layer-uses-this-shape) above.
+Callback errors do not arrive as JSON. See [Not every layer uses this shape](#not-every-layer-uses-this-shape) above.
 
 ## Organizations
 
@@ -173,22 +173,22 @@ Callback errors don't arrive as JSON — see [Not every layer uses this shape](#
 | `org_not_found` | 404 | Organization not found | |
 | `org_slug_exists` | 409 | Organization slug already in use | |
 | `org_slug_reserved` | 400 | Organization slug is reserved | |
-| `org_member_not_found` | 404 | User is not a member of this organization | Also returned by `RequireOrgMember` when the membership lookup comes back empty — but only for *missing* membership; a lookup that fails outright (e.g. the database is down) returns `internal_error` 500 instead, so a server problem never masquerades as a not-a-member 404. |
+| `org_member_not_found` | 404 | User is not a member of this organization | Also returned by `RequireOrgMember` when the membership lookup comes back empty, but only for *missing* membership. A lookup that fails outright (e.g. the database is down) returns `internal_error` 500 instead, so a server problem never masquerades as a not-a-member 404. |
 | `org_member_exists` | 409 | User is already a member of this organization | |
-| `org_member_conflict` | 409 | Organization membership changed concurrently; retry the operation | Two requests raced the same membership (remove vs remove, remove vs role change, or two role changes). The loser's guarded write matched nothing, so its counter updates rolled back — refetch and retry. |
+| `org_member_conflict` | 409 | Organization membership changed concurrently; retry the operation | Two requests raced the same membership (remove vs remove, remove vs role change, or two role changes). The loser's guarded write matched nothing, so its counter updates rolled back. Refetch and retry. |
 | `cannot_remove_last_owner` | 400 | Cannot remove or demote the last owner of an organization | |
 | `org_limit_reached` | 400 | Maximum organization limit reached for user | `OrganizationConfig.MaxOrgsPerUser`. |
 | `org_member_limit_reached` | 400 | Organization member limit reached | |
-| `org_forbidden` | 403 | Insufficient organization permissions | Returned by role-gated actions — e.g. a member trying to change another member's role. |
+| `org_forbidden` | 403 | Insufficient organization permissions | Returned by role-gated actions (e.g. a member trying to change another member's role). |
 | `org_invite_expired` | 400 | Organization invite link has expired | |
 | `org_invite_email_mismatch` | 400 | Authenticated email does not match invite recipient | The invite was sent to a specific address; whoever accepts it must be logged in as that address. |
 | `org_metadata_too_large` | 400 | Organization metadata exceeds 16KB limit | |
 | `invalid_slug` | 400 | Slug must be 255 characters or less | |
 | `invalid_name` | 400 | Organization name is required | |
 | `invalid_role` | 400 | Invalid organization role | |
-| `invite_not_found` | 404 | Invite not found | Same code as the self-service invite system above — org invites reuse it. |
+| `invite_not_found` | 404 | Invite not found | Same code as the self-service invite system above. Org invites reuse it. |
 
-The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) uses the normal envelope too — see [Not every layer uses this shape](#not-every-layer-uses-this-shape) above: a non-member gets the same `org_member_not_found` 404 a direct `OrgService` call returns, and an under-privileged member gets `org_forbidden` 403.
+The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) uses the normal envelope too. See [Not every layer uses this shape](#not-every-layer-uses-this-shape) above: a non-member gets the same `org_member_not_found` 404 a direct `OrgService` call returns, and an under-privileged member gets `org_forbidden` 403.
 
 ## Admin
 
@@ -199,13 +199,13 @@ The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) uses the no
 | `last_admin` | 400 | Cannot ban / demote / delete the last admin | The library refuses to leave zero admins standing. |
 | `invalid_role` | 400 | Role must be 'user' or 'admin' | |
 | `name_required` | 400 | Name is required | |
-| `session_not_found` | 404 | Session not found | Admin revoking a specific user session that doesn't exist. |
-| `user_not_found` | 404 | User not found | No user with that `{id}` — returned by detail, ban/unban, role change, delete, and the per-user session and audit-log routes. |
-| `forbidden` | 403 | Insufficient permissions | From `RequireRole(domain.RoleAdmin)` — a non-admin hit an admin-only route. |
+| `session_not_found` | 404 | Session not found | Admin revoking a specific user session that does not exist. |
+| `user_not_found` | 404 | User not found | No user with that `{id}`. Returned by detail, ban/unban, role change, delete, and the per-user session and audit-log routes. |
+| `forbidden` | 403 | You do not have permission | From `RequireRole(domain.RoleAdmin)`: a non-admin hit an admin-only route. |
 
 ## CSRF and rate limiting
 
-These respond outside the JSON envelope or with a narrower one — see [Not every layer uses this shape](#not-every-layer-uses-this-shape) for the CSRF middleware specifics.
+These respond outside the JSON envelope or with a narrower one. See [Not every layer uses this shape](#not-every-layer-uses-this-shape) for the CSRF middleware specifics.
 
 | Where | Status | Body |
 |---|---|---|

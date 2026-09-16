@@ -52,7 +52,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
   Get this wrong and the failure is distinctive: every read works and every write returns `403`. The [Deployment guide](./deployment.mdx) covers all three cases.
 </Callout>
 
-The double-submit token layer is **on in every deployment** — `New` creates a `CSRFTokenConfig` with the defaults shown whenever you leave the field `nil`, so passing the struct overrides those defaults rather than switching the layer on. Turn it off with `DisableCSRFToken: true`, which is meant for deployments with no browser clients at all. See [Configuration → `WithSecurity`](../configuration.mdx#withsecurity--required-allowedorigins) for the full treatment.
+The double-submit token layer is **on in every deployment** — `New` creates a `CSRFTokenConfig` with the defaults shown whenever you leave the field `nil`, so passing the struct overrides those defaults rather than switching the layer on. Turn it off with `DisableCSRFToken: true`, which is meant for deployments with no browser clients at all. See [Configuration → `WithSecurity`](../configuration.mdx#withsecurity-required-allowedorigins) for the full treatment.
 
 <Callout type="info" title="Protecting your own routes with the same check">
   `Auth.RequireCSRF` applies this exact double-submit verification — the real HMAC-signed token, not a naive cookie/header string compare — to a route you write and mount yourself:
@@ -81,50 +81,6 @@ The double-submit token layer is **on in every deployment** — `New` creates a 
 ## Frontend client setup
 
 The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](./client/index.mdx). The named-method wrapper for everything on this page lives on [Client → Security](./client/security.mdx).
-
-## Change name
-
-### Change name — `PUT /auth/name`
-
-**Request body**: `{ "name": "..." }`
-
-**Response**: `{ "message": "Name updated" }`
-
-**Errors**
-
-| Code | Status | Cause |
-|---|---|---|
-| `validation_error` | 400 | `name` was empty |
-| `user_not_found` | 404 | Session's user no longer exists |
-| `internal_error` | 500 | Database failure |
-
-#### curl
-
-```bash
-curl -X PUT https://api.myapp.com/auth/name \
-  -H "Content-Type: application/json" \
-  -H "Origin: https://myapp.com" \
-  -b cookies.txt \
-  -d '{"name":"Ada Byron"}'
-```
-
----
-
-#### Programmatic (Go)
-
-```go
-err := auth.Services.Auth.ChangeName(ctx, userID, "Ada Byron")
-```
-
----
-
-#### Client
-
-```ts
-await apiRequest(API_BASE, "PUT", "/auth/name", { name: "Ada Byron" });
-```
-
----
 
 ## Change password
 
@@ -185,6 +141,8 @@ await apiRequest(API_BASE, "PUT", "/auth/password", {
 });
 ```
 
+See [Client → Change password](./client/security.mdx#change-password) for the wrapper and error handling.
+
 ---
 
 ## Set a password (OAuth-only accounts)
@@ -225,6 +183,8 @@ err := auth.Services.Password.RequestSetPassword(ctx, userID)
 ```ts
 await apiRequest(API_BASE, "POST", "/auth/set-password/request");
 ```
+
+See [Client → Set password](./client/security.mdx#set-password-oauth-only-accounts) for the wrapper and two-step flow.
 
 ---
 
@@ -275,6 +235,8 @@ err := auth.Services.Password.ConfirmSetPassword(ctx, goauth.ConfirmSetPasswordI
 await apiRequest(API_BASE, "POST", "/auth/set-password/confirm", { userId, code, newPassword });
 ```
 
+See [Client → Set password](./client/security.mdx#set-password-oauth-only-accounts) for the wrapper and two-step flow.
+
 ---
 
 ## Forgot / reset password
@@ -313,6 +275,8 @@ err := auth.Services.Password.ForgotPassword(ctx, goauth.ForgotPasswordInput{Ema
 ```ts
 await apiRequest(API_BASE, "POST", "/auth/forgot-password", { email });
 ```
+
+See [Client → Forgot / reset password](./client/security.mdx#forgot-password) for the wrapper and two-step flow.
 
 ---
 
@@ -361,6 +325,8 @@ err := auth.Services.Password.ResetPassword(ctx, goauth.ResetPasswordInput{
 ```ts
 await apiRequest(API_BASE, "POST", "/auth/reset-password", { code, newPassword });
 ```
+
+See [Client → Forgot / reset password](./client/security.mdx#reset-password) for the wrapper and two-step flow.
 
 ---
 
@@ -419,6 +385,8 @@ if err == nil && !result.Sent {
 await apiRequest(API_BASE, "POST", "/auth/resend-verification");
 ```
 
+See [Client → Resend verification](./client/security.mdx#resend-verification) for the wrapper and both logged-in and public variants.
+
 ---
 
 ### Resend by email — `POST /auth/verify-email/resend`
@@ -452,115 +420,13 @@ auth.Services.Verify.SendVerificationByEmail(ctx, "ada@example.com") // error wr
 await apiRequest(API_BASE, "POST", "/auth/verify-email/resend", { email });
 ```
 
----
-
-## Delete account
-
-Two paths depending on whether the account has a password: immediate deletion with password confirmation, or an emailed code for OAuth-only accounts. Both revoke every session and clear cookies on success.
-
-### Delete immediately (has a password) — `DELETE /auth/account`
-
-**Request body**: `{ "password": "..." }`
-
-**Response**: `{ "message": "Account deleted successfully" }`
-
-**Errors**
-
-| Code | Status | Cause |
-|---|---|---|
-| `password_required` | 400 | Account has no password — use the request/confirm flow below instead |
-| `wrong_password` | 400 | Password didn't match |
-| `user_not_found` | 404 | Session's user no longer exists |
-
-#### curl
-
-```bash
-curl -X DELETE https://api.myapp.com/auth/account \
-  -H "Content-Type: application/json" \
-  -H "Origin: https://myapp.com" \
-  -b cookies.txt \
-  -d '{"password":"correct horse battery staple 1"}'
-```
-
----
-
-#### Programmatic (Go)
-
-```go
-err := auth.Services.Auth.DeleteAccount(ctx, userID, "correct horse battery staple 1")
-```
-
----
-
-#### Client
-
-```ts
-await apiRequest(API_BASE, "DELETE", "/auth/account", { password });
-setUser(null);
-```
-
----
-
-### Delete via emailed code (OAuth-only accounts) — `POST /auth/account/delete/request`, `POST /auth/account/delete/confirm`
-
-Auth required for both. The request step emails an 8-character code (10-minute TTL); if a still-valid one already exists, it's silently reused instead of sending a second email. The confirm step always takes the user from the session, never from the body — you can't confirm a deletion for anyone but yourself.
-
-**Errors** — request step
-
-| Code | Status | Cause |
-|---|---|---|
-| `password_account` | 400 | Account has a password — use `DELETE /auth/account` instead |
-| `email_not_configured` | 500 | No mailer configured |
-
-**Errors** — confirm step
-
-| Code | Status | Cause |
-|---|---|---|
-| `delete_code_invalid` | 400 | Code doesn't match, wrong type, or belongs to a different user |
-| `delete_code_already_used` | 410 | Already redeemed |
-| `delete_code_expired` | 410 | Past the 10-minute window |
-
-#### curl
-
-```bash
-curl -X POST https://api.myapp.com/auth/account/delete/request \
-  -H "Origin: https://myapp.com" \
-  -b cookies.txt
-
-curl -X POST https://api.myapp.com/auth/account/delete/confirm \
-  -H "Content-Type: application/json" \
-  -H "Origin: https://myapp.com" \
-  -b cookies.txt \
-  -d '{"code":"ABCD1234"}'
-```
-
----
-
-#### Programmatic (Go)
-
-```go
-err := auth.Services.Auth.RequestDeleteAccount(ctx, userID)
-
-err = auth.Services.Auth.ConfirmDeleteAccount(ctx, goauth.ConfirmDeleteAccountInput{
-    UserID: userID, // always the session's own ID — never take this from client input yourself either
-    Code:   "ABCD1234",
-})
-```
-
----
-
-#### Client
-
-```ts
-await apiRequest(API_BASE, "POST", "/auth/account/delete/request");
-await apiRequest(API_BASE, "POST", "/auth/account/delete/confirm", { code });
-setUser(null);
-```
+See [Client → Resend verification](./client/security.mdx#resend-verification) for the wrapper and both logged-in and public variants.
 
 ---
 
 ## Next
 
+- [User management](./user-management.mdx) — name changes, 2FA toggle, and account deletion
 - [Authentication](./authentication.mdx) — register, login, logout, and the initial verification step
 - [Admin](./admin.mdx) — banning, role changes, and admin-initiated session revocation
 - [Configuration](../configuration.mdx) — every other config block

@@ -1,26 +1,30 @@
 ---
 title: "Organizations"
-description: "orgApi — a named-method wrapper around org CRUD, membership, active-org, and invites, built on the apiRequest helper."
+description: "orgApi — CRUD, membership, active-org, and invite wrappers with UI components for org management."
 icon: "Blocks"
 ---
 
 # Organizations client
 
-Wraps every endpoint from the [Organizations](../organizations.mdx) guide into `orgApi`, built on the [`apiRequest`](./index.mdx) helper.
+Wraps every endpoint from the [Organizations](../organizations.mdx) guide into `orgApi`, built on the [`apiRequest`](./index.mdx) helper. The [Organizations](../organizations.mdx) guide remains the complete request/response/error reference.
+
+<Callout type="info" title="UI components">
+  All UI examples on this page use [shadcn/ui](https://ui.shadcn.com) with the default base variant. Only layout and styling change between projects — the component API stays the same. Install with `npx shadcn@latest add button input card label alert dialog select table badge`.
+</Callout>
+
+## The wrapper
 
 ```ts
+// lib/api/organizations.ts
 import { apiRequest } from "./client";
 
-const API_BASE = "https://api.myapp.com";
+const API_BASE = "/api";
 
 export const orgApi = {
+  // --- CRUD ---
   create: (input: { name: string; slug: string }) =>
     apiRequest(API_BASE, "POST", "/auth/orgs", input),
 
-  // limit is `number | undefined`, checked with `!== undefined` below rather
-  // than truthiness — `limit: 0` is the explicit "unlimited" signal the
-  // service supports, and a truthy check would silently drop it since 0 is
-  // falsy. Omitting `limit` entirely gets the default page of 20 server-side.
   listMine: (params: {
     role?: "owner" | "admin" | "member";
     search?: string;
@@ -40,8 +44,6 @@ export const orgApi = {
     return apiRequest(API_BASE, "GET", `/auth/orgs${qs ? `?${qs}` : ""}`);
   },
 
-  // List responses carry no `total`. Each list has a matching `/count` that
-  // takes the filter params only — call it on its own cadence for the pager.
   countMine: (params: { role?: "owner" | "admin" | "member"; search?: string } = {}) => {
     const query = new URLSearchParams();
     if (params.role) query.set("role", params.role);
@@ -50,13 +52,16 @@ export const orgApi = {
     return apiRequest(API_BASE, "GET", `/auth/orgs/count${qs ? `?${qs}` : ""}`);
   },
 
-  get: (orgId: string) => apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}`),
+  get: (orgId: string) =>
+    apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}`),
 
   update: (orgId: string, input: { name?: string; slug?: string }) =>
     apiRequest(API_BASE, "PUT", `/auth/orgs/${orgId}`, input),
 
-  delete: (orgId: string) => apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}`),
+  delete: (orgId: string) =>
+    apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}`),
 
+  // --- Members ---
   listMembers: (orgId: string, params: {
     role?: "owner" | "admin" | "member";
     search?: string;
@@ -90,12 +95,17 @@ export const orgApi = {
   updateMemberRole: (orgId: string, userId: string, role: "owner" | "admin" | "member") =>
     apiRequest(API_BASE, "PATCH", `/auth/orgs/${orgId}/members/${userId}/role`, { role }),
 
-  leave: (orgId: string) => apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/leave`),
+  leave: (orgId: string) =>
+    apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/leave`),
 
-  setActive: (orgId: string) => apiRequest(API_BASE, "PUT", "/auth/orgs/active", { orgId }),
+  // --- Active org ---
+  setActive: (orgId: string) =>
+    apiRequest(API_BASE, "PUT", "/auth/orgs/active", { orgId }),
 
-  clearActive: () => apiRequest(API_BASE, "DELETE", "/auth/orgs/active"),
+  clearActive: () =>
+    apiRequest(API_BASE, "DELETE", "/auth/orgs/active"),
 
+  // --- Invites ---
   createInvite: (orgId: string, input: { email: string; role: "owner" | "admin" | "member" }) =>
     apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/invites`, input),
 
@@ -144,27 +154,1243 @@ export const orgApi = {
 };
 ```
 
-## Using it
+Each method returns the matching endpoint response without reshaping errors. For full request/response shapes and error codes, see the [Organizations](../organizations.mdx) guide.
+
+## Error handling
+
+Every API error returns the same shape. Handle it uniformly across all calls:
 
 ```ts
-const org = await orgApi.create({ name: "Acme Inc", slug: "acme" });
-await orgApi.setActive(org.id);
-```
+// lib/org-errors.ts
+const errorMessages: Record<string, string> = {
+  org_not_found: "Organization not found",
+  org_slug_exists: "That slug is already taken",
+  org_slug_reserved: "That slug is reserved",
+  org_member_not_found: "User is not a member of this organization",
+  org_member_exists: "User is already a member",
+  org_member_conflict: "Membership changed — please retry",
+  cannot_remove_last_owner: "Can't remove or demote the last owner",
+  org_limit_reached: "You've reached the maximum number of organizations",
+  org_member_limit_reached: "This organization has reached its member limit",
+  org_forbidden: "You don't have permission to do that",
+  no_active_org: "Select an active organization first",
+  org_invite_expired: "This invitation has expired",
+  org_invite_email_mismatch: "Your email doesn't match this invitation",
+  org_metadata_too_large: "Organization metadata exceeds 16KB limit",
+  invalid_code: "Invalid invite code",
+};
 
-```ts
-const { members } = await orgApi.listMembers(orgId);
-const { count } = await orgApi.countMembers(orgId); // total for the pager
-await orgApi.updateMemberRole(orgId, userId, "admin");
-```
-
-```ts
-try {
-  await orgApi.acceptInvite(code);
-} catch (err) {
-  // org_invite_expired / org_invite_email_mismatch — see the Organizations guide
-  showError(err.message ?? err.error);
+export function getOrgErrorMessage(err: { error?: string; message?: string }): string {
+  if (err.error && err.error in errorMessages) {
+    return errorMessages[err.error];
+  }
+  return err.message ?? "Something went wrong";
 }
 ```
+
+---
+
+## Create organization
+
+`POST /auth/orgs`
+
+### Form
+
+```tsx
+// components/create-org-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+export function CreateOrgForm({ onCreated }: { onCreated: (org: { id: string; name: string; slug: string }) => void }) {
+  const [name, setName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const org = await orgApi.create({ name, slug });
+      onCreated(org);
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Create organization</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="slug">Slug</Label>
+            <Input id="slug" value={slug} onChange={(e) => setSlug(e.target.value)} required />
+          </div>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Creating..." : "Create"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## List organizations
+
+`GET /auth/orgs`
+
+### Organization list
+
+```tsx
+// components/org-list.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+interface Org {
+  id: string;
+  name: string;
+  slug: string;
+  memberCount: number;
+  createdAt: string;
+}
+
+export function OrgList({ onSelect }: { onSelect: (org: Org) => void }) {
+  const [orgs, setOrgs] = useState<Org[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const limit = 10;
+
+  useEffect(() => { loadOrgs(); }, [offset, search]);
+
+  async function loadOrgs() {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await orgApi.listMine({ search: search || undefined, limit, offset });
+      setOrgs(result.orgs);
+      const countResult = await orgApi.countMine({ search: search || undefined });
+      setTotal(countResult.count);
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Organizations ({total})</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <Input
+          placeholder="Search organizations..."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setOffset(0); }}
+        />
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        ) : orgs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No organizations found.</p>
+        ) : (
+          <div className="space-y-2">
+            {orgs.map((org) => (
+              <div key={org.id} className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="font-medium">{org.name}</p>
+                  <p className="text-sm text-muted-foreground">/{org.slug} · {org.memberCount} members</p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => onSelect(org)}>
+                  Select
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-between">
+          <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(offset - limit)}>
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {offset + 1}–{Math.min(offset + limit, total)} of {total}
+          </span>
+          <Button variant="outline" size="sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>
+            Next
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Get organization
+
+`GET /auth/orgs/{orgID}`
+
+Used internally by the wrapper. No dedicated UI — use the organization data from `listMine` or pass the org object through navigation state.
+
+---
+
+## Update organization
+
+`PUT /auth/orgs/{orgID}`
+
+### Form
+
+```tsx
+// components/update-org-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+interface Org {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export function UpdateOrgForm({ org, onUpdated }: { org: Org; onUpdated: (org: Org) => void }) {
+  const [name, setName] = useState(org.name);
+  const [slug, setSlug] = useState(org.slug);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      const updated = await orgApi.update(org.id, { name, slug });
+      onUpdated(updated);
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Update organization</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="name">Name</Label>
+            <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="slug">Slug</Label>
+            <Input id="slug" value={slug} onChange={(e) => setSlug(e.target.value)} required />
+          </div>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Saving..." : "Save changes"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Delete organization
+
+`DELETE /auth/orgs/{orgID}`
+
+### Confirmation dialog
+
+```tsx
+// components/delete-org-dialog.tsx
+"use client";
+
+import { useState } from "react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+export function DeleteOrgDialog({ orgId, orgName, onDeleted }: {
+  orgId: string;
+  orgName: string;
+  onDeleted: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleDelete() {
+    setLoading(true);
+    setError(null);
+    try {
+      await orgApi.delete(orgId);
+      onDeleted();
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="destructive">Delete organization</Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete {orgName}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will permanently delete the organization and remove all members. This action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={handleDelete} disabled={loading}>
+            {loading ? "Deleting..." : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+```
+
+---
+
+## List members
+
+`GET /auth/orgs/{orgID}/members`
+
+### Member list
+
+```tsx
+// components/member-list.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+interface Member {
+  userId: string;
+  name: string;
+  email: string;
+  role: "owner" | "admin" | "member";
+  joinedAt: string;
+}
+
+export function MemberList({ orgId, currentUserId }: { orgId: string; currentUserId: string }) {
+  const [members, setMembers] = useState<Member[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const limit = 10;
+
+  useEffect(() => { loadMembers(); }, [offset, search]);
+
+  async function loadMembers() {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await orgApi.listMembers(orgId, { search: search || undefined, limit, offset });
+      setMembers(result.members);
+      const countResult = await orgApi.countMembers(orgId, { search: search || undefined });
+      setTotal(countResult.count);
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Members ({total})</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <Input
+          placeholder="Search members..."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setOffset(0); }}
+        />
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        ) : members.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No members found.</p>
+        ) : (
+          <div className="space-y-2">
+            {members.map((m) => (
+              <div key={m.userId} className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="font-medium">{m.name}</p>
+                  <p className="text-sm text-muted-foreground">{m.email}</p>
+                </div>
+                <Badge variant={m.role === "owner" ? "default" : "secondary"}>{m.role}</Badge>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-between">
+          <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(offset - limit)}>
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {offset + 1}–{Math.min(offset + limit, total)} of {total}
+          </span>
+          <Button variant="outline" size="sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>
+            Next
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Change member role
+
+`PATCH /auth/orgs/{orgID}/members/{userID}/role`
+
+### Role select
+
+```tsx
+// components/change-role-select.tsx
+"use client";
+
+import { useState } from "react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+export function ChangeRoleSelect({ orgId, userId, currentRole, disabled }: {
+  orgId: string;
+  userId: string;
+  currentRole: "owner" | "admin" | "member";
+  disabled?: boolean;
+}) {
+  const [role, setRole] = useState(currentRole);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleChange(newRole: string) {
+    setError(null);
+    try {
+      await orgApi.updateMemberRole(orgId, userId, newRole as "owner" | "admin" | "member");
+      setRole(newRole as "owner" | "admin" | "member");
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+      setRole(currentRole);
+    }
+  }
+
+  return (
+    <div>
+      <Select value={role} onValueChange={handleChange} disabled={disabled}>
+        <SelectTrigger className="w-32">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="member">Member</SelectItem>
+          <SelectItem value="admin">Admin</SelectItem>
+          <SelectItem value="owner">Owner</SelectItem>
+        </SelectContent>
+      </Select>
+      {error && (
+        <Alert variant="destructive" className="mt-2">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+## Remove member
+
+`DELETE /auth/orgs/{orgID}/members/{userID}`
+
+### Confirmation dialog
+
+```tsx
+// components/remove-member-dialog.tsx
+"use client";
+
+import { useState } from "react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+export function RemoveMemberDialog({ orgId, userId, memberName, onRemoved }: {
+  orgId: string;
+  userId: string;
+  memberName: string;
+  onRemoved: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleRemove() {
+    setLoading(true);
+    setError(null);
+    try {
+      await orgApi.removeMember(orgId, userId);
+      onRemoved();
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="destructive" size="sm">Remove</Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove {memberName}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will remove them from the organization. They can be re-invited later.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={handleRemove} disabled={loading}>
+            {loading ? "Removing..." : "Remove"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+```
+
+---
+
+## Leave organization
+
+`POST /auth/orgs/{orgID}/leave`
+
+### Confirmation dialog
+
+```tsx
+// components/leave-org-dialog.tsx
+"use client";
+
+import { useState } from "react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+export function LeaveOrgDialog({ orgId, orgName, onLeft }: {
+  orgId: string;
+  orgName: string;
+  onLeft: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleLeave() {
+    setLoading(true);
+    setError(null);
+    try {
+      await orgApi.leave(orgId);
+      onLeft();
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="outline">Leave {orgName}</Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Leave {orgName}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            You will lose access to this organization. You can only rejoin with a new invite.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={handleLeave} disabled={loading}>
+            {loading ? "Leaving..." : "Leave"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+```
+
+---
+
+## Set active organization
+
+`PUT /auth/orgs/active`
+
+### Organization switcher
+
+```tsx
+// components/org-switcher.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+interface Org {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export function OrgSwitcher({ activeOrgId, onSwitched }: {
+  activeOrgId: string | null;
+  onSwitched: (org: Org | null) => void;
+}) {
+  const [orgs, setOrgs] = useState<Org[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    orgApi.listMine({ limit: 100 }).then((r) => {
+      setOrgs(r.orgs);
+      setLoading(false);
+    }).catch((err) => {
+      setError(getOrgErrorMessage(err));
+      setLoading(false);
+    });
+  }, []);
+
+  async function handleSet(orgId: string) {
+    setError(null);
+    try {
+      await orgApi.setActive(orgId);
+      const org = orgs.find((o) => o.id === orgId) ?? null;
+      onSwitched(org);
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    }
+  }
+
+  async function handleClear() {
+    setError(null);
+    try {
+      await orgApi.clearActive();
+      onSwitched(null);
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    }
+  }
+
+  if (loading) return <p className="text-sm text-muted-foreground">Loading organizations...</p>;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Switch organization</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        {activeOrgId && (
+          <Button variant="outline" size="sm" onClick={handleClear}>
+            Clear active org
+          </Button>
+        )}
+        <div className="space-y-2">
+          {orgs.map((org) => (
+            <div key={org.id} className="flex items-center justify-between rounded-md border p-3">
+              <div>
+                <p className="font-medium">{org.name}</p>
+                <p className="text-sm text-muted-foreground">/{org.slug}</p>
+              </div>
+              <Button
+                variant={org.id === activeOrgId ? "default" : "outline"}
+                size="sm"
+                onClick={() => handleSet(org.id)}
+              >
+                {org.id === activeOrgId ? "Active" : "Switch"}
+              </Button>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Create invite
+
+`POST /auth/orgs/{orgID}/invites`
+
+### Form
+
+```tsx
+// components/invite-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+export function InviteForm({ orgId, onInvited }: { orgId: string; onInvited?: () => void }) {
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState<"member" | "admin" | "owner">("member");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await orgApi.createInvite(orgId, { email, role });
+      setSuccess(true);
+      setEmail("");
+      onInvited?.();
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Invite member</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert>
+              <AlertDescription>Invitation sent.</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="email">Email</Label>
+            <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          </div>
+          <div className="space-y-2">
+            <Label>Role</Label>
+            <Select value={role} onValueChange={(v) => setRole(v as "member" | "admin" | "owner")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="member">Member</SelectItem>
+                <SelectItem value="admin">Admin</SelectItem>
+                <SelectItem value="owner">Owner</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Sending..." : "Send invite"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Accept invite
+
+`POST /auth/orgs/invites/accept`
+
+### Form
+
+```tsx
+// components/accept-invite-form.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+export function AcceptInviteForm({ onAccepted }: { onAccepted?: () => void }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await orgApi.acceptInvite(code);
+      setSuccess(true);
+      onAccepted?.();
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Accept invitation</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+          {success && (
+            <Alert>
+              <AlertDescription>Invitation accepted! You've been added to the organization.</AlertDescription>
+            </Alert>
+          )}
+          <div className="space-y-2">
+            <Label htmlFor="code">Invite code</Label>
+            <Input id="code" value={code} onChange={(e) => setCode(e.target.value)} required />
+          </div>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Accepting..." : "Accept"}
+          </Button>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## List invites
+
+`GET /auth/orgs/{orgID}/invites`
+
+### Invite list
+
+```tsx
+// components/invite-list.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Input } from "@/components/ui/input";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+interface Invite {
+  id: string;
+  email: string;
+  role: "owner" | "admin" | "member";
+  status: "pending" | "expired";
+  expiresAt: string;
+  createdAt: string;
+}
+
+export function InviteList({ orgId }: { orgId: string }) {
+  const [invites, setInvites] = useState<Invite[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [search, setSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const limit = 10;
+
+  useEffect(() => { loadInvites(); }, [offset, search]);
+
+  async function loadInvites() {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await orgApi.listInvites(orgId, { search: search || undefined, limit, offset });
+      setInvites(result.invites);
+      const countResult = await orgApi.countInvites(orgId, { search: search || undefined });
+      setTotal(countResult.count);
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Invitations ({total})</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <Input
+          placeholder="Search invites..."
+          value={search}
+          onChange={(e) => { setSearch(e.target.value); setOffset(0); }}
+        />
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading...</p>
+        ) : invites.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No invitations found.</p>
+        ) : (
+          <div className="space-y-2">
+            {invites.map((inv) => (
+              <div key={inv.id} className="flex items-center justify-between rounded-md border p-3">
+                <div>
+                  <p className="font-medium">{inv.email}</p>
+                  <p className="text-sm text-muted-foreground">Expires {new Date(inv.expiresAt).toLocaleDateString()}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant={inv.status === "pending" ? "default" : "destructive"}>{inv.status}</Badge>
+                  <Badge variant="secondary">{inv.role}</Badge>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="flex justify-between">
+          <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(offset - limit)}>
+            Previous
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            {offset + 1}–{Math.min(offset + limit, total)} of {total}
+          </span>
+          <Button variant="outline" size="sm" disabled={offset + limit >= total} onClick={() => setOffset(offset + limit)}>
+            Next
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Resend invite
+
+`POST /auth/orgs/{orgID}/invites/{inviteID}/resend`
+
+### Button
+
+```tsx
+// components/resend-invite-button.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+export function ResendInviteButton({ orgId, inviteId, onResent }: {
+  orgId: string;
+  inviteId: string;
+  onResent?: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleResend() {
+    setLoading(true);
+    setError(null);
+    setSuccess(false);
+    try {
+      await orgApi.resendInvite(orgId, inviteId);
+      setSuccess(true);
+      onResent?.();
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div>
+      <Button variant="outline" size="sm" onClick={handleResend} disabled={loading}>
+        {loading ? "Sending..." : "Resend"}
+      </Button>
+      {error && (
+        <Alert variant="destructive" className="mt-2">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {success && (
+        <Alert className="mt-2">
+          <AlertDescription>Invite resent.</AlertDescription>
+        </Alert>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+## Delete invite
+
+`DELETE /auth/orgs/{orgID}/invites/{inviteID}`
+
+### Confirmation dialog
+
+```tsx
+// components/delete-invite-dialog.tsx
+"use client";
+
+import { useState } from "react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { orgApi } from "../lib/api/organizations";
+import { getOrgErrorMessage } from "../lib/org-errors";
+
+export function DeleteInviteDialog({ orgId, inviteId, email, onDeleted }: {
+  orgId: string;
+  inviteId: string;
+  email: string;
+  onDeleted: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function handleDelete() {
+    setLoading(true);
+    setError(null);
+    try {
+      await orgApi.deleteInvite(orgId, inviteId);
+      onDeleted();
+    } catch (err: any) {
+      setError(getOrgErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <AlertDialog>
+      <AlertDialogTrigger asChild>
+        <Button variant="destructive" size="sm">Delete</Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete invitation to {email}?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will revoke the invitation. They will need a new invite to join.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={handleDelete} disabled={loading}>
+            {loading ? "Deleting..." : "Delete"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+```
+
+---
+
+## Bulk operations
+
+The API doesn't have dedicated bulk endpoints. Loop over the individual methods:
+
+### Bulk remove members
+
+```ts
+// lib/api/organizations.ts — add to orgApi or call directly
+async function bulkRemoveMembers(orgId: string, userIds: string[]) {
+  const errors: { userId: string; error: string }[] = [];
+  for (const userId of userIds) {
+    try {
+      await orgApi.removeMember(orgId, userId);
+    } catch (err: any) {
+      errors.push({ userId, error: getOrgErrorMessage(err) });
+    }
+  }
+  return errors;
+}
+```
+
+### Bulk resend invites
+
+```ts
+// lib/api/organizations.ts — add to orgApi or call directly
+async function bulkResendInvites(orgId: string, inviteIds: string[]) {
+  const errors: { inviteId: string; error: string }[] = [];
+  for (const inviteId of inviteIds) {
+    try {
+      await orgApi.resendInvite(orgId, inviteId);
+    } catch (err: any) {
+      errors.push({ inviteId, error: getOrgErrorMessage(err) });
+    }
+  }
+  return errors;
+}
+```
+
+---
 
 ## Next
 

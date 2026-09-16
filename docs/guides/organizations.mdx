@@ -31,7 +31,7 @@ goauth.WithOrganizations(goauth.OrganizationConfig{
 - `organizations.max_orgs_per_user must be between 0 and 100 (0 = default 100)`
 - `organizations.invite_ttl must be positive` — hint: only reachable via an explicit negative value.
 
-Full reference: [Configuration → WithOrganizations](../configuration.mdx#withorganizations--optional).
+Full reference: [Configuration → WithOrganizations](../configuration.mdx#withorganizations-optional).
 
 ## Frontend client setup
 
@@ -109,9 +109,7 @@ org, err := auth.Services.Org.CreateOrg(ctx, goauth.CreateOrgInput{
 
 #### Client
 
-```ts
-const org = await apiRequest(API_BASE, "POST", "/auth/orgs", { name: "Acme Inc", slug: "acme" });
-```
+See [Create organization](./client/organizations.mdx#create-organization) for the wrapper and form component.
 
 ### List your orgs — `GET /auth/orgs`
 
@@ -140,7 +138,15 @@ Auth: any authenticated user. Every org the caller belongs to, any role. Query p
 
 ```json
 {
-  "orgs": [ { "...": "same shape as create, one per org" } ],
+  "orgs": [
+    {
+      "id": "b3b12...",
+      "name": "Acme Inc",
+      "slug": "acme",
+      "memberCount": 5,
+      "createdAt": "2026-01-15T10:30:00Z"
+    }
+  ],
   "limit": 20,
   "offset": 0
 }
@@ -189,12 +195,7 @@ owned, err := auth.Services.Org.ListUserOrgs(ctx, goauth.ListUserOrgsInput{
 
 #### Client
 
-```ts
-const { orgs } = await apiRequest(
-  API_BASE, "GET", "/auth/orgs?search=acme&orderBy=created_at&orderDirection=desc&limit=20&offset=0"
-);
-const { count } = await apiRequest(API_BASE, "GET", "/auth/orgs/count?search=acme");
-```
+See [List organizations](./client/organizations.mdx#list-organizations) for the wrapper and data table.
 
 ### Get one org — `GET /auth/orgs/{orgID}`
 
@@ -225,9 +226,7 @@ org, err := auth.Services.Org.GetByID(ctx, goauth.GetOrgInput{OrgID: orgID, Acto
 
 #### Client
 
-```ts
-const org = await apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}`);
-```
+See [Get organization](./client/organizations.mdx#get-organization) for the wrapper.
 
 ## Updating and deleting orgs
 
@@ -236,7 +235,15 @@ const org = await apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}`);
 Auth: org admin or above. Body: `{ "name"?, "slug"? }`. Both fields are pointers, so omitting one leaves it unchanged rather than clearing it. Unlike `WithRegistration`, this is a partial update.
 
 ```json
-{ "...": "the updated org, same shape as create" }
+```json
+{
+  "id": "b3b12...",
+  "name": "Acme Incorporated",
+  "slug": "acme",
+  "memberCount": 5,
+  "createdAt": "2026-01-15T10:30:00Z"
+}
+```
 ```
 
 | Code | Status | Cause |
@@ -273,9 +280,7 @@ org, err := auth.Services.Org.UpdateOrg(ctx, goauth.UpdateOrgInput{
 
 #### Client
 
-```ts
-const org = await apiRequest(API_BASE, "PUT", `/auth/orgs/${orgId}`, { name: "Acme Incorporated" });
-```
+See [Update organization](./client/organizations.mdx#update-organization) for the wrapper and form component.
 
 ### Delete an org — `DELETE /auth/orgs/{orgID}`
 
@@ -309,9 +314,7 @@ err := auth.Services.Org.DeleteOrg(ctx, goauth.DeleteOrgInput{OrgID: orgID, Acto
 
 #### Client
 
-```ts
-await apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}`);
-```
+See [Delete organization](./client/organizations.mdx#delete-organization) for the wrapper and confirmation dialog.
 
 ## Members
 
@@ -379,12 +382,7 @@ n, err := auth.Services.Org.CountMembers(ctx, goauth.ListMembersInput{
 
 #### Client
 
-```ts
-const { members } = await apiRequest(
-  API_BASE, "GET", `/auth/orgs/${orgId}/members?role=admin&search=jane&orderBy=name&orderDirection=asc&offset=0&limit=20`
-);
-const { count } = await apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/members/count?role=admin&search=jane`);
-```
+See [List members](./client/organizations.mdx#list-members) for the wrapper and data table.
 
 ### Remove a member, or leave — `DELETE /auth/orgs/{orgID}/members/{userID}`, `POST /auth/orgs/{orgID}/leave`
 
@@ -435,10 +433,7 @@ err = auth.Services.Org.LeaveOrg(ctx, goauth.LeaveOrgInput{OrgID: orgID, UserID:
 
 #### Client
 
-```ts
-await apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}/members/${userId}`);
-await apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/leave`);
-```
+See [Remove member](./client/organizations.mdx#remove-member) and [Leave organization](./client/organizations.mdx#leave-organization) for the wrapper and confirmation dialogs.
 
 ### Change a member's role — `PATCH /auth/orgs/{orgID}/members/{userID}/role`
 
@@ -484,9 +479,7 @@ err := auth.Services.Org.UpdateMemberRole(ctx, goauth.UpdateMemberRoleInput{
 
 #### Client
 
-```ts
-await apiRequest(API_BASE, "PATCH", `/auth/orgs/${orgId}/members/${userId}/role`, { role: "admin" });
-```
+See [Change member role](./client/organizations.mdx#change-member-role) for the wrapper and role select component.
 
 ## Active org
 
@@ -570,9 +563,7 @@ err := auth.Services.Org.SetActiveOrg(ctx, goauth.SetActiveOrgInput{SessionID: s
 
 #### Client
 
-```ts
-await apiRequest(API_BASE, "PUT", "/auth/orgs/active", { orgId });
-```
+See [Set active organization](./client/organizations.mdx#set-active-organization) for the wrapper and org switcher component.
 
 ### Clear active org — `DELETE /auth/orgs/active`
 
@@ -603,9 +594,7 @@ err := auth.Services.Org.ClearActiveOrg(ctx, goauth.ClearActiveOrgInput{SessionI
 
 #### Client
 
-```ts
-await apiRequest(API_BASE, "DELETE", "/auth/orgs/active");
-```
+The client has no dedicated clear-active wrapper — call the endpoint directly (see [Setup](./client/index.mdx)).
 
 ## Invites
 
@@ -666,12 +655,7 @@ invite, err := auth.Services.OrgInvite.CreateOrgInvite(ctx, goauth.CreateOrgInvi
 
 #### Client
 
-```ts
-const invite = await apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/invites`, {
-  email: "new-hire@example.com",
-  role: "member",
-});
-```
+See [Create invite](./client/organizations.mdx#create-invite) for the wrapper and invite form component.
 
 ### Accepting an invite — `POST /auth/orgs/invites/accept`
 
@@ -714,9 +698,7 @@ err := auth.Services.OrgInvite.AcceptInvite(ctx, goauth.AcceptInviteInput{
 
 #### Client
 
-```ts
-await apiRequest(API_BASE, "POST", "/auth/orgs/invites/accept", { code });
-```
+See [Accept invite](./client/organizations.mdx#accept-invite) for the wrapper and accept form component.
 
 ### Listing invites — `GET /auth/orgs/{orgID}/invites`
 
@@ -734,7 +716,16 @@ Auth: org admin. `rawCode` is never present here (see [Creating an invite](#crea
 
 ```json
 {
-  "invites": [ { "...": "same shape as create, minus rawCode" } ],
+  "invites": [
+    {
+      "id": "inv_abc...",
+      "email": "new-hire@example.com",
+      "role": "member",
+      "status": "pending",
+      "expiresAt": "2026-01-22T10:30:00Z",
+      "createdAt": "2026-01-15T10:30:00Z"
+    }
+  ],
   "limit": 20,
   "offset": 0
 }
@@ -775,12 +766,7 @@ n, err := auth.Services.OrgInvite.CountOrgInvites(ctx, goauth.ListOrgInvitesInpu
 
 #### Client
 
-```ts
-const { invites } = await apiRequest(
-  API_BASE, "GET", `/auth/orgs/${orgId}/invites?status=pending&search=new-hire&orderBy=created_at&orderDirection=desc&offset=0&limit=20`
-);
-const { count } = await apiRequest(API_BASE, "GET", `/auth/orgs/${orgId}/invites/count?status=pending&search=new-hire`);
-```
+See [List invites](./client/organizations.mdx#list-invites) for the wrapper and data table.
 
 ### Resending or deleting an invite — `POST .../invites/{inviteID}/resend`, `DELETE .../invites/{inviteID}`
 
@@ -796,7 +782,7 @@ or:
 { "message": "Invite deleted" }
 ```
 
-Delete here is a hard delete of the invite record — distinct from revoking a self-service signup invite (see [Routes → Invites](../routes.mdx#invites-self-service-signup--requires-enableinvite)), which is a different feature with its own soft-cancel semantics.
+Delete here is a hard delete of the invite record — distinct from revoking a self-service signup invite (see [Routes → Invites](../routes/auth.mdx#get-invite-info)), which is a different feature with its own soft-cancel semantics.
 
 ---
 
@@ -823,14 +809,11 @@ err = auth.Services.OrgInvite.DeleteOrgInvite(ctx, inviteID)
 
 #### Client
 
-```ts
-await apiRequest(API_BASE, "POST", `/auth/orgs/${orgId}/invites/${inviteId}/resend`);
-await apiRequest(API_BASE, "DELETE", `/auth/orgs/${orgId}/invites/${inviteId}`);
-```
+See [Resend invite](./client/organizations.mdx#resend-invite) and [Delete invite](./client/organizations.mdx#delete-invite) for the wrapper and confirmation dialogs.
 
 ## Next
 
-- [Routes](../routes.mdx#organizations--requires-withorganizationsenable-true) — the full path/param table for every route on this page
+- [Routes](../routes/orgs.mdx) — the full path/param table for every route on this page
 - [Schemas](../schemas.mdx#organizations) — the `organizations`, `organization_members`, and `organization_invites` tables
 - [Authentication](./authentication.mdx) — the mailer requirement invites share with email verification
 - [Sessions](./sessions.mdx#listing-sessions) — where `activeOrgId`/`activeOrgRole` show up on a session

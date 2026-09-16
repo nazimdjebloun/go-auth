@@ -1,0 +1,146 @@
+---
+title: "Sessions"
+description: "Refresh, list, revoke, and the CSRF token."
+icon: "Monitor"
+---
+
+# Sessions
+
+Token rotation and session management for the caller. All routes need the session cookie except `POST /auth/refresh`, which needs the refresh cookie instead. Sessions serialize camelCase; token hashes are never included:
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "userId": "550e8400-e29b-41d4-a716-446655440000",
+  "ipAddress": "192.168.1.1",
+  "userAgent": "Mozilla/5.0 ...",
+  "isRevoked": false,
+  "expiresAt": "2025-01-31T12:00:00Z",
+  "refreshExpiresAt": "2025-01-31T12:00:00Z",
+  "createdAt": "2025-01-01T00:00:00Z",
+  "lastActiveAt": "2025-01-01T12:00:00Z",
+  "activeOrgId": "550e8400-e29b-41d4-a716-446655440000",
+  "activeOrgRole": "member"
+}
+```
+
+### Refresh token
+
+POST /auth/refresh
+
+Rotates both tokens using the refresh cookie and sets the new cookies. No body: the refresh token is read from the cookie, not the JSON. A failed refresh clears both cookies. `Auth:` refresh cookie.
+
+**Response `200 OK`:**
+
+```json
+{ "session": { "...": "the rotated session" } }
+```
+
+**Errors:** `invalid_refresh` (no refresh cookie was sent).
+
+### List sessions
+
+GET /auth/sessions
+
+Lists the caller's sessions, newest activity first, with the current one identified. `Auth:` Session.
+
+**Query:**
+
+| Param | Type | Default | Required | Notes |
+|---|---|---|---|---|
+| `offset` | int | `0` | Optional | |
+| `limit` | int | `20` | Optional | Capped at `100` |
+
+**Response `200 OK`:**
+
+```json
+{
+  "sessions": [{ "...": "session objects" }],
+  "total": 5,
+  "limit": 20,
+  "offset": 0,
+  "currentSessionId": "550e8400-..."
+}
+```
+
+### List all sessions
+
+GET /auth/sessions/all
+
+Same sessions without pagination. `Auth:` Session.
+
+**Response `200 OK`:**
+
+```json
+{
+  "sessions": [{ "...": "session objects" }],
+  "currentSessionId": "550e8400-..."
+}
+```
+
+### Revoke one session
+
+DELETE /auth/sessions/\{id\}
+
+Terminates a specific session. `Auth:` Session.
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Session revoked" }
+```
+
+**Errors:** `session_not_found`.
+
+### Revoke many sessions
+
+POST /auth/sessions/revoke
+
+Revokes several of the caller's sessions at once (1 to 100). `Auth:` Session.
+
+**Request body:**
+
+```json
+{ "sessionIds": ["id1", "id2"] }
+```
+
+**Response `200 OK`:**
+
+```json
+{ "revoked": 2 }
+```
+
+**Errors:** `invalid_input` (empty list, or more than 100 IDs).
+
+### Revoke all sessions
+
+DELETE /auth/sessions
+
+Revokes every session except the current one. `Auth:` Session.
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Sessions revoked" }
+```
+
+### Get CSRF token
+
+GET /auth/csrf-token
+
+Reads the double-submit CSRF token. The middleware sets the `_csrf` cookie on safe requests; this route only decides whether the value is also echoed in the body. `Auth:` Public.
+
+**Response `204 No Content`** (default): no body. Read the token from `document.cookie`.
+
+**Response `200 OK`** (only with `CSRFTokenConfig.ExposeCSRFTokenInBody`):
+
+```json
+{ "token": "opaque-csrf-token" }
+```
+
+with `Cache-Control: no-store`.
+
+## Next
+
+- [OAuth](./oauth.mdx): login, callback, link, unlink
+- [Organizations](./orgs.mdx): orgs, members, invites, active org

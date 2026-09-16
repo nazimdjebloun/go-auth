@@ -6,6 +6,8 @@
     "installation",
     "schemas",
     "configuration",
+    "client-config",
+    "admin-client-config",
     "guides",
     "providers",
     "routes",

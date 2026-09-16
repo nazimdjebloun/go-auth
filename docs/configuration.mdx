@@ -1,16 +1,16 @@
 ---
 title: "Configuration"
-description: "Every configuration option, field by field — required vs optional, defaults, and the exact validation errors each one can produce."
+description: "Every configuration option, field by field: required vs optional, defaults, and the exact validation errors each one can produce."
 icon: "Settings2"
 ---
 
 # Configuration
 
-All configuration goes through `NewConfig(opts ...Option)`: apply every option you want, and it fills in defaults for anything you left unset, validates the result, and returns a value that `New` accepts. Options can be passed in any order except where a section below says otherwise.
+All configuration goes through `NewConfig(opts ...Option)`: apply every option you want, and it fills in defaults for anything you left unset, validates the result, and returns a value that `New` accepts. Options can be passed in any order, with one exception: a later `WithRateLimit` replaces the whole rate-limit table, discarding any earlier `WithRateLimitRoute` tweak. Set narrow options after the broad one.
 
-`NewConfig` returns every problem it finds at once, joined into a single error — not just the first one. Each section below lists the exact error text and what causes it.
+`NewConfig` returns every problem it finds at once, joined into a single error. Not just the first one. Each section below lists the exact error text and what causes it.
 
-## `WithApp` — Required
+## `WithApp`: Required
 
 App identity, the database connection, and the deployment environment.
 
@@ -19,10 +19,10 @@ goauth.WithApp(goauth.AppConfig{
     Name:    "MyApp",                 // required
     BaseURL: "https://myapp.com",     // required
     Database: goauth.DatabaseConfig{  // required
-        URL: os.Getenv("DATABASE_URL"), // one of URL / DB / Pool — connection string
-        // DB:   preOpenedSQLDB,          // one of URL / DB / Pool — pre-opened *sql.DB, alternative to URL
-        // Pool: preOpenedPgxPool,         // one of URL / DB / Pool — PostgreSQL only, alternative to URL
-        Driver: goauth.DriverPostgres, // required — DriverPostgres | DriverSQLite | DriverMySQL
+        URL: os.Getenv("DATABASE_URL"), // one of URL / DB / Pool: connection string
+        // DB:   preOpenedSQLDB,          // one of URL / DB / Pool: pre-opened *sql.DB, alternative to URL
+        // Pool: preOpenedPgxPool,         // one of URL / DB / Pool: PostgreSQL only, alternative to URL
+        Driver: goauth.DriverPostgres, // required: DriverPostgres | DriverSQLite | DriverMySQL
     },
     Environment: goauth.EnvironmentProd, // optional, default EnvironmentProd
 })
@@ -30,9 +30,9 @@ goauth.WithApp(goauth.AppConfig{
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `Name` | `string` | Required | — | Shown in email templates. |
-| `BaseURL` | `string` | Required | — | Must be a valid `http://` or `https://` URL. Base for links in emails. |
-| `Database` | `DatabaseConfig` | Required | — | See table below. |
+| `Name` | `string` | Required | none | Shown in email templates. |
+| `BaseURL` | `string` | Required | none | Must be a valid `http://` or `https://` URL. Base for links in emails. |
+| `Database` | `DatabaseConfig` | Required | none | See table below. |
 | `Environment` | `Environment` | Optional | `EnvironmentProd` | One of `dev`, `staging`, `prod` (`development`/`production` are accepted as aliases). Drives the cookie `Secure` default and the email-link `http://` default. |
 
 **`Database` (`DatabaseConfig`)**
@@ -46,14 +46,14 @@ goauth.WithApp(goauth.AppConfig{
 
 **Expected errors**
 
-- `app_name cannot be empty` — hint: `Name` was left blank.
-- `base_url is required` — hint: `BaseURL` was left blank.
-- `base_url must be a valid HTTP or HTTPS URL` — hint: `BaseURL` doesn't parse as `http://` or `https://`.
-- `database: driver cannot be empty` — hint: `Driver` was left blank.
-- `database: one of URL, DB, or Pool is required` — hint: none of the three connection fields were set.
-- `environment must be one of dev, staging, or prod, got "..."` — hint: `Environment` was set to something other than the recognized values. Leaving it blank is fine — it defaults to `prod`.
+- `app_name cannot be empty`: `Name` was left blank.
+- `base_url is required`: `BaseURL` was left blank.
+- `base_url must be a valid HTTP or HTTPS URL`: `BaseURL` does not parse as `http://` or `https://`.
+- `database: driver cannot be empty`: `Driver` was left blank.
+- `database: one of URL, DB, or Pool is required`: none of the three connection fields were set.
+- `environment must be one of dev, staging, or prod, got "..."`: `Environment` was set to something other than the recognized values. Leaving it blank is fine (`prod` default).
 
-## `WithSecret` — Required
+## `WithSecret`: Required
 
 The app-wide root secret from which purpose-specific cryptographic keys are derived.
 
@@ -63,7 +63,7 @@ goauth.WithSecret(os.Getenv("AUTH_SECRET"))
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `secret` | `string` | Required | — | Minimum 32 bytes. HKDF derives separate CSRF, 2FA-binding, OAuth-encryption, and OTP-pepper keys from it. Source it from the environment; never commit it. Password peppering uses a separate opt-in secret. |
+| `secret` | `string` | Required | none | Minimum 32 bytes. HKDF derives separate CSRF, 2FA-binding, OAuth-encryption, and OTP-pepper keys from it. Source it from the environment; never commit it. Password peppering uses a separate opt-in secret. |
 
 If you rotate the root secret, rotate the OTP-pepper timestamp with it:
 
@@ -72,16 +72,16 @@ goauth.WithSecret(os.Getenv("AUTH_SECRET")),
 goauth.WithPepperRotatedAt(rotationTime), // UTC moment the new secret went live
 ```
 
-`WithPepperRotatedAt` is optional and defaults to unset (zero): the rotation-stale branch stays dormant and verification is purely by HMAC. Set it — to the same UTC value on every instance — exactly when you rotate the secret, so pre-rotation low-entropy codes (2FA, verification, set-password, delete-account) fail as `expired` ("resend") instead of `invalid_code`. Source it like the secret itself: one shared env var or secrets-manager entry, never per-instance files that can drift — instances holding different timestamps disagree per-request about which codes are stale.
+`WithPepperRotatedAt` is optional and defaults to unset (zero): the rotation-stale branch stays dormant and verification is purely by HMAC. Set it, to the same UTC value on every instance, exactly when you rotate the secret. Pre-rotation low-entropy codes (2FA, verification, set-password, delete-account) then fail as `expired` ("resend") instead of `invalid_code`. Source it like the secret itself: one shared env var or secrets-manager entry, never per-instance files that can drift. Instances holding different timestamps disagree per-request about which codes are stale.
 
 `WithPepperRotatedAt` governs OTP/code expiry only. Password peppering is independent, so rotating `WithSecret` does not invalidate password hashes. See [Security → OTP pepper rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp).
 
 **Expected errors**
 
-- `secret: signing secret is required` — hint: nothing was passed.
-- `secret: signing secret must be at least 32 bytes for HMAC-SHA256` — hint: shorter than 32 bytes.
+- `secret: signing secret is required`: nothing was passed.
+- `secret: signing secret must be at least 32 bytes for HMAC-SHA256`: shorter than 32 bytes.
 
-## `WithPasswordPepper` — Optional
+## `WithPasswordPepper`: Optional
 
 Password peppering is off by default. Enable it with independently managed secret material:
 
@@ -94,7 +94,7 @@ goauth.WithPasswordPepper(goauth.PasswordPepperConfig{
 })
 ```
 
-`CurrentVersion` selects the key used by every new password write. Version `0` is reserved for unpeppered rows: omitting this option leaves `CurrentVersion` at zero and skips HMAC entirely, so the selected KDF receives the password directly. Each non-zero key must be at least 32 bytes, identical on every application instance, and stored separately from the password database—preferably in a secrets manager. The option copies the map; later caller mutations do not change live configuration.
+`CurrentVersion` selects the key used by every new password write. Version `0` is reserved for unpeppered rows: omitting this option leaves `CurrentVersion` at zero and skips HMAC entirely, so the selected KDF receives the password directly. Each non-zero key must be at least 32 bytes, identical on every application instance, and stored separately from the password database (preferably in a secrets manager). The option copies the map; later caller mutations do not change live configuration.
 
 For a versioned row, go-auth derives that version's HMAC key with HKDF purpose `goauth-password-pepper-v1`, computes `base64(HMAC-SHA256(derivedKey, password))`, and passes the result to bcrypt or Argon2id. The nullable `users.password_pepper_version` column selects exactly one key during verification; the library never tries every configured key. Existing `NULL` rows verify as ordinary unpeppered passwords and upgrade to `CurrentVersion` through guarded rehash-on-login.
 
@@ -106,25 +106,25 @@ Rotate without downtime in phases:
 
 Preloading is supported even before first opt-in: use `CurrentVersion: 0` with future keys. During a rolling deployment an older node can verify a row written with a preloaded newer version. Login rehash skips that row, while password change and reset continue hashing at the stored higher version. If the higher key was not preloaded, change/reset fail closed rather than writing the older current version. All three replacement paths use the same hash-and-version compare-and-swap, and the database independently rejects a lower new version. A lost race returns `password_update_conflict` for change/reset. Reset atomically claims its still-valid token, replaces the password, and deletes all sessions in one database transaction; change-password atomically combines its password replacement with its configured session revocation. Derivation is deterministic, so there is no password rotation-timestamp field; all instances only need the same version-to-secret mapping.
 
-Never replace a secret in place under the same version. Add a new version instead. Losing a still-referenced key makes those accounts unverifiable; a compromised pepper may also require forced password resets because an attacker who obtained both the database and old pepper can continue offline guessing even while lazy upgrades proceed. `WithPepperRotatedAt` is unrelated—it records OTP rotation time and cannot recover password key material.
+Never replace a secret in place under the same version. Add a new version instead. Losing a still-referenced key makes those accounts unverifiable; a compromised pepper may also require forced password resets because an attacker who obtained both the database and old pepper can continue offline guessing even while lazy upgrades proceed. `WithPepperRotatedAt` is unrelated. It records OTP rotation time and cannot recover password key material.
 
 **Expected errors**
 
-- `password_pepper: current version N has no configured key` — the active version is missing, commonly because a map entry was omitted.
-- `password_pepper: key version N must be at least 32 bytes` — an empty or short environment value was supplied. This fails during `NewConfig`, and `New()` revalidates after cloning; there is no runtime fallback to unpeppered hashing.
-- `password_pepper: key version 0 is reserved for unpeppered passwords` — use `CurrentVersion: 0`, not a key at index zero, to keep new writes unpeppered.
-- `database contains password pepper versions with no configured key` — startup found a stored version the configured keyring cannot verify.
+- `password_pepper: current version N has no configured key`: the active version is missing, commonly because a map entry was omitted.
+- `password_pepper: key version N must be at least 32 bytes`: an empty or short environment value was supplied. This fails during `NewConfig`, and `New()` revalidates after cloning; there is no runtime fallback to unpeppered hashing.
+- `password_pepper: key version 0 is reserved for unpeppered passwords`: use `CurrentVersion: 0`, not a key at index zero, to keep new writes unpeppered.
+- `database contains password pepper versions with no configured key`: startup found a stored version the configured keyring cannot verify.
 
-## `WithSecurity` — Required (`AllowedOrigins`)
+## `WithSecurity`: Required (`AllowedOrigins`)
 
 CSRF origin allow-list, password policy, the double-submit CSRF cookie, and the `http://` policy for email links.
 
 ```go
 goauth.WithSecurity(goauth.SecurityConfig{
-    AllowedOrigins:          []string{"https://myapp.com"}, // required — at least one, never "*"
+    AllowedOrigins:          []string{"https://myapp.com"}, // required: at least one, never "*"
     AllowMissingCSRFHeaders: false,                          // optional, default false
-    DisableCSRFToken:        false,                          // optional, default false — the token layer is ON
-    CSRFToken: &middleware.CSRFTokenConfig{ // optional — overrides only; a config is created for you
+    DisableCSRFToken:        false,                          // optional, default false (the token layer is ON)
+    CSRFToken: &middleware.CSRFTokenConfig{ // optional: overrides only; a config is created for you
         TokenLength:           32,                   // optional, default 32
         CookieName:            "_csrf",              // optional, default "_csrf"
         HeaderName:            "X-CSRF-Token",       // optional, default "X-CSRF-Token"
@@ -132,7 +132,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
         CookieSameSite:        http.SameSiteLaxMode, // optional, default Lax
         CookieDomain:          "",                   // optional, defaults to CookieConfig.Domain
         ExposeCSRFTokenInBody: false,                // optional, default false; see "Where is your frontend?"
-        // CookieSecure and Secret are filled in automatically — do not set them.
+        // CookieSecure and Secret are filled in automatically. Do not set them.
     },
     PasswordPolicy: domain.PasswordPolicy{ // optional, default {MinLength: 8, RequireDigit: true}
         MinLength:        12,
@@ -146,37 +146,43 @@ goauth.WithSecurity(goauth.SecurityConfig{
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `AllowedOrigins` | `[]string` | Required | — | At least one entry. `"*"` is rejected outright. |
-| `AllowMissingCSRFHeaders` | `bool` | Optional | `false` | Allow requests with no `Origin`/`Referer` header at all — needed for some native/mobile clients. |
-| `DisableCSRFToken` | `bool` | Optional | `false` — layer is on | Turns off the double-submit cookie layer entirely. Origin/Referer checking still applies and cannot be disabled. |
-| `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only.** Leaving it `nil` does not disable anything — see below. |
-| `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Setting any one field means you're specifying the whole policy — see note below. |
-| `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
-| `PepperRotatedAt` | `time.Time` | Optional | zero (branch dormant) | Moment the current secret went live (UTC). Prefer the surgical `WithPepperRotatedAt` option over restating this struct at rotation time. Must be identical on all instances — see above. |
+| `AllowedOrigins` | `[]string` | Required | none | At least one entry. `"*"` is rejected outright. |
+| `AllowMissingCSRFHeaders` | `bool` | Optional | `false` | Allow requests with no `Origin`/`Referer` header at all (needed for some native/mobile clients). |
+| `DisableCSRFToken` | `bool` | Optional | `false` (layer is on) | Turns off the double-submit cookie layer entirely. Origin/Referer checking still applies and cannot be disabled. |
+| `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only.** Leaving it `nil` does not disable anything (see below). |
+| `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Setting any one field means you specify the whole policy (see note below). |
+| `AllowHTTPURLs` | `*bool` | Optional | derived (`true` in `EnvironmentDev`, `false` otherwise) | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
+| `PepperRotatedAt` | `time.Time` | Optional | zero (branch dormant) | Moment the current secret went live (UTC). Prefer the surgical `WithPepperRotatedAt` option over restating this struct at rotation time. Must be identical on all instances (see above). |
 
-`PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default — if you set `RequireUppercase: true` without repeating `MinLength` or `RequireDigit`, those two are no longer applied.
+`PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default. If you set `RequireUppercase: true` without repeating `MinLength` or `RequireDigit`, those two are no longer applied.
 
-`Validate` also rejects any password over **72 bytes**, regardless of `MinLength` — that's bcrypt's real input limit (measured in bytes, not characters, so a multi-byte passphrase hits it sooner than an all-ASCII one of the same length), and the check runs before hashing so a too-long password gets a clear `400 weak_password` instead of a generic `500`. Don't set `MinLength` above 72.
+`Validate` also rejects any password over **72 bytes**, regardless of `MinLength`. That is bcrypt's real input limit (measured in bytes, not characters, so a multi-byte passphrase hits it sooner than an all-ASCII one of the same length), and the check runs before hashing so a too-long password gets a clear `400 weak_password` instead of a generic `500`. Do not set `MinLength` above 72.
 
 The double-submit token layer is **on in every deployment**. `WithSecret` is
 mandatory at 32+ bytes, and `New` creates a `CSRFTokenConfig` with the defaults
-below whenever you leave the field `nil` — so passing the struct overrides those
-defaults, it doesn't switch the layer on.
+below whenever you leave the field `nil`: passing the struct overrides those
+defaults, it does not switch the layer on.
 
-To actually turn it off, set `DisableCSRFToken: true`. That's intended for
-deployments with no browser clients — a CLI or a server-to-server API — where
-CSRF isn't in the threat model and the token round-trip buys nothing. Every
+To actually turn it off, set `DisableCSRFToken: true`. That is intended for
+deployments with no browser clients (a CLI or a server-to-server API), where
+CSRF is not in the threat model and the token round-trip buys nothing. Every
 state-changing route otherwise requires the client to `GET /auth/csrf-token`
 first and echo the cookie value back in the header.
 
 <Callout type="warn" title="One combination is rejected">
   `DisableCSRFToken: true` together with `AllowMissingCSRFHeaders: true` is a
   configuration error. Each is defensible alone, but together a cross-site
-  request carrying neither an `Origin`/`Referer` header nor a token would pass —
+  request carrying neither an `Origin`/`Referer` header nor a token would pass,
   leaving no CSRF defense at all. Keep one of the two layers.
 </Callout>
 
-**`CSRFToken` (`middleware.CSRFTokenConfig`)** — every field is optional and takes the default shown when omitted.
+**Expected errors**
+
+- `allowed_origins must include at least one origin`: `AllowedOrigins` was left empty.
+- `allowed_origins must not contain "*" — this disables CSRF protection; list specific origins instead`: `AllowedOrigins` contained `"*"`.
+- `security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set — a cross-site request with no Origin/Referer and no token would pass; keep one of the two layers`: both CSRF layers were turned off at once (see callout above).
+
+**`CSRFToken` (`middleware.CSRFTokenConfig`):** every field is optional and takes the default shown when omitted.
 
 | Field | Default |
 |---|---|
@@ -207,20 +213,18 @@ Two things that trip people up, both covered in full in the [Deployment guide](.
 
 **`ExposeCSRFTokenInBody`** makes `GET /auth/csrf-token` answer `200 {"token": "..."}` (with `Cache-Control: no-store`) instead of a bare `204`. Turn it on only for the third row: across two registrable domains no cookie scope can make `_csrf` readable by the frontend, so the response body is the only channel left.
 
-It does not weaken the check. The cookie is still set and still compared server side, and reading that body requires the caller's origin to be in `AllowedOrigins`, the same gate `OriginCheck` applies to every mutation. The exposure that matters in a cross site deployment comes from `SameSite=None`, which removes the browser's own barrier against the cookie riding along on a cross site request. This flag accompanies that decision rather than causing it, and it stays off by default because most deployments read the cookie perfectly well.
+It does not weaken the check. The cookie is still set and still compared server side, and reading that body requires the caller's origin to be in `AllowedOrigins` (the same gate `OriginCheck` applies to every mutation). The exposure that matters in a cross site deployment comes from `SameSite=None`, which removes the browser's own barrier against the cookie riding along on a cross site request. This flag accompanies that decision rather than causing it, and it stays off by default because most deployments read the cookie directly.
 
-**Startup warnings** (logged, not fatal — a native client keeps its own cookie jar and is not subject to `SameSite`, so either setting alone is legitimate there):
+**Startup warnings** (logged, not fatal; a native client keeps its own cookie jar and is not subject to `SameSite`, so either setting alone is legitimate there):
 
-- `cookie SameSite=None without CSRFTokenConfig.ExposeCSRFTokenInBody` — a cross-site browser frontend receives the session cookie but cannot read the CSRF token, so reads work and every write `403`s.
-- `CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None` — the reverse: the frontend can read the token but is never sent the session cookie, so everything arrives unauthenticated.
+- `cookie SameSite=None without CSRFTokenConfig.ExposeCSRFTokenInBody`: a cross-site browser frontend receives the session cookie but cannot read the CSRF token, so reads work and every write `403`s.
+- `CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None`: the reverse. The frontend can read the token but is never sent the session cookie, so everything arrives unauthenticated.
 
-- `cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()` — the pair yields *no* session rather than a weaker one, so this is caught in config instead of surfacing as "login succeeds but never sticks".
-- `two_factor: code_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `5m`.
-- `two_factor: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path`.
+- `cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()`: the pair yields *no* session rather than a weaker one, so this is caught in config instead of surfacing as "login succeeds but never sticks".
 
-## `WithPasswordHasher` / `WithBcryptCost` — Optional
+## `WithPasswordHasher` / `WithBcryptCost`: Optional
 
-Password hashing defaults to bcrypt at cost 12. Use `WithPasswordHasher` to replace bcrypt for all newly created or upgraded password hashes, or use the narrower `WithBcryptCost` option when bcrypt is still the algorithm you want and only its work factor should change. go-auth includes an Argon2id implementation in `hasher/argon2id`; it is available by choice and does not change the default.
+Password hashing defaults to bcrypt at cost 12. `WithPasswordHasher` replaces bcrypt for new writes and rehash-on-login; `WithBcryptCost` only changes bcrypt's work factor. go-auth includes an Argon2id implementation in `hasher/argon2id`. Argon2id is opt-in and does not change the default.
 
 ```go
 cfg, err := goauth.NewConfig(
@@ -235,13 +239,13 @@ Import it as `github.com/nazimdjebloun/go-auth/hasher/argon2id`. `DefaultOptions
 |---|---|---|---|
 | `WithPasswordHasher` | `port.Hasher` | bcrypt, cost 12 | Replaces the current hasher used by registration, password changes, resets, and rehash-on-login. `Hash` output must carry a stable identifying prefix such as `$argon2id$`; `New` rejects a hasher whose output cannot self-identify. Use `argon2id.New(argon2id.DefaultOptions())` for the built-in Argon2id choice. |
 | `WithBcryptCost` | `int` | `12` | Keeps bcrypt and changes only its cost. Existing bcrypt rows remain verifiable because their stored hashes carry their own cost; rows at another cost are upgraded after a successful login. |
-| `WithPasswordPepper` | `PasswordPepperConfig` | disabled (`CurrentVersion: 0`) | Adds the optional versioned HMAC layer before the selected KDF. See [WithPasswordPepper](#withpasswordpepper--optional) for rollout and rotation. |
+| `WithPasswordPepper` | `PasswordPepperConfig` | disabled (`CurrentVersion: 0`) | Adds the optional versioned HMAC layer before the selected KDF. See [WithPasswordPepper](#withpasswordpepper-optional) for rollout and rotation. |
 
 If both options are present, `WithPasswordHasher` is the more specific choice and wins regardless of option order. `WithBcryptCost` does not modify a custom hasher.
 
 **Expected error**
 
-- `bcrypt_cost N exceeds bcrypt.MaxCost (31)` — `WithBcryptCost` was set above bcrypt's supported maximum while no custom hasher was configured.
+- `bcrypt_cost N exceeds bcrypt.MaxCost (31)`: `WithBcryptCost` was set above bcrypt's supported maximum while no custom hasher was configured.
 
 `port.Hasher` deliberately remains a two-method interface:
 
@@ -254,7 +258,7 @@ type Hasher interface {
 
 The stored string identifies the verifier. `Hash` must return a salted, one-way password hash whose first format field is stable for the algorithm, and `Compare` must parse and verify that algorithm's stored parameters. By default the implementation receives the caller's password directly. For a versioned pepper row it receives the base64-encoded HMAC-SHA256 representation selected by `users.password_pepper_version`; a `NULL` version receives the raw password. go-auth always retains bcrypt and Argon2id verifiers for rows written before an algorithm switch. See [Security → Password hashing and hasher migration](./security.mdx#password-hashing-and-hasher-migration) for the dispatch and rehash guarantees.
 
-## `WithTwoFactor` — Optional
+## `WithTwoFactor`: Optional
 
 Email two-factor settings are separate from CSRF and password policy.
 
@@ -278,7 +282,12 @@ goauth.WithTwoFactor(goauth.TwoFactorConfig{
 | `ChallengeCookieName` | `string` | `_2fa_challenge` | Overrides the binding cookie name. |
 | `DisableAdminTwoFactor` | `bool` | `false` | Turns off admin login's unconditional second factor. |
 
-## `WithSession` — Optional
+**Expected errors**
+
+- `two_factor: code_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `5m`.
+- `two_factor: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path`: mandatory 2FA was turned on with no password registration to gate.
+
+## `WithSession`: Optional
 
 Session and refresh-token lifetimes.
 
@@ -290,7 +299,7 @@ goauth.WithSession(goauth.SessionConfig{
     TokenTTL:        time.Hour,                   // optional, default 1h
     MaxLifetime:     0,                          // optional, default 0 (no limit)
     GraceWindow:     goauth.Duration(10 * time.Second), // optional, default 5s
-    TouchDebounce:   goauth.Duration(0),          // optional, default 5m — 0 turns it off
+    TouchDebounce:   goauth.Duration(0),          // optional, default 5m (0 turns it off)
 })
 ```
 
@@ -300,11 +309,11 @@ goauth.WithSession(goauth.SessionConfig{
 | `IdleTTL` | `time.Duration` | Optional | `7d` | Timeout since last activity. Must not exceed `TTL`. |
 | `RefreshTokenTTL` | `time.Duration` | Optional | `30d` | Must not be less than `TTL`. |
 | `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
-| `MaxLifetime` | `time.Duration` | Optional | `0` — no limit | If set, must be `>= TTL`. |
-| `GraceWindow` | `*time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh don't log the user out. `nil` (the zero value — leave the field out) means "use the default"; a non-nil pointer is used exactly as given, including `goauth.Duration(0)` to turn it off. Set it with `goauth.Duration(...)`, since Go can't take the address of a duration literal directly. |
+| `MaxLifetime` | `time.Duration` | Optional | `0` (no limit) | If set, must be `>= TTL`. |
+| `GraceWindow` | `*time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh do not log the user out. `nil` (the zero value; leave the field out) means "use the default"; a non-nil pointer is used exactly as given, including `goauth.Duration(0)` to turn it off. Set it with `goauth.Duration(...)`, since Go cannot take the address of a duration literal directly. |
 | `TouchDebounce` | `*time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes. Same `nil`-vs-pointer rule as `GraceWindow`; `goauth.Duration(0)` writes on every authenticated request. |
 
-`GraceWindow` and `TouchDebounce` are pointers specifically so "left unset" and "explicitly zero" can't collide — with a plain `time.Duration` field, `GraceWindow: 0` and simply not mentioning `GraceWindow` at all are the same struct, so one of the two meanings would always win by accident. A `*time.Duration` field can be `nil` (unset → default) or point at `0` (off) as two different values.
+`GraceWindow` and `TouchDebounce` are pointers specifically so "left unset" and "explicitly zero" cannot collide. With a plain `time.Duration` field, `GraceWindow: 0` and simply not mentioning `GraceWindow` at all are the same struct, so one of the two meanings would always win by accident. A `*time.Duration` field can be `nil` (unset, uses the default) or point at `0` (off) as two different values.
 
 **Expected errors**
 
@@ -313,13 +322,13 @@ goauth.WithSession(goauth.SessionConfig{
 - `session_idle_ttl must not exceed session_ttl`
 - `refresh_token_ttl must be positive`
 - `refresh_token_ttl must not be less than session_ttl`
-- `session token_ttl must be positive` — only reachable via an explicit negative value; an omitted one defaults to `1h`.
-- `session grace_window must not be negative (use goauth.Duration(0) to turn it off)` — hint: you passed a negative duration.
-- `session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)` — same hint.
+- `session token_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `1h`.
+- `session grace_window must not be negative (use goauth.Duration(0) to turn it off)`: a negative duration was passed.
+- `session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)`: same.
 - `session max_lifetime must not be negative (0 = no limit)`
-- `session max_lifetime must not be less than session_ttl` — hint: only checked when `MaxLifetime` is set above zero.
+- `session max_lifetime must not be less than session_ttl`: only checked when `MaxLifetime` is set above zero.
 
-## `WithCookie` — Optional
+## `WithCookie`: Optional
 
 ```go
 goauth.WithCookie(goauth.CookieConfig{
@@ -336,14 +345,15 @@ goauth.WithCookie(goauth.CookieConfig{
 |---|---|---|---|---|
 | `Name` | `string` | Optional | `goauth_session` | |
 | `RefreshName` | `string` | Optional | `goauth_refresh` | |
-| `Domain` | `string` | Optional | `""` — host-only cookie | Widen it (`".example.com"`) only to share **one login** across subdomains. A frontend on a sibling subdomain does *not* need this to authenticate: the request goes to the API's own host either way. Scope only the CSRF cookie instead, with `CSRFTokenConfig.CookieDomain`. See [Deployment](./guides/deployment.mdx). |
+| `Domain` | `string` | Optional | `""` (host-only cookie) | Widen it (`".example.com"`) only to share **one login** across subdomains. A frontend on a sibling subdomain does *not* need this to authenticate: the request goes to the API's own host either way. Scope only the CSRF cookie instead, with `CSRFTokenConfig.CookieDomain`. See [Deployment](./guides/deployment.mdx). |
 | `Path` | `string` | Optional | `/` | |
 | `SameSite` | `http.SameSite` | Optional | Lax | Keep `Lax` unless a browser frontend is on a different **registrable domain** from the API. Subdomains of one domain are the same site and work on `Lax`. `None` requires `Secure` (see the error below) and pairs with `CSRFTokenConfig.ExposeCSRFTokenInBody`. See [Deployment](./guides/deployment.mdx). |
-| `Secure` | `*bool` | Optional | derived — `true` unless `Environment` is dev **and** `BaseURL` is `http://` | Tri-state: `nil` derives it, so the same code is correct in development and production. Override with `goauth.SecureAlways()` or `goauth.SecureNever()` (local `http://` development only). |
+| `Secure` | `*bool` | Optional | derived (`true` unless `Environment` is dev **and** `BaseURL` is `http://`) | Tri-state: `nil` derives it, so the same code is correct in development and production. Override with `goauth.SecureAlways()` or `goauth.SecureNever()` (local `http://` development only). |
 
 **Expected errors**
 
-- `cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()` — every current browser discards a `SameSite=None` cookie that is not also `Secure`, so the pairing produces *no* session rather than a weaker one, from the first request, with nothing in the server logs to explain it. This is checked against the **resolved** `Secure` value, so an `https://` `BaseURL` satisfies it without setting `Secure` explicitly.
+- `cookie name cannot be empty`: not reachable through `NewConfig` (defaults fill an empty `Name` before validation runs).
+- `cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()`: every current browser discards a `SameSite=None` cookie that is not also `Secure`, so the pairing produces *no* session rather than a weaker one, from the first request, with nothing in the server logs to explain it. This is checked against the **resolved** `Secure` value, so an `https://` `BaseURL` satisfies it without setting `Secure` explicitly.
 
 Every other field is defaulted before the config is checked and cannot fail validation.
 
@@ -351,9 +361,9 @@ Every other field is defaulted before the config is checked and cannot fail vali
   `Domain` and `SameSite` are the two fields you touch when the frontend is not same-origin with the API, and they pair with `CSRFTokenConfig.CookieDomain` and `ExposeCSRFTokenInBody` above. The [Deployment guide](./guides/deployment.mdx) walks the three topologies and says which fields each one needs, along with what each costs.
 </Callout>
 
-## `WithRegistration` — Optional, replaces wholesale
+## `WithRegistration`: Optional, replaces wholesale
 
-Which signup methods are available. Login is always available regardless of these flags — they only govern registration.
+Which signup methods are available. Login is always available regardless of these flags: they only govern registration.
 
 ```go
 goauth.WithRegistration(goauth.RegistrationConfig{
@@ -372,26 +382,26 @@ goauth.WithRegistration(goauth.RegistrationConfig{
 |---|---|---|---|---|
 | `EnableEmailPassword` | `bool` | Optional | `true` | |
 | `EnableOAuth` | `bool` | Optional | `true` | Allows OAuth to create a new account, not just link one. |
-| `EnableInvite` | `bool` | Optional | `false` | A mailer is required regardless — see below. |
+| `EnableInvite` | `bool` | Optional | `false` | A mailer is required regardless (see below). |
 | `AllowPublic` | `bool` | Optional | `true` | Public (non-invite) registration is reachable at all. |
-| `RequireEmailVerification` | `bool` | Optional | `false` | A mailer is required regardless — see below. |
+| `RequireEmailVerification` | `bool` | Optional | `false` | A mailer is required regardless (see below). |
 | `InviteTTL` | `time.Duration` | Optional | `7d` | |
 | `VerificationCodeTTL` | `time.Duration` | Optional | `15m` | |
-| `VerificationResendInterval` | `time.Duration` | Optional | `60s` | Minimum time between verification email resends — the mail-bombing guard. Throttled resends return `200` with `codeSent: false` rather than an error. Set a negative value to opt out back to no minimum. |
+| `VerificationResendInterval` | `time.Duration` | Optional | `60s` | Minimum time between verification email resends (the mail-bombing guard). Throttled resends return `200` with `codeSent: false` rather than an error. Set a negative value to opt out back to no minimum. |
 
-A `bool` has no "unset" state — an omitted `false` looks identical to a deliberate one. Because of that, calling `WithRegistration` at all replaces every flag wholesale rather than merging into the defaults: list every method you want enabled, since anything you don't mention becomes `false`. The two TTL fields and `VerificationResendInterval` are the exception — they keep their defaults when left at zero even if you do call `WithRegistration`.
+A `bool` has no "unset" state: an omitted `false` looks identical to a deliberate one. Because of that, calling `WithRegistration` at all replaces every flag wholesale rather than merging into the defaults. List every method you want enabled, since anything you do not mention becomes `false`. The two TTL fields and `VerificationResendInterval` are the exception: they keep their defaults when left at zero even if you do call `WithRegistration`.
 
 **Expected errors**
 
-- `email: Mailer or Email config required — enabled features need it: <reasons>` — the `<reasons>` list names exactly which of `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultEnabled`, or AdminLogin two-factor is still requiring one; hint: call `WithMailer`/`WithEmail`, or turn off every reason listed (`TwoFactorConfig.DisableAdminTwoFactor` for the last one) — see [`WithMailer` / `WithEmail` / `WithTemplates`](#withmailer--withemail--withtemplates--required-unless-every-email-feature-is-off) below for the `EnvironmentDev` exception.
-- `registration: invite_ttl must be positive` — hint: only reachable via an explicit negative value; an omitted one defaults to `7d`.
-- `registration: verification_code_ttl must be positive` — same hint, defaults to `15m`.
+- `email: Mailer or Email config required — enabled features need it: <reasons>`: the `<reasons>` list names exactly which of `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultEnabled`, or AdminLogin two-factor is still requiring one. Call `WithMailer`/`WithEmail`, or turn off every reason listed (`TwoFactorConfig.DisableAdminTwoFactor` for the last one). See [`WithMailer` / `WithEmail` / `WithTemplates`](#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off) below for the `EnvironmentDev` exception.
+- `registration: invite_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `7d`.
+- `registration: verification_code_ttl must be positive`: same, defaults to `15m`.
 - `registration: RequireEmailVerification has no effect when both EnableEmailPassword and EnableOAuth are disabled`.
-- `registration: AllowPublic is true but no registration method is enabled` — hint: `AllowPublic` is true but `EnableEmailPassword`, `EnableOAuth`, and `EnableInvite` are all false.
+- `registration: AllowPublic is true but no registration method is enabled`: `AllowPublic` is true but `EnableEmailPassword`, `EnableOAuth`, and `EnableInvite` are all false.
 
-## `WithOrganizations` — Optional
+## `WithOrganizations`: Optional
 
-Multi-tenant organizations. Disabled by default — when disabled, no organization routes are mounted at all.
+Multi-tenant organizations. Disabled by default. When disabled, no organization routes are mounted at all.
 
 ```go
 goauth.WithOrganizations(goauth.OrganizationConfig{
@@ -404,19 +414,19 @@ goauth.WithOrganizations(goauth.OrganizationConfig{
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `Enable` | `bool` | Optional | `false` | |
-| `MaxOrgsPerUser` | `int` | Optional | `0` — built-in cap of 100 | Only checked when `Enable` is true. |
+| `MaxOrgsPerUser` | `int` | Optional | `0` (built-in cap of 100) | Only checked when `Enable` is true. |
 | `InviteTTL` | `time.Duration` | Optional | `7d` | Only checked when `Enable` is true. |
 
 **Expected errors** (only reachable when `Enable: true`)
 
 - `organizations.max_orgs_per_user must be between 0 and 100 (0 = default 100)`.
-- `organizations.invite_ttl must be positive` — hint: only reachable via an explicit negative value.
+- `organizations.invite_ttl must be positive`: only reachable via an explicit negative value.
 
-## `WithMailer` / `WithEmail` / `WithTemplates` — required unless every email feature is off
+## `WithMailer` / `WithEmail` / `WithTemplates`: required unless every email feature is off
 
-A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `TwoFactorConfig.RequireEmail2FA`, `TwoFactorConfig.DefaultEnabled`, or `POST /auth/admin/login`'s two-factor challenge (on by default — see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `TwoFactorConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
+A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `TwoFactorConfig.RequireEmail2FA`, `TwoFactorConfig.DefaultEnabled`, or `POST /auth/admin/login`'s two-factor challenge (on by default; see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `TwoFactorConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
 
-**Exception: `EnvironmentDev`.** If neither `WithMailer` nor `WithEmail` is set and `Environment` is `EnvironmentDev`, `NewConfig` automatically defaults to a log-only mailer (`goauth.LogMailer`) instead of erroring — emails are logged (`slog`) rather than delivered, so local development works with zero mailer setup. This default only fills in when *nothing* was configured; an explicit `WithMailer`/`WithEmail` call is never overridden. Outside `EnvironmentDev`, no default is applied — a still-unconfigured mailer is a validation error.
+**Exception: `EnvironmentDev`.** If neither `WithMailer` nor `WithEmail` is set and `Environment` is `EnvironmentDev`, `NewConfig` automatically defaults to a log-only mailer (`mailer.Log`) instead of erroring. Emails are logged (`slog`) rather than delivered, so local development works with zero mailer setup. This default only fills in when *nothing* was configured; an explicit `WithMailer`/`WithEmail` call is never overridden. Outside `EnvironmentDev`, no default is applied: a still-unconfigured mailer is a validation error.
 
 ```go
 // Built-in SMTP transport:
@@ -424,18 +434,18 @@ goauth.WithEmail(goauth.EmailConfig{
     Host:    os.Getenv("SMTP_HOST"), // required
     Port:    587,                    // required, 1-65535
     From:    "auth@myapp.com",       // required, must be a valid email address
-    User:    os.Getenv("SMTP_USER"), // optional — must be set together with Pass, or both empty
-    Pass:    os.Getenv("SMTP_PASS"), // optional — same pairing rule as User
-    TLS:     goauth.TLSStart,        // optional, default TLSStart (STARTTLS) — TLSStart | TLSImplicit | TLSNone
+    User:    os.Getenv("SMTP_USER"), // optional: must be set together with Pass, or both empty
+    Pass:    os.Getenv("SMTP_PASS"), // optional: same pairing rule as User
+    TLS:     goauth.TLSStart,        // optional, default TLSStart (STARTTLS; TLSStart | TLSImplicit | TLSNone)
 })
 
 // Or your own implementation of port.Mailer (Resend, Postmark, SES, ...):
 goauth.WithMailer(myMailer)
 
 // Dev-only: logs emails instead of sending them. NewConfig rejects this
-// outside EnvironmentDev — it's also what EnvironmentDev defaults to
+// outside EnvironmentDev. It is also what EnvironmentDev defaults to
 // automatically when no mailer is configured at all.
-goauth.WithMailer(goauth.NewLogMailer(nil)) // nil logger -> slog.Default()
+goauth.WithMailer(mailer.NewLog(nil)) // mailer is github.com/nazimdjebloun/go-auth/mailer; nil logger uses slog.Default()
 
 // Optional: replace the rendered email content, not just delivery.
 goauth.WithTemplates(myTemplateProvider)
@@ -443,25 +453,25 @@ goauth.WithTemplates(myTemplateProvider)
 
 | Option | Purpose | Required | Notes |
 |---|---|---|---|
-| `WithMailer(port.Mailer)` | Your own delivery implementation | Required unless every email-sending feature is off (auto-defaulted to `LogMailer` in `EnvironmentDev` — see above) | Takes precedence over `WithEmail` if both are set. |
-| `WithEmail(EmailConfig)` | Built-in SMTP delivery | Required unless every email-sending feature is off (auto-defaulted to `LogMailer` in `EnvironmentDev` — see above) | Ignored if `WithMailer` is also set — its fields aren't even validated in that case. |
-| `WithTemplates(port.TemplateProvider)` | Replace the built-in email templates | Optional | The library still renders subject/HTML/text and hands finished strings to the mailer either way — this replaces content, `WithMailer` replaces delivery. |
-| `TwoFactorConfig.DisableAdminTwoFactor` | Turn off `POST /auth/admin/login`'s unconditional two-factor challenge | Optional, default off (challenge stays on) | Set via `WithTwoFactor`. The last of the five mailer-requiring features to disable for a mailer-free, API-only deployment. |
+| `WithMailer(port.Mailer)` | Your own delivery implementation | Required unless every email-sending feature is off (auto-defaulted in `EnvironmentDev`, see above) | Takes precedence over `WithEmail` if both are set. |
+| `WithEmail(EmailConfig)` | Built-in SMTP delivery | Required unless every email-sending feature is off (auto-defaulted in `EnvironmentDev`, see above) | Ignored if `WithMailer` is also set: its fields are not even validated in that case. |
+| `WithTemplates(port.TemplateProvider)` | Replace the built-in email templates | Optional | The library still renders subject/HTML/text and hands finished strings to the mailer either way. This replaces content; `WithMailer` replaces delivery. |
+| `TwoFactorConfig.DisableAdminTwoFactor` | Turn off `POST /auth/admin/login`'s unconditional two-factor challenge | Optional, default `false` (challenge on) | Set via `WithTwoFactor`. The last of the five mailer-requiring features to disable for a mailer-free, API-only deployment. |
 
 **`EmailConfig`** (only validated when `WithEmail` is set and `WithMailer` is not)
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `From` | `string` | Required | — | Must be a valid email address. |
-| `Host` | `string` | Required | — | |
-| `Port` | `int` | Required | — | 1–65535. |
-| `User` | `string` | Optional | — | Must be set together with `Pass`, or both left empty. |
-| `Pass` | `string` | Optional | — | Same pairing rule as `User`. |
+| `From` | `string` | Required | none | Must be a valid email address. |
+| `Host` | `string` | Required | none | |
+| `Port` | `int` | Required | none | 1–65535. |
+| `User` | `string` | Optional | none | Must be set together with `Pass`, or both left empty. |
+| `Pass` | `string` | Optional | none | Same pairing rule as `User`. |
 | `TLS` | `TLSMode` | Optional | `TLSStart` | One of `TLSStart` (STARTTLS, typically port 587) or `TLSImplicit` (typically port 465). `TLSNone` is plaintext and is accepted only in `EnvironmentDev`. |
 
 **Expected errors**
 
-- `email: Mailer or Email config required — enabled features need it: <reasons>` — reachable in any environment except `EnvironmentDev`, where the log-mailer default fills this in automatically; empty only when no configured feature actually sends email, in which case there's no error at all.
+- `email: Mailer or Email config required — enabled features need it: <reasons>`: reachable in any environment except `EnvironmentDev`, where the log-mailer default fills this in automatically. Empty only when no configured feature actually sends email, in which case there is no error at all.
 - `email: host is required`
 - `email: port must be between 1 and 65535, got N`
 - `email: from address is required`
@@ -469,10 +479,11 @@ goauth.WithTemplates(myTemplateProvider)
 - `email: user and pass must both be set or both be empty`
 - `email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got N`
 - `email: TLSNone is only allowed in EnvironmentDev — use TLSStart or TLSImplicit outside development`
+- `mailer: mailer.Log cannot be used outside EnvironmentDev — codes and reset links would be written to application logs instead of delivered`: an explicit log mailer was configured in a non-dev environment.
 
 ### Custom email templates
 
-`WithTemplates` replaces *what* gets rendered; it has no effect on *how it's delivered* — that's still `WithMailer`/`WithEmail`. The interface is one method:
+`WithTemplates` replaces *what* gets rendered; it has no effect on *how it is delivered*. That is still `WithMailer`/`WithEmail`. The interface is one method:
 
 ```go
 type TemplateProvider interface {
@@ -486,7 +497,7 @@ type TemplateResult struct {
 }
 ```
 
-`Render` is called once per email the library sends, with one of eight concrete `TemplateData` types — switch on the concrete type (or on `data.Template()`, which returns an `EmailTemplateType` string) to decide which template to render:
+`Render` is called once per email the library sends, with one of eight concrete `TemplateData` types. Switch on the concrete type (or on `data.Template()`, which returns an `EmailTemplateType` string) to decide which template to render:
 
 | `TemplateData` type | `Template()` | Fields | Sent for |
 |---|---|---|---|
@@ -497,7 +508,7 @@ type TemplateResult struct {
 | `port.OrgInviteData` | `TemplateOrgInvite` | `AppName, OrgName, InviteURL, ExpiresIn` | Organization invite |
 | `port.DeleteAccountData` | `TemplateDeleteAccount` | `AppName, Code, ExpiresIn` | Account deletion confirmation |
 | `port.TwoFactorData` | `TemplateTwoFactor` | `AppName, Code, ExpiresIn` | 2FA login code |
-| `port.TwoFactorSuspiciousData` | `TemplateTwoFactorSuspicious` | `AppName, AttemptCount, ResetPasswordURL` | Notify-only warning after repeated wrong 2FA codes on one account — never blocks login, see [Security](./security.mdx) |
+| `port.TwoFactorSuspiciousData` | `TemplateTwoFactorSuspicious` | `AppName, AttemptCount, ResetPasswordURL` | Notify-only warning after repeated wrong 2FA codes on one account, never blocks login, see [Security](./security.mdx) |
 
 A minimal implementation:
 
@@ -527,11 +538,11 @@ func (myTemplates) Render(data port.TemplateData) (port.TemplateResult, error) {
 goauth.WithTemplates(myTemplates{})
 ```
 
-Four of the eight types (`PasswordResetData`, `InviteData`, `OrgInviteData`, `TwoFactorSuspiciousData`) carry a URL and additionally implement `ValidateURLs(*port.URLValidator) error`. The built-in template provider calls this before rendering to enforce `https://`-only links (subject to `SecurityConfig.AllowHTTPURLs`) — **but a custom `TemplateProvider` bypasses that validation entirely**, since it's only wired up for the built-in provider. If you supply your own, you're responsible for whatever URL safety you want inside `Render` itself.
+Four of the eight types (`PasswordResetData`, `InviteData`, `OrgInviteData`, `TwoFactorSuspiciousData`) carry a URL and additionally implement `ValidateURLs(*port.URLValidator) error`. The built-in template provider calls this before rendering to enforce `https://`-only links (subject to `SecurityConfig.AllowHTTPURLs`). **A custom `TemplateProvider` bypasses that validation entirely**: it is only wired up for the built-in provider. If you supply your own, you are responsible for whatever URL safety you want inside `Render` itself.
 
 #### Overriding a single template
 
-`WithTemplates` is all-or-nothing at the type level — implement `Render` and you own every template type, including the ones you don't actually want to change. To customize just one (say, password reset) without reimplementing the other seven, wrap the built-in provider (`emailtemplate.New`, which is exported) and delegate anything you don't override to it:
+`WithTemplates` is all-or-nothing at the type level: implement `Render` and you own every template type, including the ones you do not actually want to change. To customize just one (say, password reset) without reimplementing the other seven, wrap the built-in provider (`emailtemplate.New`, which is exported) and delegate anything you do not override to it:
 
 ```go
 type myTemplates struct {
@@ -558,11 +569,11 @@ func (t *myTemplates) Render(data port.TemplateData) (port.TemplateResult, error
 }
 ```
 
-`emailtemplate.New` takes the same `*port.URLValidator` you'd otherwise build yourself — construct one with `&port.URLValidator{AllowHTTP: ...}` matching your `SecurityConfig.AllowHTTPURLs` policy, since the fallback provider still enforces `ValidateURLs` even though your own override doesn't.
+`emailtemplate.New` takes the same `*port.URLValidator` you would otherwise build yourself: construct one with `&port.URLValidator{AllowHTTP: ...}` matching your `SecurityConfig.AllowHTTPURLs` policy, since the fallback provider still enforces `ValidateURLs` even though your own override does not.
 
-## `WithRateLimit` and its narrower variants — Optional, on by default
+## `WithRateLimit` and its narrower variants: Optional, on by default
 
-Rate limiting is **enabled by default** with an in-memory store and a built-in table of per-route limits on sensitive endpoints (login, register, password reset, etc.). `WithRateLimit` replaces that whole table; the narrower options adjust one aspect of it without disturbing the rest — each one lazily starts from the same defaults if you haven't called `WithRateLimit` first.
+Rate limiting is **enabled by default** with an in-memory store and a built-in table of per-route limits on sensitive endpoints (login, register, password reset, etc.). `WithRateLimit` replaces that whole table. The narrower options adjust one aspect of it without disturbing the rest: each one lazily starts from the same defaults if you have not called `WithRateLimit` first.
 
 ```go
 // Replace the whole table:
@@ -574,7 +585,7 @@ goauth.WithRateLimit(ratelimit.Config{
     },
     Store:           nil,                        // optional, default: a bounded in-memory store
     DisabledPaths:   nil,                        // optional, default none
-    TrustedIPs:      []string{"10.0.0.0/8"},     // optional, default none — required if IPAddressHeader is set
+    TrustedIPs:      []string{"10.0.0.0/8"},     // optional, default none (required if IPAddressHeader is set)
     IPv6Subnet:      64,                         // optional, default 64
     IPAddressHeader: "CF-Connecting-IP",         // optional, default "" (trusts RemoteAddr only)
 })
@@ -587,7 +598,7 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
 
 | Option | Adjusts |
 |---|---|
-| `WithRateLimit(ratelimit.Config)` | The entire configuration — see fields below. |
+| `WithRateLimit(ratelimit.Config)` | The entire configuration (see fields below). |
 | `WithRateLimitEnabled(bool)` | Just `Enabled`. |
 | `WithRateLimitDefault(ratelimit.Rate)` | Just the fallback rate for routes not listed in `Routes`. |
 | `WithRateLimitRoute(pattern, ratelimit.Rate)` | Adds or overrides one route's rate without replacing the table. |
@@ -600,29 +611,29 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `Enabled` | `bool` | Optional | `true` | Disabling it logs a warning at startup — it's flagged as insecure for production. |
+| `Enabled` | `bool` | Optional | `true` | Disabling it logs a warning at startup: it is flagged as insecure for production. |
 | `Default` | `ratelimit.Rate` | Optional | `60 requests / minute` | Fallback for any route not in `Routes`. |
 | `Routes` | `map[string]ratelimit.Rate` | Optional | a built-in table covering login, register, password reset, verification, invites, etc. | Keyed by `"METHOD /path"`. A `Rate{Requests: 0}` entry disables limiting for that one route. |
-| `Store` | `ratelimit.Store` | Optional | a bounded in-memory store | Left `nil`, one is created for you and closed by `Auth.Close()`. Supply one to swap in a distributed store (Redis, etc.) across multiple instances — then it's yours to close. |
+| `Store` | `ratelimit.Store` | Optional | a bounded in-memory store | Left `nil`, one is created for you and closed by `Auth.Close()`. Supply one to swap in a distributed store (Redis, etc.) across multiple instances. A supplied store is yours to close. |
 | `DisabledPaths` | `[]string` | Optional | none | |
 | `TrustedIPs` | `[]string` | Optional | none | IPs/CIDRs. Required if `IPAddressHeader` is set. |
 | `IPv6Subnet` | `int` | Optional | `64` | Subnet prefix length used to bucket IPv6 clients. Must be 1–128. |
-| `IPAddressHeader` | `string` | Optional | `""` — trusts `RemoteAddr` only | The header is only honored from a peer in `TrustedIPs`; otherwise it's ignored, since an untrusted client could spoof it to pick its own rate-limit key. |
+| `IPAddressHeader` | `string` | Optional | `""` (trusts `RemoteAddr` only) | The header is only honored from a peer in `TrustedIPs`; otherwise it is ignored, since an untrusted client could spoof it to pick its own rate-limit key. |
 
 <Callout type="info" title="These two fields describe your proxy setup, not just your rate limiter">
   `TrustedIPs` and `IPAddressHeader` live under `WithRateLimit` for historical reasons, but three subsystems read them: the rate limiter (to key counters), the CSRF origin check (to recover the original scheme/host from `X-Forwarded-*`), and **the address recorded on sessions and audit events**.
 
-  If go-auth sits behind a reverse proxy and you leave these unset, every session and every audit row records the *proxy's* address — so the session list and the audit log, whose whole job is to show an operator where a login came from, show the same address for every user. Setting them once fixes all three. Rate limiting does not need to be `Enabled` for the other two to read them.
+  If go-auth sits behind a reverse proxy and you leave these unset, every session and every audit row records the *proxy's* address. The session list and the audit log, whose whole job is to show an operator where a login came from, would show the same address for every user. Setting them once fixes all three. Rate limiting does not need to be `Enabled` for the other two to read them.
 </Callout>
 
 **Expected errors** (only reachable when `Enabled: true`)
 
-- `rate_limit: route "..." requests must be positive, got N` / `... window must be positive, got ...` — from `Default` or any entry in `Routes`. A `Routes` entry may be exactly `0` (that's the per-route opt-out); `Default` may not.
+- `rate_limit: route "..." requests must be positive, got N` / `... window must be positive, got ...`: from `Default` or any entry in `Routes`. A `Routes` entry may be exactly `0` (the per-route opt-out); `Default` may not.
 - `rate_limit: ipv6_subnet must be between 1 and 128, got N`.
 - `rate_limit: trusted_ips contains invalid IP/CIDR "..."`.
-- `rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can be spoofed to bypass rate limiting` — hint: call `WithTrustedIPs` alongside `WithIPAddressHeader`.
+- `rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can be spoofed to bypass rate limiting`: call `WithTrustedIPs` alongside `WithIPAddressHeader`.
 
-## `WithProvider` — Optional
+## `WithProvider`: Optional
 
 Registers an OAuth provider. Call it once per provider; OAuth routes are mounted only when at least one is registered.
 
@@ -645,8 +656,10 @@ goauth.WithProvider(github.New(github.Config{
 - `provider: nil provider registered via WithProvider`.
 - `provider: provider with empty name`.
 - `provider: duplicate provider "..."`.
+- `provider "...": client_id is required`: the provider's OAuth2 config has no client ID.
+- `provider "...": client_secret is required`: the provider's OAuth2 config has no client secret.
 
-## `WithLogger` — Optional
+## `WithLogger`: Optional
 
 ```go
 goauth.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
@@ -654,24 +667,24 @@ goauth.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `logger` | `*slog.Logger` | Optional | `slog.Default()` | Used throughout — sessions, CSRF, rate limiting, audit, admin actions. |
+| `logger` | `*slog.Logger` | Optional | `slog.Default()` | Used throughout: sessions, CSRF, rate limiting, audit, admin actions. |
 
-No validation errors — any non-nil logger is accepted as-is.
+No validation errors: any non-nil logger is accepted as-is.
 
-## `WithAudit` / `WithAuditSink` — Optional
+## `WithAudit` / `WithAuditSink`: Optional
 
 ```go
 goauth.WithAudit(goauth.AuditConfig{
     Enabled:       true,                    // optional, default false
-    FailureMode:   audit.AuditFailureOpen,   // optional, default fail-open — or audit.AuditFailureClosed
-    RetentionDays: 0,                       // optional, default 0 — keep forever (0 = forever)
+    FailureMode:   audit.AuditFailureOpen,   // optional, default fail-open (or audit.AuditFailureClosed)
+    RetentionDays: 0,                       // optional, default 0 (keep forever)
     QueueSize:     1000,                     // optional, default 1000
     Workers:       3,                        // optional, default 3
     BatchSize:     50,                       // optional, default 50
     FlushInterval: 100 * time.Millisecond,   // optional, default 100ms
     Sinks:         []audit.EventSink{myKafkaSink}, // optional, default none
 })
-goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
+goauth.WithAuditSink(myOtherSink) // optional: adds one more sink at a time
 ```
 
 | Field | Type | Required | Default | Notes |
@@ -683,13 +696,13 @@ goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 | `Workers` | `int` | Optional | `3` | |
 | `BatchSize` | `int` | Optional | `50` | |
 | `FlushInterval` | `time.Duration` | Optional | `100ms` | |
-| `Sinks` | `[]audit.EventSink` | Optional | none | Additional destinations — Kafka, NATS, a webhook. |
+| `Sinks` | `[]audit.EventSink` | Optional | none | Additional destinations: Kafka, NATS, a webhook. |
 
-`WithAuditSink` appends one sink at a time and only takes effect when audit logging is enabled via `WithAudit`. Calling `WithAudit` more than once does not duplicate previously-added sinks — they're merged once, not accumulated per call.
+`WithAuditSink` appends one sink at a time and only takes effect when audit logging is enabled via `WithAudit`. Calling `WithAudit` more than once does not duplicate previously-added sinks. They are merged once, not accumulated per call.
 
-No validation errors — all fields are defaulted rather than rejected.
+No validation errors: all fields are defaulted rather than rejected.
 
 ## Next
 
-- [Introduction](./index.mdx) — what go-auth is and why it exists
-- [Installation](./installation.mdx) — prerequisites and what you need before configuring
+- [Introduction](./index.mdx): what go-auth is and why it exists
+- [Installation](./installation.mdx): prerequisites and what you need before configuring

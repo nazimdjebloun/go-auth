@@ -1,0 +1,33 @@
+---
+title: "Routes"
+description: "The complete HTTP surface: every route, method, request shape, and response contract."
+icon: "Route"
+---
+
+# Routes
+
+Every HTTP route the library mounts, the request it expects, and the response it returns. `Auth` on each route is `Public` (no session needed) or `Session` (the session cookie is required). Admin routes additionally need `role: "admin"`.
+
+Conventions used on every page:
+
+- Request and response bodies are `application/json` with camelCase fields. No streaming, no file uploads, no multipart forms.
+- Success responses carry a `message` plus route-specific fields, except `204 No Content` (no body) and a few list/count routes documented per page. Failures use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx) for the taxonomy.
+- Tokens travel in cookies (`goauth_session`, `goauth_refresh` by default), never in bodies. State-changing requests need `Origin` and `X-CSRF-Token`; see [Security](../security.mdx).
+- Some route groups are conditional: `POST /auth/register` needs `EnableEmailPassword`; invite routes need `EnableInvite`; OAuth routes need `EnableOAuth` plus a registered provider; org routes (both self-service and admin) need organizations enabled. Unmounted groups are not 404 fallthroughs: the paths simply do not exist.
+
+## Pages
+
+| Page | Covers |
+|---|---|
+| [Authentication](./auth.mdx) | Register, login, logout, identity, password flows, email verification, invites, account deletion, email 2FA |
+| [Sessions](./sessions.mdx) | Refresh, list, revoke, CSRF token |
+| [OAuth](./oauth.mdx) | Provider login, callback, link, unlink, connected accounts |
+| [Organizations](./orgs.mdx) | Orgs, members, invites, active org |
+| [Admin](./admin.mdx) | Admin login, users, sessions, audit logs, stats, orgs, invites |
+
+Audit reads live under [Admin](./admin.mdx) (`GET /admin/audit-logs` and per-user variants). There are no user-scoped audit routes.
+
+## Next
+
+- [Error handling](../error-handling.mdx): the complete error taxonomy
+- [Security](../security.mdx): session security, CSRF, and rate limiting

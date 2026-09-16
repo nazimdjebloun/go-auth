@@ -60,7 +60,7 @@ const { url } = await apiRequest(API_BASE, "POST", "/auth/oauth/github/link");
 window.location.href = url;
 ```
 
----
+See [Client → Link provider](./client/oauth.mdx#link-provider) for the wrapper and connect button component.
 
 ### The callback — same route as login, different outcome
 
@@ -131,6 +131,8 @@ try {
 }
 ```
 
+See [Client → Unlink provider](./client/oauth.mdx#unlink-provider) for the wrapper and unlink error handling.
+
 ---
 
 ## Listing connected providers
@@ -182,10 +184,12 @@ accounts, err := auth.Services.OAuth.ListConnected(ctx, userID)
 const { providers } = await apiRequest(API_BASE, "GET", "/auth/oauth/providers");
 ```
 
+See [Client → List connected providers](./client/oauth.mdx#list-connected-providers) for the wrapper and provider list usage.
+
 ---
 
 ## Next
 
 - [Providers](../providers/index.mdx) — registering GitHub/Google and the initial sign-in flow
 - [Security](./security.mdx#set-a-password-oauth-only-accounts) — setting a password so a provider can be safely unlinked
-- [Routes](../routes.mdx#oauth--requires-enableoauth-and-at-least-one-registered-provider) — full param reference
+- [Routes](../routes/oauth.mdx) — full param reference

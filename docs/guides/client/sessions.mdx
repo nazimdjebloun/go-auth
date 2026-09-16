@@ -6,22 +6,31 @@ icon: "MonitorCog"
 
 # Sessions client
 
-Wraps the list/revoke endpoints from the [Sessions](../sessions.mdx) guide into `sessionsApi`, built on the [`apiRequest`](./index.mdx) helper — same relationship as [`authApi`](./authentication.mdx) has to the Authentication guide.
+`sessionsApi` wraps the list/revoke/refresh endpoints from the [Sessions](../sessions.mdx) guide, built on the [`apiRequest`](./index.mdx) helper.
 
-<Callout type="info" title="Looking for me()?">
-  `GET /auth/me` is documented in the [Checking who's logged in](../sessions.mdx#checking-whos-logged-in) section of the [Sessions](../sessions.mdx) guide, but the wrapped method lives on `authApi.me()` on the [Authentication client](./authentication.mdx) - that's where this codebase's reference frontend keeps it, and there's no reason for the two client objects to disagree with the app you're actually copying this pattern from.
+<Callout type="info" title="UI components">
+  All UI examples on this page use [shadcn/ui](https://ui.shadcn.com) with the default base variant. Only layout and styling change between projects — the component API stays the same. Install with `npx shadcn@latest add button card badge alert checkbox`.
 </Callout>
 
+<Callout type="info" title="Looking for me()?">
+  `GET /auth/me` lives on `authApi.me()` on the [Authentication client](./authentication.mdx).
+</Callout>
+
+## The wrapper
+
 ```ts
+// lib/api/sessions.ts
 import { apiRequest } from "./client";
 
-const API_BASE = "https://api.myapp.com";
+const API_BASE = "/api";
 
 export const sessionsApi = {
   list: (offset = 0, limit = 20) =>
     apiRequest(API_BASE, "GET", `/auth/sessions?offset=${offset}&limit=${limit}`),
 
   listAll: () => apiRequest(API_BASE, "GET", "/auth/sessions/all"),
+
+  refresh: () => apiRequest(API_BASE, "POST", "/auth/refresh"),
 
   revoke: (sessionId: string) =>
     apiRequest(API_BASE, "DELETE", `/auth/sessions/${sessionId}`),
@@ -33,22 +42,526 @@ export const sessionsApi = {
 };
 ```
 
+Each method returns the matching endpoint response without reshaping errors. For full request/response shapes and error codes, see the [Sessions](../sessions.mdx) guide.
+
+## Error handling
+
+```ts
+// lib/session-errors.ts
+const errorMessages: Record<string, string> = {
+  session_expired: "Your session has expired, please log in again",
+  unauthorized: "Not authenticated",
+  session_not_found: "Session not found",
+  invalid_input: "Invalid session IDs",
+  invalid_refresh: "Refresh token is invalid or expired",
+};
+
+export function getSessionErrorMessage(err: { error?: string; message?: string }): string {
+  if (err.error && err.error in errorMessages) {
+    return errorMessages[err.error];
+  }
+  return err.message ?? "Something went wrong";
+}
+```
+
+---
+
+## List sessions (paginated)
+
+`GET /auth/sessions`
+
+### Session list
+
+```tsx
+// components/session-list.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { sessionsApi } from "../lib/api/sessions";
+import { getSessionErrorMessage } from "../lib/session-errors";
+
+interface Session {
+  id: string;
+  ipAddress?: string;
+  userAgent?: string;
+  parsedUA?: { browser: string; os: string; deviceType: string };
+  isRevoked: boolean;
+  expiresAt: string;
+  createdAt: string;
+  lastActiveAt?: string;
+}
+
+export function SessionList() {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState("");
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const limit = 10;
+
+  useEffect(() => { loadSessions(); }, [offset]);
+
+  async function loadSessions() {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await sessionsApi.list(offset, limit);
+      setSessions(result.sessions);
+      setCurrentSessionId(result.currentSessionId);
+      setTotal(result.total);
+    } catch (err: any) {
+      setError(getSessionErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function formatDevice(session: Session): string {
+    if (session.parsedUA) {
+      return `${session.parsedUA.browser} on ${session.parsedUA.os} (${session.parsedUA.deviceType})`;
+    }
+    return session.userAgent ?? "Unknown device";
+  }
+
+  return (
+    <Card className="w-full max-w-2xl">
+      <CardHeader>
+        <CardTitle>Active sessions</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading sessions...</p>
+        ) : sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No active sessions</p>
+        ) : (
+          <>
+            <div className="space-y-2">
+              {sessions.map((session) => {
+                const isCurrent = session.id === currentSessionId;
+                return (
+                  <div key={session.id} className="flex items-center justify-between rounded-lg border p-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium">{formatDevice(session)}</span>
+                        {isCurrent && <Badge variant="secondary">Current</Badge>}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {session.ipAddress && `${session.ipAddress} · `}
+                        Last active {new Date(session.lastActiveAt ?? session.createdAt).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">
+                {total} session{total !== 1 ? "s" : ""} total
+              </p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => setOffset(Math.max(0, offset - limit))} disabled={offset === 0}>
+                  Previous
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setOffset(offset + limit)} disabled={offset + limit >= total}>
+                  Next
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## List all sessions
+
+`GET /auth/sessions/all`
+
+No pagination — every session in one response.
+
+```tsx
+// components/session-list-all.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { sessionsApi } from "../lib/api/sessions";
+import { getSessionErrorMessage } from "../lib/session-errors";
+
+interface Session {
+  id: string;
+  ipAddress?: string;
+  userAgent?: string;
+  parsedUA?: { browser: string; os: string; deviceType: string };
+  isRevoked: boolean;
+  expiresAt: string;
+  createdAt: string;
+  lastActiveAt?: string;
+}
+
+export function SessionListAll() {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [currentSessionId, setCurrentSessionId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { loadSessions(); }, []);
+
+  async function loadSessions() {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await sessionsApi.listAll();
+      setSessions(result.sessions);
+      setCurrentSessionId(result.currentSessionId);
+    } catch (err: any) {
+      setError(getSessionErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function formatDevice(session: Session): string {
+    if (session.parsedUA) {
+      return `${session.parsedUA.browser} on ${session.parsedUA.os} (${session.parsedUA.deviceType})`;
+    }
+    return session.userAgent ?? "Unknown device";
+  }
+
+  return (
+    <Card className="w-full max-w-2xl">
+      <CardHeader>
+        <CardTitle>All sessions</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {loading ? (
+          <p className="text-sm text-muted-foreground">Loading sessions...</p>
+        ) : sessions.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No active sessions</p>
+        ) : (
+          <div className="space-y-2">
+            {sessions.map((session) => {
+              const isCurrent = session.id === currentSessionId;
+              return (
+                <div key={session.id} className="flex items-center justify-between rounded-lg border p-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{formatDevice(session)}</span>
+                      {isCurrent && <Badge variant="secondary">Current</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {session.ipAddress && `${session.ipAddress} · `}
+                      Last active {new Date(session.lastActiveAt ?? session.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Revoke one session
+
+`DELETE /auth/sessions/{id}`
+
+```tsx
+// components/revoke-session-button.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { sessionsApi } from "../lib/api/sessions";
+import { getSessionErrorMessage } from "../lib/session-errors";
+
+export function RevokeSessionButton({
+  sessionId,
+  onRevoked,
+}: {
+  sessionId: string;
+  onRevoked?: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleRevoke() {
+    setError(null);
+    setLoading(true);
+    try {
+      await sessionsApi.revoke(sessionId);
+      onRevoked?.();
+    } catch (err: any) {
+      setError(getSessionErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      <Button variant="ghost" size="sm" onClick={handleRevoke} disabled={loading}>
+        {loading ? "Revoking..." : "Revoke"}
+      </Button>
+    </div>
+  );
+}
+```
+
+---
+
+## Revoke multiple sessions
+
+`POST /auth/sessions/revoke`
+
+Select and revoke up to 100 sessions at once.
+
+```tsx
+// components/revoke-sessions-bulk.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { sessionsApi } from "../lib/api/sessions";
+import { getSessionErrorMessage } from "../lib/session-errors";
+
+interface Session {
+  id: string;
+  parsedUA?: { browser: string; os: string; deviceType: string };
+  ipAddress?: string;
+}
+
+export function RevokeSessionsBulk({
+  sessions,
+  currentSessionId,
+  onRevoked,
+}: {
+  sessions: Session[];
+  currentSessionId: string;
+  onRevoked?: () => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<number | null>(null);
+
+  const selectable = sessions.filter((s) => s.id !== currentSessionId);
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selected.size === selectable.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(selectable.map((s) => s.id)));
+    }
+  }
+
+  async function handleRevokeSelected() {
+    if (selected.size === 0) return;
+    setError(null);
+    setSuccess(null);
+    setLoading(true);
+    try {
+      const { revoked } = await sessionsApi.revokeMany(Array.from(selected));
+      setSuccess(revoked);
+      setSelected(new Set());
+      onRevoked?.();
+    } catch (err: any) {
+      setError(getSessionErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function formatDevice(session: Session): string {
+    if (session.parsedUA) {
+      return `${session.parsedUA.browser} on ${session.parsedUA.os}`;
+    }
+    return session.userAgent ?? "Unknown device";
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {success !== null && (
+        <Alert>
+          <AlertDescription>{success} session{success !== 1 ? "s" : ""} revoked</AlertDescription>
+        </Alert>
+      )}
+
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Checkbox checked={selected.size === selectable.length && selectable.length > 0} onCheckedChange={toggleSelectAll} />
+          <span className="text-sm text-muted-foreground">Select all</span>
+        </div>
+        <Button variant="destructive" size="sm" onClick={handleRevokeSelected} disabled={loading || selected.size === 0}>
+          {loading ? "Revoking..." : `Revoke ${selected.size} selected`}
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        {selectable.map((session) => (
+          <div key={session.id} className="flex items-center gap-3 rounded-lg border p-3">
+            <Checkbox checked={selected.has(session.id)} onCheckedChange={() => toggleSelect(session.id)} />
+            <div className="space-y-1">
+              <span className="text-sm font-medium">{formatDevice(session)}</span>
+              <p className="text-xs text-muted-foreground">
+                {session.ipAddress && `${session.ipAddress} · `}
+                {session.id.slice(0, 8)}...
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+---
+
+## Revoke all except current
+
+`DELETE /auth/sessions`
+
+"Log out everywhere else."
+
+```tsx
+// components/revoke-all-sessions.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { sessionsApi } from "../lib/api/sessions";
+import { getSessionErrorMessage } from "../lib/session-errors";
+
+export function RevokeAllSessions() {
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleRevokeAll() {
+    setError(null);
+    setSuccess(false);
+    setLoading(true);
+    try {
+      await sessionsApi.revokeAllExceptCurrent();
+      setSuccess(true);
+    } catch (err: any) {
+      setError(getSessionErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {success && (
+        <Alert>
+          <AlertDescription>All other sessions have been revoked</AlertDescription>
+        </Alert>
+      )}
+
+      <Button variant="destructive" onClick={handleRevokeAll} disabled={loading}>
+        {loading ? "Revoking..." : "Log out everywhere else"}
+      </Button>
+    </div>
+  );
+}
+```
+
+---
+
+## Refresh tokens
+
+`POST /auth/refresh`
+
+Rotates both tokens. Usually handled transparently by the browser.
+
+```ts
+await sessionsApi.refresh();
+// new cookies are set automatically by the browser
+```
+
+---
+
 ## Using it
 
 ```ts
-const { sessions, currentSessionId } = await sessionsApi.list();
+// Paginated list
+const { sessions, currentSessionId, total } = await sessionsApi.list(0, 20);
 
-const otherDevices = sessions.filter((s) => s.id !== currentSessionId);
-```
+// All sessions
+const { sessions, currentSessionId } = await sessionsApi.listAll();
 
-```ts
+// Revoke one
 await sessionsApi.revoke(sessionId);
-// refresh the list afterward — this doesn't remove it from `sessions` for you
-```
 
-```ts
+// Revoke many
+const { revoked } = await sessionsApi.revokeMany([id1, id2]);
+
+// Revoke all except current
 await sessionsApi.revokeAllExceptCurrent();
-// every other device is signed out; the current tab keeps working
+
+// Refresh tokens
+await sessionsApi.refresh();
 ```
 
 ## Next

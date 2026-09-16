@@ -1,0 +1,558 @@
+---
+title: "Authentication"
+description: "Register, login, logout, identity, password flows, email verification, invites, account deletion, and email 2FA."
+icon: "LogIn"
+---
+
+# Authentication
+
+Identity and credential flows. `Auth` is either `Public` (no session needed) or `Session` (the session cookie is required; without it the route answers `401 {"error": ..., "message": ...}`). Cookie names below are the defaults (`goauth_session`, `goauth_refresh`); see `WithCookie` on [Configuration](../configuration.mdx). Tokens travel in cookies, never in bodies: on direct login and register the handler sets both cookies and blanks the token fields before serializing. All error responses use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx).
+
+`POST /auth/register` is only mounted when `EnableEmailPassword` is true. Invite routes are only mounted when `EnableInvite` is true.
+
+Shared shapes used below:
+
+```json
+{
+  "user": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "email": "user@example.com",
+    "name": "Ada",
+    "role": "user",
+    "isVerified": true,
+    "isBanned": false,
+    "twoFactorEnabled": false,
+    "orgOwnerCount": 0,
+    "createdAt": "2025-01-01T00:00:00Z",
+    "updatedAt": "2025-01-01T00:00:00Z"
+  },
+  "session": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "userId": "550e8400-e29b-41d4-a716-446655440000",
+    "ipAddress": "192.168.1.1",
+    "userAgent": "Mozilla/5.0 ...",
+    "isRevoked": false,
+    "expiresAt": "2025-01-31T12:00:00Z",
+    "refreshExpiresAt": "2025-01-31T12:00:00Z",
+    "createdAt": "2025-01-01T00:00:00Z",
+    "lastActiveAt": "2025-01-01T12:00:00Z"
+  }
+}
+```
+
+Gated 2FA shape (login, register, invite register when a second factor is owed):
+
+```json
+{
+  "user": { "...": "full user object, same as above" },
+  "requiresTwoFactor": true,
+  "codeSent": true,
+  "challengeId": "c4a1...",
+  "twoFactorExpiresAt": "2026-08-09T12:05:00Z",
+  "message": "Two-factor code sent to your email"
+}
+```
+
+### Register
+
+POST /auth/register
+
+Creates a user. `Auth:` Public.
+
+**Request body:**
+
+```json
+{
+  "email": "newuser@example.com",
+  "password": "secure-password",
+  "name": "Ada"
+}
+```
+
+**Response `201 Created`:** one of three shapes. Email verification pending:
+
+```json
+{
+  "user": { "...": "full user object" },
+  "requiresVerification": true,
+  "message": "Verification email sent. Please verify your email to continue."
+}
+```
+
+2FA gated (`RequireEmail2FA` on): the gated shape above, plus a binding cookie. Complete with `POST /auth/2fa/verify`. Direct login: both cookies set, body carries the session with blanked token fields:
+
+```json
+{
+  "user": { "...": "full user object" },
+  "session": { "...": "full session object" },
+  "sessionToken": "",
+  "refreshToken": ""
+}
+```
+
+**Errors:** `weak_password` (`400`), `email_already_exists` (`409`), `name_required` (blank name).
+
+### Login
+
+POST /auth/login
+
+Authenticates with email and password. `Auth:` Public.
+
+**Request body:**
+
+```json
+{
+  "email": "user@example.com",
+  "password": "correct-password"
+}
+```
+
+**Response `200 OK`:** same three shapes as register. Verification pending:
+
+```json
+{
+  "user": { "...": "full user object" },
+  "requiresVerification": true,
+  "message": "Please verify your email to continue."
+}
+```
+
+2FA gated: the gated shape above, plus a binding cookie. Direct login: both cookies set:
+
+```json
+{
+  "user": { "...": "full user object" },
+  "session": { "...": "full session object" },
+  "sessionToken": "",
+  "refreshToken": ""
+}
+```
+
+**Errors:** `invalid_credentials` (`401`) for wrong password, unknown email, or OAuth-only account. All three look identical on purpose.
+
+### Logout
+
+POST /auth/logout
+
+Terminates the current session and clears both cookies. `Auth:` Session.
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Logged out" }
+```
+
+**Errors:** `session_expired` (no usable session).
+
+### Get me
+
+GET /auth/me
+
+Returns the caller: full user object, whether the account has a password, and the current session (token hashes are never serialized). `Auth:` Session.
+
+**Response `200 OK`:**
+
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "user@example.com",
+  "name": "Ada",
+  "role": "user",
+  "isVerified": true,
+  "twoFactorEnabled": false,
+  "createdAt": "2025-01-01T00:00:00Z",
+  "updatedAt": "2025-01-01T00:00:00Z",
+  "hasPassword": true,
+  "session": { "...": "full session object" }
+}
+```
+
+**Response `401 Unauthorized`:**
+
+```json
+{ "error": "unauthorized", "message": "Not authenticated" }
+```
+
+### Change name
+
+PUT /auth/name
+
+Changes the caller's display name. `Auth:` Session.
+
+**Request body:**
+
+```json
+{ "name": "..." }
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Name updated" }
+```
+
+**Errors:** `validation_error` (blank name).
+
+### Forgot password
+
+POST /auth/forgot-password
+
+Starts the reset flow. Deliberately account-blind: the response is identical whether the email exists or not. `Auth:` Public.
+
+**Request body:**
+
+```json
+{ "email": "..." }
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "If an account exists with this email, a reset link has been sent." }
+```
+
+**Errors:** `email_failed` (`500`, mailer could not send).
+
+### Reset password
+
+POST /auth/reset-password
+
+Consumes the reset code and sets the new password. All other sessions for the user are revoked. `Auth:` Public. No email field: the code already identifies the account.
+
+**Request body:**
+
+```json
+{
+  "code": "...",
+  "newPassword": "..."
+}
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Password reset successfully" }
+```
+
+**Errors:** `reset_token_invalid`, `reset_token_expired` (`410`), `reset_token_already_used` (`410`), `user_not_found` (`404`, account deleted after the code was issued), `password_update_conflict` (concurrent use; retry), `weak_password`.
+
+### Change password
+
+POST /auth/change-password
+
+Changes the password for a logged-in user; the old password is required. Keeps the current session, revokes every other one. `Auth:` Session.
+
+**Request body:**
+
+```json
+{
+  "oldPassword": "...",
+  "newPassword": "..."
+}
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Password changed successfully" }
+```
+
+**Errors:** `wrong_password`, `no_password` (OAuth-only account; use set-password instead), `weak_password`.
+
+### Request set-password code
+
+POST /auth/set-password/request
+
+Mails a set-password code to an OAuth-only account (one with no password yet). `Auth:` Session. No body.
+
+**Response `200 OK`:**
+
+```json
+{ "message": "If the email exists, a set password link has been sent." }
+```
+
+**Errors:** `already_set` (account already has a password).
+
+### Confirm set-password
+
+POST /auth/set-password/confirm
+
+Consumes the set-password code. `Auth:` Public.
+
+**Request body:**
+
+```json
+{
+  "userId": "...",
+  "code": "...",
+  "newPassword": "..."
+}
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Password set successfully" }
+```
+
+**Errors:** `invalid_code`, `code_used`, `reset_token_expired` (`410`), `weak_password`.
+
+### Verify email
+
+POST /auth/verify-email
+
+Verifies the email with the code from the registration or resend email, then logs the user in (cookies set). Only the code is used. `Auth:` Public.
+
+**Request body:**
+
+```json
+{ "code": "..." }
+```
+
+**Response `200 OK`:**
+
+```json
+{
+  "user": { "...": "full user object" },
+  "session": { "...": "full session object" }
+}
+```
+
+**Errors:** `code_invalid`, `code_already_used`, `code_expired` (`410`), `user_not_found` (`404`).
+
+### Resend verification
+
+POST /auth/resend-verification
+
+Resends the verification email for the logged-in user. `Auth:` Session. No body. `codeSent` is `false` when a still-valid code was left in place instead of mailing a new one.
+
+**Response `200 OK`:**
+
+```json
+{
+  "codeSent": true,
+  "expiresAt": "2026-08-09T12:05:00Z",
+  "message": "Verification email sent"
+}
+```
+
+### Resend verification (public)
+
+POST /auth/verify-email/resend
+
+Public variant for users with no session (e.g. stuck at the verification screen). Deliberately flat: it never reveals whether the email exists or whether a code was already live. `Auth:` Public.
+
+**Request body:**
+
+```json
+{ "email": "..." }
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "If an account exists, a verification email has been sent" }
+```
+
+### Delete account
+
+DELETE /auth/account
+
+Deletes the caller's account immediately with password confirmation. Clears both cookies. `Auth:` Session. OAuth-only accounts (no password) use the code flow below instead.
+
+**Request body:**
+
+```json
+{ "password": "..." }
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Account deleted successfully" }
+```
+
+**Errors:** `wrong_password`.
+
+### Request account deletion code
+
+POST /auth/account/delete/request
+
+Mails a deletion code (for OAuth-only accounts, or anyone preferring email confirmation). `Auth:` Session. No body.
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Deletion code sent to your email" }
+```
+
+**Errors:** `password_account` (account has a password; use `DELETE /auth/account` instead), `email_failed` (`500`).
+
+### Confirm account deletion
+
+POST /auth/account/delete/confirm
+
+Consumes the deletion code. The user ID comes from the session, never the body. Clears both cookies. `Auth:` Session.
+
+**Request body:**
+
+```json
+{ "code": "..." }
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Account deleted successfully" }
+```
+
+**Errors:** `delete_code_invalid`, `delete_code_expired` (`410`), `delete_code_already_used` (`410`).
+
+### Get invite info
+
+GET /auth/invite/info
+
+Reads an invite code (from the emailed link) and returns who it was issued to. Only mounted when `EnableInvite` is true. `Auth:` Public.
+
+**Query:**
+
+| Param | Type | Required | Notes |
+|---|---|---|---|
+| `token` | string | Required | The raw invite code from the email link |
+
+**Response `200 OK`:**
+
+```json
+{ "email": "invitee@example.com" }
+```
+
+**Errors:** `missing_token` (no `?token=`), `invite_not_found` (`404`), `invite_already_used` (`410`), `invite_revoked` (`410`), `invite_expired` (`410`).
+
+### Register from invite
+
+POST /auth/invite/register
+
+Completes registration from an invite code, creating the account and a session in one step. Only mounted when `EnableInvite` is true. `Auth:` Public.
+
+**Request body:**
+
+```json
+{
+  "code": "...",
+  "name": "...",
+  "password": "...",
+  "confirmPassword": "..."
+}
+```
+
+**Response `201 Created`:** both cookies set:
+
+```json
+{
+  "user": { "...": "full user object" },
+  "session": { "...": "full session object" },
+  "sessionToken": "",
+  "refreshToken": ""
+}
+```
+
+With `RequireEmail2FA` on, the gated 2FA shape is returned instead (see Login).
+
+**Errors:** `password_mismatch` (`password` and `confirmPassword` differ), `name_required`, `weak_password`, `invite_not_found`, `invite_already_used`, `invite_expired`.
+
+### Verify 2FA code
+
+POST /auth/2fa/verify
+
+Completes any gated flow (login, admin login, register, invite register). Needs the binding cookie set alongside the challenge, unless challenge binding is disabled. `Auth:` Public with cookie.
+
+**Request body:**
+
+```json
+{
+  "challengeId": "...",
+  "code": "..."
+}
+```
+
+**Response `200 OK`:** both cookies set:
+
+```json
+{
+  "user": { "...": "full user object" },
+  "session": { "...": "full session object" }
+}
+```
+
+**Errors:** `two_factor_code_invalid` (wrong code, unknown challenge, or binding mismatch; all identical on purpose), `two_factor_code_already_used`, `two_factor_code_expired` (`410`).
+
+### Resend 2FA code
+
+POST /auth/2fa/resend
+
+Refreshes the code on the same challenge; `challengeId` does not change. Unknown or mismatched challenge IDs answer the same `200` with `challenge_not_found` instead, so callers cannot probe for real IDs. `Auth:` Public with cookie.
+
+**Request body:**
+
+```json
+{ "challengeId": "..." }
+```
+
+**Response `200 OK`:**
+
+```json
+{
+  "codeSent": true,
+  "expiresAt": "2026-08-09T12:05:00Z",
+  "challengeId": "c4a1...",
+  "message": "A new code has been sent"
+}
+```
+
+### Enable 2FA
+
+POST /auth/2fa/enable
+
+Opts the caller into 2FA. `keepOtherSessions` defaults to `false` (omitted revokes every other session). `Auth:` Session.
+
+**Request body:**
+
+```json
+{
+  "password": "...",
+  "keepOtherSessions": false
+}
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Two-factor authentication enabled" }
+```
+
+**Errors:** `two_factor_password_required` (no password given), `invalid_credentials` (wrong password), `two_factor_already_enforced` (`RequireEmail2FA` is on; toggling is rejected).
+
+### Disable 2FA
+
+POST /auth/2fa/disable
+
+Opts the caller out. No session revocation. `Auth:` Session.
+
+**Request body:**
+
+```json
+{ "password": "..." }
+```
+
+**Response `200 OK`:**
+
+```json
+{ "message": "Two-factor authentication disabled" }
+```
+
+**Errors:** `two_factor_password_required`, `invalid_credentials`.
+
+## Next
+
+- [Sessions](./sessions.mdx): refresh, list, revoke, CSRF token
+- [OAuth](./oauth.mdx): login, callback, link, unlink

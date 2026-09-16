@@ -1,6 +1,6 @@
 ---
 title: "Architecture"
-description: "How go-auth is put together internally — packages, layering, the middleware chain, and how a single New() call wires it all up."
+description: "How go-auth is put together internally: packages, layering, the middleware chain, and how a single New() call wires it all up."
 icon: "Layers"
 ---
 
@@ -12,43 +12,43 @@ go-auth uses ports and adapters. The `service` package depends on interfaces in 
 
 | Package | Responsibility |
 |---|---|
-| `domain` | Core types (`User`, `Session`, `Organization`, ...) and every `AuthError` — no dependencies on anything else in the module. |
+| `domain` | Core types (`User`, `Session`, `Organization`, ...) and every `AuthError`. No dependencies on anything else in the module. |
 | `port` | Interfaces the service layer depends on: `Mailer`, `Hasher`, `TokenGenerator`, `TemplateProvider`, `OAuthProvider`, `TxManager`, and one repository interface per aggregate (`UserRepository`, `SessionRepository`, `OrgRepository`, ...). |
 | `service` | Business logic, split by concern. Depends only on `domain` and `port`. |
 | `middleware` | Cross-cutting HTTP concerns: `AuthMiddleware`/`RequireRole` (session and role gating), `OriginCheck`/`CSRFToken` (CSRF), `RateLimit`, `CORS`, `RequireOrgMember`/`RequireOrgRole` (org access control, resolved from an `{orgID}` path segment), `RequireActiveOrg` (the same role check, resolved from the session's active org instead). The root facade's `RequireOrgScope`/`RequireActiveOrgScope` compose these checks and pass an authorized `OrgScope` directly to application handlers. |
 | `provider` | Built-in OAuth provider adapters (`provider/google`, `provider/github`), each implementing `port.OAuthProvider`. |
 | `ratelimit` | The rate limiter itself: `Config`, the `Store` interface, and the built-in in-memory implementation. |
 | `audit` | The audit event pipeline: `AuditService` (queue + workers + batching), the `EventSink` interface, and the built-in sinks. |
-| `emailtemplate` | The default `TemplateProvider` — embedded HTML/text templates for every email the library sends. |
+| `emailtemplate` | The default `TemplateProvider`: embedded HTML/text templates for every email the library sends. |
 | `token` | Cryptographically random opaque token generation (`crypto/rand`, 32 bytes, hex-encoded). |
 | `hasher` | The default bcrypt `Hasher` and optional `hasher/argon2id` implementation. Callers select the latter through `WithPasswordHasher`; wiring always adds prefix dispatch and a password pipeline whose new writes use `PasswordPepperConfig.CurrentVersion` while stored rows select an exact historical key. |
-| `internal/handler` | HTTP adapters — decodes requests, calls a service method, writes the JSON response, or sets cookies. Files are split by concern, including auth, sessions, OAuth, organizations, and admin operations. |
-| `internal/sqlstore` | The `port` repository interfaces implemented over `database/sql` — one `_repo.go` per aggregate, plus the `DB` wrapper described below. |
-| `internal/routes` | The central route table — the single source of truth mapping every `"METHOD /path"` pattern to its `HandlerGroup` entry (and to per-route rate limits). |
+| `internal/handler` | HTTP adapters. Decodes requests, calls a service method, writes the JSON response, or sets cookies. Files are split by concern, including auth, sessions, OAuth, organizations, and admin operations. |
+| `internal/sqlstore` | The `port` repository interfaces implemented over `database/sql`. One `_repo.go` per aggregate, plus the `DB` wrapper described below. |
+| `internal/routes` | The central route table. The single source of truth mapping every `"METHOD /path"` pattern to its `HandlerGroup` entry (and to per-route rate limits). |
 | `internal` | Other unexported packages not part of the public API: `schema` (the embedded SQL statements + the statement splitter), `testutil` (hand-written fakes for the `port` interfaces), and low-level `crypto`/`keyring`/`otp` helpers. |
 
-The dependency direction is strict: `domain` depends on nothing, `port` depends only on `domain`, `service` depends only on `domain` and `port`, and `internal/sqlstore`/`internal/handler`/`middleware`/`provider` depend on `service` and `port` to implement or consume them. Nothing in `service` imports `internal/sqlstore`, `internal/handler`, or `net/http`.
+The dependency direction is strict: `domain` depends on nothing, `port` depends only on `domain`, `service` depends only on `domain` and `port`, and `internal/sqlstore`/`internal/handler`/`middleware`/`provider` depend on `service` and `port` to implement or consume them. Nothing in `service` imports `internal/sqlstore` or `internal/handler`; it touches `net/http` only for cookie constants (`http.SameSite`), never for request/response handling.
 
 ## The `Auth` struct and `New()`
 
-`New(config config) (*Auth, error)` in `auth.go` is the composition root — the one place every adapter gets constructed and handed to a service. In order, it:
+`New(in *Config) (*Auth, error)` in `auth.go` is the composition root. The one place every adapter gets constructed and handed to a service. In order, it:
 
-1. Opens (or adopts) the database connection based on `DatabaseConfig`, and wraps it in `internal/sqlstore.DB` — a thin `*sql.DB` wrapper that also implements `port.TxManager`.
+1. Opens (or adopts) the database connection based on `DatabaseConfig`, and wraps it in `internal/sqlstore.DB`. A thin `*sql.DB` wrapper that also implements `port.TxManager`.
 2. Constructs one `internal/sqlstore` repository per aggregate, all sharing the same `*sqlstore.DB`.
 3. Constructs the mailer (`WithMailer`, or `WithEmail`'s built-in SMTP client, or none) and the template provider (`WithTemplates`, or the built-in `emailtemplate` provider).
 4. Constructs every `service.*Service`, injecting the repositories, mailer, template provider, hasher, and token generator each one needs.
 5. Builds the middleware instances (`authMW`, `adminMW`, `rateLimitMW`, `csrfMW`, `csrfTokenMW`, `corsMW`, `orgMemberMW`, `orgAdminMW`, `orgOwnerMW`) once, so every handler that needs one shares the same instance.
 6. Wraps each HTTP handler in its specific middleware chain (see below) and assembles the result into `HandlerGroup`, keyed by the `internal/routes` table.
-7. Returns an `*Auth` exposing `Services` (the raw service methods, for calling programmatically without HTTP — see the next section), `Handlers` (pre-wrapped `http.HandlerFunc`s), middleware accessor methods (`RequireAuth`, `RequireAdmin`, `RateLimit`, `CORS`, `RequireOrg`, `RequireActiveOrg`, `RequireCSRF`), and scoped organization adapters (`RequireOrgScope`, `RequireActiveOrgScope`) backed by those same shared instances, in case you want to apply one to your own routes.
+7. Returns an `*Auth` exposing `Services` (the raw service methods, for calling programmatically without HTTP; see the next section), `Handlers` (pre-wrapped `http.HandlerFunc`s), middleware accessor methods (`RequireAuth`, `RequireAdmin`, `RateLimit`, `CORS`, `RequireOrg`, `RequireActiveOrg`, `RequireCSRF`), and scoped organization adapters (`RequireOrgScope`, `RequireActiveOrgScope`) backed by those same shared instances, in case you want to apply one to your own routes.
 
-`Auth.Mount(mux *http.ServeMux)` only registers routes on the mux you give it — it does not add any middleware of its own. Every handler in `HandlerGroup` already has its full chain baked in from step 6, and CORS preflight (`OPTIONS`) is registered per-path automatically wherever `WithSecurity.AllowedOrigins` is non-empty.
+`Auth.Mount(mux *http.ServeMux)` only registers routes on the mux you give it. It does not add any middleware of its own. Every handler in `HandlerGroup` already has its full chain baked in from step 6, and CORS preflight (`OPTIONS`) is registered per-path automatically wherever `WithSecurity.AllowedOrigins` is non-empty.
 
 ## Two ways to drive it
 
 Because `service` never touches `net/http`, every operation is reachable two ways:
 
-- **Programmatically** — `auth.Services.Auth.Register(ctx, ...)`, `auth.Services.Admin.BanUser(ctx, ...)`, and so on. No cookies, no CSRF, no rate limiting — you get back plain Go values and are responsible for whatever transport you're building (a CLI, a gRPC service, a background job). Every method that takes more than one argument of data takes it as a per-method named input struct (`goauth.LoginInput`, `goauth.RemoveMemberInput`, `goauth.SetActiveOrgInput`, ...) — the fields are labeled, so adjacent same-typed IDs can't be transposed silently.
-- **Over HTTP** — `auth.Mount(mux)` registers the same operations behind the full middleware chain, with `internal/handler` translating cookies and JSON into service calls.
+- **Programmatically:** `auth.Services.Auth.Register(ctx, ...)`, `auth.Services.Admin.BanUser(ctx, ...)`, and so on. No cookies, no CSRF, no rate limiting. You get back plain Go values and are responsible for whatever transport you are building (a CLI, a gRPC service, a background job). Every method that takes more than one argument of data takes it as a per-method named input struct (`goauth.LoginInput`, `goauth.RemoveMemberInput`, `goauth.SetActiveOrgInput`, ...). The fields are labeled, so adjacent same-typed IDs cannot be transposed silently.
+- **Over HTTP:** `auth.Mount(mux)` registers the same operations behind the full middleware chain, with `internal/handler` translating cookies and JSON into service calls.
 
 ## The middleware chain
 
@@ -58,14 +58,14 @@ Every entry in `HandlerGroup` is a handler wrapped in some subset of the eight m
 CORS → RateLimit → CSRFToken → OriginCheck → Auth → (Admin | OrgMember → OrgRole) → handler
 ```
 
-Not every route uses every layer — a layer is only present when the route needs it:
+Not every route uses every layer. A layer is only present when the route needs it:
 
 - **CORS** is outermost on every route, so a preflight `OPTIONS` request short-circuits before it can be rate-limited or otherwise rejected.
 - **RateLimit** wraps abuse-prone and expensive routes, including `GET /auth/me` and most admin reads. Some session-management routes are intentionally unwrapped; the handler wiring is the source of truth for an individual route.
-- **CSRFToken** and **OriginCheck** wrap every state-changing route (anything that isn't a plain `GET`), whether or not the caller is authenticated yet — origin checking has to happen before a session even exists, which is why it isn't folded into `Auth`.
-- **Auth** wraps anything that needs to know who's calling — it resolves the session cookie, transparently refreshes an expired session using the refresh cookie if present, and puts the user and session in `context.Context` for the handler.
+- **CSRFToken** and **OriginCheck** wrap every state-changing route (anything that is not a plain `GET`), whether or not the caller is authenticated yet. Origin checking has to happen before a session even exists, which is why it is not folded into `Auth`.
+- **Auth** wraps anything that needs to know who is calling. It resolves the session cookie, transparently refreshes an expired session using the refresh cookie if present, and puts the user and session in `context.Context` for the handler.
 - **Admin** (`RequireRole(domain.RoleAdmin)`) additionally wraps every `/admin/*` route.
-- **OrgMember** / **OrgRole** additionally wrap `/auth/orgs/{orgID}/*` routes: membership is required to read, a minimum role (admin or owner) is required to mutate — see the table in [Organizations](#organizations-access-model) below.
+- **OrgMember** / **OrgRole** additionally wrap `/auth/orgs/{orgID}/*` routes: membership is required to read, a minimum role (admin or owner) is required to mutate. See the table in [Organizations](#organizations-access-model) below.
 
 Four concrete examples, outermost first:
 
@@ -83,14 +83,14 @@ UpdateOrg       (org admin):     CORS → CSRFToken → OriginCheck → Auth →
 | Read an org, list its members | Membership |
 | Update or delete the org, manage members/roles, create invites | Membership + `admin` or `owner` role (delete requires `owner`) |
 | Leave the org | Membership only |
-| Create an org, list your own orgs, accept an invite, set/clear your active org | Authenticated only — there's no `{orgID}` path segment to check membership against yet, or the service layer checks it internally |
+| Create an org, list your own orgs, accept an invite, set/clear your active org | Authenticated only. There is no `{orgID}` path segment to check membership against yet, or the service layer checks it internally |
 
 ## Database layer
 
 The library targets `database/sql` for MySQL and SQLite, and `pgx/v5` (either through its `database/sql` shim or a native `pgxpool.Pool`) for PostgreSQL. `internal/sqlstore.DB` wraps whichever one you gave it behind a single interface every repository uses, and handles two cross-driver differences transparently:
 
-- **Placeholder syntax** — queries are written with `$1, $2, ...` placeholders; `DB.Rebind` leaves them as-is for PostgreSQL and rewrites them to `?` for MySQL/SQLite.
-- **Transactions** — `internal/sqlstore.DB` implements `port.TxManager`. `WithTx(ctx, fn)` starts a real `*sql.Tx`, stores it in the `context.Context`, and every repository call within `fn` checks the context for an active transaction and routes through it instead of the pooled connection. Calling `WithTx` again from inside `fn` joins the existing transaction rather than nesting one, so service code can compose transactional operations without knowing whether it's already inside one. A panic escaping `fn` rolls the transaction back via a deferred rollback before propagating, so it can never pin the connection. Password reset uses this boundary for token claim + guarded credential replacement + session deletion; change-password uses it for credential replacement + session deletion. Invite redemption (invite claim + account creation), OAuth registration (user + provider link), provider unlinking (provider-row lock + guard re-check + delete), and organization member removal/role changes (counter upkeep + role-asserted write) use the same boundary: the guard and the writes that follow it commit or roll back together. Their slow KDF work runs before the transaction so it does not hold database locks.
+- **Placeholder syntax:** queries are written with `$1, $2, ...` placeholders; `DB.Rebind` leaves them as-is for PostgreSQL and rewrites them to `?` for MySQL/SQLite.
+- **Transactions:** `internal/sqlstore.DB` implements `port.TxManager`. `WithTx(ctx, fn)` starts a real `*sql.Tx`, stores it in the `context.Context`, and every repository call within `fn` checks the context for an active transaction and routes through it instead of the pooled connection. Calling `WithTx` again from inside `fn` joins the existing transaction rather than nesting one, so service code can compose transactional operations without knowing whether it is already inside one. A panic escaping `fn` rolls the transaction back via a deferred rollback before propagating, so it can never pin the connection. Password reset uses this boundary for token claim + guarded credential replacement + session deletion; change-password uses it for credential replacement + session deletion. Invite redemption (invite claim + account creation), OAuth registration (user + provider link), provider unlinking (provider-row lock + guard re-check + delete), and organization member removal/role changes (counter upkeep + role-asserted write) use the same boundary: the guard and the writes that follow it commit or roll back together. Their slow KDF work runs before the transaction so it does not hold database locks.
 
 ## Extension points
 
@@ -98,15 +98,15 @@ Everywhere the library needs to talk to the outside world, it does so through a 
 
 | Interface | Built-in implementation | Replace it for |
 |---|---|---|
-| `port.Mailer` | SMTP via `WithEmail`, or none | Resend, Postmark, SES, or any transactional email API — see [Configuration](./configuration.mdx) |
+| `port.Mailer` | SMTP via `WithEmail`, or none | Resend, Postmark, SES, or any transactional email API. See [Configuration](./configuration.mdx) |
 | `port.TemplateProvider` | `emailtemplate` (embedded HTML/text templates) | Your own branded email templates |
-| `port.OAuthProvider` | `provider/google`, `provider/github` | Any OAuth2 provider — `Name()`, `AuthURL()`, `Exchange()` |
-| `ratelimit.Store` | bounded in-memory | A distributed store (Redis, etc.) for multi-instance deployments — one method, `Allow(ctx, key, Rate) (Result, error)` |
-| `audit.EventSink` | the SQL sink (persists to the `audit_log` table) | Kafka, NATS, a webhook — added via `WithAuditSink` alongside the built-in one |
+| `port.OAuthProvider` | `provider/google`, `provider/github` | Any OAuth2 provider: `Name()`, `AuthURL()`, `Exchange()` |
+| `ratelimit.Store` | bounded in-memory | A distributed store (Redis, etc.) for multi-instance deployments. One method: `Allow(ctx, key, Rate) (Result, error)` |
+| `audit.EventSink` | the SQL sink (persists to the `audit_log` table) | Kafka, NATS, a webhook. Added via `WithAuditSink` alongside the built-in one |
 | `port.Hasher` | bcrypt (`hasher` package), cost 12; optional built-in `hasher/argon2id`; optional versioned HMAC layer | `WithPasswordHasher` replaces the KDF; `WithBcryptCost` changes bcrypt cost; `WithPasswordPepper` supplies the versioned pepper keyring |
 
-**Repository interfaces are segmented, not just one flat contract per aggregate.** `port.UserRepository` embeds the guarded `PasswordHashUpdater` used by rehash-on-login; `port.SessionRepository` composes `SessionReader` / `SessionWriter` / `SessionRevoker` / `ActiveOrgSessionStore`; `port.OrgRepository` composes `OrgCRUD` / `OrgLimitCounters`. There's no `With*` option to swap a repository today — every consumer goes through `internal/sqlstore` — but a fork or a future extension point implementing only a slice (e.g. a Redis-backed session store that only revokes and reads, never touches the active-org pointer) can depend on the narrow interface instead of every method on the composed one.
+**Repository interfaces are segmented, not just one flat contract per aggregate.** `port.UserRepository` embeds the guarded `PasswordHashUpdater` used by rehash-on-login; `port.SessionRepository` composes `SessionReader` / `SessionWriter` / `SessionRevoker` / `ActiveOrgSessionStore`; `port.OrgRepository` composes `OrgCRUD` / `OrgLimitCounters`. There is no `With*` option to swap a repository today; every consumer goes through `internal/sqlstore`. A fork or a future extension point implementing only a slice (e.g. a Redis-backed session store that only revokes and reads, never touches the active-org pointer) can depend on the narrow interface instead of every method on the composed one.
 
 ## Testing structure
 
-Unit tests live alongside the code they test (`service/*_test.go`, `internal/handler/*_test.go`, ...) and use hand-written fakes for the `port` interfaces (see `internal/testutil`), so they run without a database. The `integration` package runs the same flows against real PostgreSQL, MySQL, and SQLite databases behind build-tag-free `_test.go` files gated on environment variables (e.g. `GOAUTH_POSTGRES_DSN`) — they're skipped, not failed, when the corresponding database isn't available.
+Unit tests live alongside the code they test (`service/*_test.go`, `internal/handler/*_test.go`, ...) and use hand-written fakes for the `port` interfaces (see `internal/testutil`), so they run without a database. The `integration` package runs the same flows against real PostgreSQL, MySQL, and SQLite databases behind build-tag-free `_test.go` files gated on environment variables (e.g. `GOAUTH_POSTGRES_DSN`). They are skipped, not failed, when the corresponding database is not available.

@@ -172,6 +172,8 @@ const { events } = await apiRequest(
 );
 ```
 
+See [Client → Audit logs](./client/admin.mdx#audit-logs) for the wrapper, data table, and filters.
+
 ---
 
 ### Count audit logs — `GET /admin/audit-logs/count`
@@ -190,6 +192,8 @@ n, err := auth.Services.Admin.CountAuditLogs(ctx, goauth.AdminListAuditLogsInput
 ```ts
 const { count } = await apiRequest(API_BASE, "GET", "/admin/audit-logs/count?event_type=login.failed");
 ```
+
+See [Client → Audit logs](./client/admin.mdx#audit-logs) for the wrapper.
 
 `GET /admin/users/{id}/audit-logs/count` is the same, scoped to one user (see below).
 
@@ -228,9 +232,11 @@ const { events } = await apiRequest(API_BASE, "GET", `/admin/users/${userId}/aud
 const { count } = await apiRequest(API_BASE, "GET", `/admin/users/${userId}/audit-logs/count`);
 ```
 
+See [Client → Audit logs](./client/admin.mdx#audit-logs) for the wrapper and data table.
+
 ---
 
 ## Next
 
 - [Admin](./admin.mdx) — most of the actions that show up as `admin.*` events here
-- [Routes](../routes.mdx#admin--audit-logs) — full param reference
+- [Routes](../routes/admin.mdx#audit-logs) — full param reference

@@ -9,19 +9,19 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 # Schemas
 
 go-auth ships one canonical schema per database driver, embedded into the
-library at build time. Nine tables and around twenty-two indexes, no ORM, no
-runtime `CREATE TABLE` — you apply the schema once, before your app starts.
+library at build time. Nine tables and around forty indexes, no ORM, no
+runtime `CREATE TABLE`. You apply the schema once, before your app starts.
 
 The column tables below describe the **PostgreSQL** schema. Table and column
-names are identical on SQLite and MySQL; types and constraints differ — see
-[Driver differences](#driver-differences).
+names are identical on SQLite and MySQL; types and constraints differ (see
+[Driver differences](#driver-differences)).
 
 <Callout type="warn" title="There is no migration system yet">
   go-auth ships a single canonical schema per driver, not versioned migrations.
   There is no `schema_migrations` table, no up/down steps, and no diffing
   against what you already have. Every `CREATE TABLE` is `IF NOT EXISTS`, which
   means applying the schema over an existing database will **never alter a table
-  that already exists** in an older shape — it succeeds, changes nothing, and
+  that already exists** in an older shape. It succeeds, changes nothing, and
   leaves you on the old columns.
 
   Until a migration system lands, treat schema changes between releases as
@@ -63,7 +63,7 @@ go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest generate \
 
 `--driver` is required; `--out` defaults to `auth.schema.sql` in the current
 directory. This is the route to use if you already run Atlas, golang-migrate,
-Flyway, or hand-written migrations — generate the file, diff it against your
+Flyway, or hand-written migrations: generate the file, diff it against your
 last version, and let your existing tool own the change.
 
 </Tab>
@@ -96,55 +96,58 @@ Installing the CLI properly, rather than `go run`:
 go install github.com/nazimdjebloun/go-auth/cmd/goauth@latest
 ```
 
-It's a separate module with its own `go.mod`, and it blank-imports all three
+It is a separate module with its own `go.mod`, and it blank-imports all three
 database drivers, so it works against any of them without you wiring anything
 up.
 
 Driver names accept aliases in all three routes: `postgres` or `pg`, `sqlite`
 or `sqlite3`, and `mysql`.
 
-<Callout title="PostgreSQL: the first statement is CREATE EXTENSION">
-  The PostgreSQL schema opens with `CREATE EXTENSION IF NOT EXISTS "pgcrypto"`,
-  which is what supplies the `gen_random_uuid()` default on every primary key.
-  It needs privileges some managed providers don't hand out, so this is the
-  statement most likely to fail first on a locked-down instance — and because
-  `migrate` exits on the first failure, nothing after it runs.
+<Callout title="PostgreSQL: the schema opens with two CREATE EXTENSION statements">
+  The PostgreSQL schema opens with `CREATE EXTENSION IF NOT EXISTS "pgcrypto"`
+  (which supplies the `gen_random_uuid()` default on every primary key),
+  followed by `CREATE EXTENSION IF NOT EXISTS "pg_trgm"` (which supplies the
+  trigram indexes behind admin substring search). Both need privileges some
+  managed providers do not hand out, so these are the statements most likely to
+  fail first on a locked-down instance. Because `migrate` exits on the first
+  failure, nothing after it runs.
 
-  If your provider blocks it, have a superuser create the extension once
-  beforehand; the `IF NOT EXISTS` then makes the library's copy a no-op. On
-  PostgreSQL 13 and later `gen_random_uuid()` is built in and the extension
-  isn't strictly needed, but the statement is still issued.
+  If your provider blocks them, have a superuser create the extensions once
+  beforehand; the `IF NOT EXISTS` then makes the library's copies a no-op. On
+  PostgreSQL 13 and later `gen_random_uuid()` is built in and the pgcrypto
+  extension is not strictly needed, but the statement is still issued.
 </Callout>
 
 <Callout type="warn" title="migrate is not transactional, and is only re-runnable on PostgreSQL and SQLite">
   Statements execute one at a time and the command exits on the first failure,
-  so a partial failure leaves the schema partly applied — whatever was created
+  so a partial failure leaves the schema partly applied. Whatever was created
   before the failing statement stays.
 
   On PostgreSQL and SQLite every statement is `IF NOT EXISTS`, so re-running
   after you fix the cause picks up where it stopped. **MySQL is different:**
-  `CREATE INDEX` has no `IF NOT EXISTS` form there, so all 20 index statements
+  `CREATE INDEX` has no `IF NOT EXISTS` form there, so all 39 index statements
   are unguarded and a second run fails with `Duplicate key name` on the first
-  index that already exists. The tables survive — the command just can't be used
-  as a no-op re-check on MySQL. Don't point it at a production database without
+  index that already exists. The tables survive. The command cannot be used
+  as a no-op re-check on MySQL. Do not point it at a production database without
   a backup.
 </Callout>
 
 ## The tables
 
-Nine tables. Every foreign key to `users` is `ON DELETE CASCADE`, so deleting a
+Nine tables. Foreign keys to `users` are `ON DELETE CASCADE`, so deleting a
 user takes their sessions, tokens, linked OAuth accounts, and org memberships
-with it. The one exception is `sessions.active_org_id`, which is
-`ON DELETE SET NULL` — deleting an org clears it from any session pointing at
-it rather than destroying the session.
+with it. Three exceptions: `sessions.active_org_id` and
+`organizations.created_by` are `ON DELETE SET NULL` (deleting an org clears it
+from sessions pointing at it; an org outlives its creator's account), and
+`invites.created_by` declares no delete action (it does not cascade).
 
 No table stores a raw credential. Passwords are bcrypt or Argon2id hashes, optionally peppered before the KDF; session tokens,
 refresh tokens, verification tokens, and both kinds of invite code are stored as
 SHA-256 hashes, and the raw value exists only in the response to the client.
 
-Each table gives a column-by-column summary — the types shown are the
-PostgreSQL ones — followed by the exact DDL the library applies on each driver,
-indexes included.
+Each table gives a column-by-column summary. The types shown are the
+PostgreSQL ones. Each summary is followed by the exact DDL the library applies
+on each driver, indexes included.
 
 ### `users`
 
@@ -154,17 +157,18 @@ Accounts. One row per person.
 |---|---|---|
 | `id` | `UUID` | Primary key, defaults to `gen_random_uuid()` |
 | `email` | `TEXT` | Unique, not null |
-| `password_hash` | `TEXT` | **Nullable** — OAuth-only accounts have no password |
-| `password_pepper_version` | `BIGINT` | **Nullable** — `NULL` is unpeppered; a positive `uint32` value selects one configured password-pepper key |
+| `password_hash` | `TEXT` | **Nullable**: OAuth-only accounts have no password |
+| `password_pepper_version` | `BIGINT` | **Nullable**: `NULL` is unpeppered; a positive `uint32` value selects one configured password-pepper key |
 | `name` | `TEXT` | Defaults to `''` |
 | `role` | `TEXT` | `CHECK (role IN ('user', 'admin'))`, defaults to `user` |
 | `is_verified` / `verified_at` | `BOOLEAN` / `TIMESTAMPTZ` | Email verification state |
 | `is_banned` / `banned_at` | `BOOLEAN` / `TIMESTAMPTZ` | Ban state |
+| `two_factor_enabled` | `BOOLEAN` | Defaults to `false` |
 | `org_owner_count` | `INT` | Denormalized counter, kept in sync by the org service |
 | `last_login_at` | `TIMESTAMPTZ` | |
 | `created_at` / `updated_at` | `TIMESTAMPTZ` | |
 
-- `role` is only constrained by a `CHECK` on PostgreSQL — see [Driver differences](#driver-differences).
+- `role` is only constrained by a `CHECK` on PostgreSQL: see [Driver differences](#driver-differences).
 
 <Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
 <Tab value="PostgreSQL">
@@ -189,6 +193,14 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
+CREATE INDEX IF NOT EXISTS idx_users_role_created_at ON users (role, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users (updated_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users (last_login_at);
+CREATE INDEX IF NOT EXISTS idx_users_banned ON users (created_at DESC) WHERE is_banned;
+CREATE INDEX IF NOT EXISTS idx_users_unverified ON users (created_at DESC) WHERE NOT is_verified;
+CREATE INDEX IF NOT EXISTS idx_users_two_factor ON users (created_at DESC) WHERE two_factor_enabled;
+CREATE INDEX IF NOT EXISTS idx_users_email_trgm ON users USING gin (email gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_users_name_trgm ON users USING gin (name gin_trgm_ops);
 ```
 
 </Tab>
@@ -214,6 +226,14 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
+CREATE INDEX IF NOT EXISTS idx_users_role_created_at ON users (role, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users (updated_at, id);
+CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users (last_login_at);
+CREATE INDEX IF NOT EXISTS idx_users_banned ON users (created_at) WHERE is_banned;
+CREATE INDEX IF NOT EXISTS idx_users_unverified ON users (created_at) WHERE NOT is_verified;
+CREATE INDEX IF NOT EXISTS idx_users_two_factor ON users (created_at) WHERE two_factor_enabled;
+CREATE INDEX IF NOT EXISTS idx_users_name_nocase ON users (name COLLATE NOCASE);
+CREATE INDEX IF NOT EXISTS idx_users_email_nocase ON users (email COLLATE NOCASE);
 ```
 
 </Tab>
@@ -239,6 +259,13 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB;
 
 CREATE INDEX idx_users_password_pepper_version ON users(password_pepper_version);
+CREATE INDEX idx_users_role_created_at ON users (role, created_at);
+CREATE INDEX idx_users_updated_at ON users (updated_at);
+CREATE INDEX idx_users_last_login_at ON users (last_login_at);
+CREATE INDEX idx_users_banned_created_at ON users (is_banned, created_at);
+CREATE INDEX idx_users_verified_created_at ON users (is_verified, created_at);
+CREATE INDEX idx_users_two_factor_created_at ON users (two_factor_enabled, created_at);
+CREATE INDEX idx_users_name ON users (name(255));
 ```
 
 </Tab>
@@ -257,15 +284,16 @@ One row per active login: both tokens, the device fingerprint, and the active-or
 | `token_hash` | `TEXT` | Unique. SHA-256 of the session token |
 | `refresh_token_hash` | `TEXT` | SHA-256 of the current refresh token |
 | `prev_refresh_token_hash` | `TEXT` | The previous one, kept so the grace window can accept it briefly after rotation |
-| `refresh_rotated_at` | `TIMESTAMPTZ` | When the last rotation happened — the grace window is measured from here |
+| `refresh_rotated_at` | `TIMESTAMPTZ` | When the last rotation happened. The grace window is measured from here |
 | `ip_address` / `user_agent` | `TEXT` | As seen at creation |
 | `is_revoked` / `revoked_at` | `BOOLEAN` / `TIMESTAMPTZ` | |
+| `created_at` | `TIMESTAMPTZ` | |
 | `expires_at` / `refresh_expires_at` | `TIMESTAMPTZ` | Absolute expiry for each token |
 | `last_active_at` | `TIMESTAMPTZ` | Updated on authenticated requests, subject to `TouchDebounce` |
 | `active_org_id` | `UUID` | → `organizations(id)` `ON DELETE SET NULL` |
 | `active_org_role` | `VARCHAR(50)` | |
 
-- On PostgreSQL a table-level `CHECK` forces `active_org_id` and `active_org_role` to be both set or both null — a session cannot be scoped to an org without a role in it.
+- On PostgreSQL a table-level `CHECK` forces `active_org_id` and `active_org_role` to be both set or both null. A session cannot be scoped to an org without a role in it.
 
 <Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
 <Tab value="PostgreSQL">
@@ -296,6 +324,10 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_active_at ON sessions (last_active_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_ip_address ON sessions (ip_address);
 ```
 
 </Tab>
@@ -326,6 +358,10 @@ CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
 CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions (created_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_active_at ON sessions (last_active_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_ip_address ON sessions (ip_address);
 ```
 
 </Tab>
@@ -358,6 +394,10 @@ CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
 CREATE INDEX idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
 CREATE INDEX idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
 CREATE INDEX idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+CREATE INDEX idx_sessions_created_at ON sessions (created_at);
+CREATE INDEX idx_sessions_last_active_at ON sessions (last_active_at);
+CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX idx_sessions_ip_address ON sessions (ip_address(64));
 ```
 
 </Tab>
@@ -367,19 +407,21 @@ CREATE INDEX idx_sessions_user_active_org ON sessions(user_id, active_org_id);
 
 ### `verification_tokens`
 
-One table behind six short-lived token flows, discriminated by `type`.
+One table behind seven short-lived token flows, discriminated by `type`.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | `UUID` | Primary key |
-| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE`. Nullable — an invite-verify token can exist before the account does |
+| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE`. Nullable: an invite-verify token can exist before the account does |
 | `email` | `TEXT` | |
 | `token_hash` | `TEXT` | Unique |
-| `type` | `TEXT` | `CHECK` on `verify_email`, `reset_password`, `set_password`, `invite_verify`, `oauth_state`, `delete_account` |
+| `type` | `TEXT` | `CHECK` on `verify_email`, `reset_password`, `set_password`, `invite_verify`, `oauth_state`, `delete_account`, `2fa_login` |
 | `expires_at` / `used_at` | `TIMESTAMPTZ` | `used_at` makes tokens single-use |
 | `code_verifier` | `TEXT` | The PKCE verifier, only populated for `oauth_state` rows |
+| `attempts` / `resend_count` | `INT` | Wrong-guess and resend counters for code challenges |
+| `created_at` | `TIMESTAMPTZ` | |
 
-- The six `type` values are enforced by `CHECK` on PostgreSQL only; on SQLite and MySQL the column is unconstrained.
+- The seven `type` values are enforced by `CHECK` on PostgreSQL only; on SQLite and MySQL the column is unconstrained.
 
 <Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
 <Tab value="PostgreSQL">
@@ -390,10 +432,13 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
     token_hash TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account')),
+    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account', '2fa_login')),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
-    code_verifier TEXT
+    code_verifier TEXT,
+    attempts INT NOT NULL DEFAULT 0,
+    resend_count INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
@@ -411,7 +456,10 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     type TEXT NOT NULL,
     expires_at DATETIME NOT NULL,
     used_at DATETIME,
-    code_verifier TEXT
+    code_verifier TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    resend_count INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
@@ -430,6 +478,9 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     expires_at DATETIME NOT NULL,
     used_at DATETIME,
     code_verifier TEXT,
+    attempts INT NOT NULL DEFAULT 0,
+    resend_count INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
@@ -449,7 +500,7 @@ Linked OAuth identities. A user may have several.
 |---|---|---|
 | `id` | `UUID` | Primary key |
 | `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
-| `provider` / `provider_user_id` | `TEXT` | `UNIQUE(provider, provider_user_id)` — one identity links to one account |
+| `provider` / `provider_user_id` | `TEXT` | `UNIQUE(provider, provider_user_id)`: one identity links to one account |
 | `provider_email` / `provider_name` / `avatar_url` | `TEXT` | Profile snapshot from the provider |
 | `access_token` / `refresh_token` | `TEXT` | Encrypted at rest; never returned by any endpoint |
 | `token_expires_at` | `TIMESTAMPTZ` | |
@@ -541,8 +592,8 @@ Signup invites, for invite-only registration.
 |---|---|---|
 | `id` | `UUID` | Primary key |
 | `email` | `TEXT` | Who it was issued to |
-| `code` | `TEXT` | Unique. Holds the SHA-256 **hash** despite the name — the raw code only goes out by email |
-| `created_by` | `UUID` | → `users(id)` — the admin who issued it |
+| `code` | `TEXT` | Unique. Holds the SHA-256 **hash** despite the name. The raw code only goes out by email |
+| `created_by` | `UUID` | → `users(id)`: the admin who issued it |
 | `status` | `TEXT` | `CHECK` on `pending`, `accepted`, `revoked`, `expired` |
 | `expires_at` / `accepted_at` / `created_at` | `TIMESTAMPTZ` | |
 
@@ -566,6 +617,11 @@ CREATE TABLE IF NOT EXISTS invites (
 
 CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
 CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
+CREATE INDEX IF NOT EXISTS idx_invites_status_created_at ON invites (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_invites_created_at ON invites (created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_invites_expires_at ON invites (expires_at);
+CREATE INDEX IF NOT EXISTS idx_invites_pending_expires ON invites (expires_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_invites_email_trgm ON invites USING gin (email gin_trgm_ops);
 ```
 
 </Tab>
@@ -585,6 +641,10 @@ CREATE TABLE IF NOT EXISTS invites (
 
 CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
 CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
+CREATE INDEX IF NOT EXISTS idx_invites_status_created_at ON invites (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_invites_created_at ON invites (created_at, id);
+CREATE INDEX IF NOT EXISTS idx_invites_expires_at ON invites (expires_at);
+CREATE INDEX IF NOT EXISTS idx_invites_pending_expires ON invites (expires_at) WHERE status = 'pending';
 ```
 
 </Tab>
@@ -605,6 +665,9 @@ CREATE TABLE IF NOT EXISTS invites (
 
 CREATE INDEX idx_invites_email ON invites(email(255));
 CREATE INDEX idx_invites_code ON invites(code(255));
+CREATE INDEX idx_invites_status_created_at ON invites (status, created_at);
+CREATE INDEX idx_invites_created_at ON invites (created_at, id);
+CREATE INDEX idx_invites_expires_at ON invites (expires_at);
 ```
 
 </Tab>
@@ -621,7 +684,7 @@ Tenants.
 | `id` | `UUID` | Primary key |
 | `name` | `VARCHAR(255)` | |
 | `slug` | `VARCHAR(255)` | Unique |
-| `created_by` | `UUID` | → `users(id)` `ON DELETE SET NULL` — the org outlives its creator's account |
+| `created_by` | `UUID` | → `users(id)` `ON DELETE SET NULL`: the org outlives its creator's account |
 | `owner_count` / `member_count` | `INT` | Denormalized counters |
 | `metadata` | `JSONB` | Free-form, defaults to `{}` |
 | `created_at` / `updated_at` | `TIMESTAMPTZ` | |
@@ -685,7 +748,7 @@ CREATE TABLE IF NOT EXISTS organizations (
 
 ### `organization_members`
 
-The join table. Membership *is* the pair — there is no surrogate key.
+The join table. Membership *is* the pair. There is no surrogate key.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -764,7 +827,7 @@ Pending invitations to join an org.
 | `id` | `UUID` | Primary key |
 | `org_id` | `UUID` | → `organizations(id)` `ON DELETE CASCADE` |
 | `email` | `TEXT` | |
-| `role` | `VARCHAR(50)` | The role they'll get — `CHECK` on `owner`, `admin`, `member` |
+| `role` | `VARCHAR(50)` | The role they get. `CHECK` on `owner`, `admin`, `member` |
 | `code_hash` | `TEXT` | Unique. The raw code goes out by email only |
 | `invited_by` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
 | `expires_at` / `created_at` | `TIMESTAMPTZ` | |
@@ -835,7 +898,7 @@ CREATE INDEX idx_org_invites_email ON organization_invites(email);
 
 ### `audit_log`
 
-Written asynchronously by the audit pipeline when it is enabled. Singular `audit_log` — the admin route that reads it is `/admin/audit-logs`.
+Written asynchronously by the audit pipeline when it is enabled. The table name is singular `audit_log`. The admin route that reads it is `/admin/audit-logs`.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -843,10 +906,11 @@ Written asynchronously by the audit pipeline when it is enabled. Singular `audit
 | `event_type` | `TEXT` | e.g. `user.login`, `admin.ban` |
 | `severity` | `TEXT` | Defaults to `info` |
 | `success` | `BOOLEAN` | Defaults to `true` |
-| `actor_id` / `target_id` / `session_id` / `org_id` | `UUID` | All nullable, and deliberately **not** foreign keys — audit rows must survive the deletion of what they describe |
+| `actor_id` / `target_id` / `session_id` / `org_id` | `UUID` | All nullable and deliberately **not** foreign keys. Audit rows must survive the deletion of what they describe |
 | `ip` / `user_agent` / `parsed_ua` | `TEXT` / `JSONB` | |
 | `request_id` / `correlation_id` | `TEXT` | For stitching events to your own request tracing |
 | `metadata` | `JSONB` | Event-specific payload |
+| `created_at` | `TIMESTAMPTZ` | |
 
 - PostgreSQL additionally indexes `metadata` with a GIN index for containment queries.
 
@@ -880,6 +944,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_metadata ON audit_log USING GIN (metadata jsonb_path_ops);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor_created_at ON audit_log (actor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_target_created_at ON audit_log (target_id, created_at DESC);
 ```
 
 </Tab>
@@ -911,6 +977,8 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_session_id ON audit_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor_created_at ON audit_log (actor_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_log_target_created_at ON audit_log (target_id, created_at);
 ```
 
 </Tab>
@@ -942,6 +1010,8 @@ CREATE INDEX idx_audit_log_session_id ON audit_log(session_id);
 CREATE INDEX idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
+CREATE INDEX idx_audit_log_actor_created_at ON audit_log (actor_id, created_at);
+CREATE INDEX idx_audit_log_target_created_at ON audit_log (target_id, created_at);
 ```
 
 </Tab>
@@ -949,24 +1019,24 @@ CREATE INDEX idx_audit_log_event_type_created_at ON audit_log(event_type, create
 
 ## Driver differences
 
-Three files, roughly 150 lines each, living in `internal/schema/` and embedded
-by `//go:embed`. The table and column names are identical across all three —
-only types and defaults differ.
+Three files, roughly 190 lines each, living in `internal/schema/` and embedded
+by `//go:embed`. The table and column names are identical across all three.
+Only types and defaults differ.
 
 | | PostgreSQL | SQLite | MySQL |
 |---|---|---|---|
 | IDs | `UUID`, defaulted by `gen_random_uuid()` | `TEXT`, generated by the application | `VARCHAR(36)`, generated by the application |
-| Timestamps | `TIMESTAMPTZ` | `DATETIME` | `DATETIME` |
+| Timestamps | `TIMESTAMPTZ` | `DATETIME` | `DATETIME`, `DATETIME(6)` on the org tables |
 | Booleans | `BOOLEAN` | `INTEGER` (`0`/`1`) | `BOOLEAN` |
-| JSON columns | `JSONB` | `TEXT` | mixed — `JSON` for `metadata`, `TEXT` for `parsed_ua` |
-| `CHECK` constraints | 6 — role, status, token type, org role, and the session active-org pair | none | none |
-| Indexes | 21 | 20 | 20 |
-| Re-runnable | yes — every statement is `IF NOT EXISTS` | yes | **no** — `CREATE INDEX` is unguarded |
+| JSON columns | `JSONB` | `TEXT` | `JSON` for `metadata` and `parsed_ua` |
+| `CHECK` constraints | 7: pepper version, user role, member role, invite role, invite status, token type, and the session active-org pair | 1: pepper version only | none |
+| Indexes | 43 | 41 | 39 |
+| Re-runnable | yes: every statement is `IF NOT EXISTS` | yes | **no**: `CREATE INDEX` is unguarded |
 | Foreign keys | inline `REFERENCES` | inline `REFERENCES` | named `CONSTRAINT ... FOREIGN KEY` |
-| Timestamp precision | `TIMESTAMPTZ` | `DATETIME` | `DATETIME(6)` — microseconds |
-| Placeholders | `$1, $2, …` — rewritten by `sqlstore.DB.Rebind` | `?` | `?` |
+| Timestamp precision | `TIMESTAMPTZ` | `DATETIME` | `DATETIME(6)` (microseconds) on the org tables |
+| Placeholders | `$1, $2, …`: left as-is for PostgreSQL, rewritten to `?` by `sqlstore.DB.Rebind` | `?` | `?` |
 
-Queries are written once with `?` placeholders and rewritten per driver at
+Queries are written once with `$N` placeholders and rewritten per driver at
 runtime, so none of this leaks into application code.
 
 <Callout type="warn" title="Constraints are not portable">
@@ -974,11 +1044,11 @@ runtime, so none of this leaks into application code.
   PostgreSQL**. On SQLite and MySQL the same columns are plain `TEXT`/`VARCHAR`
   with no database-level restriction, so an invalid `role` or `status` written
   by something other than this library will be accepted by the database. The
-  service layer validates these values regardless of driver — the constraints
+  service layer validates these values regardless of driver. The constraints
   are a second line of defence that only PostgreSQL gives you.
 </Callout>
 
 ## Next
 
-- [Configuration](./configuration.mdx) — every option, field by field
-- [Architecture](./architecture.mdx) — how the storage layer fits together
+- [Configuration](./configuration.mdx): every option, field by field
+- [Architecture](./architecture.mdx): how the storage layer fits together

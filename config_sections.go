@@ -26,7 +26,7 @@ type DatabaseConfig struct {
 	URL    string        // connection string (preferred)
 	DB     *sql.DB       // pre-opened *sql.DB (library borrows, does not close)
 	Pool   *pgxpool.Pool // pre-opened pgx pool (library borrows, does not close)
-	Driver Driver        // DriverPostgres (default), DriverSQLite, DriverMySQL
+	Driver Driver        // DriverPostgres, DriverSQLite, DriverMySQL (required: NewConfig rejects an empty driver)
 
 	opened     bool // internal — true if the library opened DB itself
 	poolOpened bool // internal — true if the library opened Pool itself
@@ -91,7 +91,7 @@ type OrganizationConfig struct {
 type AuditConfig struct {
 	Enabled       bool
 	FailureMode   audit.AuditFailureMode
-	RetentionDays int           // default 90, 0 = forever
+	RetentionDays int           // days of audit rows to retain; 0 = keep forever
 	QueueSize     int           // default 1000
 	Workers       int           // default 3
 	BatchSize     int           // default 50

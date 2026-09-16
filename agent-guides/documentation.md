@@ -15,7 +15,7 @@ failure behavior, and opt-in/opt-out status are not interchangeable.
 |---|---|
 | Public setup or first-use experience | `README.md`, `docs/installation.mdx` |
 | `With*` option, default, or validation | `docs/configuration.mdx` |
-| Route, method, authentication level, body, or cookie | `docs/routes.mdx` and the relevant guide |
+| Route, method, authentication level, body, or cookie | `docs/routes/` and the relevant guide |
 | Public error code | `docs/error-handling.mdx` |
 | Table, column, index, or driver difference | `docs/schemas.mdx` |
 | Security guarantee or operator responsibility | `docs/security.mdx` |

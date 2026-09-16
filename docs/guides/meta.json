@@ -2,14 +2,15 @@
   "title": "Guides",
   "pages": [
     "authentication",
+    "user-management",
     "sessions",
     "organizations",
     "security",
-    "deployment",
-    "rate-limiting",
     "oauth",
     "admin",
     "audit-logs",
+    "deployment",
+    "rate-limiting",
     "client"
   ]
 }

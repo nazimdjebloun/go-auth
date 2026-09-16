@@ -1,0 +1,218 @@
+---
+title: "User management"
+description: "Change name, enable/disable 2FA, and delete account — every self-service action an authenticated user can take."
+icon: "Settings"
+---
+
+# User management
+
+Every self-service action an authenticated user can take: changing their name, toggling two-factor authentication, and deleting their account.
+
+For password changes, reset, and verification resend, see [Security](./security.mdx). For register, login, and logout, see [Authentication](./authentication.mdx).
+
+## Frontend client setup
+
+The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](./client/index.mdx). The named-method wrapper for everything on this page lives on [Client → User management](./client/user-management.mdx).
+
+## Change name
+
+### Change name — `PUT /auth/name`
+
+**Request body**: `{ "name": "..." }`
+
+**Response**: `{ "message": "Name updated" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `validation_error` | 400 | `name` was empty |
+| `user_not_found` | 404 | Session's user no longer exists |
+| `internal_error` | 500 | Database failure |
+
+#### curl
+
+```bash
+curl -X PUT https://api.myapp.com/auth/name \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt \
+  -d '{"name":"Ada Byron"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Auth.ChangeName(ctx, userID, "Ada Byron")
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "PUT", "/auth/name", { name: "Ada Byron" });
+```
+
+For a complete change name form, see [Client → Change name](./client/user-management.mdx#change-name-form).
+
+## Two-factor authentication
+
+Turned on globally with `TwoFactorConfig.RequireEmail2FA` (mandatory for every account) or per-user via `POST /auth/2fa/enable` (opt-in, unless `RequireEmail2FA` is on, in which case per-user toggling is rejected). Full config reference on [Configuration](../configuration.mdx); the risk trade-offs behind this design are on [Security](../security.mdx).
+
+<Callout type="warn" title="Requires a mailer">
+  `TwoFactorConfig.RequireEmail2FA` or `TwoFactorConfig.DefaultEnabled` without `WithMailer`/`WithEmail` is rejected outright by `NewConfig`.
+</Callout>
+
+### Enable/disable 2FA
+
+Both require the account's password, even for an OAuth-authenticated session — this is what stops a compromised OAuth session from turning your second factor off. Rejected with `two_factor_already_enforced` if `RequireEmail2FA` is on.
+
+**`POST /auth/2fa/enable`** — body `{ "password": "...", "keepOtherSessions": false }`. `keepOtherSessions` defaults to `false` if omitted — every other session gets revoked, on the theory that turning 2FA on is usually a response to "I think someone else has my password." Set it to `true` to keep other sessions alive.
+
+**`POST /auth/2fa/disable`** — body `{ "password": "..." }`. No session revocation — turning 2FA off isn't the same signal.
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/2fa/enable \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt \
+  -d '{"password":"correct horse battery staple 1"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.TwoFactor.Enable(ctx, userID, password, keepOtherSessions, callerSessionID)
+err = auth.Services.TwoFactor.Disable(ctx, userID, password)
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/2fa/enable", { password: currentPassword });
+await apiRequest(API_BASE, "POST", "/auth/2fa/disable", { password: currentPassword });
+```
+
+For a complete enable/disable form, see [Client → Two-factor settings](./client/user-management.mdx#two-factor-settings).
+
+## Delete account
+
+Two paths depending on whether the account has a password: immediate deletion with password confirmation, or an emailed code for OAuth-only accounts. Both revoke every session and clear cookies on success.
+
+### Delete immediately (has a password) — `DELETE /auth/account`
+
+**Request body**: `{ "password": "..." }`
+
+**Response**: `{ "message": "Account deleted successfully" }`
+
+**Errors**
+
+| Code | Status | Cause |
+|---|---|---|
+| `password_required` | 400 | Account has no password — use the request/confirm flow below instead |
+| `wrong_password` | 400 | Password didn't match |
+| `user_not_found` | 404 | Session's user no longer exists |
+
+#### curl
+
+```bash
+curl -X DELETE https://api.myapp.com/auth/account \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt \
+  -d '{"password":"correct horse battery staple 1"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Auth.DeleteAccount(ctx, userID, "correct horse battery staple 1")
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "DELETE", "/auth/account", { password });
+setUser(null);
+```
+
+For a complete delete account form, see [Client → Delete account](./client/user-management.mdx#delete-account).
+
+---
+
+### Delete via emailed code (OAuth-only accounts) — `POST /auth/account/delete/request`, `POST /auth/account/delete/confirm`
+
+Auth required for both. The request step emails an 8-character code (10-minute TTL); if a still-valid one already exists, it's silently reused instead of sending a second email. The confirm step always takes the user from the session, never from the body — you can't confirm a deletion for anyone but yourself.
+
+**Errors** — request step
+
+| Code | Status | Cause |
+|---|---|---|
+| `password_account` | 400 | Account has a password — use `DELETE /auth/account` instead |
+| `email_not_configured` | 500 | No mailer configured |
+
+**Errors** — confirm step
+
+| Code | Status | Cause |
+|---|---|---|
+| `delete_code_invalid` | 400 | Code doesn't match, wrong type, or belongs to a different user |
+| `delete_code_already_used` | 410 | Already redeemed |
+| `delete_code_expired` | 410 | Past the 10-minute window |
+
+#### curl
+
+```bash
+curl -X POST https://api.myapp.com/auth/account/delete/request \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt
+
+curl -X POST https://api.myapp.com/auth/account/delete/confirm \
+  -H "Content-Type: application/json" \
+  -H "Origin: https://myapp.com" \
+  -b cookies.txt \
+  -d '{"code":"ABCD1234"}'
+```
+
+---
+
+#### Programmatic (Go)
+
+```go
+err := auth.Services.Auth.RequestDeleteAccount(ctx, userID)
+
+err = auth.Services.Auth.ConfirmDeleteAccount(ctx, goauth.ConfirmDeleteAccountInput{
+    UserID: userID, // always the session's own ID — never take this from client input yourself either
+    Code:   "ABCD1234",
+})
+```
+
+---
+
+#### Client
+
+```ts
+await apiRequest(API_BASE, "POST", "/auth/account/delete/request");
+await apiRequest(API_BASE, "POST", "/auth/account/delete/confirm", { code });
+setUser(null);
+```
+
+For a complete delete account form for OAuth-only accounts, see [Client → Delete account](./client/user-management.mdx#delete-with-emailed-code-oauth-only-accounts).
+
+## Next
+
+- [Authentication](./authentication.mdx) — register, login, logout, and verification
+- [Security](./security.mdx) — password changes, verification resend, and config
+- [Admin](./admin.mdx) — banning, role changes, and admin-initiated session revocation
