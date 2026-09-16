@@ -492,7 +492,7 @@ func TestGenericBuilder_Options(t *testing.T) {
 func TestEventTypes_NoDuplicates(t *testing.T) {
 	types := []EventType{
 		EventLoginSuccess, EventLoginFailed, EventLoginLocked, EventLogout,
-		EventUserRegistered,
+		EventUserRegistered, EventNameChanged, EventAccountDeleted,
 		EventEmailVerificationSent, EventEmailVerified,
 		EventTwoFactorCodeSent, EventTwoFactorVerified, EventTwoFactorFailed,
 		EventTwoFactorEnabled, EventTwoFactorDisabled, EventTwoFactorSuspicious,

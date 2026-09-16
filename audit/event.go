@@ -21,6 +21,14 @@ const (
 	// Registration
 	EventUserRegistered EventType = "user.registered"
 
+	// Account (self-service). user.name_changed fires from the profile
+	// name change; user.account_deleted fires after a self-service account
+	// deletion (password or emailed-code path) has fully succeeded. Both
+	// are distinct from the admin.user.* family: the actor is the user,
+	// never an admin.
+	EventNameChanged    EventType = "user.name_changed"
+	EventAccountDeleted EventType = "user.account_deleted"
+
 	// Email
 	EventEmailVerificationSent EventType = "email.verification.sent"
 	EventEmailVerified         EventType = "email.verified"

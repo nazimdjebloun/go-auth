@@ -237,6 +237,12 @@ func (s *SessionService) RevokeByIDForUser(ctx context.Context, id, userID strin
 	if err != nil {
 		return false, fmt.Errorf("session revoke by id: %w", err)
 	}
+	if ok && s.audit != nil {
+		// Only publish when the session actually belonged to the caller:
+		// a failed cross-user revoke is a no-op, not a security event, and
+		// auditing it would let a caller flood the log with probes.
+		s.audit.Publish(ctx, audit.NewSessionEvent(audit.EventSessionRevoked, userID, id, nil, ""))
+	}
 	return ok, nil
 }
 
@@ -244,6 +250,13 @@ func (s *SessionService) RevokeManyForUser(ctx context.Context, ids []string, us
 	n, err := s.repo.RevokeManyForUser(ctx, ids, userID)
 	if err != nil {
 		return 0, fmt.Errorf("session revoke many: %w", err)
+	}
+	if n > 0 && s.audit != nil {
+		// One event for the batch, with the revoked count in metadata —
+		// mirroring session.revoked_all, which also publishes a single
+		// event for an unbounded set of sessions.
+		s.audit.Publish(ctx, audit.NewEvent(audit.EventSessionRevoked,
+			audit.WithActor(userID), audit.WithMetadata("sessionCount", n)))
 	}
 	return n, nil
 }

@@ -120,6 +120,34 @@ func NewLoginLockedEvent(email string, ip net.IP, ua string) Event {
 	}
 }
 
+// NewNameChangedEvent records a self-service profile name change. The actor
+// is the user whose name changed — there is no admin in this path.
+func NewNameChangedEvent(userID string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventNameChanged,
+		Severity:  SeverityInfo,
+		Success:   true,
+		ActorID:   strPtr(userID),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+// NewAccountDeletedEvent records a completed self-service account deletion,
+// after the user row and all its sessions are gone. SeverityWarning matches
+// the admin-side deletion: the action is user-initiated and legitimate, but
+// an identity disappearing is worth surfacing in security review.
+func NewAccountDeletedEvent(userID string) Event {
+	return Event{
+		ID:        generateID(),
+		Type:      EventAccountDeleted,
+		Severity:  SeverityWarning,
+		Success:   true,
+		ActorID:   strPtr(userID),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
 // The 2FA builders key on userID as ActorID. Do not copy
 // NewEmailVerificationSentEvent's pattern of putting the email there — every
 // 2FA path resolves a real user before it publishes.

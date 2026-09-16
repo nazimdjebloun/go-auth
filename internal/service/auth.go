@@ -377,6 +377,9 @@ type rehashRegistry interface {
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, error) {
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
+		if s.audit != nil {
+			s.audit.Publish(ctx, audit.NewLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent))
+		}
 		return nil, aerr
 	}
 	if requiresVerification {
@@ -542,6 +545,9 @@ func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) er
 		return domain.ErrInternal
 	}
 	s.log.Info("name changed", "user_id", userID)
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewNameChangedEvent(userID))
+	}
 	return nil
 }
 
@@ -569,6 +575,9 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 	}
 
 	s.log.Info("account deleted", "user_id", userID)
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewAccountDeletedEvent(userID))
+	}
 	return nil
 }
 
@@ -710,6 +719,9 @@ func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDel
 	}
 
 	s.log.Info("account deleted via code", "user_id", input.UserID)
+	if s.audit != nil {
+		s.audit.Publish(ctx, audit.NewAccountDeletedEvent(input.UserID))
+	}
 	return nil
 }
 
