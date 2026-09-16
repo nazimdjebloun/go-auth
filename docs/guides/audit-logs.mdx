@@ -37,6 +37,25 @@ goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 
 `WithAuditSink` appends one sink at a time without needing to repeat the whole config; calling `WithAudit` more than once doesn't duplicate sinks already added.
 
+### Built-in webhook sink
+
+For real-time delivery to an external service (a SIEM, alerting, or your own automation endpoint), the library ships a first-party webhook sink implementing the same `audit.EventSink` interface:
+
+```go
+sink, err := audit.NewWebhookSink(audit.WebhookConfig{
+    Endpoint: "https://ops.example.com/hooks/auth",
+    Secret:   "shared-hmac-secret", // optional, recommended
+    Timeout:  10 * time.Second,     // optional, default 10s
+})
+if err != nil { /* empty endpoint */ }
+goauth.WithAuditSink(sink)
+```
+
+Each audit event is delivered as one HTTP `POST` with the JSON-serialized `audit.Event` body. When `Secret` is set, every request carries an `X-Signature: sha256=<hex>` header — the HMAC-SHA256 of the raw body — which the receiver should recompute and verify (constant-time compare) before trusting the payload; a discovered URL alone must not allow forged events.
+
+Delivery is **best-effort and at-most-once**: a failed or non-2xx POST is logged per the configured `FailureMode` and never blocks or fails the request that triggered the event, and there is no built-in retry. Point the sink at a receiver that tolerates occasional dropped events, or put a durable collector behind it.
+
+
 <Callout type="info" title="This is separate from application logging">
   `config.Logger` (the `*slog.Logger` you pass to `WithLogger`) is for operational logs — errors, warnings, debug output. Audit events are a distinct, structured stream meant to answer "who did what, when" for security review or compliance, and only exist at all if `Enabled: true` here.
 </Callout>
@@ -53,6 +72,7 @@ Every event carries a `type`, a `severity` (`info` / `warning` / `error` / `crit
 |---|---|
 | Login | `login.success`, `login.failed`, `login.locked`, `logout`, `admin.login.success`, `admin.login.failed` |
 | Registration | `user.registered` |
+| Account | `user.name_changed`, `user.account_deleted` |
 | Email | `email.verification.sent`, `email.verified` |
 | Password | `password.changed`, `password.reset.requested`, `password.reset.completed` |
 | Sessions | `session.created`, `session.refreshed`, `session.revoked`, `session.revoked_all`, `session.refresh_reuse_detected` |
