@@ -22,8 +22,9 @@ Follow this sequence for feature work.
    then add the handler with its exact middleware chain. A rate-limit config
    entry alone does not protect a route.
 8. **Update persistence.** Change all three embedded schemas when the data model
-   changes and implement the repository behind a narrow port. Use transactions
-   rather than manually coordinating dependent statements.
+   changes and implement the repository in `internal/sqlstore` behind a narrow
+   port. Storage is SQL-only — there is no custom-repository extension point.
+   Use transactions rather than manually coordinating dependent statements.
 9. **Test behavior and failures.** Add service tests, handler tests for HTTP
    shape, repository tests for SQL invariants, and SQLite integration tests for
    end-to-end HTTP behavior when applicable.
