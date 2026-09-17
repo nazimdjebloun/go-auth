@@ -24,6 +24,8 @@ const (
 
 	tokenDeleteExpiredQuery = `DELETE FROM verification_tokens WHERE expires_at < $1`
 
+	tokenExpiredIDQuery = `SELECT id FROM verification_tokens WHERE expires_at < $1 ORDER BY expires_at, id LIMIT $2`
+
 	tokenDeleteUnusedByUserAndTypeQuery = `DELETE FROM verification_tokens WHERE user_id=$1 AND type=$2 AND used_at IS NULL`
 
 	// The three queries below apply their cap in the WHERE clause and are

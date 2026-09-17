@@ -31,6 +31,9 @@ const (
 
 	sessionDeleteExpiredQuery = `DELETE FROM sessions WHERE refresh_expires_at < $1`
 
+	// Use distinct placeholders even for equal cutoffs: Rebind is positional.
+	sessionExpiredIDQuery = `SELECT id FROM sessions WHERE expires_at < $1 AND (refresh_expires_at IS NULL OR refresh_expires_at < $2) ORDER BY expires_at, id LIMIT $3`
+
 	sessionUpdateLastActiveQuery = `UPDATE sessions SET last_active_at = $1 WHERE token_hash = $2`
 
 	sessionRotateRefreshQuery = `UPDATE sessions

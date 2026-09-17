@@ -29,6 +29,7 @@ type Config struct {
 	registration   RegistrationConfig
 	organizations  OrganizationConfig
 	audit          AuditConfig
+	maintenance    MaintenanceConfig
 	email          *EmailConfig
 	secret         string               // app-wide root key; cryptographic consumers receive purpose-derived subkeys
 	passwordPepper PasswordPepperConfig // independent, versioned key material; zero value disables password peppering

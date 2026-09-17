@@ -54,6 +54,7 @@ type Auth struct {
 	// twoFactorStore is always library-constructed (see New), so unlike the
 	// rate-limit Store it is unconditionally ours to close.
 	twoFactorStore ratelimit.Store
+	maintenance    *maintenanceRunner
 }
 
 type Services struct {
@@ -396,6 +397,11 @@ func New(in *Config) (*Auth, error) {
 	orgAdminMW := middleware.RequireOrgRole(domain.OrgRoleAdmin)
 	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 
+	maintenance := newMaintenanceRunner(cfg.maintenance, collectMaintenanceTargets(sessionRepoSQL, tokenRepo))
+	if !cfg.maintenance.Disable {
+		maintenance.start()
+	}
+
 	constructed = true
 	return &Auth{
 		cfg:              cfg,
@@ -419,6 +425,7 @@ func New(in *Config) (*Auth, error) {
 		auditService:     auditSvc,
 		auditLogRepo:     auditLogRepo,
 		twoFactorStore:   twoFactorStore,
+		maintenance:      maintenance,
 		Services: Services{
 			Auth:      authSvc,
 			Password:  passSvc,
@@ -552,6 +559,9 @@ func New(in *Config) (*Auth, error) {
 }
 
 func (a *Auth) Close() {
+	if a.maintenance != nil {
+		a.maintenance.stop()
+	}
 	// Stop audit service first — workers may need DB to flush remaining events.
 	if a.auditService != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
