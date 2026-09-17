@@ -550,9 +550,7 @@ func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) er
 	if newName == "" {
 		return domain.NewError("validation_error", "Name cannot be empty")
 	}
-	user.Name = newName
-	user.UpdatedAt = time.Now().UTC()
-	if err := s.users.Update(ctx, user); err != nil {
+	if err := updateUserName(ctx, s.users, user, newName, time.Now().UTC()); err != nil {
 		s.log.Error("failed to update name", "err", err, "user_id", userID)
 		return domain.ErrInternal
 	}

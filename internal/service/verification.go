@@ -128,7 +128,14 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 		if !consumed {
 			return domain.NewError("code_already_used", "This code has already been used")
 		}
-		return s.users.Update(txCtx, &verifiedUser)
+		updated, updateErr := verifyUserEmail(txCtx, s.users, user, token.Email, now)
+		if updateErr != nil {
+			return updateErr
+		}
+		if !updated {
+			return domain.NewError("code_invalid", "Invalid verification code")
+		}
+		return nil
 	})
 	if err != nil {
 		var authErr *domain.AuthError

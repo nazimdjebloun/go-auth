@@ -162,6 +162,14 @@ Pre-rotation codes then fail as `code_expired` / `two_factor_code_expired` (and 
 
 This value **must be identical on every instance** behind a load balancer: it is a shared fact about when rotation happened, not a per-process observation. Source it the way you source the secret itself: one environment variable (or secrets-manager entry) read by all instances, never per-instance config files that can drift. Two instances holding different timestamps disagree per-request about whether the same code is stale, which is exactly the failure this mechanism exists to prevent. Stating "issued before last rotation" in a response is not an information leak: it reveals no keyspace bits, confirms no account existence, and the stale branch performs no comparison an attacker could oracle.
 
+## Profile and email-verification writes
+
+The built-in SQL repository changes only `name` and `updated_at` for a name change. Email verification changes only verification timestamps/status and `updated_at`, conditional on the stored email still exactly matching the address being verified. This prevents those operations from overwriting unrelated fields from an older user snapshot.
+
+Email-code verification consumes the code and performs the conditional write in one transaction. If the email has changed, verification returns `code_invalid` and the transaction rolls back the code claim. Linked-provider login upgrades verification only when the provider's verified email exactly matches the local email; a failed verification write stops login rather than reporting a successful upgrade.
+
+Custom repositories can implement the optional `port.UserNameUpdater` and `port.UserEmailVerifier` capabilities without changing `port.UserRepository`. Implementations must honor transaction contexts and the conditional-write contract. Without these capabilities, services retain the legacy snapshot-update fallback; it does **not** provide the built-in SQL repository's concurrency guarantees. Direct calls to the general repository `Update` method also remain snapshot writes. Applications that change an email themselves must clear its verification state in the same write.
+
 ## What is not covered
 
 This library handles auth-specific correctness. It does not, and cannot, cover:

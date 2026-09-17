@@ -273,13 +273,17 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 			return nil, domain.ErrUserBanned
 		}
 
-		// Upgrade verification status if the provider confirms the email.
-		if info.EmailVerified && !user.IsVerified {
+		// Provider verification only proves ownership of the matching address.
+		if info.EmailVerified && info.Email == user.Email && !user.IsVerified {
 			now := time.Now().UTC()
-			user.IsVerified = true
-			user.VerifiedAt = &now
-			user.UpdatedAt = now
-			s.userRepo.Update(ctx, user)
+			updated, err := verifyUserEmail(ctx, s.userRepo, user, info.Email, now)
+			if err != nil || !updated {
+				s.log.Error("failed to persist provider email verification", "err", err, "user_id", user.ID)
+				return nil, domain.ErrInternal
+			}
+			verified := *user
+			verified.IsVerified, verified.VerifiedAt, verified.UpdatedAt = true, &now, now
+			user = &verified
 		}
 
 		if s.config.RequireEmailVerification && !user.IsVerified {
