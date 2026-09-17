@@ -8,9 +8,11 @@ import (
 )
 
 // IsRegistered reports whether name is in database/sql's registered driver
-// list. go-auth's own go.mod pulls in only pgx, so every other backend needs
-// the consumer to blank-import its driver; this is what turns a missing import
-// into a startup error naming the import instead of a query-time failure.
+// list. Library packages blank-import only the pgx stdlib driver, so SQLite
+// and MySQL still need a blank import from the consumer (the goauth CLI's
+// command package registers all three for its own use); this is what turns a
+// missing import into a startup error naming the import instead of a
+// query-time failure.
 func IsRegistered(name string) bool {
 	for _, d := range sql.Drivers() {
 		if d == name {

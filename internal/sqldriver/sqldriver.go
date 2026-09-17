@@ -1,10 +1,11 @@
 // Package sqldriver maps the driver names go-auth accepts onto the
 // database/sql driver names the supported backends actually register.
 //
-// It exists so the library and the goauth CLI cannot disagree. They are
-// separate modules and each previously carried its own copy of this switch,
-// with different alias coverage — a driver added to one would silently not
-// work in the other.
+// It exists so the library and the goauth CLI cannot disagree. When the CLI
+// was a separate module, each carried its own copy of this switch with
+// different alias coverage — a driver added to one would silently not work
+// in the other. The CLI is part of this module now, and the shared switch
+// keeps the alias mapping in exactly one place.
 package sqldriver
 
 // SQLName returns the database/sql driver name to open for one of the driver

@@ -43,9 +43,9 @@ go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
   --driver postgres --dsn "$DATABASE_URL"
 ```
 
-The `@latest` is not optional: the CLI is its own module, so without a version
-suffix `go run` looks for the package in *your* module's dependency graph and
-fails with `no required module provides package`.
+The version suffix runs a published release independently of your project's
+dependency graph. Pin an exact root-module release for reproducibility. From
+the source checkout, use `go run ./cmd/goauth` followed by the command arguments.
 
 Both flags are required. It opens the connection, pings it, then executes each
 statement in order, printing `OK: <statement>` for each one.
@@ -96,9 +96,10 @@ Installing the CLI properly, rather than `go run`:
 go install github.com/nazimdjebloun/go-auth/cmd/goauth@latest
 ```
 
-It is a separate module with its own `go.mod`, and it blank-imports all three
-database drivers, so it works against any of them without you wiring anything
-up.
+The CLI is an executable package in the library's root module and shares its
+release version. It registers all three database drivers, so it works against
+any of them without extra driver imports. This layout applies to releases
+containing the module merge, not older published versions.
 
 Driver names accept aliases in all three routes: `postgres` or `pg`, `sqlite`
 or `sqlite3`, and `mysql`.

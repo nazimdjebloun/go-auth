@@ -29,7 +29,6 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            cmd/goauth/go.sum
       - run: go build ./...
       - run: go vet ./...
 
@@ -44,7 +43,6 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            cmd/goauth/go.sum
       - run: go test -count=1 -race -timeout 15m $(go list ./... | grep -v '/integration')
 
   integration:
@@ -72,7 +70,6 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            cmd/goauth/go.sum
       - run: go test -count=1 -race -timeout 30m ./integration/...
         env:
           GOAUTH_POSTGRES_DSN: postgres://goauth:goauth@localhost:5432/goauth?sslmode=disable
@@ -88,13 +85,51 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            cmd/goauth/go.sum
-      - working-directory: cmd/goauth
-        run: go build ./...
-      - working-directory: cmd/goauth
-        run: go vet ./...
-      - working-directory: cmd/goauth
-        run: go test -count=1 -race -timeout 5m ./...
+      - run: go build ./cmd/goauth/...
+      - run: go vet ./cmd/goauth/...
+      - run: go test -count=1 -race -timeout 5m ./cmd/goauth/...
+      # One merged module: a published root tag must install the CLI from
+      # outside any checkout. Gate on tag pushes: until the merged release
+      # exists, older published versions do not contain cmd/goauth.
+      - name: Install CLI from published release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          cd "$(mktemp -d)"
+          export GOBIN="$PWD/bin"
+          GOWORK=off GOMODCACHE="$(mktemp -d)" go install "github.com/nazimdjebloun/go-auth/cmd/goauth@${GITHUB_REF_NAME}"
+          "$GOBIN/goauth" --help >/dev/null
+          "$GOBIN/goauth" generate --driver postgres --out pg.schema.sql
+          "$GOBIN/goauth" generate --driver mysql --out mysql.schema.sql
+          "$GOBIN/goauth" generate --driver sqlite --out sqlite.schema.sql
+
+  mysql-schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: goauth-test
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pgoauth-test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.6"
+          cache: true
+          cache-dependency-path: |
+            go.sum
+      - run: go test -count=1 -timeout 5m -run '^TestApplySchema_MySQL$' ./cmd/goauth/cmd
+        env:
+          GOAUTH_MYSQL_TEST_DSN: root:goauth-test@tcp(127.0.0.1:3306)/?parseTime=true
 
   security:
     runs-on: ubuntu-latest
@@ -107,10 +142,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            cmd/goauth/go.sum
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      - working-directory: cmd/goauth
-        run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   fuzz:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
@@ -126,7 +158,6 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-            cmd/goauth/go.sum
       - run: |
           set -euo pipefail
           pkgs="domain hasher/argon2id middleware internal/crypto internal/keyring internal/otp internal/schema internal/service emailtemplate token"

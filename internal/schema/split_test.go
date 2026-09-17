@@ -63,12 +63,30 @@ func TestSplitSQL_CommentLine(t *testing.T) {
 }
 
 func TestSplitSQL_SQLAfterCommentOnSameSegment(t *testing.T) {
-	// When a segment starts with --, the entire segment is skipped even if SQL
-	// follows on a later line within the same segment.
+	// A comment must never swallow SQL that follows it, even within the
+	// same semicolon-delimited segment. (The original splitter dropped the
+	// entire segment when it began with --, silently skipping real DDL.)
 	sql := "-- schema version 1\nCREATE TABLE users (id INT);"
 	res := SplitSQL(sql)
-	if len(res) != 0 {
-		t.Fatalf("expected 0 statements (segment starts with --), got %d: %v", len(res), res)
+	if len(res) != 1 || res[0] != "CREATE TABLE users (id INT)" {
+		t.Fatalf("expected [CREATE TABLE users (id INT)], got %v", res)
+	}
+}
+
+func TestSplitSQL_CommentSemicolonIsNotABoundary(t *testing.T) {
+	// A semicolon inside a comment must not terminate a statement — the
+	// MySQL schema ships prose comments containing semicolons.
+	sql := "-- (No partial indexes; composites serve the filter.)\nCREATE INDEX idx ON t (c);"
+	res := SplitSQL(sql)
+	if len(res) != 1 || res[0] != "CREATE INDEX idx ON t (c)" {
+		t.Fatalf("expected the index statement intact, got %v", res)
+	}
+}
+
+func TestSplitSQL_TrailingCommentAfterStatement(t *testing.T) {
+	res := SplitSQL("CREATE TABLE t (id INT) -- the table\n;")
+	if len(res) != 1 || res[0] != "CREATE TABLE t (id INT)" {
+		t.Fatalf("expected trailing comment stripped, got %v", res)
 	}
 }
 

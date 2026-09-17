@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     org_owner_count INT NOT NULL DEFAULT 0,
     last_login_at DATETIME
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_users_password_pepper_version ON users(password_pepper_version);
 
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS organization_invites (
     org_id VARCHAR(36) NOT NULL,
     email VARCHAR(255) NOT NULL,
     role VARCHAR(50) NOT NULL,
-    code_hash VARCHAR(64) NOT NULL UNIQUE,
+    code_hash VARCHAR(64) COLLATE utf8mb4_bin NOT NULL UNIQUE,
     invited_by VARCHAR(36) NOT NULL,
     expires_at DATETIME(6) NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -57,11 +57,12 @@ CREATE TABLE IF NOT EXISTS organization_invites (
 CREATE TABLE IF NOT EXISTS sessions (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL,
-    token_hash VARCHAR(255) UNIQUE NOT NULL,
-    refresh_token_hash TEXT NOT NULL DEFAULT '',
-    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
-    ip_address TEXT NOT NULL DEFAULT '',
-    user_agent TEXT NOT NULL DEFAULT '',
+    token_hash VARCHAR(255) COLLATE utf8mb4_bin UNIQUE NOT NULL,
+    -- Indexed hashes need bounded types; binary collation preserves exact matching.
+    refresh_token_hash VARCHAR(255) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+    prev_refresh_token_hash VARCHAR(255) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT (''),
+    user_agent TEXT NOT NULL DEFAULT (''),
     is_revoked BOOLEAN NOT NULL DEFAULT false,
     expires_at DATETIME NOT NULL,
     refresh_expires_at DATETIME,
@@ -73,13 +74,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     active_org_role VARCHAR(50),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (active_org_id) REFERENCES organizations(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS verification_tokens (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36),
     email TEXT NOT NULL,
-    token_hash VARCHAR(255) UNIQUE NOT NULL,
+    token_hash VARCHAR(255) COLLATE utf8mb4_bin UNIQUE NOT NULL,
     type VARCHAR(30) NOT NULL,
     expires_at DATETIME NOT NULL,
     used_at DATETIME,
@@ -88,7 +89,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     resend_count INT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS provider_accounts (
     id VARCHAR(36) PRIMARY KEY,
@@ -105,7 +106,7 @@ CREATE TABLE IF NOT EXISTS provider_accounts (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(provider, provider_user_id),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS invites (
     id VARCHAR(36) PRIMARY KEY,
@@ -117,7 +118,7 @@ CREATE TABLE IF NOT EXISTS invites (
     accepted_at DATETIME,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (created_by) REFERENCES users(id)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
@@ -146,13 +147,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
     session_id VARCHAR(64),
     org_id VARCHAR(64),
     ip VARCHAR(45),
-    user_agent TEXT NOT NULL,
+    user_agent TEXT NOT NULL DEFAULT (''),
     parsed_ua JSON,
     request_id VARCHAR(64) NOT NULL DEFAULT '',
     correlation_id VARCHAR(64) NOT NULL DEFAULT '',
     metadata JSON,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_audit_log_event_type ON audit_log(event_type);
 CREATE INDEX idx_audit_log_actor_id ON audit_log(actor_id);

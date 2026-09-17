@@ -10,18 +10,18 @@ writing code — it saves both of us a rejected PR.
     go vet ./...
     go test ./...
 
-`cmd/goauth` is a **separate module** (its own `go.mod`) — the commands
-above from the repo root don't touch it. Run them again from inside
-`cmd/goauth` for any change to the CLI:
+`cmd/goauth` is an executable package in the root module. The commands above
+build, vet, and test both the library and CLI. For a focused CLI check:
 
-    cd cmd/goauth
-    go build ./...
-    go vet ./...
-    go test ./...
+    go test ./cmd/goauth/...
+    go run ./cmd/goauth --help
 
-No external services required for either module — the `integration`
-suite skips its Postgres-backed tests unless `GOAUTH_POSTGRES_DSN` is
-set (see [Testing](#testing) below).
+No external services are required for the default test run. PostgreSQL tests
+skip unless `GOAUTH_POSTGRES_DSN` is set; the CLI MySQL bootstrap test skips
+unless `GOAUTH_MYSQL_TEST_DSN` is set (see [Testing](#testing) below).
+
+The library and CLI share one root release tag. There is no nested CLI module
+or checkout-relative dependency replacement.
 
 ## Architecture
 
