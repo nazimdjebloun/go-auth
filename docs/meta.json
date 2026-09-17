@@ -12,6 +12,7 @@
     "providers",
     "routes",
     "error-handling",
+    "performance",
     "architecture",
     "security",
     "changelog"

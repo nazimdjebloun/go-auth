@@ -1,0 +1,109 @@
+---
+title: "Performance"
+description: "How to measure go-auth's hot paths, what the benchmarks cover, and recorded baseline numbers with their caveats."
+icon: "Gauge"
+---
+
+# Performance
+
+go-auth ships `testing` benchmarks instead of published latency claims. Run them yourself; the numbers below are baselines from one development machine, useful for relative comparison, not capacity planning.
+
+**What is measured: go-auth itself, not your app.** These are repository benchmarks, not an application benchmarking tool installed with the library. They call register, login, session validation, refresh, and the in-memory rate limiter directly. The SQLite benchmarks use their own in-memory database; the live benchmarks use the supplied database connection. They do not load your application's router, configuration, middleware, or handlers. Pointing them at your database server still measures the benchmark's library setup, not your running application.
+
+## What the benchmarks cover
+
+| Benchmark | Package | Measures |
+|---|---|---|
+| `BenchmarkRegister` | root | Full register path: policy, hash, user + session + refresh inserts |
+| `BenchmarkLogin` | root | Verify + new session per login |
+| `BenchmarkValidateSession` | Root | Per-request hot path (token hash lookup + user fetch) |
+| `BenchmarkRefreshSession` | Root | Chained rotation: consume refresh, write new tokens |
+| `BenchmarkRateLimitAllow` | Root | In-memory limiter decision (runs before every route) |
+| `BenchmarkHashCost12` | Root | bcrypt cost 12 in isolation (the register/login floor at default settings) |
+| `BenchmarkLivePostgres_*` | Root | Validate/refresh against a real PostgreSQL server (env-gated) |
+| `BenchmarkLiveMySQL_ValidateSession` | Root | Validate against a real MySQL server (env-gated) |
+
+The SQLite service benchmarks run at **bcrypt cost 4** so database work is visible next to hashing; `BenchmarkHashCost12` reports the production-cost floor separately.
+
+## Running locally
+
+SQLite (no setup, in-memory). Run from the module root: the directory containing `go.mod` in your clone of go-auth, wherever it lives on your machine:
+
+```powershell
+go test . -run '^$' -bench . -benchmem -benchtime 1s
+```
+
+Live PostgreSQL: the schema must already be applied, and benchmarks **write rows they do not clean up**, so use a disposable database:
+
+```powershell
+# 1. Disposable PostgreSQL on a non-default port (throw it away afterwards: docker rm -f goauth-pg)
+docker run -d --name goauth-pg `
+  -e POSTGRES_USER=goauth `
+  -e POSTGRES_PASSWORD=goauth-test `
+  -e POSTGRES_DB=goauth_admin `
+  -p 55432:5432 `
+  postgres:16-alpine
+
+# 2. Apply the auth schema
+go run ./cmd/goauth migrate --driver postgres --dsn "postgres://goauth:goauth-test@127.0.0.1:55432/goauth_admin?sslmode=disable"
+
+# 3. Point the live benchmarks at it and run
+$env:GOAUTH_POSTGRES_TEST_DSN = "postgres://goauth:goauth-test@127.0.0.1:55432/goauth_admin?sslmode=disable"
+go test . -run '^$' -bench BenchmarkLivePostgres_ -benchmem -benchtime 1s
+```
+
+Live MySQL: set `GOAUTH_MYSQL_TEST_DSN` (`user:pass@tcp(host:port)/db?parseTime=true`) after applying the schema with `goauth migrate --driver mysql`.
+
+Without the env vars the live benchmarks **skip**; they never touch a configured database implicitly.
+
+## Benchmarking your own application
+
+**An application benchmark runner is not included in this suite.** Users can clone go-auth to run its library benchmarks, but importing go-auth does not add these tests to their application's test suite. The existing benchmarks help detect library regressions; they do not answer how fast authentication is in a particular application.
+
+To measure an application, it needs its own test harness using its actual auth configuration and request path. For an app you own, use an isolated local or staging instance with disposable data:
+
+1. Start the application's real router and middleware, with its configured password cost, database pool, and auth settings. Record these settings with the results.
+2. Create dedicated test users outside the timed portion. Complete the normal authentication flow, including CSRF handling and any required verification. Keep session cookies and rotated tokens current.
+3. Measure separate scenarios: successful login, authenticated requests, and refresh rotation. Check expected HTTP statuses and response contents. A fast 403 or 429 is not a successful authentication measurement.
+4. For a Go benchmark, drive the application's router through `httptest.NewServer`, consume and close response bodies, and exclude setup from timing. This measures the local HTTP path, not browser or production network latency.
+5. For concurrent load testing, use a bounded workload against that isolated instance. Report successful requests per second, p50/p95/p99 latency, error and rate-limit counts, and server resource usage. Keep each simulated user's cookie and refresh-token state separate.
+
+Keep security controls enabled when measuring realistic behavior. Report rejected requests separately rather than presenting them as successful auth throughput. Password hashing cost, database latency, concurrency, and application middleware all affect the result; no single library baseline predicts it.
+
+A reusable app-facing runner would need to implement and validate these scenarios before this project could offer a ready-to-run application benchmark.
+
+## Recorded baselines and their limits
+
+Environment: one development desktop (WSL2), Go 1.26.6. The SQLite numbers are short smoke runs (modernc.org/sqlite, in-memory); treat them as magnitude, not measurement. The live PostgreSQL rows are 1-second runs against PostgreSQL 16 in Docker on localhost. All runs are single-goroutine.
+
+| Benchmark | Result |
+|---|---|
+| RateLimitAllow | ~280 ns/op, 0 allocs |
+| ValidateSession (SQLite, cost 4) | ~124 µs/op |
+| RefreshSession (SQLite, cost 4) | ~124 µs/op |
+| Login (SQLite, cost 4) | ~820 µs/op |
+| Live PostgreSQL ValidateSession | ~567 µs/op, 134 allocs (1s run, 2018 iterations, localhost Docker) |
+| Live PostgreSQL RefreshSession | ~897 µs/op, 96 allocs (1s run, 1369 iterations, localhost Docker) |
+
+Reading these honestly: at the default bcrypt cost 12, register/login cost is dominated by ~100–300 ms of hashing per operation; session validation is the only path a high-traffic deployment should expect to tune first.
+
+### How to read benchmark output
+
+One result line: `BenchmarkLivePostgres_ValidateSession-16  2018  567486 ns/op  6274 B/op  134 allocs/op`
+
+- `-16` records GOMAXPROCS for that run, not the number of concurrent benchmark clients.
+- `ns/op` is **wall-clock** per operation, database wait included, not CPU time. For DB-backed benchmarks it is dominated by round-trip latency to whatever server the DSN pointed at.
+- `B/op` and `allocs/op` are heap allocations per operation. Allocation counts are nearly machine-independent; treat them as the most portable regression signal. ns/op is only comparable on the same machine, database, and dataset.
+
+None of these numbers are universal: they reflect one development machine, a Dockerized localhost database, a small dataset, and a single benchmark goroutine. They are averages, not per-request latency distributions, so they do not describe tail latency. Use them to detect relative regressions under comparable conditions, not to size a deployment or predict production latency.
+
+For numbers you intend to act on, use `-benchtime 10s -count 5` and `benchstat` to compare distributions instead of single means.
+
+## What is not measured
+
+- HTTP-end-to-end latency (benchmarks call services directly)
+- Concurrent load; every benchmark is single-goroutine
+- MySQL refresh/validate (benchmark exists for validate; add flows as needed)
+- Audit sink throughput under backpressure
+
+Adding a number to this page requires the command that produced it. Numbers without commands get deleted.
