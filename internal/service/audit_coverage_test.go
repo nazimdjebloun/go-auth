@@ -26,6 +26,9 @@ func newAuditTestAuthService(t *testing.T, auditPub *testutil.MockAuditPublisher
 	cfg := defaultTestConfig()
 	cfg.Audit = auditPub
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
+	// Production wiring always attaches the coordinator; do the same here
+	// so DeleteAccount exercises the real transactional path.
+	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
 	return svc, users, sessions
 }
 

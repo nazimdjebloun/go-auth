@@ -30,7 +30,11 @@ func newTestAdminServiceWithAudit(users *testutil.MockUserRepo, sessions *testut
 	providers := testutil.NewMockProviderAccountRepo()
 	actor := &domain.User{ID: "actor-admin", Email: "actor-admin@example.com", Role: domain.RoleAdmin}
 	users.Create(context.Background(), actor)
-	return NewAdminService(users, sessions, providers, auditLogs, hasher, cfg, sessSvc), actor.ID, auditLogs
+	svc := NewAdminService(users, sessions, providers, auditLogs, hasher, cfg, sessSvc)
+	// Production wiring always attaches the coordinator; do the same here
+	// so DeleteUser exercises the real transactional path.
+	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
+	return svc, actor.ID, auditLogs
 }
 
 // ─── ListUsers ─────────────────────────────────────────────────────

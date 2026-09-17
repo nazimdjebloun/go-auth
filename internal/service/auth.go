@@ -574,46 +574,18 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 		return domain.NewError("wrong_password", "Password is incorrect")
 	}
 
-	// Invariant-safe path when the deletion coordinator is attached: one
-	// transaction unwinding org memberships with counter upkeep, session
-	// revocation, and the last-usable-admin guard.
-	if s.deletion != nil {
-		if err := s.deletion.DeleteUser(ctx, userID); err != nil {
-			s.log.Error("failed to delete account", "err", err, "user_id", userID)
-			return err
-		}
-		s.log.Info("account deleted", "user_id", userID)
-		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewAccountDeletedEvent(userID))
-		}
-		return nil
+	// Account deletion requires the coordinator: one transaction unwinding
+	// org memberships with counter upkeep, session revocation, and the
+	// last-usable-admin guard. The library wiring always attaches it; a
+	// nil coordinator means a miswired service, which fails closed.
+	if s.deletion == nil {
+		s.log.Error("account deletion refused: no deletion coordinator attached", "user_id", userID)
+		return domain.ErrInternal
 	}
-
-	// Legacy path (mock-built services without the coordinator): revoke
-	// sessions and delete, with the last-usable-admin guard when the store
-	// supports it.
-	if gs, ok := s.users.(port.AdminGuardStore); ok {
-		deleted, err := gs.DeleteWithAdminGuard(ctx, userID)
-		if err != nil {
-			s.log.Error("failed to delete account", "err", err, "user_id", userID)
-			return domain.ErrInternal
-		}
-		if !deleted {
-			s.log.Warn("last usable admin deletion blocked", "user_id", userID)
-			return domain.ErrCannotDeleteLastAdmin
-		}
-	} else {
-		if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
-			s.log.Error("failed to revoke sessions", "err", err, "user_id", userID)
-			return domain.ErrInternal
-		}
-
-		if err := s.users.Delete(ctx, userID); err != nil {
-			s.log.Error("failed to delete user", "err", err, "user_id", userID)
-			return domain.ErrInternal
-		}
+	if err := s.deletion.DeleteUser(ctx, userID); err != nil {
+		s.log.Error("failed to delete account", "err", err, "user_id", userID)
+		return err
 	}
-
 	s.log.Info("account deleted", "user_id", userID)
 	if s.audit != nil {
 		s.audit.Publish(ctx, audit.NewAccountDeletedEvent(userID))

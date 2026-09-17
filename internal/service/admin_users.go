@@ -109,42 +109,21 @@ func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 	}
 
 	now := time.Now().UTC()
-	// Ban atomically with the last-usable-admin invariant when the store
-	// supports the guarded write; the legacy count-then-write remains only
-	// for repositories (and mock doubles) without the guard.
-	if gs, ok := s.users.(port.AdminGuardStore); ok {
-		banned, err := gs.BanWithAdminGuard(ctx, input.UserID, true, &now, now)
-		if err != nil {
-			s.log.Error("failed to ban user", "err", err, "user_id", input.UserID)
-			return domain.ErrInternal
+	// Ban atomically with the last-usable-admin invariant. The guard is
+	// part of the UserRepository contract, so there is no count-then-write
+	// path — a count cannot serialize against a concurrent demotion.
+	banned, err := s.users.BanWithAdminGuard(ctx, input.UserID, true, &now, now)
+	if err != nil {
+		s.log.Error("failed to ban user", "err", err, "user_id", input.UserID)
+		return domain.ErrInternal
+	}
+	if !banned {
+		_, gerr := s.targetUser(ctx, input.UserID)
+		if gerr != nil {
+			return gerr
 		}
-		if !banned {
-			_, gerr := s.targetUser(ctx, input.UserID)
-			if gerr != nil {
-				return gerr
-			}
-			s.log.Warn("last usable admin ban blocked", "user_id", input.UserID)
-			return domain.NewError("last_admin", "Cannot ban the last admin")
-		}
-	} else {
-		// Prevent banning the last admin.
-		if user.Role == domain.RoleAdmin {
-			adminRole := domain.RoleAdmin
-			total, err := s.users.Count(ctx, port.UserFilter{Role: &adminRole})
-			if err != nil {
-				s.log.Error("failed to check admin count", "err", err)
-				return domain.ErrInternal
-			}
-			if total <= 1 {
-				s.log.Warn("last admin ban blocked", "user_id", input.UserID)
-				return domain.NewError("last_admin", "Cannot ban the last admin")
-			}
-		}
-
-		if err := s.users.SetBanStatus(ctx, input.UserID, true, &now, now); err != nil {
-			s.log.Error("failed to ban user", "err", err, "user_id", input.UserID)
-			return domain.ErrInternal
-		}
+		s.log.Warn("last usable admin ban blocked", "user_id", input.UserID)
+		return domain.NewError("last_admin", "Cannot ban the last admin")
 	}
 
 	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
@@ -217,48 +196,23 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 	// transition, not read the already-updated struct.
 	oldRole := string(user.Role)
 
-	// Role change atomically with the last-usable-admin invariant when the
-	// store supports the guarded write; the legacy count-then-write remains
-	// only for repositories (and mock doubles) without the guard.
-	if gs, ok := s.users.(port.AdminGuardStore); ok {
-		updated, err := gs.DemoteWithAdminGuard(ctx, input.UserID, domain.Role(input.Role), time.Now().UTC())
-		if err != nil {
-			s.log.Error("failed to update role", "err", err, "user_id", input.UserID)
-			return domain.ErrInternal
-		}
-		if !updated {
-			_, gerr := s.targetUser(ctx, input.UserID)
-			if gerr != nil {
-				return gerr
-			}
-			s.log.Warn("last usable admin demotion blocked", "user_id", input.UserID)
-			return domain.NewError("last_admin", "Cannot demote the last admin")
-		}
-		user.Role = domain.Role(input.Role)
-		user.UpdatedAt = time.Now().UTC()
-	} else {
-		// Prevent demoting the last admin.
-		if user.Role == domain.RoleAdmin && input.Role == "user" {
-			adminRole := domain.RoleAdmin
-			total, err := s.users.Count(ctx, port.UserFilter{Role: &adminRole})
-			if err != nil {
-				s.log.Error("failed to check admin count", "err", err)
-				return domain.ErrInternal
-			}
-			if total <= 1 {
-				s.log.Warn("last admin demotion blocked", "user_id", input.UserID)
-				return domain.NewError("last_admin", "Cannot demote the last admin")
-			}
-		}
-
-		user.Role = domain.Role(input.Role)
-		user.UpdatedAt = time.Now().UTC()
-
-		if err := s.users.Update(ctx, user); err != nil {
-			s.log.Error("failed to update role", "err", err, "user_id", input.UserID)
-			return domain.ErrInternal
-		}
+	// Role change atomically with the last-usable-admin invariant. The guard
+	// is part of the UserRepository contract — no count-then-write path.
+	updated, err := s.users.DemoteWithAdminGuard(ctx, input.UserID, domain.Role(input.Role), time.Now().UTC())
+	if err != nil {
+		s.log.Error("failed to update role", "err", err, "user_id", input.UserID)
+		return domain.ErrInternal
 	}
+	if !updated {
+		_, gerr := s.targetUser(ctx, input.UserID)
+		if gerr != nil {
+			return gerr
+		}
+		s.log.Warn("last usable admin demotion blocked", "user_id", input.UserID)
+		return domain.NewError("last_admin", "Cannot demote the last admin")
+	}
+	user.Role = domain.Role(input.Role)
+	user.UpdatedAt = time.Now().UTC()
 
 	s.log.Info("user role updated", "user_id", input.UserID, "new_role", input.Role)
 
@@ -278,71 +232,21 @@ func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) er
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
-	user, err := s.targetUser(ctx, input.UserID)
-	if err != nil {
+	if _, err := s.targetUser(ctx, input.UserID); err != nil {
 		return err
 	}
 
-	// Invariant-safe path: one transaction unwinding org memberships with
-	// counter upkeep, session revocation, and the last-usable-admin guard.
-	if s.deletion != nil {
-		if err := s.deletion.DeleteUser(ctx, input.UserID); err != nil {
-			s.log.Error("failed to delete user", "err", err, "user_id", input.UserID)
-			return err
-		}
-
-		s.log.Info("user deleted by admin", "user_id", input.UserID)
-		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserDeleted, input.ActorID, input.UserID))
-		}
-		return nil
-	}
-
-	// Prevent deleting the last admin.
-	if user.Role == domain.RoleAdmin {
-		adminRole := domain.RoleAdmin
-		total, err := s.users.Count(ctx, port.UserFilter{Role: &adminRole})
-		if err != nil {
-			s.log.Error("failed to check admin count", "err", err)
-			return domain.ErrInternal
-		}
-		if total <= 1 {
-			s.log.Warn("last admin deletion blocked", "user_id", input.UserID)
-			return domain.NewError("last_admin", "Cannot delete the last admin")
-		}
-	}
-
-	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
-		s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
+	// Account deletion requires the coordinator: one transaction unwinding
+	// org memberships with counter upkeep, session revocation, and the
+	// last-usable-admin guard. The library wiring always attaches it; a
+	// nil coordinator means a miswired service, which fails closed.
+	if s.deletion == nil {
+		s.log.Error("admin user deletion refused: no deletion coordinator attached", "user_id", input.UserID)
 		return domain.ErrInternal
 	}
-
-	// Prevent deleting the last admin — atomically, via the guarded delete
-	// when the repository supports it, so a concurrent demotion cannot slip
-	// between the count and the write.
-	if gs, ok := s.users.(port.AdminGuardStore); ok && s.deletion == nil {
-		deleted, err := gs.DeleteWithAdminGuard(ctx, input.UserID)
-		if err != nil {
-			s.log.Error("failed to delete user", "err", err, "user_id", input.UserID)
-			return domain.ErrInternal
-		}
-		if !deleted {
-			if _, gerr := s.targetUser(ctx, input.UserID); gerr != nil {
-				return gerr
-			}
-			s.log.Warn("last usable admin deletion blocked", "user_id", input.UserID)
-			return domain.ErrCannotDeleteLastAdmin
-		}
-		s.log.Info("user deleted by admin", "user_id", input.UserID)
-		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserDeleted, input.ActorID, input.UserID))
-		}
-		return nil
-	}
-
-	if err := s.users.Delete(ctx, input.UserID); err != nil {
+	if err := s.deletion.DeleteUser(ctx, input.UserID); err != nil {
 		s.log.Error("failed to delete user", "err", err, "user_id", input.UserID)
-		return domain.ErrInternal
+		return err
 	}
 
 	s.log.Info("user deleted by admin", "user_id", input.UserID)
