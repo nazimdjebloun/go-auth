@@ -12,9 +12,9 @@ const (
 		SELECT ` + userSelectColumns + ` FROM users WHERE email = $1`
 
 	userUpdateQuery = `
-		UPDATE users SET email=$1, name=$2, role=$3,
-			is_verified=$4, verified_at=$5, is_banned=$6, updated_at=$7
-		WHERE id=$8`
+		UPDATE users SET email=$1, name=$2,
+			is_verified=$3, verified_at=$4, updated_at=$5
+		WHERE id=$6`
 
 	userSetTwoFactorQuery = `
 		UPDATE users SET two_factor_enabled=$1, updated_at=$2 WHERE id=$3`
@@ -38,6 +38,8 @@ const (
 		ORDER BY password_pepper_version`
 
 	userDeleteQuery = `DELETE FROM users WHERE id = $1`
+
+	userSetRoleQuery = `UPDATE users SET role = $1, updated_at = $2 WHERE id = $3`
 
 	userUpdateLastLoginQuery = `UPDATE users SET last_login_at=$1, updated_at=$2 WHERE id=$3`
 

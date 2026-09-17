@@ -123,6 +123,7 @@ func DefaultRateLimitConfig() *Config {
 			routes.Glob(routes.CreateOrgInvite):     {Requests: 20, Window: time.Hour},
 			routes.Glob(routes.AcceptOrgInvite):     {Requests: 30, Window: time.Minute},
 			routes.Glob(routes.ListOrgInvites):      {Requests: 30, Window: time.Minute},
+			routes.Glob(routes.CountOrgInvites):     {Requests: 30, Window: time.Minute},
 			routes.Glob(routes.ResendOrgInvite):     {Requests: 30, Window: time.Minute},
 			routes.Glob(routes.DeleteOrgInvite):     {Requests: 10, Window: time.Minute},
 			// Admin endpoints

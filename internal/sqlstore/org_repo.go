@@ -454,6 +454,28 @@ func (r *OrgRepository) IncrementOrgOwnerCount(ctx context.Context, orgID string
 	return err
 }
 
+// ListUserMemberships returns every (org, role) pair the user is a member
+// of. Used by account deletion to walk and unwind all memberships inside
+// one transaction.
+func (r *OrgRepository) ListUserMemberships(ctx context.Context, userID string) ([]port.AccountOrgMembership, error) {
+	rows, err := r.db.QueryContext(ctx, orgUserMembershipsQuery, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []port.AccountOrgMembership
+	for rows.Next() {
+		var m port.AccountOrgMembership
+		var role string
+		if err := rows.Scan(&m.OrgID, &role); err != nil {
+			return nil, err
+		}
+		m.Role = domain.OrgRole(role)
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (r *OrgRepository) DecrementOwnerCountForOrgOwners(ctx context.Context, orgID string) error {
 	_, err := r.db.ExecContext(ctx, orgDecrementOwnerCountForOrgOwnersQuery, orgID)
 	return err

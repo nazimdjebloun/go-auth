@@ -104,8 +104,8 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, userUpdateQuery,
-		user.Email, user.Name, user.Role, user.IsVerified, user.VerifiedAt,
-		user.IsBanned, user.UpdatedAt, user.ID)
+		user.Email, user.Name, user.IsVerified, user.VerifiedAt,
+		user.UpdatedAt, user.ID)
 	return err
 }
 

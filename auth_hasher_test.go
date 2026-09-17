@@ -38,7 +38,7 @@ func prefixedTestHash(password string) string {
 
 func newHasherTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", ":memory:")
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}

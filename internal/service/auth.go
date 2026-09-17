@@ -33,6 +33,18 @@ type AuthService struct {
 	sessionSvc   *SessionService
 	verifySvc    *VerificationService
 	twoFactorSvc *TwoFactorService
+
+	// deletion carries the transactional account-deletion invariants. It is
+	// attached by the library's wiring; see AccountDeletion for why it can
+	// legitimately be nil (mock-built services).
+	deletion *AccountDeletion
+}
+
+// AttachAccountDeletion wires the shared transactional account-deletion
+// coordinator into this service. Called by the library's own construction;
+// safe to call once, before the service handles requests.
+func (s *AuthService) AttachAccountDeletion(d *AccountDeletion) {
+	s.deletion = d
 }
 
 type Config struct {
@@ -564,14 +576,44 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 		return domain.NewError("wrong_password", "Password is incorrect")
 	}
 
-	if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
-		s.log.Error("failed to revoke sessions", "err", err, "user_id", userID)
-		return domain.ErrInternal
+	// Invariant-safe path when the deletion coordinator is attached: one
+	// transaction unwinding org memberships with counter upkeep, session
+	// revocation, and the last-usable-admin guard.
+	if s.deletion != nil {
+		if err := s.deletion.DeleteUser(ctx, userID); err != nil {
+			s.log.Error("failed to delete account", "err", err, "user_id", userID)
+			return err
+		}
+		s.log.Info("account deleted", "user_id", userID)
+		if s.audit != nil {
+			s.audit.Publish(ctx, audit.NewAccountDeletedEvent(userID))
+		}
+		return nil
 	}
 
-	if err := s.users.Delete(ctx, userID); err != nil {
-		s.log.Error("failed to delete user", "err", err, "user_id", userID)
-		return domain.ErrInternal
+	// Legacy path (mock-built services without the coordinator): revoke
+	// sessions and delete, with the last-usable-admin guard when the store
+	// supports it.
+	if gs, ok := s.users.(port.AdminGuardStore); ok {
+		deleted, err := gs.DeleteWithAdminGuard(ctx, userID)
+		if err != nil {
+			s.log.Error("failed to delete account", "err", err, "user_id", userID)
+			return domain.ErrInternal
+		}
+		if !deleted {
+			s.log.Warn("last usable admin deletion blocked", "user_id", userID)
+			return domain.ErrCannotDeleteLastAdmin
+		}
+	} else {
+		if err := s.sessions.DeleteAllForUser(ctx, userID); err != nil {
+			s.log.Error("failed to revoke sessions", "err", err, "user_id", userID)
+			return domain.ErrInternal
+		}
+
+		if err := s.users.Delete(ctx, userID); err != nil {
+			s.log.Error("failed to delete user", "err", err, "user_id", userID)
+			return domain.ErrInternal
+		}
 	}
 
 	s.log.Info("account deleted", "user_id", userID)
@@ -701,6 +743,25 @@ func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDel
 
 	if token.UserID == nil || *token.UserID != input.UserID {
 		return domain.ErrDeleteCodeInvalid
+	}
+
+	// Claim the validated code and delete atomically. Do not write the token
+	// after commit: foreign-key cascades may already have removed its row.
+	if s.deletion != nil {
+		if err := s.deletion.deleteWithCode(ctx, input.UserID, s.tokens, token); err != nil {
+			s.log.Error("failed to delete account via code", "err", err, "user_id", input.UserID)
+			var authErr *domain.AuthError
+			if errors.As(err, &authErr) {
+				return err
+			}
+			return domain.ErrInternal
+		}
+
+		s.log.Info("account deleted via code", "user_id", input.UserID)
+		if s.audit != nil {
+			s.audit.Publish(ctx, audit.NewAccountDeletedEvent(input.UserID))
+		}
+		return nil
 	}
 
 	if err := s.sessions.DeleteAllForUser(ctx, input.UserID); err != nil {

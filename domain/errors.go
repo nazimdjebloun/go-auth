@@ -71,8 +71,13 @@ var (
 	// membership row: it was removed or its role changed between the read
 	// and the guarded write. Counters were rolled back with the write, so
 	// refetching and retrying is safe.
-	ErrOrgMemberConflict      = NewError("org_member_conflict", "Organization membership changed concurrently; retry the operation")
-	ErrCannotRemoveLastOwner  = NewError("cannot_remove_last_owner", "Cannot remove or demote the last owner of an organization")
+	ErrOrgMemberConflict     = NewError("org_member_conflict", "Organization membership changed concurrently; retry the operation")
+	ErrCannotRemoveLastOwner = NewError("cannot_remove_last_owner", "Cannot remove or demote the last owner of an organization")
+	// ErrCannotDeleteLastAdmin reports that deleting this account would
+	// leave zero usable (non-banned) administrators. Same public code the
+	// admin ban/demote paths already return ("last_admin"), so clients get
+	// one shape for the invariant across all admin-mutation endpoints.
+	ErrCannotDeleteLastAdmin  = NewError("last_admin", "Cannot delete the last usable admin")
 	ErrOrgLimitReached        = NewError("org_limit_reached", "Maximum organization limit reached for user")
 	ErrOrgMemberLimitReached  = NewError("org_member_limit_reached", "Organization member limit reached")
 	ErrOrgForbidden           = NewError("org_forbidden", "Insufficient organization permissions")

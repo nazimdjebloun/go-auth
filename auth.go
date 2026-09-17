@@ -320,6 +320,16 @@ func New(in *Config) (*Auth, error) {
 		})
 	}
 
+	// One shared account-deletion coordinator for both services: every
+	// deletion path (admin, password-confirmed, code-confirmed) runs the
+	// same transactional invariants — org counter upkeep, session
+	// revocation, last-usable-admin guard. orgRepo is nil when
+	// organizations are disabled, and the coordinator skips membership
+	// upkeep in that case.
+	accountDeletion := service.NewAccountDeletion(sqlDB, sqlstore.NewOrgRepository(sqlDB), sessionRepoSQL, userRepo)
+	authSvc.AttachAccountDeletion(accountDeletion)
+	adminSvc.AttachAccountDeletion(accountDeletion)
+
 	// One description of the deployment's proxy setup, shared by everything
 	// that has to reason about it: the rate limiter keys limits on it, the
 	// CSRF origin check recovers the original scheme/host with it, and the
@@ -510,15 +520,15 @@ func New(in *Config) (*Auth, error) {
 			// so they stay authMW-only; SetActiveOrg/AcceptInvite already
 			// check membership inside the service layer.
 			CreateOrg:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.CreateOrg)))))).ServeHTTP,
-			GetOrg:              corsMW(authMW(orgMemberMW(http.HandlerFunc(h.GetOrg)))).ServeHTTP,
-			UpdateOrg:           corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateOrg))))))).ServeHTTP,
-			DeleteOrg:           corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOwnerMW(http.HandlerFunc(h.DeleteOrg))))))).ServeHTTP,
+			GetOrg:              corsMW(rateLimitMW(authMW(orgMemberMW(http.HandlerFunc(h.GetOrg))))).ServeHTTP,
+			UpdateOrg:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateOrg)))))))).ServeHTTP,
+			DeleteOrg:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOwnerMW(http.HandlerFunc(h.DeleteOrg)))))))).ServeHTTP,
 			ListUserOrgs:        corsMW(authMW(http.HandlerFunc(h.ListUserOrgs))).ServeHTTP,
 			CountUserOrgs:       corsMW(authMW(http.HandlerFunc(h.CountUserOrgs))).ServeHTTP,
-			ListOrgMembers:      corsMW(authMW(orgMemberMW(http.HandlerFunc(h.ListOrgMembers)))).ServeHTTP,
+			ListOrgMembers:      corsMW(rateLimitMW(authMW(orgMemberMW(http.HandlerFunc(h.ListOrgMembers))))).ServeHTTP,
 			CountOrgMembers:     corsMW(authMW(orgMemberMW(http.HandlerFunc(h.CountOrgMembers)))).ServeHTTP,
-			RemoveOrgMember:     corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.RemoveMember))))))).ServeHTTP,
-			UpdateOrgMemberRole: corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateMemberRole))))))).ServeHTTP,
+			RemoveOrgMember:     corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.RemoveMember)))))))).ServeHTTP,
+			UpdateOrgMemberRole: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateMemberRole)))))))).ServeHTTP,
 			// Admin — organizations: platform-admin oversight, gated by
 			// adminMW (RoleAdmin), not org membership — deliberately not
 			// orgMemberMW/orgAdminMW/orgOwnerMW, since the whole point is to
@@ -531,15 +541,15 @@ func New(in *Config) (*Auth, error) {
 			AdminRemoveOrgMember:     corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRemoveOrgMember))))))).ServeHTTP,
 			AdminUpdateOrgMemberRole: corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminUpdateOrgMemberRole))))))).ServeHTTP,
 			AdminListUserOrgs:        corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserOrgs))))).ServeHTTP,
-			LeaveOrg:                 corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.LeaveOrg)))))).ServeHTTP,
-			SetActiveOrg:             corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg))))).ServeHTTP,
-			ClearActiveOrg:           corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg))))).ServeHTTP,
+			LeaveOrg:                 corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.LeaveOrg))))))).ServeHTTP,
+			SetActiveOrg:             corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg)))))).ServeHTTP,
+			ClearActiveOrg:           corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg)))))).ServeHTTP,
 			CreateOrgInvite:          corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CreateOrgInvite)))))))).ServeHTTP,
-			AcceptOrgInvite:          corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite))))).ServeHTTP,
-			ListOrgInvites:           corsMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ListOrgInvites))))).ServeHTTP,
-			CountOrgInvites:          corsMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CountOrgInvites))))).ServeHTTP,
-			ResendOrgInvite:          corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite))))))).ServeHTTP,
-			DeleteOrgInvite:          corsMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite))))))).ServeHTTP,
+			AcceptOrgInvite:          corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite)))))).ServeHTTP,
+			ListOrgInvites:           corsMW(rateLimitMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ListOrgInvites)))))).ServeHTTP,
+			CountOrgInvites:          corsMW(rateLimitMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CountOrgInvites)))))).ServeHTTP,
+			ResendOrgInvite:          corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite)))))))).ServeHTTP,
+			DeleteOrgInvite:          corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite)))))))).ServeHTTP,
 		},
 	}, nil
 }

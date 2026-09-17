@@ -77,13 +77,8 @@ func newSQLiteDB(t *testing.T) (*sql.DB, func()) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	db, err := sql.Open("sqlite", f.Name()+"?_pragma=busy_timeout(10000)")
+	db, err := sql.Open("sqlite", f.Name()+"?_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)")
 	if err != nil {
-		os.Remove(f.Name())
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
-		db.Close()
 		os.Remove(f.Name())
 		t.Fatal(err)
 	}

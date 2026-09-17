@@ -22,6 +22,8 @@ var constructionOnly = map[string]bool{
 	"OrgServiceConfig":       true,
 	"OrgInviteServiceConfig": true,
 	"AuditPublisher":         true,
+	// Built and attached internally by New(); consumers never name it.
+	"AccountDeletion": true,
 }
 
 // TestServiceTypesAreAliased fails when a type is added to internal/service

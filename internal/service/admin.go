@@ -27,6 +27,18 @@ type AdminService struct {
 	sessionSvc *SessionService
 	log        *slog.Logger
 	audit      AuditPublisher
+
+	// deletion carries the transactional account-deletion invariants. It is
+	// attached by the library's wiring; see AccountDeletion for why it can
+	// legitimately be nil (mock-built services).
+	deletion *AccountDeletion
+}
+
+// AttachAccountDeletion wires the shared transactional account-deletion
+// coordinator into this service. Called by the library's own construction;
+// safe to call once, before the service handles requests.
+func (s *AdminService) AttachAccountDeletion(d *AccountDeletion) {
+	s.deletion = d
 }
 
 func NewAdminService(
@@ -70,7 +82,7 @@ func requireAdminRole(ctx context.Context, users port.UserRepository, actorID st
 	if err != nil {
 		return err
 	}
-	if actor == nil || actor.Role != domain.RoleAdmin {
+	if actor == nil || actor.Role != domain.RoleAdmin || actor.IsBanned {
 		return domain.ErrForbidden
 	}
 	return nil

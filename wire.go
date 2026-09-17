@@ -139,6 +139,11 @@ func openDatabase(ctx context.Context, cfg *Config) (*pgxpool.Pool, *sqlstore.DB
 		rawDB := stdlib.OpenDBFromPool(pool)
 		sqlDB = sqlstore.NewDB(rawDB, string(DriverPostgres))
 	case cfg.app.Database.DB != nil:
+		if cfg.app.Database.Driver == DriverSQLite {
+			if err := requireSQLiteForeignKeys(ctx, cfg.app.Database.DB); err != nil {
+				return nil, nil, err
+			}
+		}
 		sqlDB = sqlstore.NewDB(cfg.app.Database.DB, string(cfg.app.Database.Driver))
 	case cfg.app.Database.URL != "":
 		driverName := sqldriver.SQLName(string(cfg.app.Database.Driver))
@@ -149,13 +154,27 @@ func openDatabase(ctx context.Context, cfg *Config) (*pgxpool.Pool, *sqlstore.DB
 			// doesn't fail with "unknown driver" after registration passed.
 			driverName = sqldriver.ResolveSQLiteName()
 		}
-		db, err := sql.Open(driverName, cfg.app.Database.URL)
+		dsn := cfg.app.Database.URL
+		if cfg.app.Database.Driver == DriverSQLite {
+			var err error
+			dsn, err = sqliteForeignKeyDSN(driverName, dsn)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		db, err := sql.Open(driverName, dsn)
 		if err != nil {
 			return nil, nil, fmt.Errorf("goauth: open database: %w", err)
 		}
 		if err := db.PingContext(ctx); err != nil {
 			db.Close()
 			return nil, nil, fmt.Errorf("goauth: ping database: %w", err)
+		}
+		if cfg.app.Database.Driver == DriverSQLite {
+			if err := requireSQLiteForeignKeys(ctx, db); err != nil {
+				db.Close()
+				return nil, nil, err
+			}
 		}
 		cfg.app.Database.opened = true
 		sqlDB = sqlstore.NewDB(db, string(cfg.app.Database.Driver))
