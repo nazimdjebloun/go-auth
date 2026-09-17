@@ -23,6 +23,15 @@ goauth.WithApp(goauth.AppConfig{
         // DB:   preOpenedSQLDB,          // one of URL / DB / Pool: pre-opened *sql.DB, alternative to URL
         // Pool: preOpenedPgxPool,         // one of URL / DB / Pool: PostgreSQL only, alternative to URL
         Driver: goauth.DriverPostgres, // required: DriverPostgres | DriverSQLite | DriverMySQL
+
+        // Optional pool settings: apply only to URL-created connections.
+        // Borrowed DB / Pool keep the caller's settings. Values below use defaults.
+        MaxOpenConns:    0,   // 0 selects 25 for PostgreSQL/MySQL, 1 for SQLite; negative invalid
+        MaxIdleConns:    nil, // nil selects min(2, resolved MaxOpenConns); *int allows explicit 0 (no idle retention)
+        ConnMaxLifetime: 0,   // time.Duration; 0 disables recycling by age; negative invalid
+        ConnMaxIdleTime: 0,   // time.Duration; 0 disables recycling by idle time; negative invalid
+        // An explicit MaxIdleConns must be between 0 and resolved MaxOpenConns.
+        // For private SQLite :memory:, retain one idle connection and leave recycling disabled.
     },
     Environment: goauth.EnvironmentProd, // optional, default EnvironmentProd
 })
@@ -43,6 +52,17 @@ goauth.WithApp(goauth.AppConfig{
 | `DB` | `*sql.DB` | One of `URL` / `DB` / `Pool` | Pre-opened; the library borrows it and never closes it. |
 | `Pool` | `*pgxpool.Pool` | One of `URL` / `DB` / `Pool` | PostgreSQL only. Pre-opened; borrowed, not closed. |
 | `Driver` | `Driver` | Required | One of `DriverPostgres`, `DriverSQLite`, `DriverMySQL`. |
+| `MaxOpenConns` | `int` | Optional | URL-created databases only. Zero selects 25 for PostgreSQL/MySQL or 1 for SQLite. Negative values are rejected. |
+| `MaxIdleConns` | `*int` | Optional | URL-created databases only. Nil selects `min(2, MaxOpenConns)` after defaults; pointer to zero disables idle retention. Must be between zero and the resolved open limit. |
+| `ConnMaxLifetime` | `time.Duration` | Optional | URL-created databases only. Zero disables lifetime recycling; negative values are rejected. |
+| `ConnMaxIdleTime` | `time.Duration` | Optional | URL-created databases only. Zero disables idle-time recycling; negative values are rejected. |
+
+Each Auth instance created from a URL owns one bounded `sql.DB`; PostgreSQL no longer creates a second pgx pool. Budget connections across all application instances and other database clients. Once the limit is reached, operations wait for a free connection until their context expires. These defaults are starting points, not measured capacity recommendations.
+
+Borrowed `DB` and `Pool` retain the caller's connection settings and remain open after `Auth.Close()` or failed construction. For a borrowed pgx pool, the library closes only its own `database/sql` adapter; the adapter does not retain idle connections. Configure the supplied pgx pool directly. Budget fields are validated even when a borrowed handle makes them inapplicable.
+
+SQLite defaults keep one idle connection with no lifetime recycling, preserving an in-memory database between operations. For private `:memory:` databases, keep one open connection, retain it idle, and leave lifetime limits disabled. Increasing connections creates independent private databases; zero idle retention or connection recycling can destroy the database. Use a file-backed database for durable data. Constructor failures release library-owned SQL handles; successful instances release them on `Auth.Close()`.
+
 
 **Expected errors**
 

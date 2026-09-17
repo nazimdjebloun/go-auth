@@ -155,14 +155,12 @@ func New(in *Config) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
-	closeOwnedDatabase := func() {
-		if cfg.app.Database.poolOpened && pool != nil {
-			pool.Close()
-		}
-		if cfg.app.Database.opened && sqlDB != nil {
+	constructed := false
+	defer func() {
+		if !constructed && cfg.app.Database.opened && sqlDB != nil {
 			_ = sqlDB.Close()
 		}
-	}
+	}()
 	sessRepo := sqlstore.NewSessionRepository(sqlDB)
 
 	userRepo := sqlstore.NewUserRepository(sqlDB)
@@ -174,11 +172,9 @@ func New(in *Config) (*Auth, error) {
 	if len(passwordPepperKeys) > 0 {
 		storedPepperVersions, err := userRepo.ListPasswordPepperVersions(startupCtx)
 		if err != nil {
-			closeOwnedDatabase()
 			return nil, fmt.Errorf("goauth: validating stored password pepper versions: %w", err)
 		}
 		if err := passwordHasher.ValidateStoredVersions(storedPepperVersions); err != nil {
-			closeOwnedDatabase()
 			return nil, fmt.Errorf("goauth: invalid password pepper configuration: %w", err)
 		}
 	}
@@ -200,6 +196,11 @@ func New(in *Config) (*Auth, error) {
 	}
 
 	templateProvider, urlValidator, err := resolveTemplates(&cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	oauthProviders, err := collectOAuthProviders(&cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -274,11 +275,6 @@ func New(in *Config) (*Auth, error) {
 	// Attach logger to session repository
 	if cfg.logger != nil {
 		sessionRepoSQL.WithLogger(cfg.logger)
-	}
-
-	oauthProviders, err := collectOAuthProviders(&cfg)
-	if err != nil {
-		return nil, err
 	}
 
 	var oauthSvc *service.OAuthService
@@ -400,6 +396,7 @@ func New(in *Config) (*Auth, error) {
 	orgAdminMW := middleware.RequireOrgRole(domain.OrgRoleAdmin)
 	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 
+	constructed = true
 	return &Auth{
 		cfg:              cfg,
 		pool:             pool,
@@ -572,9 +569,6 @@ func (a *Auth) Close() {
 	// The 2FA notify store has no such caveat — New always builds it.
 	if closer, ok := a.twoFactorStore.(ratelimit.StoreCloser); ok {
 		closer.Close()
-	}
-	if a.cfg.app.Database.poolOpened && a.pool != nil {
-		a.pool.Close()
 	}
 	if a.cfg.app.Database.opened && a.db != nil {
 		a.db.Close()

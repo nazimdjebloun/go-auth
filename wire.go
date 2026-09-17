@@ -137,6 +137,8 @@ func openDatabase(ctx context.Context, cfg *Config) (*pgxpool.Pool, *sqlstore.DB
 	case cfg.app.Database.Pool != nil:
 		pool = cfg.app.Database.Pool
 		rawDB := stdlib.OpenDBFromPool(pool)
+		// Closing this adapter releases its resources, not the caller's pool.
+		cfg.app.Database.opened = true
 		sqlDB = sqlstore.NewDB(rawDB, string(DriverPostgres))
 	case cfg.app.Database.DB != nil:
 		if cfg.app.Database.Driver == DriverSQLite {
@@ -166,6 +168,10 @@ func openDatabase(ctx context.Context, cfg *Config) (*pgxpool.Pool, *sqlstore.DB
 		if err != nil {
 			return nil, nil, fmt.Errorf("goauth: open database: %w", err)
 		}
+		if err := cfg.app.Database.applyConnectionLimits(db); err != nil {
+			db.Close()
+			return nil, nil, err
+		}
 		if err := db.PingContext(ctx); err != nil {
 			db.Close()
 			return nil, nil, fmt.Errorf("goauth: ping database: %w", err)
@@ -178,14 +184,6 @@ func openDatabase(ctx context.Context, cfg *Config) (*pgxpool.Pool, *sqlstore.DB
 		}
 		cfg.app.Database.opened = true
 		sqlDB = sqlstore.NewDB(db, string(cfg.app.Database.Driver))
-		if cfg.app.Database.Driver == DriverPostgres {
-			pool, err = pgxpool.New(ctx, cfg.app.Database.URL)
-			if err != nil {
-				db.Close()
-				return nil, nil, fmt.Errorf("goauth: create connection pool: %w", err)
-			}
-			cfg.app.Database.poolOpened = true
-		}
 	default:
 		return nil, nil, fmt.Errorf("goauth: no database pool or DSN provided")
 	}

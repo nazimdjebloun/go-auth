@@ -68,6 +68,9 @@ func (c *Config) validateApp() []error {
 
 func (c *Config) validateDatabase() []error {
 	var errs []error
+	if _, _, err := c.app.Database.connectionLimits(); err != nil {
+		errs = append(errs, err)
+	}
 	if c.app.Database.Driver == "" {
 		errs = append(errs, errors.New("database: driver cannot be empty"))
 	}

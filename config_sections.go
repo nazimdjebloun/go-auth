@@ -28,8 +28,13 @@ type DatabaseConfig struct {
 	Pool   *pgxpool.Pool // pre-opened pgx pool (library borrows, does not close)
 	Driver Driver        // DriverPostgres, DriverSQLite, DriverMySQL (required: NewConfig rejects an empty driver)
 
-	opened     bool // internal — true if the library opened DB itself
-	poolOpened bool // internal — true if the library opened Pool itself
+	// Limits apply only to URL-created databases, not borrowed DB or Pool.
+	MaxOpenConns    int           // 0 defaults to 25 (PostgreSQL/MySQL), 1 (SQLite)
+	MaxIdleConns    *int          // nil defaults to min(2, MaxOpenConns); explicit 0 disables idle retention
+	ConnMaxLifetime time.Duration // 0 disables lifetime-based recycling
+	ConnMaxIdleTime time.Duration // 0 disables idle-time recycling
+
+	opened bool // internal — owns the SQL handle, including a borrowed-pool adapter
 }
 
 // CookieConfig configures the session and refresh cookies. Zero-valued fields

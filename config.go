@@ -109,6 +109,10 @@ func NewConfig(opts ...Option) (*Config, error) {
 // rateLimit.Logger, and the driver/database opened flags.
 func (c *Config) clone() Config {
 	cfg := *c
+	if c.app.Database.MaxIdleConns != nil {
+		idle := *c.app.Database.MaxIdleConns
+		cfg.app.Database.MaxIdleConns = &idle
+	}
 
 	if c.security.AllowedOrigins != nil {
 		cfg.security.AllowedOrigins = append([]string(nil), c.security.AllowedOrigins...)
