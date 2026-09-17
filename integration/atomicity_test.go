@@ -60,6 +60,17 @@ func doWithBusyRetry(fn func() error) error {
 // ---------------------------------------------------------------------------
 
 func TestSetPassword_ConcurrentConfirm_OneWins(t *testing.T) {
+	testSetPasswordOneWinner(t, false)
+}
+
+// A goroutine can reach the initial user read after the winner commits.
+// Exercise that ordering explicitly instead of depending on scheduler timing.
+func TestSetPassword_ConfirmAfterCommit_AlreadySet(t *testing.T) {
+	testSetPasswordOneWinner(t, true)
+}
+
+func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
+	t.Helper()
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
@@ -86,60 +97,79 @@ func TestSetPassword_ConcurrentConfirm_OneWins(t *testing.T) {
 		t.Fatal("could not extract set-password code")
 	}
 
-	var wg sync.WaitGroup
-	var succeeded int32
-	var codeUsed int32
 	passwords := []string{"FirstP@ss1", "SecondP@ss2"}
-	for _, pw := range passwords {
-		wg.Add(1)
-		go func(pw string) {
-			defer wg.Done()
-			err := doWithBusyRetry(func() error {
-				return a.Services.Password.ConfirmSetPassword(ctx, service.ConfirmSetPasswordInput{
-					UserID: reg.User.ID, Code: code, NewPassword: pw,
-				})
+	results := make([]error, len(passwords))
+	confirm := func(i int) {
+		results[i] = doWithBusyRetry(func() error {
+			return a.Services.Password.ConfirmSetPassword(ctx, service.ConfirmSetPasswordInput{
+				UserID: reg.User.ID, Code: code, NewPassword: passwords[i],
 			})
-			switch authCode(err) {
-			case "":
-				atomic.AddInt32(&succeeded, 1)
-			case "code_used":
-				atomic.AddInt32(&codeUsed, 1)
-			default:
-				t.Errorf("unexpected error: %v", err)
-			}
-		}(pw)
+		})
 	}
-	wg.Wait()
+	if afterCommit {
+		confirm(0)
+		confirm(1)
+	} else {
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for i := range passwords {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				<-start
+				confirm(i)
+			}(i)
+		}
+		close(start)
+		wg.Wait()
+	}
 
-	if succeeded != 1 {
-		t.Fatalf("expected exactly 1 successful confirm, got %d", succeeded)
+	succeeded, rejected, winner := 0, 0, -1
+	for i, err := range results {
+		if err == nil {
+			succeeded++
+			winner = i
+			continue
+		}
+		// A loser that read before commit can lose the token claim;
+		// one that reads after commit sees an existing password instead.
+		switch authCode(err) {
+		case "code_used", "already_set":
+			rejected++
+		default:
+			t.Fatalf("confirm %d returned unexpected error: %v", i, err)
+		}
 	}
-	if codeUsed != 1 {
-		t.Fatalf("expected the loser to get code_used, got %d", codeUsed)
+	if succeeded != 1 || rejected != 1 {
+		t.Fatalf("want one success and one rejection, got successes=%d rejections=%d", succeeded, rejected)
+	}
+	if afterCommit && (winner != 0 || authCode(results[1]) != "already_set") {
+		t.Fatalf("post-commit confirm must return already_set; winner=%d error=%v", winner, results[1])
 	}
 
 	// The code is stamped used exactly once.
 	var usedCount int
-	if err := db.QueryRow("SELECT COUNT(*) FROM verification_tokens WHERE user_id = ? AND used_at IS NOT NULL",
-		reg.User.ID).Scan(&usedCount); err != nil {
+	if err := db.QueryRow("SELECT COUNT(*) FROM verification_tokens WHERE user_id = ? AND type = ? AND used_at IS NOT NULL",
+		reg.User.ID, domain.TokenSetPass).Scan(&usedCount); err != nil {
 		t.Fatal(err)
 	}
 	if usedCount != 1 {
 		t.Errorf("used set-password tokens = %d, want 1", usedCount)
 	}
 
-	// Exactly one of the two passwords authenticates — the loser's write
-	// must not have overwritten the winner's.
-	logins := 0
-	for _, pw := range passwords {
-		if _, aerr := a.Services.Auth.Login(ctx, service.LoginInput{
+	// Verify the successful request's password specifically, not just that
+	// some password works: the loser must not overwrite the winner.
+	for i, pw := range passwords {
+		_, err := a.Services.Auth.Login(ctx, service.LoginInput{
 			Email: "oauthonly@test.com", Password: pw,
-		}); aerr == nil {
-			logins++
+		})
+		if i == winner {
+			if err != nil {
+				t.Errorf("winner's password must authenticate: %v", err)
+			}
+		} else if authCode(err) != "invalid_credentials" {
+			t.Errorf("loser's password must return invalid_credentials, got %v", err)
 		}
-	}
-	if logins != 1 {
-		t.Errorf("expected exactly 1 of the 2 passwords to log in, got %d", logins)
 	}
 }
 
