@@ -261,6 +261,103 @@ func (m *MockUserRepo) UpdatePasswordHash(_ context.Context, userID, oldHash str
 	return true, nil
 }
 
+// UpdateName changes only name and updated_at — the guarded write the
+// service layer requires. False means the user no longer exists.
+func (m *MockUserRepo) UpdateName(_ context.Context, userID, name string, updatedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return false, nil
+	}
+	u.Name = name
+	u.UpdatedAt = updatedAt
+	return true, nil
+}
+
+// VerifyEmailIfMatches sets verification fields only while the stored email
+// still matches — the conditional write the service layer requires.
+func (m *MockUserRepo) VerifyEmailIfMatches(_ context.Context, userID, expectedEmail string, verifiedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok || u.Email != expectedEmail {
+		return false, nil
+	}
+	u.IsVerified = true
+	u.VerifiedAt = &verifiedAt
+	u.UpdatedAt = verifiedAt
+	return true, nil
+}
+
+// WithAdminGuard runs fn directly: the mock is single-process, so there is
+// no cross-connection serialization to model.
+func (m *MockUserRepo) WithAdminGuard(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+
+func (m *MockUserRepo) mockUsableAdminLocked(exceptID string) bool {
+	for _, u := range m.users {
+		if u.ID == "" || u.ID == exceptID {
+			continue
+		}
+		if u.Role == domain.RoleAdmin && !u.IsBanned {
+			return true
+		}
+	}
+	return false
+}
+
+// DeleteWithAdminGuard deletes the user unless it is the last usable admin.
+func (m *MockUserRepo) DeleteWithAdminGuard(_ context.Context, userID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return false, domain.ErrUserNotFound
+	}
+	if u.Role == domain.RoleAdmin && !u.IsBanned && !m.mockUsableAdminLocked(userID) {
+		return false, nil
+	}
+	delete(m.users, u.Email)
+	delete(m.users, userID)
+	return true, nil
+}
+
+// BanWithAdminGuard sets ban status unless banning would remove the last usable admin.
+func (m *MockUserRepo) BanWithAdminGuard(_ context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return false, domain.ErrUserNotFound
+	}
+	if isBanned && u.Role == domain.RoleAdmin && !u.IsBanned && !m.mockUsableAdminLocked(userID) {
+		return false, nil
+	}
+	u.IsBanned = isBanned
+	u.BannedAt = bannedAt
+	u.UpdatedAt = updatedAt
+	return true, nil
+}
+
+// DemoteWithAdminGuard sets the role unless demoting from admin would remove
+// the last usable admin. Promotions are always allowed.
+func (m *MockUserRepo) DemoteWithAdminGuard(_ context.Context, userID string, role domain.Role, updatedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return false, domain.ErrUserNotFound
+	}
+	if role != domain.RoleAdmin && u.Role == domain.RoleAdmin && !u.IsBanned && !m.mockUsableAdminLocked(userID) {
+		return false, nil
+	}
+	u.Role = role
+	u.UpdatedAt = updatedAt
+	return true, nil
+}
+
 func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

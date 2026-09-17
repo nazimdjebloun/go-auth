@@ -286,6 +286,93 @@ func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 	return true, nil
 }
 
+func (m *mockUserRepo) UpdateName(_ context.Context, userID, name string, updatedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return false, nil
+	}
+	u.Name = name
+	u.UpdatedAt = updatedAt
+	return true, nil
+}
+
+func (m *mockUserRepo) VerifyEmailIfMatches(_ context.Context, userID, expectedEmail string, verifiedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok || u.Email != expectedEmail {
+		return false, nil
+	}
+	u.IsVerified = true
+	u.VerifiedAt = &verifiedAt
+	u.UpdatedAt = verifiedAt
+	return true, nil
+}
+
+func (m *mockUserRepo) WithAdminGuard(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+
+func (m *mockUserRepo) usableAdminLocked(exceptID string) bool {
+	for _, u := range m.users {
+		if u.ID == "" || u.ID == exceptID {
+			continue
+		}
+		if u.Role == domain.RoleAdmin && !u.IsBanned {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *mockUserRepo) DeleteWithAdminGuard(_ context.Context, userID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return false, domain.ErrUserNotFound
+	}
+	if u.Role == domain.RoleAdmin && !u.IsBanned && !m.usableAdminLocked(userID) {
+		return false, nil
+	}
+	delete(m.users, u.Email)
+	delete(m.users, userID)
+	return true, nil
+}
+
+func (m *mockUserRepo) BanWithAdminGuard(_ context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return false, domain.ErrUserNotFound
+	}
+	if isBanned && u.Role == domain.RoleAdmin && !u.IsBanned && !m.usableAdminLocked(userID) {
+		return false, nil
+	}
+	u.IsBanned = isBanned
+	u.BannedAt = bannedAt
+	u.UpdatedAt = updatedAt
+	return true, nil
+}
+
+func (m *mockUserRepo) DemoteWithAdminGuard(_ context.Context, userID string, role domain.Role, updatedAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.users[userID]
+	if !ok {
+		return false, domain.ErrUserNotFound
+	}
+	if role != domain.RoleAdmin && u.Role == domain.RoleAdmin && !u.IsBanned && !m.usableAdminLocked(userID) {
+		return false, nil
+	}
+	u.Role = role
+	u.UpdatedAt = updatedAt
+	return true, nil
+}
+
 func samePepperVersion(a, b *uint32) bool {
 	return a == nil && b == nil || a != nil && b != nil && *a == *b
 }
@@ -1606,6 +1693,9 @@ func newTestHarness() *testHarness {
 	providers := newMockProviderAccountRepo()
 	auditLogs := newMockAuditLogRepo()
 	adminSvc := service.NewAdminService(users, sessions, providers, auditLogs, hasher, cfg, sessSvc)
+	// Production wiring always attaches the coordinator; do the same here
+	// so admin deletion exercises the real transactional path.
+	adminSvc.AttachAccountDeletion(service.NewAccountDeletion(&mockTxManager{}, nil, sessions, users))
 	orgSvc := service.NewOrgService(orgs, users, sessions, &mockTxManager{}, service.OrgServiceConfig{
 		MaxOrgsPerUser: 100,
 		Logger:         nil,

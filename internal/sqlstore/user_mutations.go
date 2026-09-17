@@ -7,8 +7,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-var _ port.UserNameUpdater = (*UserRepository)(nil)
-var _ port.UserEmailVerifier = (*UserRepository)(nil)
+var _ port.UserRepository = (*UserRepository)(nil)
 
 func (r *UserRepository) UpdateName(ctx context.Context, userID, name string, updatedAt time.Time) (bool, error) {
 	return affected(r.db.ExecContext(ctx, `UPDATE users SET name=$1, updated_at=$2 WHERE id=$3`, name, updatedAt, userID))

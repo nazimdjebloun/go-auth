@@ -86,6 +86,24 @@ func (f *fakeUserRepo) UpdatePasswordHash(ctx context.Context, userID, oldHash s
 func (f *fakeUserRepo) SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error {
 	return nil
 }
+func (f *fakeUserRepo) UpdateName(ctx context.Context, userID, name string, updatedAt time.Time) (bool, error) {
+	return true, nil
+}
+func (f *fakeUserRepo) VerifyEmailIfMatches(ctx context.Context, userID, expectedEmail string, verifiedAt time.Time) (bool, error) {
+	return true, nil
+}
+func (f *fakeUserRepo) WithAdminGuard(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+func (f *fakeUserRepo) DeleteWithAdminGuard(ctx context.Context, userID string) (bool, error) {
+	return true, nil
+}
+func (f *fakeUserRepo) BanWithAdminGuard(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) (bool, error) {
+	return true, nil
+}
+func (f *fakeUserRepo) DemoteWithAdminGuard(ctx context.Context, userID string, role domain.Role, updatedAt time.Time) (bool, error) {
+	return true, nil
+}
 
 type fakeMailer struct {
 	sendErr     error

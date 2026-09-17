@@ -1,10 +1,10 @@
 // This file declares go-auth's storage interfaces — UserRepository,
 // SessionRepository, TokenRepository, InviteRepository, OrgRepository,
 // OrgInviteRepository, ProviderAccountRepository, AuditLogRepository — each
-// implemented against SQL by the (internal) sqlstore package. Implement one
-// of these to back a repository with something other than SQL; there's no
-// embeddable base, so a replacement implements every method on the
-// interface it's swapping in for.
+// implemented against SQL by the (internal) sqlstore package. Storage is
+// SQL-only (PostgreSQL, MySQL, SQLite): these interfaces are the seams the
+// service layer depends on, not a public extension point for custom
+// stores. There is no embeddable base.
 package port
 
 import (
@@ -76,6 +76,15 @@ type PasswordHashUpdater interface {
 
 type UserRepository interface {
 	PasswordHashUpdater
+	AdminGuardStore
+	// UpdateName changes only name and updated_at. False means the user
+	// no longer exists.
+	UpdateName(ctx context.Context, userID, name string, updatedAt time.Time) (bool, error)
+	// VerifyEmailIfMatches sets only verification fields and updated_at,
+	// provided the stored email still exactly matches expectedEmail. False
+	// means the user is absent or the email changed. Implementations must
+	// honor transaction contexts.
+	VerifyEmailIfMatches(ctx context.Context, userID, expectedEmail string, verifiedAt time.Time) (bool, error)
 	Create(ctx context.Context, user *domain.User) error
 	GetByID(ctx context.Context, id string) (*domain.User, error)
 	GetByEmail(ctx context.Context, email string) (*domain.User, error)

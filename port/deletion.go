@@ -14,8 +14,9 @@ type AccountOrgMembership struct {
 }
 
 // AdminGuardStore serializes changes that can remove a usable (non-banned)
-// administrator across connections and processes. Services fail closed when
-// this capability is unavailable. A count subquery alone is not sufficient.
+// administrator across connections and processes. Storage is SQL-only, so
+// every UserRepository implements this guard. A count subquery alone is not
+// sufficient.
 type AdminGuardStore interface {
 	// WithAdminGuard opens/joins a transaction and holds shared database locks
 	// until the outermost commit/rollback. All callback operations use its context.
