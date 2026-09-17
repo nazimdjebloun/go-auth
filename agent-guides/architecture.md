@@ -15,7 +15,7 @@
 | Schema | `internal/schema/` | Embedded schemas for all three SQL dialects |
 | Middleware | `middleware/` | Authentication, CSRF, CORS, rate limiting, cookies, and organization checks |
 | Adapters and support | `audit/`, `domain/`, `emailtemplate/`, `hasher/`, `mailer/`, `provider/`, `ratelimit/`, `token/`, `internal/{crypto,keyring,otp,httperr}` | Domain types and built-in implementations |
-| CLI | `cmd/goauth/` | Separate module for schema migration, generation, and initial-admin seeding |
+| CLI | `cmd/goauth/` | Schema migration, generation, and initial-admin seeding (part of the root module) |
 
 ## Request flow
 

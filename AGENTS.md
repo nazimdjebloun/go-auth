@@ -38,8 +38,8 @@ Read each applicable file completely before making changes.
 ## Repository at a glance
 
 go-auth is an importable authentication library with an optional HTTP surface
-and a separate schema/bootstrap CLI. The root module contains the library;
-`cmd/goauth` has its own `go.mod` and must be verified separately.
+and a schema/bootstrap CLI. The library and `cmd/goauth` share the root Go
+module; `go build ./...` and `go test ./...` verify both together.
 
 The usual request path is:
 

@@ -92,8 +92,10 @@ go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
   --driver sqlite --dsn "file:goauth.db"
 ```
 
-`cmd/goauth` is a separate Go module, so the version suffix is required even
-when the library is already in your application's `go.mod`.
+`cmd/goauth` is part of the root library module. The version suffix in the
+command above runs a published release independently of the `go-auth` version
+your application's `go.mod` pins; from a source checkout, use
+`go run ./cmd/goauth` instead.
 
 For production, configure SMTP with `WithEmail` or provide a custom
 `port.Mailer`. A mailer is required whenever an enabled feature sends email;

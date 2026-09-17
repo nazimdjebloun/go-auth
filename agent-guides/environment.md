@@ -8,13 +8,13 @@ The repository builds and tests with the Linux toolchain in WSL. Run every
 WSL does not have `rg`. Use `grep` or `grep -rn` inside WSL. Read-only searches
 from PowerShell may use `rg`.
 
-## Two Go modules
+## One Go module
 
-- The repository root is the library module.
-- `cmd/goauth` is a separate module with its own `go.mod`.
+- The repository root is a single module containing the library and the
+  `cmd/goauth` CLI.
 
-Build and test both modules. A successful root-module check does not verify the
-CLI module.
+`go build ./...` and `go test ./...` build and test both together; a successful
+root-module run covers the CLI too.
 
 ## Worktree safety
 
