@@ -99,9 +99,9 @@ func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
-	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
-		return domain.ErrUserNotFound
+	user, err := s.targetUser(ctx, input.UserID)
+	if err != nil {
+		return err
 	}
 
 	if user.IsBanned {
@@ -119,9 +119,9 @@ func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 			return domain.ErrInternal
 		}
 		if !banned {
-			existing, gerr := s.users.GetByID(ctx, input.UserID)
-			if gerr != nil || existing == nil {
-				return domain.ErrUserNotFound
+			_, gerr := s.targetUser(ctx, input.UserID)
+			if gerr != nil {
+				return gerr
 			}
 			s.log.Warn("last usable admin ban blocked", "user_id", input.UserID)
 			return domain.NewError("last_admin", "Cannot ban the last admin")
@@ -170,9 +170,9 @@ func (s *AdminService) UnbanUser(ctx context.Context, input UnbanUserInput) erro
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
-	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
-		return domain.ErrUserNotFound
+	user, err := s.targetUser(ctx, input.UserID)
+	if err != nil {
+		return err
 	}
 
 	if !user.IsBanned {
@@ -208,9 +208,9 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 		return domain.NewError("invalid_role", "Role must be 'user' or 'admin'")
 	}
 
-	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
-		return domain.ErrUserNotFound
+	user, err := s.targetUser(ctx, input.UserID)
+	if err != nil {
+		return err
 	}
 
 	// Snapshot the old role before mutating: the event must report the
@@ -227,9 +227,9 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 			return domain.ErrInternal
 		}
 		if !updated {
-			existing, gerr := s.users.GetByID(ctx, input.UserID)
-			if gerr != nil || existing == nil {
-				return domain.ErrUserNotFound
+			_, gerr := s.targetUser(ctx, input.UserID)
+			if gerr != nil {
+				return gerr
 			}
 			s.log.Warn("last usable admin demotion blocked", "user_id", input.UserID)
 			return domain.NewError("last_admin", "Cannot demote the last admin")
@@ -278,9 +278,9 @@ func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) er
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
-	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
-		return domain.ErrUserNotFound
+	user, err := s.targetUser(ctx, input.UserID)
+	if err != nil {
+		return err
 	}
 
 	// Invariant-safe path: one transaction unwinding org memberships with
@@ -327,8 +327,8 @@ func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) er
 			return domain.ErrInternal
 		}
 		if !deleted {
-			if _, gerr := s.users.GetByID(ctx, input.UserID); gerr != nil {
-				return domain.ErrUserNotFound
+			if _, gerr := s.targetUser(ctx, input.UserID); gerr != nil {
+				return gerr
 			}
 			s.log.Warn("last usable admin deletion blocked", "user_id", input.UserID)
 			return domain.ErrCannotDeleteLastAdmin
@@ -431,9 +431,9 @@ func (s *AdminService) GetUserDetail(ctx context.Context, input GetUserDetailInp
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
 	}
-	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
-		return nil, domain.ErrUserNotFound
+	user, err := s.targetUser(ctx, input.UserID)
+	if err != nil {
+		return nil, err
 	}
 
 	_, activeSessionCount, err := s.sessions.ListByUserID(ctx, input.UserID, 0, 1)

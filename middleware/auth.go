@@ -83,6 +83,10 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 	session, user, err := sessionSvc.ValidateWithUser(r.Context(), cookie.Value)
 	if err != nil {
 		if !errors.Is(err, domain.ErrSessionExpired) {
+			if !isSessionRejection(err) {
+				writeAuthBackendError(w, r, logger, "session validation", err)
+				return nil, nil, ""
+			}
 			logRejectedRequest(r, logger, slog.LevelInfo, "auth rejected", "invalid session")
 			writeJSON(w, http.StatusUnauthorized, map[string]string{
 				"error":   "unauthorized",
@@ -104,6 +108,10 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 
 		refreshResult, refreshErr := sessionSvc.RefreshSession(r.Context(), refreshCookie.Value)
 		if refreshErr != nil {
+			if !isSessionRejection(refreshErr) {
+				writeAuthBackendError(w, r, logger, "session refresh", refreshErr)
+				return nil, nil, ""
+			}
 			// Warn: cannot distinguish "both cookies just expired" from "possible token replay", so default to visibility.
 			logRejectedRequest(r, logger, slog.LevelWarn, "auth rejected", "session refresh failed")
 			writeJSON(w, http.StatusUnauthorized, map[string]string{
@@ -113,12 +121,18 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 			return nil, nil, ""
 		}
 
+		// Rotation has committed. Deliver the new credentials even if the
+		// subsequent user lookup fails, so a retry can use the current tokens.
 		SetSessionCookie(w, cookies, refreshResult.SessionToken)
 		SetRefreshCookie(w, cookies, refreshResult.RefreshToken)
 
 		session = refreshResult.Session
 
 		user, err = userRepo.GetByID(r.Context(), session.UserID)
+		if err != nil && !errors.Is(err, domain.ErrUserNotFound) {
+			writeAuthBackendError(w, r, logger, "user lookup after refresh", err)
+			return nil, nil, ""
+		}
 		if err != nil || user == nil {
 			logRejectedRequest(r, logger, slog.LevelWarn, "auth rejected", "user not found after refresh", slog.String("user_id", session.UserID))
 			writeJSON(w, http.StatusUnauthorized, map[string]string{
@@ -159,6 +173,26 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.
 	}
 
 	return session, user, cookie.Value
+}
+
+// Only known credential/liveness failures are authentication rejections.
+// An unknown error (including an internal AuthError) must fail as a server fault.
+func isSessionRejection(err error) bool {
+	for _, expected := range []error{
+		domain.ErrSessionNotFound, domain.ErrSessionExpired, domain.ErrSessionRevoked,
+		domain.ErrInvalidRefreshToken, domain.ErrRefreshExpired,
+		domain.ErrTokenAlreadyRotated, domain.ErrMaxLifetimeExceeded,
+	} {
+		if errors.Is(err, expected) {
+			return true
+		}
+	}
+	return false
+}
+
+func writeAuthBackendError(w http.ResponseWriter, r *http.Request, logger *slog.Logger, operation string, err error) {
+	logRejectedRequest(r, logger, slog.LevelError, "auth backend failure", operation, slog.Any("err", err))
+	writeJSON(w, http.StatusInternalServerError, domain.ErrInternal, logger)
 }
 
 func RequireRole(role domain.Role, logger *slog.Logger) func(http.Handler) http.Handler {

@@ -17,9 +17,9 @@ func (s *AdminService) RevokeUserSessions(ctx context.Context, input RevokeUserS
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
-	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
-		return domain.ErrUserNotFound
+	_, err := s.targetUser(ctx, input.UserID)
+	if err != nil {
+		return err
 	}
 
 	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
@@ -117,9 +117,9 @@ func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUser
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, 0, err
 	}
-	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
-		return nil, 0, domain.ErrUserNotFound
+	_, err := s.targetUser(ctx, input.UserID)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	sessions, total, err := s.sessions.ListByUserID(ctx, input.UserID, input.Offset, input.Limit)
@@ -141,9 +141,9 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, input RevokeUserSe
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
-	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
-		return domain.ErrUserNotFound
+	_, err := s.targetUser(ctx, input.UserID)
+	if err != nil {
+		return err
 	}
 
 	revoked, err := s.sessions.RevokeByIDForUser(ctx, input.SessionID, input.UserID)

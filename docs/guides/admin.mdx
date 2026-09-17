@@ -8,6 +8,8 @@ icon: "ShieldUser"
 
 Everything here requires `role: "admin"` on the calling user — routes are wrapped in `RequireRole(domain.RoleAdmin, nil)` on top of the normal `AuthMiddleware`, so an expired or missing session fails the same way it does everywhere else, and a valid session with `role: "user"` gets `403 forbidden`.
 
+One distinction that applies to every admin route: `user_not_found` (404) is returned only when the target user genuinely does not exist. If the database read for the target user fails instead — an outage, a canceled context — the route answers `internal_error` (500) and logs the cause server-side, so a temporary backend problem is never reported as a missing user. The same rule covers the middleware: session validation or transparent-refresh failures due to backend trouble produce `internal_error`, never `401 unauthorized` — see [Error handling](../error-handling.mdx#general).
+
 For the full path/param reference see [Routes](../routes/admin.mdx#user-management). For viewing what admins (and everyone else) have done, see [Audit Logs](./audit-logs.mdx).
 
 ## Configuration

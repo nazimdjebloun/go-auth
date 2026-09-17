@@ -125,6 +125,8 @@ curl https://api.myapp.com/auth/sessions -b cookies.txt -c cookies.txt
 
 `AuthMiddleware` transparently rotates your session when the session cookie has expired but the refresh cookie is still valid — it issues new `Set-Cookie` headers on that same response rather than erroring. If you only ever read from the jar (`-b`) and never let curl write back to it (`-c`), you keep replaying the old token, and once the refresh window closes too you'll get a `401 session_expired` that looks like it came from nowhere. Always pass both flags pointing at the same file.
 
+**Backend failures are not expired credentials.** Session-validation or refresh backend failures return `500 internal_error`; the protected handler does not run. If rotation succeeds but the following user lookup fails, the response includes the new cookies even with the 500. Keep accepting `Set-Cookie` on error responses and do not clear credentials merely because the API returns a 500. A canceled connection may prevent the client from receiving either the response or its cookies.
+
 **2. The revoke endpoints also need the `Origin` header.** `DELETE /auth/sessions/{id}`, `POST /auth/sessions/revoke`, and `DELETE /auth/sessions` are state-changing, so they run through the same `OriginCheck` as register/login — see [Authentication → Origin checking](./authentication.mdx#origin-checking). The two list endpoints and `GET /auth/me` are `GET` requests and don't need it; `OriginCheck` only inspects `POST`/`PUT`/`PATCH`/`DELETE`.
 
 <Callout type="info" title="Is this secure?">

@@ -40,6 +40,8 @@ if err != nil {
 
 Use `errors.Is` for one specific outcome, such as `domain.ErrInvalidCredentials`. Use `errors.As` when you need the code and message generically. This is also how the handlers map an error to a response; an error that is not a `*domain.AuthError` becomes `internal_error` (500). Prefer `errors.As` to a direct type assertion because it also finds an `*AuthError` inside a wrapped error.
 
+Admin target-user lookups return `domain.ErrUserNotFound` only for an absent user. Backend read failures are wrapped with context while preserving the cause, so direct callers can use `errors.Is(err, context.Canceled)` or `errors.Is(err, context.DeadlineExceeded)`. Do not assume every service error is a `*domain.AuthError`, or expose a raw backend error to clients.
+
 ## Not every layer uses this shape
 
 Two paths do not use the JSON envelope:
@@ -62,7 +64,7 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 | `rate_limit_exceeded` | 429 | Too many requests, please try again later |
 | `method_disabled` | 405 | This registration method is not available |
 
-`internal_error` always means: something failed that the caller cannot fix by changing their request (a database error, a failed hash, etc.). It is logged server-side with detail; the client only ever sees the generic message.
+`internal_error` always means: something failed that the caller cannot fix by changing their request (a database error, a failed hash, etc.). It is logged server-side with detail; the client only ever sees the generic message. This includes auth-middleware failures: when session validation, transparent refresh, or the post-rotation user lookup fails because the database is unavailable (or the request context is canceled), the middleware responds `500 internal_error` — never a misleading `401`. A refresh that has already rotated the session's tokens still delivers the new `Set-Cookie` headers before that 500, so a client retry uses the current credentials instead of the pre-rotation ones.
 
 ## Authentication (register, login, session cookie)
 
@@ -75,7 +77,7 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 | `weak_password` | 400 | Password must be at least 8 characters (or the specific policy rule that failed) | From your configured `PasswordPolicy`. |
 | `invalid_email` | 400 | Invalid email format | |
 | `name_required` | 400 | Name is required | |
-| `unauthorized` | 401 | Invalid session / User not found | From the auth middleware, not a specific service call. |
+| `unauthorized` | 401 | Invalid session / User not found | From the auth middleware, not a specific service call. Only a genuine credential problem (invalid session, or the session resolved to a missing user). If the database itself fails, you get `internal_error` 500 instead — see [General](#general). |
 | `session_expired` | 401 | Missing session cookie / Session has expired | Also from the auth middleware. See [Sessions](#sessions) below for the token-level version. |
 
 ## Two-factor authentication
@@ -200,7 +202,7 @@ The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) uses the no
 | `invalid_role` | 400 | Role must be 'user' or 'admin' | |
 | `name_required` | 400 | Name is required | |
 | `session_not_found` | 404 | Session not found | Admin revoking a specific user session that does not exist. |
-| `user_not_found` | 404 | User not found | No user with that `{id}`. Returned by detail, ban/unban, role change, delete, and the per-user session and audit-log routes. |
+| `user_not_found` | 404 | User not found | No user with that `{id}`. Returned by detail, ban/unban, role change, delete, and the per-user session and audit-log routes. A failed database read while checking the target is `internal_error` 500, not this code. |
 | `forbidden` | 403 | You do not have permission | From `RequireRole(domain.RoleAdmin)`: a non-admin hit an admin-only route. |
 
 ## CSRF and rate limiting
