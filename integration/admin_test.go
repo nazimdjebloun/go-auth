@@ -369,9 +369,7 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 	if _, err := a.Login(ctx, goauth.LoginInput{Email: "deskuser@example.com", Password: "Passw0rd!", UserAgent: desktopUA}); err != nil {
 		t.Fatal(err)
 	}
-	// Audit events flush asynchronously (AuditServiceConfig's default
-	// FlushInterval is 100ms).
-	time.Sleep(200 * time.Millisecond)
+	waitAuditCount(t, db, "SELECT COUNT(*) FROM audit_log WHERE event_type IN ('user.registered', 'login.success')", 5)
 
 	deviceType := "mobile"
 	result, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
@@ -419,9 +417,7 @@ func TestAdmin_ListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 	if err := a.Services.Admin.BanUser(ctx, service.BanUserInput{UserID: target.User.ID, ActorID: admin.User.ID}); err != nil {
 		t.Fatal(err)
 	}
-	// Audit events flush asynchronously (AuditServiceConfig's default
-	// FlushInterval is 100ms).
-	time.Sleep(200 * time.Millisecond)
+	waitAuditCount(t, db, "SELECT COUNT(*) FROM audit_log WHERE event_type = 'admin.user.banned'", 1)
 
 	bannedType := "admin.user.banned"
 	result, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{

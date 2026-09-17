@@ -134,13 +134,18 @@ func (s *AuditService) Start(ctx context.Context) {
 }
 
 func (s *AuditService) Stop(ctx context.Context) error {
-	if s.cancel != nil {
-		s.cancel()
-	}
+	// Close admission first; workers drain the closed queue with their live
+	// context. Cancel only after draining, or when the caller's budget ends.
+	// Canceling before the drain makes context-aware sinks lose queued events.
 	s.closeMu.Lock()
 	s.closed = true
 	s.queueOnce.Do(func() { close(s.queue) })
 	s.closeMu.Unlock()
+	defer func() {
+		if s.cancel != nil {
+			s.cancel()
+		}
+	}()
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -165,6 +170,20 @@ func (s *AuditService) hasCleaner() bool {
 	return false
 }
 
+// auditFlushGrace bounds the final drain/flush a worker performs after its
+// context is canceled by Stop. Stop's caller timeout bounds waiting on the
+// workers, not these sink writes; without a fresh bounded context the SQL
+// and webhook sinks would see a canceled ctx and be unable to persist the
+// last batch at all — losing events a graceful shutdown explicitly intends
+// to deliver.
+const auditFlushGrace = 5 * time.Second
+
+// flushContext returns a fresh bounded context for final drain flushes. The
+// caller must invoke the returned CancelFunc after flushBatch returns.
+func (s *AuditService) flushContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), auditFlushGrace)
+}
+
 func (s *AuditService) worker(ctx context.Context, id int) {
 	defer s.wg.Done()
 
@@ -176,7 +195,9 @@ func (s *AuditService) worker(ctx context.Context, id int) {
 		select {
 		case event, ok := <-s.queue:
 			if !ok {
-				s.flushBatch(ctx, batch)
+				fctx, cancel := s.flushContext()
+				s.flushBatch(fctx, batch)
+				cancel()
 				return
 			}
 			batch = append(batch, event)
@@ -218,7 +239,9 @@ func (s *AuditService) worker(ctx context.Context, id int) {
 				}
 			}
 			if len(batch) > 0 {
-				s.flushBatch(ctx, batch)
+				fctx, cancel := s.flushContext()
+				s.flushBatch(fctx, batch)
+				cancel()
 			}
 			return
 		}
