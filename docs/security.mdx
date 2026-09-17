@@ -168,7 +168,7 @@ The built-in SQL repository changes only `name` and `updated_at` for a name chan
 
 Email-code verification consumes the code and performs the conditional write in one transaction. If the email has changed, verification returns `code_invalid` and the transaction rolls back the code claim. Linked-provider login upgrades verification only when the provider's verified email exactly matches the local email; a failed verification write stops login rather than reporting a successful upgrade.
 
-Custom repositories can implement the optional `port.UserNameUpdater` and `port.UserEmailVerifier` capabilities without changing `port.UserRepository`. Implementations must honor transaction contexts and the conditional-write contract. Without these capabilities, services retain the legacy snapshot-update fallback; it does **not** provide the built-in SQL repository's concurrency guarantees. Direct calls to the general repository `Update` method also remain snapshot writes. Applications that change an email themselves must clear its verification state in the same write.
+Storage is SQL-only (PostgreSQL, MySQL, SQLite) — there is no custom-repository extension point. The guarded writes above (name-only update, conditional email verification, `port.AdminGuardStore`) are required parts of the `port.UserRepository` contract that the built-in SQL store implements, not optional capabilities with a fallback. Direct calls to the general repository `Update` method remain snapshot writes. Applications that change an email themselves must clear its verification state in the same write.
 
 ## What is not covered
 
