@@ -1,0 +1,27 @@
+# The index stores LF for everything except the files below. With
+# core.autocrlf=true, checkouts convert to CRLF on Windows and commits
+# convert back, so diffs and diff --check stay clean on either platform.
+* text=auto
+*.go text eol=lf
+*.sql text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.mdx text eol=lf
+*.json text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+# Exception: a small number of files were committed with CRLF and rewriting
+# them would touch every line. They stay CRLF until someone edits them.
+docs/guides/audit-logs.mdx text eol=crlf
+docs/changelog/index.mdx text eol=crlf
+docs/changelog/meta.json text eol=crlf
+docs/changelog/v0.2.2.mdx text eol=crlf
+docs/guides/client/meta.json text eol=crlf
+docs/meta.json text eol=crlf
+docs/performance.mdx text eol=crlf
+docs/providers/github.mdx text eol=crlf
+docs/providers/google.mdx text eol=crlf
+docs/providers/meta.json text eol=crlf
+LICENSE text eol=crlf
+README.md text eol=crlf
