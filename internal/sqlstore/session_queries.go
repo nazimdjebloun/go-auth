@@ -45,10 +45,12 @@ const (
 		  AND created_at > $7
 		RETURNING ` + sessionCols
 
+	// MySQL evaluates single-table UPDATE assignments left-to-right: save the
+	// old refresh hash before replacing it. Keep parameter order unchanged.
 	sessionRotateRefreshNoReturningQuery = `UPDATE sessions
 		SET token_hash              = $1,
-		    refresh_token_hash      = $2,
 		    prev_refresh_token_hash = refresh_token_hash,
+		    refresh_token_hash      = $2,
 		    refresh_rotated_at      = $3,
 		    expires_at              = $4
 		WHERE refresh_token_hash = $5
