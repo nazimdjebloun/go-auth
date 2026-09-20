@@ -15,7 +15,8 @@ go-auth ships `testing` benchmarks instead of published latency claims. Run them
 | Benchmark | Package | Measures |
 |---|---|---|
 | `BenchmarkRegister` | root | Full register path: policy, hash, user + session + refresh inserts |
-| `BenchmarkLogin` | root | Verify + new session per login |
+| `BenchmarkLogin/audit=off` | root | Verify + new session per login without audit recording |
+| `BenchmarkLogin/audit=on` | root | The same login with durable `audit_log` recording enabled; no external sink |
 | `BenchmarkValidateSession` | Root | Per-request hot path (token hash lookup + user fetch) |
 | `BenchmarkRefreshSession` | Root | Chained rotation: consume refresh, write new tokens |
 | `BenchmarkRateLimitAllow` | Root | In-memory limiter decision (runs before every route) |
@@ -23,7 +24,7 @@ go-auth ships `testing` benchmarks instead of published latency claims. Run them
 | `BenchmarkLivePostgres_*` | Root | Validate/refresh against a real PostgreSQL server (env-gated) |
 | `BenchmarkLiveMySQL_ValidateSession` | Root | Validate against a real MySQL server (env-gated) |
 
-The SQLite service benchmarks run at **bcrypt cost 4** so database work is visible next to hashing; `BenchmarkHashCost12` reports the production-cost floor separately.
+The SQLite service benchmarks run at **bcrypt cost 4** so database work is visible next to hashing; `BenchmarkHashCost12` reports the production-cost floor separately. The two login sub-benchmarks use identical setup except for `AuditConfig.Enabled`. The audit-on case has no external sink, so it measures the transactional record write without mixing asynchronous webhook or dispatcher work into login latency.
 
 ## Running locally
 

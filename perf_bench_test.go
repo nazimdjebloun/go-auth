@@ -17,7 +17,7 @@ import (
 // benchAuth builds a full Auth on a private in-memory SQLite database with a
 // deliberately low bcrypt cost (4) so database work is visible next to
 // hashing. Cost-12 hashing is measured separately in BenchmarkHashCost12.
-func benchAuth(b *testing.B) *Auth {
+func benchAuth(b *testing.B, auditEnabled ...bool) *Auth {
 	b.Helper()
 	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(1)")
 	if err != nil {
@@ -32,13 +32,17 @@ func benchAuth(b *testing.B) *Auth {
 			b.Fatalf("migrate: %v", err)
 		}
 	}
-	cfg, err := NewConfig(minimalOpts(
+	opts := []Option{
 		WithBcryptCost(4),
 		WithApp(AppConfig{
 			Name: "bench", BaseURL: "https://example.com",
 			Database: DatabaseConfig{Driver: DriverSQLite, DB: db},
 		}),
-	)...)
+	}
+	if len(auditEnabled) > 0 && auditEnabled[0] {
+		opts = append(opts, WithAudit(AuditConfig{Enabled: true}))
+	}
+	cfg, err := NewConfig(minimalOpts(opts...)...)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -79,23 +83,37 @@ func BenchmarkRegister(b *testing.B) {
 	}
 }
 
-// BenchmarkLogin measures password verify + session creation per login.
+// BenchmarkLogin measures password verify + session creation per login with
+// durable audit recording disabled and enabled. The enabled case deliberately
+// configures no external sink, so it isolates the in-transaction audit_log
+// insert without measuring asynchronous network delivery.
 func BenchmarkLogin(b *testing.B) {
-	a := benchAuth(b)
-	ctx := context.Background()
-	const pwd = "V@lidPswd1"
-	if _, err := a.Register(ctx, RegisterInput{
-		Email: "login@example.com", Password: pwd, Name: "Bench",
-	}); err != nil {
-		b.Fatal(err)
-	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if _, err := a.Login(ctx, LoginInput{
-			Email: "login@example.com", Password: pwd,
-		}); err != nil {
-			b.Fatal(err)
-		}
+	for _, tc := range []struct {
+		name         string
+		auditEnabled bool
+	}{
+		{name: "audit=off"},
+		{name: "audit=on", auditEnabled: true},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			a := benchAuth(b, tc.auditEnabled)
+			ctx := context.Background()
+			const pwd = "V@lidPswd1"
+			if _, err := a.Register(ctx, RegisterInput{
+				Email: "login@example.com", Password: pwd, Name: "Bench",
+			}); err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if _, err := a.Login(ctx, LoginInput{
+					Email: "login@example.com", Password: pwd,
+				}); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 

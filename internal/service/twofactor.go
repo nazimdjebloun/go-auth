@@ -211,7 +211,9 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewTwoFactorCodeSentEvent(user.ID))
+		if err := s.audit.Record(ctx, audit.NewTwoFactorCodeSentEvent(user.ID)); err != nil {
+			return nil, err
+		}
 	}
 
 	return &ChallengeResult{
@@ -359,7 +361,9 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewTwoFactorVerifiedEvent(user.ID, sessResult.Session.ID, net.ParseIP(ip), userAgent))
+		if err := s.audit.Record(ctx, audit.NewTwoFactorVerifiedEvent(user.ID, sessResult.Session.ID, net.ParseIP(ip), userAgent)); err != nil {
+			return nil, err
+		}
 	}
 
 	return &TwoFactorVerifyResult{
@@ -381,7 +385,10 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 // gets rotated is the outcome that actually matters here.
 func (s *TwoFactorService) recordFailure(ctx context.Context, userID, email, ip, userAgent string) {
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewTwoFactorFailedEvent(userID, net.ParseIP(ip), userAgent))
+		if err := s.audit.Record(ctx, audit.NewTwoFactorFailedEvent(userID, net.ParseIP(ip), userAgent)); err != nil {
+			s.log.ErrorContext(ctx, "2fa failure audit record failed under fail-closed",
+				"marker", "audit_record_blocked", "user_id", userID, "error", err)
+		}
 	}
 	if s.store == nil {
 		return
@@ -419,7 +426,10 @@ func (s *TwoFactorService) recordFailure(ctx context.Context, userID, email, ip,
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewTwoFactorSuspiciousEvent(userID, net.ParseIP(ip), userAgent))
+		if err := s.audit.Record(ctx, audit.NewTwoFactorSuspiciousEvent(userID, net.ParseIP(ip), userAgent)); err != nil {
+			s.log.ErrorContext(ctx, "2fa suspicious audit record failed under fail-closed",
+				"marker", "audit_record_blocked", "user_id", userID, "error", err)
+		}
 	}
 	s.notifySuspicious(ctx, email, notifyThresholdPerAccount)
 }
@@ -504,7 +514,9 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 		return nil, aerr
 	}
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewTwoFactorCodeSentEvent(user.ID))
+		if err := s.audit.Record(ctx, audit.NewTwoFactorCodeSentEvent(user.ID)); err != nil {
+			return nil, err
+		}
 	}
 
 	// The challenge id is unchanged across a resend, so the binding still holds.
@@ -550,7 +562,9 @@ func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, 
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewTwoFactorEnabledEvent(user.ID))
+		if err := s.audit.Record(ctx, audit.NewTwoFactorEnabledEvent(user.ID)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -572,7 +586,9 @@ func (s *TwoFactorService) Disable(ctx context.Context, userID, password string)
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewTwoFactorDisabledEvent(user.ID))
+		if err := s.audit.Record(ctx, audit.NewTwoFactorDisabledEvent(user.ID)); err != nil {
+			return err
+		}
 	}
 	return nil
 }

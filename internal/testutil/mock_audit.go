@@ -15,8 +15,8 @@ import (
 )
 
 // MockAuditPublisher implements service.AuditPublisher by recording every
-// published event — for tests asserting a service call did (or didn't)
-// publish, without spinning up the real queue/sinks/flush-interval pipeline.
+// event — for tests asserting a service call did (or didn't) record, without
+// spinning up the real storage/dispatcher pipeline.
 type MockAuditPublisher struct {
 	mu     sync.Mutex
 	Events []audit.Event
@@ -26,10 +26,11 @@ func NewMockAuditPublisher() *MockAuditPublisher {
 	return &MockAuditPublisher{}
 }
 
-func (m *MockAuditPublisher) Publish(_ context.Context, event audit.Event) {
+func (m *MockAuditPublisher) Record(_ context.Context, event audit.Event) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.Events = append(m.Events, event)
+	return nil
 }
 
 // ─── mockAuditLogRepo ──────────────────────────────────────────────

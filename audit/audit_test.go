@@ -2,594 +2,479 @@ package audit
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"net"
+	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// ─── Mock Sink ──────────────────────────────────────────────
+// ─── Mock stores ────────────────────────────────────────────
 
-type mockSink struct {
-	mu     sync.Mutex
-	events []Event
-	batchN int
+type mockRecordStore struct {
+	mu      sync.Mutex
+	events  []Event
+	failFor map[EventType]error
 }
 
-func (m *mockSink) Handle(_ context.Context, event Event) error {
+func (m *mockRecordStore) Insert(_ context.Context, e Event) error {
+	if m.failFor != nil {
+		if err, ok := m.failFor[e.Type]; ok {
+			return err
+		}
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.events = append(m.events, event)
+	m.events = append(m.events, e)
 	return nil
 }
 
-func (m *mockSink) HandleBatch(_ context.Context, events []Event) error {
+func (m *mockRecordStore) Cleanup(_ context.Context, _ int) (int, error) { return 0, nil }
+
+func (m *mockRecordStore) count() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.events = append(m.events, events...)
-	m.batchN++
+	return len(m.events)
+}
+
+type mockOutbox struct {
+	mu      sync.Mutex
+	rows    []OutboxRow
+	inserts int
+	fail    bool
+}
+
+func (m *mockOutbox) Insert(_ context.Context, eventID string, _ *string, _ int, _ time.Time) error {
+	if m.fail {
+		return errors.New("outbox down")
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.inserts++
+	m.rows = append(m.rows, OutboxRow{EventID: eventID})
 	return nil
 }
 
-func (m *mockSink) snapshot() []Event {
+func (m *mockOutbox) ClaimBatch(_ context.Context, _ string, _ int, _ time.Duration) ([]OutboxRow, error) {
+	return nil, nil
+}
+func (m *mockOutbox) MarkSuccess(_ context.Context, _ string) error { return nil }
+func (m *mockOutbox) MarkFailure(_ context.Context, _ string, _ time.Time, _ string) error {
+	return nil
+}
+func (m *mockOutbox) MarkDeadLetter(_ context.Context, _ string, _ time.Time, _ string) error {
+	return nil
+}
+func (m *mockOutbox) ReleaseClaim(_ context.Context, _ string) error { return nil }
+func (m *mockOutbox) SweepExpired(_ context.Context, _ time.Time, _, _ time.Duration) (int, int, error) {
+	return 0, 0, nil
+}
+func (m *mockOutbox) EvictOverCap(_ context.Context, _ int) (int, int, error) { return 0, 0, nil }
+func (m *mockOutbox) PurgeOrphans(_ context.Context, _ int) (int, error)      { return 0, nil }
+func (m *mockOutbox) CountPending(_ context.Context) (int, error)             { return 0, nil }
+func (m *mockOutbox) OldestPendingAge(_ context.Context, _ time.Time) (time.Duration, bool, error) {
+	return 0, false, nil
+}
+
+func (m *mockOutbox) insertCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	cp := make([]Event, len(m.events))
-	copy(cp, m.events)
-	return cp
+	return m.inserts
 }
 
-// ─── Failing Sink ───────────────────────────────────────────
+type noopSink struct{}
 
-type failSink struct {
-	err error
+func (noopSink) Handle(context.Context, Event) error        { return nil }
+func (noopSink) HandleBatch(context.Context, []Event) error { return nil }
+func (noopSink) MaxBatchDeliveryTime(batchSize int) (time.Duration, bool) {
+	return time.Duration(batchSize) * time.Millisecond, true
 }
 
-func (f *failSink) Handle(_ context.Context, _ Event) error        { return f.err }
-func (f *failSink) HandleBatch(_ context.Context, _ []Event) error { return f.err }
+// failSink always fails delivery, for the retry/dead-letter paths.
+type failSink struct{ err error }
 
-// ─── Cleaner Sink ───────────────────────────────────────────
-
-type cleanerSink struct {
-	mu         sync.Mutex
-	deleted    int
-	retentionD int
+func (f *failSink) Handle(context.Context, Event) error        { return f.err }
+func (f *failSink) HandleBatch(context.Context, []Event) error { return f.err }
+func (f *failSink) MaxBatchDeliveryTime(batchSize int) (time.Duration, bool) {
+	return time.Duration(batchSize) * time.Millisecond, true
 }
 
-func (c *cleanerSink) Handle(_ context.Context, _ Event) error        { return nil }
-func (c *cleanerSink) HandleBatch(_ context.Context, _ []Event) error { return nil }
-func (c *cleanerSink) Cleanup(_ context.Context, retentionDays int) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.retentionD = retentionDays
-	c.deleted = 42
-	return c.deleted, nil
+// txSaverDB reports an active transaction, so fail-closed stays armed. The
+// production implementation is sqlstore.DB; this stands in for it in tests
+// that exercise the transactional branch without a database.
+type txSaverDB struct{}
+
+func (txSaverDB) InTx(context.Context) bool { return true }
+func (txSaverDB) Savepoint(ctx context.Context, _ string, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+func (txSaverDB) TableExists(context.Context, string) (bool, error) { return true, nil }
+
+type tableSaverDB struct {
+	tx       bool
+	exists   bool
+	tableErr error
+}
+
+func (d tableSaverDB) InTx(context.Context) bool { return d.tx }
+func (d tableSaverDB) Savepoint(ctx context.Context, _ string, fn func(ctx context.Context) error) error {
+	return fn(ctx)
+}
+func (d tableSaverDB) TableExists(context.Context, string) (bool, error) {
+	return d.exists, d.tableErr
 }
 
 // ─── Tests ──────────────────────────────────────────────────
 
-func TestAuditDisabled_PublishNoop(t *testing.T) {
-	s := &AuditService{enabled: false}
-	s.Publish(context.Background(), NewLoginEvent("u1", "s1", net.ParseIP("127.0.0.1"), "test", true))
-	// no panic, no queue — that's the test
+func loginEvent() Event {
+	return NewLoginEvent("u1", "s1", net.ParseIP("127.0.0.1"), "test", true)
 }
 
-func TestPublish_NonBlocking(t *testing.T) {
-	s := NewAuditService(AuditServiceConfig{QueueSize: 2}, nil)
-	s.Start(context.Background())
-	defer s.Stop(context.Background())
+func TestRecord_WritesRecord_NoSinkNoOutbox(t *testing.T) {
+	rec := &mockRecordStore{}
+	out := &mockOutbox{}
+	s := NewAuditService(AuditServiceConfig{}, nil, rec, out, nil)
 
-	// Fill the queue
-	s.Publish(context.Background(), NewLoginEvent("u1", "s1", nil, "", true))
-	s.Publish(context.Background(), NewLoginEvent("u2", "s2", nil, "", true))
-	// Third should not block
-	done := make(chan struct{})
-	go func() {
-		s.Publish(context.Background(), NewLoginEvent("u3", "s3", nil, "", true))
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Publish blocked on full queue")
+	if err := s.Record(context.Background(), loginEvent()); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if rec.count() != 1 {
+		t.Fatalf("record count = %d, want 1", rec.count())
+	}
+	if out.insertCount() != 0 {
+		t.Fatalf("outbox rows = %d, want 0 (no external sink configured — no row nobody will consume)", out.insertCount())
 	}
 }
 
-func TestQueueFull_DropsEvent(t *testing.T) {
-	sink := &mockSink{}
-	s := NewAuditService(AuditServiceConfig{QueueSize: 1}, nil)
-	s.AddSink(sink)
+func TestRecord_SinkConfigured_WritesOutbox(t *testing.T) {
+	rec := &mockRecordStore{}
+	out := &mockOutbox{}
+	s := NewAuditService(AuditServiceConfig{}, nil, rec, out, nil)
+	s.AddSink(noopSink{})
 
-	// Publish before Start, so nothing is consuming: the queue is genuinely
-	// full when the second event arrives. Starting the workers first makes
-	// this racy rather than strict — a worker can dequeue the first event
-	// before the second is published, leaving room, and then nothing is
-	// dropped. That is correct behaviour (Publish only drops when there is
-	// really no room), so the test has to control the consumer, not assume it
-	// loses the race.
-	s.Publish(context.Background(), NewLoginEvent("u1", "s1", nil, "", true))
-	// Queue is full and unattended — this one must be dropped.
-	s.Publish(context.Background(), NewLoginEvent("u2", "s2", nil, "", true))
-
-	s.Start(context.Background())
-	time.Sleep(200 * time.Millisecond)
-	s.Stop(context.Background())
-
-	events := sink.snapshot()
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event (second dropped), got %d", len(events))
+	if err := s.Record(context.Background(), loginEvent()); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+	if out.insertCount() != 1 {
+		t.Fatalf("outbox rows = %d, want 1", out.insertCount())
 	}
 }
 
-// Publish must never panic once the service is stopped: Stop closes the queue,
-// and a send on a closed channel is a panic that select/default does not catch.
-func TestPublishAfterStop_DoesNotPanic(t *testing.T) {
-	sink := &mockSink{}
-	s := NewAuditService(AuditServiceConfig{QueueSize: 4}, nil)
-	s.AddSink(sink)
-	s.Start(context.Background())
-	s.Stop(context.Background())
+func TestRecord_FailOpen_RecordLost_Counted(t *testing.T) {
+	rec := &mockRecordStore{failFor: map[EventType]error{EventLoginFailed: errors.New("disk full")}}
+	s := NewAuditService(AuditServiceConfig{}, nil, rec, &mockOutbox{}, nil)
 
-	s.Publish(context.Background(), NewLoginEvent("u1", "s1", nil, "", true))
-
-	if got := len(sink.snapshot()); got != 0 {
-		t.Fatalf("event count after stop = %d, want 0", got)
+	// Fail-open: the operation proceeds, the loss is counted.
+	if err := s.Record(context.Background(), NewLoginFailedEvent("a@b.c", net.ParseIP("127.0.0.1"), "ua")); err != nil {
+		t.Fatalf("fail-open Record must not fail the operation, got %v", err)
+	}
+	st := s.DeliveryStats(context.Background())
+	if st.RecordLost != 1 {
+		t.Fatalf("record_lost = %d, want 1", st.RecordLost)
 	}
 }
 
-// The same race, but concurrent: publishers still running while Stop lands.
-func TestPublishRacingStop_DoesNotPanic(t *testing.T) {
-	s := NewAuditService(AuditServiceConfig{QueueSize: 4}, nil)
-	s.AddSink(&mockSink{})
-	s.Start(context.Background())
-
-	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 50; j++ {
-				s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
-			}
-		}()
-	}
-	s.Stop(context.Background())
-	wg.Wait()
-}
-
-func TestWorker_ReceivesEvent(t *testing.T) {
-	sink := &mockSink{}
-	s := NewAuditService(AuditServiceConfig{QueueSize: 10, BatchSize: 10, FlushInterval: time.Hour}, nil)
-	s.AddSink(sink)
-	s.Start(context.Background())
-
-	event := NewLoginEvent("u1", "s1", net.ParseIP("10.0.0.1"), "test-agent", true)
-	s.Publish(context.Background(), event)
-
-	// Wait for worker to pick it up
-	time.Sleep(200 * time.Millisecond)
-	s.Stop(context.Background())
-
-	events := sink.snapshot()
-	if len(events) == 0 {
-		t.Fatal("sink received no events")
-	}
-	if events[0].Type != EventLoginSuccess {
-		t.Fatalf("expected login.success, got %s", events[0].Type)
-	}
-}
-
-func TestWorker_BatchFlush(t *testing.T) {
-	sink := &mockSink{}
-	const batchSize = 5
+func TestRecord_FailClosed_Blocks(t *testing.T) {
+	rec := &mockRecordStore{failFor: map[EventType]error{EventLoginFailed: errors.New("disk full")}}
 	s := NewAuditService(AuditServiceConfig{
-		QueueSize:     100,
-		BatchSize:     batchSize,
-		FlushInterval: time.Hour, // rely on batch size, not timer
-	}, nil)
-	s.AddSink(sink)
-	s.Start(context.Background())
+		EnqueueFailureMode: func(e Event) AuditFailureMode {
+			return AuditFailureClosed
+		},
+	}, txSaverDB{}, rec, &mockOutbox{}, nil)
 
-	for i := 0; i < batchSize; i++ {
-		s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
+	err := s.Record(context.Background(), NewLoginFailedEvent("a@b.c", net.ParseIP("127.0.0.1"), "ua"))
+	if !errors.Is(err, ErrRecordBlocked) {
+		t.Fatalf("fail-closed Record err = %v, want ErrRecordBlocked", err)
 	}
-
-	time.Sleep(200 * time.Millisecond)
-	s.Stop(context.Background())
-
-	events := sink.snapshot()
-	if len(events) != batchSize {
-		t.Fatalf("expected %d events, got %d", batchSize, len(events))
-	}
-	if sink.batchN < 1 {
-		t.Fatal("expected at least 1 batch flush")
+	st := s.DeliveryStats(context.Background())
+	if st.RecordBlocked != 1 {
+		t.Fatalf("record_blocked = %d, want 1", st.RecordBlocked)
 	}
 }
 
-func TestWorker_FlushInterval(t *testing.T) {
-	sink := &mockSink{}
+// TestRecord_FailClosed_DegradesOutsideTx pins the rule that fail-closed is
+// only meaningful where a transaction exists to roll back: at a
+// non-transactional site (here: no tx in ctx) it degrades to fail-open and
+// the loss is counted, rather than aborting an operation that already
+// happened.
+func TestRecord_FailClosed_DegradesOutsideTx(t *testing.T) {
+	rec := &mockRecordStore{failFor: map[EventType]error{EventLoginFailed: errors.New("disk full")}}
 	s := NewAuditService(AuditServiceConfig{
-		QueueSize:     10,
-		BatchSize:     100, // won't hit batch size
-		FlushInterval: 50 * time.Millisecond,
-	}, nil)
-	s.AddSink(sink)
-	s.Start(context.Background())
+		EnqueueFailureMode: func(e Event) AuditFailureMode { return AuditFailureClosed },
+	}, nil, rec, &mockOutbox{}, nil) // nil db → noopSaverDB → InTx false
 
-	s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
-
-	// Wait for timer-based flush
-	time.Sleep(200 * time.Millisecond)
-	s.Stop(context.Background())
-
-	events := sink.snapshot()
-	if len(events) != 1 {
-		t.Fatalf("expected 1 event after timer flush, got %d", len(events))
-	}
-}
-
-func TestMultipleSinks_AllReceive(t *testing.T) {
-	sink1 := &mockSink{}
-	sink2 := &mockSink{}
-	s := NewAuditService(AuditServiceConfig{QueueSize: 10, BatchSize: 10, FlushInterval: time.Hour}, nil)
-	s.AddSink(sink1)
-	s.AddSink(sink2)
-	s.Start(context.Background())
-
-	s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
-	time.Sleep(200 * time.Millisecond)
-	s.Stop(context.Background())
-
-	if len(sink1.snapshot()) != 1 {
-		t.Fatal("sink1 didn't receive event")
-	}
-	if len(sink2.snapshot()) != 1 {
-		t.Fatal("sink2 didn't receive event")
-	}
-}
-
-func TestFailOpen_ContinuesOnSinkError(t *testing.T) {
-	badSink := &failSink{err: fmt.Errorf("boom")}
-	goodSink := &mockSink{}
-
-	s := NewAuditService(AuditServiceConfig{
-		QueueSize:     10,
-		BatchSize:     10,
-		FlushInterval: time.Hour,
-		FailureMode:   AuditFailureOpen,
-	}, nil)
-	s.AddSink(badSink)
-	s.AddSink(goodSink)
-	s.Start(context.Background())
-
-	s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
-	time.Sleep(200 * time.Millisecond)
-	s.Stop(context.Background())
-
-	if len(goodSink.snapshot()) != 1 {
-		t.Fatal("good sink should still receive events in fail-open mode")
-	}
-}
-
-func TestFailClosed_StopsBatch(t *testing.T) {
-	badSink := &failSink{err: fmt.Errorf("boom")}
-	goodSink := &mockSink{}
-
-	s := NewAuditService(AuditServiceConfig{
-		QueueSize:     10,
-		BatchSize:     10,
-		FlushInterval: time.Hour,
-		FailureMode:   AuditFailureClosed,
-	}, nil)
-	s.AddSink(badSink)
-	s.AddSink(goodSink)
-	s.Start(context.Background())
-
-	s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
-	time.Sleep(200 * time.Millisecond)
-	s.Stop(context.Background())
-
-	// In fail-closed, the batch stops at the failing sink — goodSink should NOT receive it
-	if len(goodSink.snapshot()) != 0 {
-		t.Fatal("good sink should NOT receive events in fail-closed mode when a prior sink fails")
-	}
-}
-
-func TestStop_FlushesQueue(t *testing.T) {
-	sink := &mockSink{}
-	s := NewAuditService(AuditServiceConfig{QueueSize: 100, BatchSize: 100, FlushInterval: time.Hour}, nil)
-	s.AddSink(sink)
-	s.Start(context.Background())
-
-	for i := 0; i < 5; i++ {
-		s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
-	}
-
-	// Let workers pick up all events
-	time.Sleep(200 * time.Millisecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := s.Stop(ctx); err != nil {
-		t.Fatal(err)
-	}
-
-	events := sink.snapshot()
-	if len(events) != 5 {
-		t.Fatalf("expected 5 events flushed on stop, got %d", len(events))
-	}
-}
-
-func TestStop_FlushesPartialBatch(t *testing.T) {
-	sink := &mockSink{}
-	s := NewAuditService(AuditServiceConfig{QueueSize: 100, BatchSize: 50, FlushInterval: time.Hour}, nil)
-	s.AddSink(sink)
-	s.Start(context.Background())
-
-	for i := 0; i < 5; i++ {
-		s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
-	}
-
-	// Let workers pick up all events
-	time.Sleep(200 * time.Millisecond)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	s.Stop(ctx)
-
-	events := sink.snapshot()
-	if len(events) != 5 {
-		t.Fatalf("expected 5 partial batch events flushed, got %d", len(events))
-	}
-}
-
-func TestStop_Timeout(t *testing.T) {
-	// Create a service but don't start it — cancel is nil, queue close will work
-	s := NewAuditService(AuditServiceConfig{QueueSize: 10}, nil)
-	// Don't start — cancel is nil
-
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-	err := s.Stop(ctx)
-	// Should succeed since queue is empty and no workers
+	err := s.Record(context.Background(), NewLoginFailedEvent("a@b.c", nil, ""))
 	if err != nil {
-		t.Fatalf("expected nil error on empty stop, got %v", err)
+		t.Fatalf("outside a transaction fail-closed must degrade to fail-open, got %v", err)
+	}
+	st := s.DeliveryStats(context.Background())
+	if st.RecordLost != 1 || st.RecordBlocked != 0 {
+		t.Fatalf("record_lost=%d record_blocked=%d, want 1 and 0", st.RecordLost, st.RecordBlocked)
 	}
 }
 
-func TestRetentionCleanup(t *testing.T) {
-	cs := &cleanerSink{}
-	s := NewAuditService(AuditServiceConfig{RetentionDays: 30}, nil)
-	s.AddSink(cs)
+func TestRecord_NilResolver_DefaultsFailOpen(t *testing.T) {
+	rec := &mockRecordStore{failFor: map[EventType]error{EventLoginFailed: errors.New("disk full")}}
+	s := NewAuditService(AuditServiceConfig{}, nil, rec, &mockOutbox{}, nil)
 
-	// Directly test the cleaner interface
-	var cleaner Cleaner = cs
-
-	n, err := cleaner.Cleanup(context.Background(), 30)
-	if err != nil {
-		t.Fatal(err)
+	if err := s.Record(context.Background(), NewLoginFailedEvent("a@b.c", nil, "")); err != nil {
+		t.Fatalf("nil resolver must default to fail-open, got %v", err)
 	}
-	if n != 42 {
-		t.Fatalf("expected 42 deleted, got %d", n)
-	}
-	if cs.retentionD != 30 {
-		t.Fatalf("expected retention 30, got %d", cs.retentionD)
+	if s.DeliveryStats(context.Background()).RecordLost != 1 {
+		t.Fatal("record_lost not counted")
 	}
 }
 
-func TestRetentionCleanupDisabled(t *testing.T) {
-	s := NewAuditService(AuditServiceConfig{RetentionDays: 0}, nil)
-	if s.retentionDays != 0 {
-		t.Fatal("retention should be 0")
+func TestRecord_OutboxFailure_FailOpen_DeliveryMissed(t *testing.T) {
+	rec := &mockRecordStore{}
+	out := &mockOutbox{fail: true}
+	s := NewAuditService(AuditServiceConfig{}, nil, rec, out, nil)
+	s.AddSink(noopSink{})
+
+	if err := s.Record(context.Background(), loginEvent()); err != nil {
+		t.Fatalf("fail-open outbox failure must not fail the operation: %v", err)
+	}
+	// Record EXISTS, only the obligation is lost.
+	if rec.count() != 1 {
+		t.Fatalf("record count = %d, want 1 (record intact)", rec.count())
+	}
+	st := s.DeliveryStats(context.Background())
+	if st.DeliveryMissed != 1 {
+		t.Fatalf("delivery_missed = %d, want 1", st.DeliveryMissed)
 	}
 }
 
-func TestRetentionOnlyRunsIfCleanerSink(t *testing.T) {
-	s := NewAuditService(AuditServiceConfig{RetentionDays: 30}, nil)
-	s.AddSink(&mockSink{}) // not a Cleaner
-	if s.hasCleaner() {
-		t.Fatal("should not have cleaner when no Cleaner sink registered")
-	}
+func TestRecord_OutboxFailure_FailClosed_Blocks(t *testing.T) {
+	rec := &mockRecordStore{}
+	out := &mockOutbox{fail: true}
+	s := NewAuditService(AuditServiceConfig{
+		EnqueueFailureMode: func(e Event) AuditFailureMode { return AuditFailureClosed },
+	}, txSaverDB{}, rec, out, nil)
+	s.AddSink(noopSink{})
 
-	s.AddSink(&cleanerSink{})
-	if !s.hasCleaner() {
-		t.Fatal("should have cleaner after adding Cleaner sink")
+	if err := s.Record(context.Background(), loginEvent()); !errors.Is(err, ErrRecordBlocked) {
+		t.Fatalf("fail-closed outbox failure err = %v, want ErrRecordBlocked", err)
 	}
 }
 
-func TestTypedBuilder_AlwaysPopulatesIDAndCreatedAt(t *testing.T) {
-	builders := []Event{
-		NewLoginEvent("u", "s", nil, "", true),
-		NewLoginFailedEvent("e", nil, ""),
-		NewLoginLockedEvent("e", nil, ""),
-		NewLogoutEvent("u", "s", nil, ""),
-		NewUserRegisteredEvent("u", nil, ""),
-		NewEmailVerifiedEvent("u"),
-		NewEmailVerificationSentEvent("e"),
-		NewPasswordChangedEvent("u", nil, ""),
-		NewPasswordResetRequestedEvent("e", nil, ""),
-		NewPasswordResetCompletedEvent("u", nil, ""),
-		NewSessionEvent(EventSessionCreated, "u", "s", nil, ""),
-		NewOAuthEvent(EventOAuthLogin, "u", "github", nil, ""),
-		NewAdminEvent(EventAdminUserBanned, "admin", "target"),
-		NewOrgEvent(EventOrgCreated, "u", "org", nil),
-		NewRoleChangedEvent("admin", "u", "user", "admin"),
-		NewEvent(EventLoginSuccess),
-	}
+func TestRecord_SinkConfiguredWithoutOutboxDoesNotPanic(t *testing.T) {
+	rec := &mockRecordStore{}
+	s := NewAuditService(AuditServiceConfig{}, nil, rec, nil, nil)
+	s.AddSink(noopSink{})
 
-	for _, e := range builders {
-		if e.ID == "" {
-			t.Errorf("%s: ID is empty", e.Type)
+	if err := s.Record(context.Background(), loginEvent()); err != nil {
+		t.Fatalf("fail-open missing outbox must not panic or fail the operation: %v", err)
+	}
+	st := s.DeliveryStats(context.Background())
+	if st.DeliveryMissed != 1 {
+		t.Fatalf("delivery_missed = %d, want 1", st.DeliveryMissed)
+	}
+}
+
+func TestRecord_NoStorage_InlineOnly_NoPanic(t *testing.T) {
+	s := NewAuditService(AuditServiceConfig{}, nil, nil, nil, nil)
+	if err := s.Record(context.Background(), loginEvent()); err != nil {
+		t.Fatalf("Record without storage: %v", err)
+	}
+}
+
+func TestPriorityFor_BestEffortIsAdversarial(t *testing.T) {
+	// login.failed is the event an attacker can flood: it must ship
+	// best-effort so it cannot starve the discrete compromise signals.
+	if got := PriorityFor(EventLoginFailed); got != PriorityBestEffort {
+		t.Errorf("login.failed priority = %d, want best-effort (%d)", got, PriorityBestEffort)
+	}
+	if got := PriorityFor(EventAdminLoginFailed); got != PriorityBestEffort {
+		t.Errorf("admin.login.failed priority = %d, want best-effort", got)
+	}
+	// The low-volume, high-severity signals of successful compromise ship
+	// critical — they are what a login.failed flood would otherwise starve.
+	for _, typ := range []EventType{EventRoleChanged, EventSessionRevoked, EventAccountDeleted, EventLoginSuccess} {
+		if got := PriorityFor(typ); got != PriorityCritical {
+			t.Errorf("%s priority = %d, want critical", typ, got)
 		}
-		if e.CreatedAt.IsZero() {
-			t.Errorf("%s: CreatedAt is zero", e.Type)
-		}
 	}
 }
 
-func TestTypedBuilder_AllFields(t *testing.T) {
-	ip := net.ParseIP("192.168.1.1")
-	e := NewLoginEvent("actor1", "sess1", ip, "Mozilla/5.0", true)
-
-	if e.Type != EventLoginSuccess {
-		t.Errorf("type: got %s", e.Type)
+func TestNextBackoff_Capped(t *testing.T) {
+	if got := nextBackoff(0); got != retryBaseBackoff {
+		t.Errorf("first backoff = %v, want %v", got, retryBaseBackoff)
 	}
-	if e.Severity != SeverityInfo {
-		t.Errorf("severity: got %s", e.Severity)
+	if got := nextBackoff(2); got != 40*time.Second {
+		t.Errorf("third backoff = %v, want 40s", got)
 	}
-	if !e.Success {
-		t.Error("success should be true")
-	}
-	if e.ActorID == nil || *e.ActorID != "actor1" {
-		t.Error("actor_id wrong")
-	}
-	if e.SessionID == nil || *e.SessionID != "sess1" {
-		t.Error("session_id wrong")
-	}
-	if !e.IP.Equal(ip) {
-		t.Error("ip wrong")
-	}
-	if e.UserAgent != "Mozilla/5.0" {
-		t.Error("user_agent wrong")
+	// The cap, not MaxAttempts, is what bounds the retry window.
+	if got := nextBackoff(20); got != retryMaxBackoff {
+		t.Errorf("capped backoff = %v, want %v", got, retryMaxBackoff)
 	}
 }
 
-func TestGenericBuilder_Options(t *testing.T) {
-	ip := net.ParseIP("10.0.0.1")
-	e := NewEvent(EventLogout,
-		WithActor("u1"),
-		WithTarget("u2"),
-		WithSession("s1"),
-		WithOrg("o1"),
-		WithIP(ip),
-		WithUserAgent("agent"),
-		WithRequestID("req1"),
-		WithCorrelationID("corr1"),
-		WithMetadata("key", "val"),
-		WithSuccess(true),
-		WithSeverity(SeverityWarning),
-	)
-
-	if e.ActorID == nil || *e.ActorID != "u1" {
-		t.Error("actor_id")
+func TestDefaultConfig_OutboxClocks(t *testing.T) {
+	cfg := defaultConfig(AuditServiceConfig{})
+	if cfg.MaxAttempts != 10 || cfg.ClaimLease != 10*time.Minute {
+		t.Errorf("defaults: maxAttempts=%d lease=%v", cfg.MaxAttempts, cfg.ClaimLease)
 	}
-	if e.TargetUserID == nil || *e.TargetUserID != "u2" {
-		t.Error("target_user_id")
+	if cfg.OutboxMaxAge != 7*24*time.Hour || cfg.DeadLetterTTL != 7*24*time.Hour {
+		t.Errorf("clock defaults: age=%v ttl=%v", cfg.OutboxMaxAge, cfg.DeadLetterTTL)
 	}
-	if e.OrgID == nil || *e.OrgID != "o1" {
-		t.Error("org_id")
-	}
-	if e.Metadata == nil || e.Metadata["key"] != "val" {
-		t.Error("metadata")
-	}
-	if e.Severity != SeverityWarning {
-		t.Error("severity")
+	if cfg.OutboxMaxRows != 100000 {
+		t.Errorf("cap default = %d", cfg.OutboxMaxRows)
 	}
 }
 
-func TestEventTypes_NoDuplicates(t *testing.T) {
-	types := []EventType{
-		EventLoginSuccess, EventLoginFailed, EventLoginLocked, EventLogout,
-		EventUserRegistered, EventNameChanged, EventAccountDeleted,
-		EventEmailVerificationSent, EventEmailVerified,
-		EventTwoFactorCodeSent, EventTwoFactorVerified, EventTwoFactorFailed,
-		EventTwoFactorEnabled, EventTwoFactorDisabled, EventTwoFactorSuspicious,
-		EventPasswordChanged, EventPasswordResetRequest, EventPasswordResetDone,
-		EventSessionCreated, EventSessionRefreshed, EventSessionRevoked, EventSessionRevokedAll,
-		EventOAuthLogin, EventOAuthLinked, EventOAuthUnlinked,
-		EventAdminUserCreated, EventAdminUserUpdated, EventAdminUserDeleted,
-		EventAdminUserBanned, EventAdminUserUnbanned,
-		EventRoleChanged,
-		EventOrgCreated, EventOrgDeleted, EventOrgMemberInvited, EventOrgMemberRemoved,
-		EventOrgMemberRoleChanged,
-		EventAdminOrgDeleted, EventAdminOrgMemberAdded, EventAdminOrgMemberRemoved,
-		EventAdminOrgMemberRoleChanged, EventAdminOrgViewed,
+func TestValidateConfig_ClaimLeaseFloor(t *testing.T) {
+	// A lease shorter than the floor turns routine delivery into a steal
+	// race; startup must reject it rather than let it run.
+	err := ValidateConfig(AuditServiceConfig{ClaimLease: time.Second})
+	if err == nil {
+		t.Fatal("a 1s ClaimLease must be rejected")
 	}
-	seen := make(map[EventType]bool)
-	for _, typ := range types {
-		if seen[typ] {
-			t.Fatalf("duplicate event type: %s", typ)
-		}
-		seen[typ] = true
+	if err := ValidateConfig(AuditServiceConfig{ClaimLease: time.Minute}); err != nil {
+		t.Fatalf("a 1m ClaimLease should pass the floor: %v", err)
+	}
+	// Unset is defaulted, not rejected.
+	if err := ValidateConfig(AuditServiceConfig{}); err != nil {
+		t.Fatalf("defaults must validate: %v", err)
 	}
 }
 
-func TestNewOrgEvent_AdminTypesAccepted(t *testing.T) {
-	userID := "u2"
-	cases := []struct {
-		typ      EventType
-		wantSev  Severity
-		hasOrgID bool
+func TestValidateConfig_RetentionMustExceedOutboxLifetime(t *testing.T) {
+	// Retention shorter than the worst-case row lifetime would delete a
+	// record whose obligation still exists — the exact defect the clock
+	// analysis names.
+	err := ValidateConfig(AuditServiceConfig{RetentionDays: 1})
+	if err == nil {
+		t.Fatal("RetentionDays=1 with 7d outbox clocks must be rejected")
+	}
+	if err := ValidateConfig(AuditServiceConfig{RetentionDays: 30}); err != nil {
+		t.Fatalf("RetentionDays=30 should comfortably exceed 7d+7d: %v", err)
+	}
+	// RetentionDays 0 (keep forever) has no conflict.
+	if err := ValidateConfig(AuditServiceConfig{RetentionDays: 0}); err != nil {
+		t.Fatalf("keep-forever retention must validate: %v", err)
+	}
+}
+
+func TestValidateConfig_FiniteRetentionRejectsUnboundedOutboxClocks(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  AuditServiceConfig
 	}{
-		{EventAdminOrgDeleted, SeverityWarning, true},
-		{EventAdminOrgMemberAdded, SeverityInfo, true},
-		{EventAdminOrgMemberRemoved, SeverityWarning, true},
-		{EventAdminOrgMemberRoleChanged, SeverityInfo, true},
-		{EventAdminOrgViewed, SeverityInfo, true},
-		{EventOrgMemberRoleChanged, SeverityInfo, true},
+		{
+			name: "unbounded pending lifetime",
+			cfg: AuditServiceConfig{
+				RetentionDays: 30,
+				OutboxMaxAge:  -1,
+			},
+		},
+		{
+			name: "unbounded dead-letter lifetime",
+			cfg: AuditServiceConfig{
+				RetentionDays: 30,
+				DeadLetterTTL: -1,
+			},
+		},
 	}
-	for _, c := range cases {
-		e := NewOrgEvent(c.typ, "admin1", "org1", &userID)
-		if !e.Success {
-			t.Errorf("%s: expected Success=true for a recognized org event type, got false (metadata: %v)", c.typ, e.Metadata)
-		}
-		if e.Severity != c.wantSev {
-			t.Errorf("%s: severity = %s, want %s", c.typ, e.Severity, c.wantSev)
-		}
-		if e.OrgID == nil || *e.OrgID != "org1" {
-			t.Errorf("%s: org_id not set", c.typ)
-		}
-		if e.ActorID == nil || *e.ActorID != "admin1" {
-			t.Errorf("%s: actor_id not set", c.typ)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := ValidateConfig(tt.cfg); err == nil {
+				t.Fatal("finite retention must reject an unbounded outbox clock")
+			}
+		})
 	}
-}
 
-func TestNewOrgEvent_UnrecognizedTypeRejected(t *testing.T) {
-	e := NewOrgEvent(EventType("bogus.event"), "admin1", "org1", nil)
-	if e.Success {
-		t.Error("unrecognized org event type should produce Success=false")
-	}
-	if e.Metadata["error"] == nil {
-		t.Error("unrecognized org event type should record the error in Metadata")
+	if err := ValidateConfig(AuditServiceConfig{OutboxMaxAge: -1, DeadLetterTTL: -1}); err != nil {
+		t.Fatalf("keep-forever audit retention may use unbounded outbox clocks: %v", err)
 	}
 }
 
-func TestSinkInterface_Compliance(t *testing.T) {
-	var _ EventSink = (*mockSink)(nil)
-	var _ EventSink = (*LoggerSink)(nil)
-	// SQLAuditSink can't be instantiated without a real DB
-}
-
-func TestCleanerInterface_Compliance(t *testing.T) {
-	var _ Cleaner = (*cleanerSink)(nil)
-	// SQLAuditSink implements Cleaner — tested via integration
-}
-
-func TestClose_StopsAuditBeforeDB(t *testing.T) {
-	var dbClosed atomic.Bool
-	sink := &mockSink{}
-	s := NewAuditService(AuditServiceConfig{QueueSize: 10, BatchSize: 10, FlushInterval: time.Hour}, nil)
-	s.AddSink(sink)
-	s.Start(context.Background())
-
-	s.Publish(context.Background(), NewLoginEvent("u", "s", nil, "", true))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	s.Stop(ctx)
-
-	// After Stop, events are flushed before it returns
-	events := sink.snapshot()
-	if len(events) == 0 {
-		t.Fatal("events should be flushed before Stop returns")
+func TestValidateConfig_ClaimLeaseExceedsSinkBatchTime(t *testing.T) {
+	sink, err := NewWebhookSink(WebhookConfig{
+		Endpoint: "https://example.test/audit",
+		Timeout:  2 * time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	// Simulate DB close after audit stop
-	dbClosed.Store(true)
-	if !dbClosed.Load() {
-		t.Fatal("DB should close after audit stop")
+	if err := ValidateConfig(AuditServiceConfig{
+		BatchSize:  50,
+		ClaimLease: time.Minute,
+	}, sink); err == nil {
+		t.Fatal("1m claim lease must be rejected for a 100s webhook batch")
+	}
+	if err := ValidateConfig(AuditServiceConfig{
+		BatchSize:  50,
+		ClaimLease: 2 * time.Minute,
+	}, sink); err != nil {
+		t.Fatalf("2m claim lease should exceed a 100s webhook batch: %v", err)
+	}
+	if err := ValidateConfig(AuditServiceConfig{}, sink); err != nil {
+		t.Fatalf("defaults must cover the default webhook batch bound: %v", err)
+	}
+}
+
+func TestValidateConfig_ExternalSinkMustDeclareBound(t *testing.T) {
+	type unboundedSink struct{ EventSink }
+	if err := ValidateConfig(AuditServiceConfig{}, unboundedSink{}); err == nil {
+		t.Fatal("external sink without BatchDeliveryTimeBounder must be rejected")
+	}
+}
+
+func TestStart_RejectsMissingOutboxPrerequisites(t *testing.T) {
+	tests := []struct {
+		name   string
+		db     saverDB
+		outbox OutboxStore
+	}{
+		{name: "outbox store", db: tableSaverDB{exists: true}},
+		{name: "database handle", outbox: &mockOutbox{}},
+		{name: "outbox table", db: tableSaverDB{}, outbox: &mockOutbox{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewAuditService(AuditServiceConfig{}, tt.db, &mockRecordStore{}, tt.outbox, nil)
+			s.AddSink(noopSink{})
+			if err := s.Start(context.Background()); err == nil {
+				t.Fatalf("Start must reject missing %s", tt.name)
+			}
+		})
+	}
+}
+
+func TestStart_PropagatesTableCheckError(t *testing.T) {
+	want := errors.New("database unavailable")
+	s := NewAuditService(AuditServiceConfig{}, tableSaverDB{tableErr: want}, &mockRecordStore{}, &mockOutbox{}, nil)
+	s.AddSink(noopSink{})
+	if err := s.Start(context.Background()); !errors.Is(err, want) {
+		t.Fatalf("Start error = %v, want wrapped table check error", err)
+	}
+}
+
+func TestRetryWindowFor_CapDominated(t *testing.T) {
+	// The backoff ceiling, not MaxAttempts, sets the window: doubling
+	// attempts from 10 must not grow it by more than the capped hour.
+	w10 := retryWindowFor(10)
+	w20 := retryWindowFor(20)
+	if w10 < time.Hour || w20 > w10+11*time.Hour+time.Minute {
+		t.Fatalf("retryWindowFor: w10=%v w20=%v — MaxAttempts should not dominate the 1h cap", w10, w20)
+	}
+	if w20 <= w10 {
+		t.Fatalf("more attempts must not shrink the window: %v vs %v", w20, w10)
+	}
+}
+
+func TestValidateConfig_OutboxMaxRowsMustBeExplicit(t *testing.T) {
+	if err := ValidateConfig(AuditServiceConfig{OutboxMaxRows: -1}); err != nil {
+		t.Fatalf("negative (explicitly unbounded) must be accepted: %v", err)
+	}
+}
+
+func TestBestEffortSet_OnlyFloodableFailures(t *testing.T) {
+	for typ := range bestEffortTypes {
+		if !strings.Contains(string(typ), "failed") && !strings.Contains(string(typ), "suspicious") {
+			t.Errorf("best-effort set contains %s: only attacker-floodable failure events belong there", typ)
+		}
 	}
 }

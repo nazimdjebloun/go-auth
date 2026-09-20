@@ -38,6 +38,25 @@ type AuthService struct {
 	// attached by the library's wiring; see AccountDeletion for why it can
 	// legitimately be nil (mock-built services).
 	deletion *AccountDeletion
+
+	// txManager commits authentication/session mutations and their audit
+	// records together (record-iff-commit). It is nil only in lightweight
+	// mock-built services; production wiring always attaches it.
+	txManager port.TxManager
+}
+
+// AttachTxManager wires the transaction manager used by registration,
+// successful login session issuance, and logout so each mutation is atomic
+// with the audit records that describe it. Called once by library wiring.
+func (s *AuthService) AttachTxManager(tm port.TxManager) {
+	s.txManager = tm
+}
+
+func (s *AuthService) withTx(ctx context.Context, fn func(context.Context) error) error {
+	if s.txManager == nil {
+		return fn(ctx)
+	}
+	return s.txManager.WithTx(ctx, fn)
 }
 
 // AttachAccountDeletion wires the shared transactional account-deletion
@@ -103,7 +122,12 @@ type Config struct {
 }
 
 type AuditPublisher interface {
-	Publish(ctx context.Context, event audit.Event)
+	// Record writes the event durably: the audit record joins the caller's
+	// transaction (record-iff-commit) and, when external delivery sinks are
+	// configured, so does the delivery obligation. A non-nil error means the
+	// enqueue failure mode is fail-closed and the operation must abort —
+	// which, outside a transaction, degrades to fail-open by design.
+	Record(ctx context.Context, event audit.Event) error
 }
 
 func NewAuthService(
@@ -149,6 +173,34 @@ func NewAuthService(
 // gets today's behaviour rather than a panic.
 func (s *AuthService) enforceTwoFactor(user *domain.User) bool {
 	return s.twoFactorSvc != nil && s.twoFactorSvc.Enforce(user)
+}
+
+// createAuditedLoginSession commits the new session and the login-success
+// record together. SessionService also records session.created using the same
+// transaction context, so both records obey record-iff-commit.
+func (s *AuthService) createAuditedLoginSession(
+	ctx context.Context,
+	userID, ip, userAgent string,
+	loginEvent func(sessionID string) audit.Event,
+) (*SessionResult, error) {
+	var result *SessionResult
+	err := s.withTx(ctx, func(txCtx context.Context) error {
+		created, err := s.sessionSvc.Create(txCtx, userID, ip, userAgent)
+		if err != nil {
+			return err
+		}
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, loginEvent(created.Session.ID)); err != nil {
+				return err
+			}
+		}
+		result = created
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*RegisterResult, error) {
@@ -197,23 +249,39 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		UpdatedAt:             now,
 	}
 
-	if err := s.users.Create(ctx, user); err != nil {
-		if errors.Is(err, port.ErrDuplicateKey) {
-			// The GetByEmail check above lost a race — another request
-			// created this email between the check and this Create. The
-			// unique constraint is the real backstop; this just makes the
-			// loser's response match what GetByEmail would have found.
-			return nil, domain.ErrEmailAlreadyExists
+	// One transaction for the user row and its audit record: a crash between
+	// them would otherwise leave a registered account with no record that it
+	// was registered. Without an attached manager (mock-built service) this
+	// falls back to the previous autocommit shape.
+	createUser := func(txCtx context.Context) error {
+		if err := s.users.Create(txCtx, user); err != nil {
+			if errors.Is(err, port.ErrDuplicateKey) {
+				// The GetByEmail check above lost a race — another request
+				// created this email between the check and this Create. The
+				// unique constraint is the real backstop; this just makes the
+				// loser's response match what GetByEmail would have found.
+				return domain.ErrEmailAlreadyExists
+			}
+			s.log.Error("failed to create user", "err", err, "email", input.Email)
+			return domain.ErrInternal
 		}
-		s.log.Error("failed to create user", "err", err, "email", input.Email)
-		return nil, domain.ErrInternal
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewUserRegisteredEvent(user.ID, net.ParseIP(input.IP), input.UserAgent)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	if s.txManager != nil {
+		if err := s.txManager.WithTx(ctx, createUser); err != nil {
+			return nil, err
+		}
+	} else if err := createUser(ctx); err != nil {
+		return nil, err
 	}
 
 	s.log.Info("user registered", "user_id", user.ID, "email", user.Email)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewUserRegisteredEvent(user.ID, net.ParseIP(input.IP), input.UserAgent))
-	}
 
 	if s.config.RequireEmailVerification {
 		if _, err := s.verifySvc.SendVerification(ctx, user); err != nil {
@@ -390,7 +458,14 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
 		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent))
+			// The audit failure must not replace the domain error: a failed
+			// login has to answer invalid_credentials, not a 500 about
+			// audit storage. This is a non-transactional site, so the
+			// record autocommits and fail-closed degrades to fail-open
+			// (nothing to roll back) — Record cannot fail here in any mode.
+			if err := s.audit.Record(ctx, audit.NewLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent)); err != nil {
+				s.log.Error("login-failed audit record error", "err", err)
+			}
 		}
 		return nil, aerr
 	}
@@ -417,7 +492,9 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		}, nil
 	}
 
-	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	sessResult, err := s.createAuditedLoginSession(ctx, user.ID, input.IP, input.UserAgent, func(sessionID string) audit.Event {
+		return audit.NewLoginEvent(user.ID, sessionID, net.ParseIP(input.IP), input.UserAgent, true)
+	})
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.ErrInternal
@@ -428,10 +505,6 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 	}
 
 	s.log.Info("user logged in", "user_id", user.ID, "ip", input.IP)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewLoginEvent(user.ID, sessResult.Session.ID, net.ParseIP(input.IP), input.UserAgent, true))
-	}
 
 	return &LoginResult{
 		User:         user,
@@ -448,14 +521,20 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
 		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewAdminLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent))
+			// Non-transactional site: the domain error wins, and fail-closed
+			// degrades to fail-open (nothing to roll back).
+			if err := s.audit.Record(ctx, audit.NewAdminLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent)); err != nil {
+				s.log.Error("admin login-failed audit record error", "err", err)
+			}
 		}
 		return nil, aerr
 	}
 
 	if requiresVerification || user.Role != domain.RoleAdmin {
 		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewAdminLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent))
+			if err := s.audit.Record(ctx, audit.NewAdminLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent)); err != nil {
+				s.log.Error("admin login-failed audit record error", "err", err)
+			}
 		}
 		return nil, domain.ErrInvalidCredentials
 	}
@@ -490,7 +569,9 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 		}, nil
 	}
 
-	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	sessResult, err := s.createAuditedLoginSession(ctx, user.ID, input.IP, input.UserAgent, func(sessionID string) audit.Event {
+		return audit.NewAdminLoginSuccessEvent(user.ID, sessionID, net.ParseIP(input.IP), input.UserAgent)
+	})
 	if err != nil {
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.ErrInternal
@@ -501,10 +582,6 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 	}
 
 	s.log.Info("admin logged in", "user_id", user.ID, "ip", input.IP)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAdminLoginSuccessEvent(user.ID, sessResult.Session.ID, net.ParseIP(input.IP), input.UserAgent))
-	}
 
 	return &LoginResult{
 		User:         user,
@@ -532,12 +609,18 @@ func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*do
 }
 
 func (s *AuthService) Logout(ctx context.Context, sessionID string) error {
-	if err := s.sessionSvc.RevokeByID(ctx, sessionID); err != nil {
+	err := s.withTx(ctx, func(txCtx context.Context) error {
+		if err := s.sessionSvc.RevokeByID(txCtx, sessionID); err != nil {
+			return err
+		}
+		if s.audit != nil {
+			return s.audit.Record(txCtx, audit.NewLogoutEvent("", sessionID, nil, ""))
+		}
+		return nil
+	})
+	if err != nil {
 		s.log.Error("failed to revoke session", "err", err, "session_id", sessionID)
 		return domain.ErrInternal
-	}
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewLogoutEvent("", sessionID, nil, ""))
 	}
 	return nil
 }
@@ -556,7 +639,9 @@ func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) er
 	}
 	s.log.Info("name changed", "user_id", userID)
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewNameChangedEvent(userID))
+		if err := s.audit.Record(ctx, audit.NewNameChangedEvent(userID)); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -582,14 +667,17 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 		s.log.Error("account deletion refused: no deletion coordinator attached", "user_id", userID)
 		return domain.ErrInternal
 	}
-	if err := s.deletion.DeleteUser(ctx, userID); err != nil {
+	record := func(txCtx context.Context) error {
+		if s.audit == nil {
+			return nil
+		}
+		return s.audit.Record(txCtx, audit.NewAccountDeletedEvent(userID))
+	}
+	if err := s.deletion.DeleteUserAndRecord(ctx, userID, record); err != nil {
 		s.log.Error("failed to delete account", "err", err, "user_id", userID)
 		return err
 	}
 	s.log.Info("account deleted", "user_id", userID)
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAccountDeletedEvent(userID))
-	}
 	return nil
 }
 
@@ -717,42 +805,26 @@ func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDel
 
 	// Claim the validated code and delete atomically. Do not write the token
 	// after commit: foreign-key cascades may already have removed its row.
-	if s.deletion != nil {
-		if err := s.deletion.deleteWithCode(ctx, input.UserID, s.tokens, token); err != nil {
-			s.log.Error("failed to delete account via code", "err", err, "user_id", input.UserID)
-			var authErr *domain.AuthError
-			if errors.As(err, &authErr) {
-				return err
-			}
-			return domain.ErrInternal
-		}
-
-		s.log.Info("account deleted via code", "user_id", input.UserID)
-		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewAccountDeletedEvent(input.UserID))
-		}
-		return nil
-	}
-
-	if err := s.sessions.DeleteAllForUser(ctx, input.UserID); err != nil {
-		s.log.Error("failed to revoke sessions", "err", err, "user_id", input.UserID)
+	if s.deletion == nil {
+		s.log.Error("account deletion via code refused: no deletion coordinator attached", "user_id", input.UserID)
 		return domain.ErrInternal
 	}
-
-	if err := s.users.Delete(ctx, input.UserID); err != nil {
-		s.log.Error("failed to delete user", "err", err, "user_id", input.UserID)
-		return domain.ErrInternal
+	record := func(txCtx context.Context) error {
+		if s.audit == nil {
+			return nil
+		}
+		return s.audit.Record(txCtx, audit.NewAccountDeletedEvent(input.UserID))
 	}
-
-	if err := s.tokens.MarkUsed(ctx, token.ID); err != nil {
-		s.log.Error("failed to mark token used", "err", err, "token_id", token.ID)
+	if err := s.deletion.deleteWithCode(ctx, input.UserID, s.tokens, token, record); err != nil {
+		s.log.Error("failed to delete account via code", "err", err, "user_id", input.UserID)
+		var authErr *domain.AuthError
+		if errors.As(err, &authErr) {
+			return err
+		}
 		return domain.ErrInternal
 	}
 
 	s.log.Info("account deleted via code", "user_id", input.UserID)
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAccountDeletedEvent(input.UserID))
-	}
 	return nil
 }
 

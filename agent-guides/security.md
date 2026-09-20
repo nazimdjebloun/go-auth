@@ -45,10 +45,7 @@ rate limits, or account-enumeration behavior.
   otherwise reuse a token.
 - Password reset/change and associated session revocation must preserve their
   current transaction boundary.
-- Audit delivery is currently asynchronous and best-effort. `FailureMode`
-  controls continuation to later sinks; it does not roll back or fail the
-  triggering request. Do not claim durable credential-event delivery without an
-  outbox written in the credential transaction.
+- Audit delivery is durable, not asynchronous-best-effort. The record and its `audit_outbox` delivery obligation are written inside the credential transaction; the dispatcher claims and delivers them with retries and dead-lettering. `FailureMode` controls fan-out across sinks within one dispatch batch; `EnqueueFailureMode` (a per-event resolver, nil = fail-open) decides whether a failed durable write blocks the triggering operation. Do not claim fail-closed semantics at a non-transactional site — there is nothing to roll back, so fail-closed degrades to fail-open there by design.
 
 ## Timing and enumeration
 

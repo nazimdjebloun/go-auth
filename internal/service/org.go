@@ -141,6 +141,13 @@ func (s *OrgService) CreateOrg(ctx context.Context, input CreateOrgInput) (*doma
 			return err
 		}
 
+		// Inside the transaction: the record commits with the org and its
+		// owner membership.
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgCreated, input.OwnerID, org.ID, nil)); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 
@@ -148,11 +155,6 @@ func (s *OrgService) CreateOrg(ctx context.Context, input CreateOrgInput) (*doma
 		return nil, err
 	}
 	s.log.Info("org created", "org_id", org.ID, "slug", org.Slug, "owner_id", input.OwnerID)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgCreated, input.OwnerID, org.ID, nil))
-	}
-
 	return org, nil
 }
 
@@ -258,7 +260,7 @@ type DeleteOrgInput struct {
 // body. Returns the deleted org (fetched before the delete) so callers can
 // snapshot its name/slug into their audit event — the row won't exist to
 // look it up afterward.
-func (s *OrgService) deleteOrgTx(ctx context.Context, orgID string) (*domain.Organization, error) {
+func (s *OrgService) deleteOrgTx(ctx context.Context, orgID string, record func(txCtx context.Context, org *domain.Organization) error) (*domain.Organization, error) {
 	org, err := s.orgs.GetByID(ctx, orgID)
 	if err != nil {
 		s.log.Error("failed to get org for deletion", "err", err, "org_id", orgID)
@@ -287,6 +289,13 @@ func (s *OrgService) deleteOrgTx(ctx context.Context, orgID string) (*domain.Org
 		if !deleted {
 			return domain.ErrOrgNotFound
 		}
+		// Inside the transaction: the record commits with the deletion it
+		// describes, so a crash cannot leave an org gone with no record.
+		if record != nil {
+			if err := record(txCtx, org); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -301,18 +310,15 @@ func (s *OrgService) DeleteOrg(ctx context.Context, input DeleteOrgInput) error 
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleOwner); err != nil {
 		return err
 	}
-	org, err := s.deleteOrgTx(ctx, input.OrgID)
-	if err != nil {
-		return err
-	}
-
-	if s.audit != nil {
+	_, err := s.deleteOrgTx(ctx, input.OrgID, func(txCtx context.Context, org *domain.Organization) error {
+		if s.audit == nil {
+			return nil
+		}
 		evt := audit.NewOrgEvent(audit.EventOrgDeleted, input.ActorID, input.OrgID, nil)
 		evt.Metadata = map[string]any{"orgName": org.Name, "orgSlug": org.Slug}
-		s.audit.Publish(ctx, evt)
-	}
-
-	return nil
+		return s.audit.Record(txCtx, evt)
+	})
+	return err
 }
 
 type ListUserOrgsInput struct {
@@ -391,7 +397,7 @@ type AddMemberInput struct {
 // existence check, owner/member-count upkeep, insert — with no authorization
 // check of its own. See deleteOrgTx's doc comment for why the tx body and
 // the auth check are split across caller and helper.
-func (s *OrgService) addMemberTx(ctx context.Context, orgID, userID string, role domain.OrgRole) error {
+func (s *OrgService) addMemberTx(ctx context.Context, orgID, userID string, role domain.OrgRole, record func(txCtx context.Context) error) error {
 	membership, err := s.orgs.GetMembership(ctx, orgID, userID)
 	if err != nil {
 		s.log.Error("failed to check membership", "err", err, "org_id", orgID, "user_id", userID)
@@ -429,6 +435,12 @@ func (s *OrgService) addMemberTx(ctx context.Context, orgID, userID string, role
 			}
 			return err
 		}
+		// Inside the transaction: the record commits with the membership.
+		if record != nil {
+			if err := record(txCtx); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -445,7 +457,12 @@ func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error 
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return err
 	}
-	return s.addMemberTx(ctx, input.OrgID, input.UserID, input.Role)
+	return s.addMemberTx(ctx, input.OrgID, input.UserID, input.Role, func(txCtx context.Context) error {
+		if s.audit == nil {
+			return nil
+		}
+		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberInvited, input.ActorID, input.OrgID, &input.UserID))
+	})
 }
 
 type RemoveMemberInput struct {
@@ -463,7 +480,7 @@ type RemoveMemberInput struct {
 // authorization check of its own. See deleteOrgTx's doc comment for why the
 // tx body and the auth check are split across caller and helper. Returns the
 // removed member's role for the caller to log/audit.
-func (s *OrgService) removeMemberTx(ctx context.Context, orgID, userID string) (domain.OrgRole, error) {
+func (s *OrgService) removeMemberTx(ctx context.Context, orgID, userID string, record func(txCtx context.Context, removedRole domain.OrgRole) error) (domain.OrgRole, error) {
 	var removedRole domain.OrgRole
 	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		// The membership is read inside the transaction and the delete
@@ -505,7 +522,16 @@ func (s *OrgService) removeMemberTx(ctx context.Context, orgID, userID string) (
 		if err := s.orgs.DecrementOrgMemberCount(txCtx, orgID); err != nil {
 			return err
 		}
-		return s.sessions.ClearActiveOrgForUser(txCtx, userID, orgID)
+		if err := s.sessions.ClearActiveOrgForUser(txCtx, userID, orgID); err != nil {
+			return err
+		}
+		// Inside the transaction: the record commits with the removal.
+		if record != nil {
+			if err := record(txCtx, removedRole); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return "", err
@@ -540,15 +566,13 @@ func (s *OrgService) RemoveMember(ctx context.Context, input RemoveMemberInput) 
 		}
 	}
 
-	if _, err := s.removeMemberTx(ctx, input.OrgID, input.UserID); err != nil {
-		return err
-	}
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, input.ActorID, input.OrgID, &input.UserID))
-	}
-
-	return nil
+	_, err := s.removeMemberTx(ctx, input.OrgID, input.UserID, func(txCtx context.Context, _ domain.OrgRole) error {
+		if s.audit == nil {
+			return nil
+		}
+		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, input.ActorID, input.OrgID, &input.UserID))
+	})
+	return err
 }
 
 type UpdateMemberRoleInput struct {
@@ -564,7 +588,7 @@ type UpdateMemberRoleInput struct {
 // owner-escalation guard (see UpdateMemberRole's doc comment for why that
 // guard stays out of this shared helper). Returns the member's prior role
 // (empty if no change was made) for the caller to log/audit.
-func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID string, newRole domain.OrgRole) (domain.OrgRole, error) {
+func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID string, newRole domain.OrgRole, record func(txCtx context.Context, oldRole domain.OrgRole) error) (domain.OrgRole, error) {
 	var oldRole domain.OrgRole
 	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		// Like removeMemberTx, the membership is read inside the
@@ -630,7 +654,19 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 			}
 		}
 
-		return s.sessions.UpdateActiveOrgRoleForUser(txCtx, userID, orgID, newRole)
+		if err := s.sessions.UpdateActiveOrgRoleForUser(txCtx, userID, orgID, newRole); err != nil {
+			return err
+		}
+		// Inside the transaction: the record commits with the role change.
+		// A no-op update (oldRole == "") records nothing here — the caller
+		// treats it as "no change", so the closure is only invoked when a
+		// role actually moved.
+		if record != nil && oldRole != "" {
+			if err := record(txCtx, oldRole); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return "", err
@@ -676,16 +712,17 @@ func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRol
 		}
 	}
 
-	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole)
+	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole, func(txCtx context.Context, _ domain.OrgRole) error {
+		if s.audit == nil {
+			return nil
+		}
+		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
+	})
 	if err != nil {
 		return err
 	}
 	if oldRole == "" {
 		return nil // no-op: already had this role
-	}
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
 	}
 
 	return nil

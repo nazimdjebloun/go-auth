@@ -135,6 +135,15 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 		if !updated {
 			return domain.NewError("code_invalid", "Invalid verification code")
 		}
+		// Inside the transaction: the record commits with the verification
+		// it describes (record-iff-commit). Recording after commit would
+		// leave a crash window where the email is verified and no record
+		// exists.
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewEmailVerifiedEvent(user.ID)); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -147,10 +156,6 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	}
 
 	s.log.Info("email verified", "user_id", user.ID, "email", user.Email)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewEmailVerifiedEvent(user.ID))
-	}
 
 	return &verifiedUser, nil
 }
@@ -250,7 +255,9 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewEmailVerificationSentEvent(user.Email))
+		if err := s.audit.Record(ctx, audit.NewEmailVerificationSentEvent(user.Email)); err != nil {
+			return nil, err
+		}
 	}
 
 	return &VerificationResult{Sent: true, ExpiresAt: token.ExpiresAt}, nil

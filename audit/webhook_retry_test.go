@@ -99,8 +99,9 @@ func TestWebhookRetry_DoesNotRetryClientErrors(t *testing.T) {
 	}
 }
 
-// TestWebhookRetry_DefaultIsSingleAttempt keeps the documented default: no
-// Retries means at-most-once, exactly as before the retry option existed.
+// TestWebhookRetry_DefaultIsSingleAttempt keeps the per-dispatch default: no
+// Retries means one HTTP attempt before the durable outbox schedules a later
+// delivery attempt.
 func TestWebhookRetry_DefaultIsSingleAttempt(t *testing.T) {
 	var attempts atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -37,7 +37,8 @@ type WebhookConfig struct {
 	Timeout time.Duration
 	// Retries is how many times a failed POST is retried. Only
 	// transport errors and 5xx responses are retried — a 4xx is a
-	// permanent rejection. 0 means a single attempt (at-most-once).
+	// permanent rejection. 0 means one POST per dispatcher attempt; the
+	// durable outbox may redeliver the event until it is acknowledged.
 	Retries int
 	// RetryWait is the base delay before the first retry; it doubles on
 	// each subsequent attempt. 0 means 1s. Only used when Retries > 0.
@@ -49,16 +50,11 @@ type WebhookConfig struct {
 
 // WebhookSink delivers audit events to an HTTP endpoint — one POST per
 // event, JSON body, optionally HMAC-signed. It plugs into the existing
-// EventSink seam via WithAudit/WithAuditSink; the AuditService's queue,
-// batching, failure mode, and drop-on-full behavior apply unchanged.
-//
-// Delivery is best-effort: a failed or non-2xx POST returns an error that
-// the AuditService logs according to the configured FailureMode — it never
-// blocks or fails the request that triggered the event. Transport errors
-// and 5xx responses are retried up to Retries times; 4xx responses are
-// permanent and never retried. Point the sink at a receiver that tolerates
-// at-most-once delivery, or run a durable intermediary (queue, collector)
-// behind it.
+// EventSink seam via WithAudit/WithAuditSink. External delivery is backed by
+// the durable audit outbox and is at-least-once: a receiver must deduplicate
+// by event ID. Transport errors and 5xx responses are retried up to Retries
+// times within one dispatcher attempt; 4xx responses are permanent for that
+// attempt and enter the outbox retry/dead-letter policy.
 type WebhookSink struct {
 	cfg    WebhookConfig
 	client *http.Client
@@ -111,6 +107,41 @@ func (s *WebhookSink) HandleBatch(ctx context.Context, events []Event) error {
 		}
 	}
 	return nil
+}
+
+// MaxBatchDeliveryTime reports the worst-case time HandleBatch can spend when
+// every POST exhausts its transport timeout and configured retries. A custom
+// client with Timeout == 0 is deliberately reported as unbounded.
+func (s *WebhookSink) MaxBatchDeliveryTime(batchSize int) (time.Duration, bool) {
+	if batchSize <= 0 || s.client.Timeout <= 0 {
+		return 0, false
+	}
+	perEvent := saturatingDurationMul(s.client.Timeout, s.cfg.Retries+1)
+	wait := s.cfg.RetryWait
+	for retry := 0; retry < s.cfg.Retries && perEvent < time.Duration(1<<63-1); retry++ {
+		perEvent = saturatingDurationAdd(perEvent, wait)
+		wait = saturatingDurationMul(wait, 2)
+	}
+	return saturatingDurationMul(perEvent, batchSize), true
+}
+
+func saturatingDurationAdd(a, b time.Duration) time.Duration {
+	const maxDuration = time.Duration(1<<63 - 1)
+	if b > 0 && a > maxDuration-b {
+		return maxDuration
+	}
+	return a + b
+}
+
+func saturatingDurationMul(d time.Duration, n int) time.Duration {
+	const maxDuration = time.Duration(1<<63 - 1)
+	if d <= 0 || n <= 0 {
+		return 0
+	}
+	if d > maxDuration/time.Duration(n) {
+		return maxDuration
+	}
+	return d * time.Duration(n)
 }
 
 func (s *WebhookSink) post(ctx context.Context, event Event) error {

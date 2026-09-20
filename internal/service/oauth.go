@@ -258,7 +258,12 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		}
 		s.log.Info("provider linked", "user_id", *userID, "provider", providerName)
 		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewOAuthEvent(audit.EventOAuthLinked, *userID, providerName, net.ParseIP(ip), userAgent))
+			// attachOAuthLink is a non-transactional helper: the record
+			// autocommits. Fail-closed degrades to fail-open here (nothing
+			// to roll back), so this cannot fail the link.
+			if err := s.audit.Record(ctx, audit.NewOAuthEvent(audit.EventOAuthLinked, *userID, providerName, net.ParseIP(ip), userAgent)); err != nil {
+				s.log.Error("oauth link audit record failed", "err", err, "user_id", *userID)
+			}
 		}
 		return &OAuthCallbackResult{IsLink: true}, nil
 	}
@@ -300,7 +305,9 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		}
 		s.log.Info("oauth login", "user_id", user.ID, "provider", providerName, "ip", ip)
 		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewOAuthEvent(audit.EventOAuthLogin, user.ID, providerName, net.ParseIP(ip), userAgent))
+			if err := s.audit.Record(ctx, audit.NewOAuthEvent(audit.EventOAuthLogin, user.ID, providerName, net.ParseIP(ip), userAgent)); err != nil {
+				return nil, err
+			}
 		}
 		return &OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken}, nil
 	}
@@ -346,16 +353,19 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		if _, err := s.createProviderAccount(txCtx, newUser.ID, info); err != nil {
 			return err
 		}
+		// Inside the transaction: the record commits with the account and
+		// provider link it describes.
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewUserRegisteredEvent(newUser.ID, net.ParseIP(ip), userAgent)); err != nil {
+				return err
+			}
+		}
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 
 	s.log.Info("oauth register", "user_id", newUser.ID, "provider", providerName, "email_verified", info.EmailVerified)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewUserRegisteredEvent(newUser.ID, net.ParseIP(ip), userAgent))
-	}
 
 	// Only send verification email if the provider did NOT verify the email
 	// and email verification is required.
@@ -406,6 +416,13 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 			s.log.Error("failed to unlink provider", "err", err, "user_id", userID, "provider", providerName)
 			return domain.ErrInternal
 		}
+		// Inside the transaction: the record commits with the unlink it
+		// describes.
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewOAuthEvent(audit.EventOAuthUnlinked, userID, providerName, nil, "")); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -413,11 +430,6 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 	}
 
 	s.log.Info("provider unlinked", "user_id", userID, "provider", providerName)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOAuthEvent(audit.EventOAuthUnlinked, userID, providerName, nil, ""))
-	}
-
 	return nil
 }
 

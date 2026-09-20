@@ -134,7 +134,9 @@ func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 	s.log.Info("user banned", "user_id", input.UserID)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserBanned, input.ActorID, input.UserID))
+		if err := s.audit.Record(ctx, audit.NewAdminEvent(audit.EventAdminUserBanned, input.ActorID, input.UserID)); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -167,7 +169,9 @@ func (s *AdminService) UnbanUser(ctx context.Context, input UnbanUserInput) erro
 	s.log.Info("user unbanned", "user_id", input.UserID)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserUnbanned, input.ActorID, input.UserID))
+		if err := s.audit.Record(ctx, audit.NewAdminEvent(audit.EventAdminUserUnbanned, input.ActorID, input.UserID)); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -196,12 +200,21 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 	// transition, not read the already-updated struct.
 	oldRole := string(user.Role)
 
-	// Role change atomically with the last-usable-admin invariant. The guard
-	// is part of the UserRepository contract — no count-then-write path.
-	updated, err := s.users.DemoteWithAdminGuard(ctx, input.UserID, domain.Role(input.Role), time.Now().UTC())
+	// Role change atomically with both the last-usable-admin invariant and
+	// its audit record. The outer guard supplies the transaction; the nested
+	// DemoteWithAdminGuard call joins it through the guard context.
+	var updated bool
+	err = s.users.WithAdminGuard(ctx, func(txCtx context.Context) error {
+		var err error
+		updated, err = s.users.DemoteWithAdminGuard(txCtx, input.UserID, domain.Role(input.Role), time.Now().UTC())
+		if err != nil || !updated || s.audit == nil {
+			return err
+		}
+		return s.audit.Record(txCtx, audit.NewRoleChangedEvent(input.ActorID, input.UserID, oldRole, input.Role))
+	})
 	if err != nil {
 		s.log.Error("failed to update role", "err", err, "user_id", input.UserID)
-		return domain.ErrInternal
+		return err
 	}
 	if !updated {
 		_, gerr := s.targetUser(ctx, input.UserID)
@@ -215,11 +228,6 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 	user.UpdatedAt = time.Now().UTC()
 
 	s.log.Info("user role updated", "user_id", input.UserID, "new_role", input.Role)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewRoleChangedEvent(input.ActorID, input.UserID, oldRole, input.Role))
-	}
-
 	return nil
 }
 
@@ -244,17 +252,26 @@ func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) er
 		s.log.Error("admin user deletion refused: no deletion coordinator attached", "user_id", input.UserID)
 		return domain.ErrInternal
 	}
-	if err := s.deletion.DeleteUser(ctx, input.UserID); err != nil {
+	record := func(txCtx context.Context) error {
+		if s.audit == nil {
+			return nil
+		}
+		return s.audit.Record(txCtx, audit.NewAdminEvent(audit.EventAdminUserDeleted, input.ActorID, input.UserID))
+	}
+	if err := s.deletion.DeleteUserAndRecord(ctx, input.UserID, record); err != nil {
+		// The guarded delete can report a vanished target after our initial
+		// lookup. Re-read through this service's repository so infrastructure
+		// failures are preserved instead of being flattened to user_not_found.
+		if errors.Is(err, domain.ErrUserNotFound) {
+			if _, lookupErr := s.targetUser(ctx, input.UserID); lookupErr != nil {
+				return lookupErr
+			}
+		}
 		s.log.Error("failed to delete user", "err", err, "user_id", input.UserID)
 		return err
 	}
 
 	s.log.Info("user deleted by admin", "user_id", input.UserID)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserDeleted, input.ActorID, input.UserID))
-	}
-
 	return nil
 }
 
@@ -310,7 +327,9 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	s.log.Info("user created by admin", "user_id", user.ID, "email", user.Email, "role", role)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewAdminEvent(audit.EventAdminUserCreated, "", user.ID))
+		if err := s.audit.Record(ctx, audit.NewAdminEvent(audit.EventAdminUserCreated, "", user.ID)); err != nil {
+			return nil, err
+		}
 	}
 
 	return user, nil

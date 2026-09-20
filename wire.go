@@ -231,32 +231,59 @@ func resolveTemplates(cfg *Config) (port.TemplateProvider, *port.URLValidator, e
 	return templateProvider, urlValidator, nil
 }
 
-// startAuditService builds and starts the audit pipeline when it is enabled,
-// wiring the built-in SQL and logger sinks ahead of any the consumer added.
-// Both return values are nil when auditing is off, which every caller
-// treats as "do not publish".
-func startAuditService(cfg *Config, sqlDB *sqlstore.DB) (*audit.AuditService, service.AuditPublisher) {
-	var auditSvc *audit.AuditService
-	var auditPub service.AuditPublisher
-	if cfg.audit.Enabled {
-		auditCfg := audit.AuditServiceConfig{
-			FailureMode:   cfg.audit.FailureMode,
-			QueueSize:     cfg.audit.QueueSize,
-			Workers:       cfg.audit.Workers,
-			BatchSize:     cfg.audit.BatchSize,
-			FlushInterval: cfg.audit.FlushInterval,
-			RetentionDays: cfg.audit.RetentionDays,
-		}
-		auditSvc = audit.NewAuditService(auditCfg, cfg.logger)
-		auditSvc.AddSink(audit.NewSQLAuditSink(sqlDB.DB, sqlDB.Driver()))
-		auditSvc.AddSink(audit.NewLoggerSink(cfg.logger))
-		for _, sink := range append(append([]audit.EventSink(nil), cfg.audit.Sinks...), cfg.auditSinks...) {
-			auditSvc.AddSink(sink)
-		}
-		auditSvc.Start(context.Background())
-		auditPub = auditSvc
+// startAuditService builds and starts the durable audit pipeline when it is
+// enabled. The record store writes audit_log rows in the caller's
+// transaction; external delivery sinks are fed from the audit_outbox table
+// by the dispatcher. Both return values are nil when auditing is off, which
+// every caller treats as "do not record".
+func startAuditService(cfg *Config, sqlDB *sqlstore.DB) (*audit.AuditService, service.AuditPublisher, error) {
+	if !cfg.audit.Enabled {
+		return nil, nil, nil
 	}
-	return auditSvc, auditPub
+
+	auditCfg := audit.AuditServiceConfig{
+		FailureMode:        cfg.audit.FailureMode,
+		Workers:            cfg.audit.Workers,
+		BatchSize:          cfg.audit.BatchSize,
+		FlushInterval:      cfg.audit.FlushInterval,
+		RetentionDays:      cfg.audit.RetentionDays,
+		EnqueueFailureMode: cfg.audit.EnqueueFailureMode,
+		MaxAttempts:        cfg.audit.MaxAttempts,
+		ClaimLease:         cfg.audit.ClaimLease,
+		OutboxMaxAge:       cfg.audit.OutboxMaxAge,
+		DeadLetterTTL:      cfg.audit.DeadLetterTTL,
+		OutboxMaxRows:      cfg.audit.OutboxMaxRows,
+	}
+
+	deliverySinks := append(append([]audit.EventSink(nil), cfg.audit.Sinks...), cfg.auditSinks...)
+	hasDeliverySinks := len(deliverySinks) > 0
+	var outbox audit.OutboxStore
+	if hasDeliverySinks {
+		// Reject an unsafe lease or an unbounded sink before constructing
+		// the write path. Continuing without an outbox would make Record
+		// dereference a nil store and, worse, advertise delivery that can
+		// never happen.
+		if err := audit.ValidateConfig(auditCfg, deliverySinks...); err != nil {
+			return nil, nil, fmt.Errorf("goauth: invalid audit delivery configuration: %w", err)
+		}
+		outbox = sqlstore.NewOutboxRepository(sqlDB)
+	}
+
+	auditSvc := audit.NewAuditService(
+		auditCfg,
+		sqlDB,
+		sqlstore.NewRecordRepository(sqlDB),
+		outbox,
+		cfg.logger,
+	)
+	auditSvc.AddInlineSink(audit.NewLoggerSink(cfg.logger))
+	for _, sink := range deliverySinks {
+		auditSvc.AddSink(sink)
+	}
+	if err := auditSvc.Start(context.Background()); err != nil {
+		return nil, nil, fmt.Errorf("goauth: start audit service: %w", err)
+	}
+	return auditSvc, auditSvc, nil
 }
 
 // buildSessionConfig maps the public SessionConfig/CookieConfig fields onto

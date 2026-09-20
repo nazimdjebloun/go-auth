@@ -229,22 +229,27 @@ func (s *OrgInviteService) AcceptInvite(ctx context.Context, input AcceptInviteI
 			return err
 		}
 
-		return s.orgs.AddMember(txCtx, &domain.OrgMember{
+		if err := s.orgs.AddMember(txCtx, &domain.OrgMember{
 			OrgID:    invite.OrgID,
 			UserID:   input.UserID,
 			Role:     invite.Role,
 			JoinedAt: time.Now().UTC(),
-		})
+		}); err != nil {
+			return err
+		}
+		// Inside the transaction: the record commits with the accepted
+		// membership it describes.
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberInvited, input.UserID, invite.OrgID, &input.UserID)); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return err
 	}
 	s.log.Info("org invite accepted", "org_id", invite.OrgID, "user_id", input.UserID, "email", user.Email)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventOrgMemberInvited, input.UserID, invite.OrgID, &input.UserID))
-	}
-
 	return nil
 }
 

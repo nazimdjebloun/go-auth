@@ -206,7 +206,10 @@ func New(in *Config) (*Auth, error) {
 		return nil, err
 	}
 
-	auditSvc, auditPub := startAuditService(&cfg, sqlDB)
+	auditSvc, auditPub, err := startAuditService(&cfg, sqlDB)
+	if err != nil {
+		return nil, err
+	}
 
 	commonCfg := service.CommonConfig{
 		AppName:    cfg.app.Name,
@@ -246,6 +249,9 @@ func New(in *Config) (*Auth, error) {
 	cookies := cookiesFromSession(sessionCfg)
 
 	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
+	// Direct session API calls must get the same record-iff-commit guarantee
+	// as login: the session mutation and its audit record share one tx.
+	sessSvc.AttachTxManager(sqlDB)
 
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, sqlDB, serviceCfg)
 
@@ -269,6 +275,10 @@ func New(in *Config) (*Auth, error) {
 	twoFactorSvc := service.NewTwoFactorService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
 
 	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
+	// Register commits the user row and its audit record in one
+	// transaction, so a crash cannot leave an account with no record of its
+	// registration (record-iff-commit).
+	authSvc.AttachTxManager(sqlDB)
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, sqlDB, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, sqlDB, serviceCfg, sessSvc, twoFactorSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
@@ -556,6 +566,18 @@ func New(in *Config) (*Auth, error) {
 			DeleteOrgInvite:          corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite)))))))).ServeHTTP,
 		},
 	}, nil
+}
+
+// AuditDeliveryStats returns the current durable-delivery observability
+// surface: pending backlog, oldest undelivered age, and the cumulative
+// delivery counters (record_lost, dead_lettered, delivery_dropped, …). Nil
+// when audit logging is disabled.
+func (a *Auth) AuditDeliveryStats(ctx context.Context) *audit.DeliveryStats {
+	if a.auditService == nil {
+		return nil
+	}
+	stats := a.auditService.DeliveryStats(ctx)
+	return &stats
 }
 
 func (a *Auth) Close() {

@@ -119,7 +119,9 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	s.log.Info("password reset requested", "user_id", user.ID)
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewPasswordResetRequestedEvent(user.Email, nil, ""))
+		if err := s.audit.Record(ctx, audit.NewPasswordResetRequestedEvent(user.Email, nil, "")); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -254,6 +256,11 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 		if err := s.sessions.DeleteAllForUser(txCtx, user.ID); err != nil {
 			return fmt.Errorf("revoking sessions after password reset: %w", err)
 		}
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewPasswordResetCompletedEvent(user.ID, nil, "")); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -272,11 +279,6 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 	}
 
 	s.log.Info("password reset completed", "user_id", user.ID)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewPasswordResetCompletedEvent(user.ID, nil, ""))
-	}
-
 	return nil
 }
 
@@ -457,10 +459,16 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 			if err := s.sessions.DeleteAllForUserExcept(txCtx, input.UserID, input.ExceptSessionID); err != nil {
 				return fmt.Errorf("revoking other sessions after password change: %w", err)
 			}
-			return nil
-		}
-		if err := s.sessions.DeleteAllForUser(txCtx, input.UserID); err != nil {
+		} else if err := s.sessions.DeleteAllForUser(txCtx, input.UserID); err != nil {
 			return fmt.Errorf("revoking sessions after password change: %w", err)
+		}
+		// Inside the transaction: the record commits with the password
+		// change it describes, so a crash cannot leave a rotated credential
+		// with no audit record.
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewPasswordChangedEvent(input.UserID, nil, "")); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
@@ -473,10 +481,5 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 	}
 
 	s.log.Info("password changed", "user_id", input.UserID)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewPasswordChangedEvent(input.UserID, nil, ""))
-	}
-
 	return nil
 }

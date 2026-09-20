@@ -899,7 +899,7 @@ CREATE INDEX idx_org_invites_email ON organization_invites(email);
 
 ### `audit_log`
 
-Written asynchronously by the audit pipeline when it is enabled. The table name is singular `audit_log`. The admin route that reads it is `/admin/audit-logs`.
+Written in the caller's transaction by `audit.Service.Record` when audit is enabled — the record exists if and only if the state change it describes committed (record-iff-commit). Rows are insert-only and never updated. The table name is singular `audit_log`. The admin route that reads it is `/admin/audit-logs`.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -914,6 +914,7 @@ Written asynchronously by the audit pipeline when it is enabled. The table name 
 | `created_at` | `TIMESTAMPTZ` | |
 
 - PostgreSQL additionally indexes `metadata` with a GIN index for containment queries.
+- Pre-resolution email events keep `actor_id` null and store the address in `metadata.email`; email text is never written to PostgreSQL's UUID column.
 
 <Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
 <Tab value="PostgreSQL">
@@ -1013,6 +1014,88 @@ CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
 CREATE INDEX idx_audit_log_actor_created_at ON audit_log (actor_id, created_at);
 CREATE INDEX idx_audit_log_target_created_at ON audit_log (target_id, created_at);
+```
+
+</Tab>
+</Tabs>
+
+### `audit_outbox`
+
+The durable-delivery queue, created alongside `audit_log` when the embedded schema is applied. A row exists only while its event still must be delivered to an external sink: written in the same transaction as the record, deleted on successful delivery. Every retry `UPDATE`, claim, dead-letter, and eviction lands on this table — never on `audit_log`, which stays append-only and partition-friendly. `audit_log_id` deliberately has **no** foreign key (a check on the credential path would slow every login, and partition drops must not cascade); orphaned obligations are found by the janitor's periodic scan.
+
+| Column | Notes |
+|---|---|
+| `audit_log_id` | PK; the event's `id`, same dialect type as `audit_log.id` |
+| `org_id` | Tenant attribution, for per-org delivery routing |
+| `priority` | Dispatch tier: `0` critical ships first, `1` best-effort (attacker-floodable failure events like `login.failed`) |
+| `attempts` | Delivery attempts so far; at `MaxAttempts` the row is marked dead-lettered, not deleted |
+| `next_attempt_at` | Exponential-backoff schedule (10s base, capped at 1h) |
+| `claimed_at` / `claim_owner` | Claim lease for multi-instance dispatch; a stale claim is stealable (a benign duplicate under at-least-once delivery) |
+| `last_error` | Last failure, for operators |
+| `dead_lettered_at` | Terminal-failure timestamp; retained for `DeadLetterTTL` as failure evidence |
+| `created_at` | TTL basis for the `OutboxMaxAge` sweep |
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_outbox (
+    audit_log_id UUID PRIMARY KEY,
+    org_id UUID,
+    priority INT NOT NULL DEFAULT 0,
+    attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    claimed_at TIMESTAMPTZ,
+    claim_owner TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    dead_lettered_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_outbox_claim ON audit_outbox(priority, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_audit_outbox_created_at ON audit_outbox(created_at);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_outbox (
+    audit_log_id TEXT PRIMARY KEY,
+    org_id TEXT,
+    priority INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    claimed_at DATETIME(6),
+    claim_owner TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    dead_lettered_at DATETIME(6),
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_outbox_claim ON audit_outbox(priority, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_audit_outbox_created_at ON audit_outbox(created_at);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS audit_outbox (
+    audit_log_id VARCHAR(64) PRIMARY KEY,
+    org_id VARCHAR(64),
+    priority INT NOT NULL DEFAULT 0,
+    attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at DATETIME,
+    claim_owner VARCHAR(255) NOT NULL DEFAULT '',
+    last_error TEXT NULL,
+    dead_lettered_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_audit_outbox_claim ON audit_outbox(priority, next_attempt_at);
+CREATE INDEX idx_audit_outbox_created_at ON audit_outbox(created_at);
 ```
 
 </Tab>

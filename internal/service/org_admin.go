@@ -188,7 +188,9 @@ func (s *OrgService) AdminGetOrg(ctx context.Context, input AdminGetOrgInput) (*
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgViewed, input.ActorID, input.OrgID, nil))
+		if err := s.audit.Record(ctx, audit.NewOrgEvent(audit.EventAdminOrgViewed, input.ActorID, input.OrgID, nil)); err != nil {
+			return nil, err
+		}
 	}
 
 	return org, nil
@@ -239,7 +241,9 @@ func (s *OrgService) AdminListOrgMembers(ctx context.Context, input AdminListOrg
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgViewed, input.ActorID, input.OrgID, nil))
+		if err := s.audit.Record(ctx, audit.NewOrgEvent(audit.EventAdminOrgViewed, input.ActorID, input.OrgID, nil)); err != nil {
+			return nil, err
+		}
 	}
 
 	return &ListMembersResult{Members: members, Limit: limit, Offset: input.Offset}, nil
@@ -273,18 +277,15 @@ func (s *OrgService) AdminDeleteOrg(ctx context.Context, input AdminOrgActionInp
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
 	}
-	org, err := s.deleteOrgTx(ctx, input.OrgID)
-	if err != nil {
-		return err
-	}
-
-	if s.audit != nil {
+	_, err := s.deleteOrgTx(ctx, input.OrgID, func(txCtx context.Context, org *domain.Organization) error {
+		if s.audit == nil {
+			return nil
+		}
 		evt := audit.NewOrgEvent(audit.EventAdminOrgDeleted, input.ActorID, input.OrgID, nil)
 		evt.Metadata = map[string]any{"orgName": org.Name, "orgSlug": org.Slug, "override": true}
-		s.audit.Publish(ctx, evt)
-	}
-
-	return nil
+		return s.audit.Record(txCtx, evt)
+	})
+	return err
 }
 
 type AdminAddMemberInput struct {
@@ -307,15 +308,12 @@ func (s *OrgService) AdminAddMember(ctx context.Context, input AdminAddMemberInp
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
 	}
-	if err := s.addMemberTx(ctx, input.OrgID, input.UserID, input.Role); err != nil {
-		return err
-	}
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgMemberAdded, input.ActorID, input.OrgID, &input.UserID))
-	}
-
-	return nil
+	return s.addMemberTx(ctx, input.OrgID, input.UserID, input.Role, func(txCtx context.Context) error {
+		if s.audit == nil {
+			return nil
+		}
+		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventAdminOrgMemberAdded, input.ActorID, input.OrgID, &input.UserID))
+	})
 }
 
 type AdminRemoveMemberInput struct {
@@ -331,15 +329,13 @@ func (s *OrgService) AdminRemoveMember(ctx context.Context, input AdminRemoveMem
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
 	}
-	if _, err := s.removeMemberTx(ctx, input.OrgID, input.UserID); err != nil {
-		return err
-	}
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgMemberRemoved, input.ActorID, input.OrgID, &input.UserID))
-	}
-
-	return nil
+	_, err := s.removeMemberTx(ctx, input.OrgID, input.UserID, func(txCtx context.Context, _ domain.OrgRole) error {
+		if s.audit == nil {
+			return nil
+		}
+		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventAdminOrgMemberRemoved, input.ActorID, input.OrgID, &input.UserID))
+	})
+	return err
 }
 
 type AdminUpdateMemberRoleInput struct {
@@ -362,16 +358,17 @@ func (s *OrgService) AdminUpdateMemberRole(ctx context.Context, input AdminUpdat
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
 	}
-	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole)
+	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole, func(txCtx context.Context, _ domain.OrgRole) error {
+		if s.audit == nil {
+			return nil
+		}
+		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventAdminOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
+	})
 	if err != nil {
 		return err
 	}
 	if oldRole == "" {
 		return nil // no-op: already had this role
-	}
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewOrgEvent(audit.EventAdminOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
 	}
 
 	return nil

@@ -97,11 +97,23 @@ type AuditConfig struct {
 	Enabled       bool
 	FailureMode   audit.AuditFailureMode
 	RetentionDays int           // days of audit rows to retain; 0 = keep forever
-	QueueSize     int           // default 1000
-	Workers       int           // default 3
-	BatchSize     int           // default 50
-	FlushInterval time.Duration // default 100ms
+	QueueSize     int           // Deprecated: the in-memory queue is gone; the outbox is the queue. Ignored.
+	Workers       int           // dispatcher workers, default 3
+	BatchSize     int           // dispatch batch size, default 50
+	FlushInterval time.Duration // dispatch poll interval, default 100ms
 	Sinks         []audit.EventSink
+
+	// EnqueueFailureMode resolves the enqueue failure mode per event.
+	// Nil = fail-open for every event (the default): a failed durable write
+	// never takes authentication down. See audit.Record.
+	EnqueueFailureMode audit.EnqueueFailureModeResolver
+
+	// Outbox delivery tuning. Defaults in audit.defaultConfig.
+	MaxAttempts   int           // attempts before dead-lettering (default 10)
+	ClaimLease    time.Duration // claim lease; must exceed each sink's declared max batch time (default 10m)
+	OutboxMaxAge  time.Duration // pending-row age bound (default 7d)
+	DeadLetterTTL time.Duration // dead-letter evidence window (default 7d)
+	OutboxMaxRows int           // emergency backlog valve (default 100000)
 }
 
 type Environment string

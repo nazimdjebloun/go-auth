@@ -147,4 +147,33 @@ func TestWebhookSink_EmptyBatchNoPost(t *testing.T) {
 
 func TestWebhookSink_SinkInterfaceCompliance(t *testing.T) {
 	var _ EventSink = (*WebhookSink)(nil)
+	var _ BatchDeliveryTimeBounder = (*WebhookSink)(nil)
+}
+
+func TestWebhookSink_MaxBatchDeliveryTime(t *testing.T) {
+	sink, err := NewWebhookSink(WebhookConfig{
+		Endpoint:  "https://example.test/audit",
+		Timeout:   2 * time.Second,
+		Retries:   2,
+		RetryWait: time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, bounded := sink.MaxBatchDeliveryTime(3)
+	// Per event: 3 attempts × 2s + waits of 1s and 2s = 9s.
+	if !bounded || got != 27*time.Second {
+		t.Fatalf("MaxBatchDeliveryTime = %v, bounded=%v; want 27s, true", got, bounded)
+	}
+
+	unbounded, err := NewWebhookSink(WebhookConfig{
+		Endpoint: "https://example.test/audit",
+		Client:   &http.Client{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, bounded := unbounded.MaxBatchDeliveryTime(1); bounded || got != 0 {
+		t.Fatalf("custom client without timeout = %v, bounded=%v; want 0, false", got, bounded)
+	}
 }

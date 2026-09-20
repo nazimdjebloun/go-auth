@@ -20,7 +20,7 @@ direct service APIs.
 - CSRF protection, route-specific rate limiting, and enumeration-resistant
   credential flows
 - PostgreSQL, MySQL, and SQLite schemas embedded in the library
-- Asynchronous audit fanout with a built-in database sink and custom sink support
+- Durable audit pipeline with a transactional outbox, retry + dead-letter delivery, and custom sink support
 - Replaceable mailer, templates, OAuth providers, password hasher, rate-limit
   store, and audit sinks
 

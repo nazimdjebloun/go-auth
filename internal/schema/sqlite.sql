@@ -152,6 +152,27 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_org_id ON audit_log(org_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
 
+-- Audit outbox — durable delivery. Ephemeral
+-- companion to audit_log: a row exists only while the event still must be
+-- delivered to an external sink. audit_log is insert-only and immutable;
+-- all churn (claim, attempt, retry) lives here. No foreign key: orphans
+-- are found by the janitor's periodic scan.
+CREATE TABLE IF NOT EXISTS audit_outbox (
+    audit_log_id TEXT PRIMARY KEY,
+    org_id TEXT,
+    priority INTEGER NOT NULL DEFAULT 0,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at DATETIME,
+    claim_owner TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    dead_lettered_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_outbox_claim ON audit_outbox(priority, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_audit_outbox_created_at ON audit_outbox(created_at);
+
 -- Admin console read paths — large-tenant list / count / filter / sort.
 CREATE INDEX IF NOT EXISTS idx_users_role_created_at ON users (role, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users (updated_at, id);

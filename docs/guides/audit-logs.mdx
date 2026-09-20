@@ -6,7 +6,7 @@ icon: "ScrollText"
 
 # Audit Logs
 
-Audit logging is **off by default**. When it's on, every significant thing that happens — logins, password changes, admin actions, org membership changes — gets published as a structured `audit.Event` to an internal queue, processed by background workers, and (if you configured a store) queryable through the two endpoints below.
+Audit logging is **off by default**. When enabled, significant activity is recorded as structured `audit.Event` rows in `audit_log`. Security-critical transactional paths — registration, successful login session issuance, password change/reset, session creation/revocation, account deletion, and role changes — write the record in the same transaction as the state change, so the record exists if and only if that change committed. Standalone observations such as a failed login have no state transaction and are inserted directly. When at least one external sink is configured, the same write adds one `audit_outbox` obligation for the event; a background dispatcher claims it and fans it out to the configured sink set with retries. With no external sink configured there is no delivery machinery at all.
 
 ## Configuration
 
@@ -15,27 +15,40 @@ goauth.WithAudit(goauth.AuditConfig{
     Enabled:       true,                    // optional, default false
     FailureMode:   audit.AuditFailureOpen,   // optional, default fail-open — or audit.AuditFailureClosed
     RetentionDays: 0,                       // optional, default 0 — keep forever (0 = forever)
-    QueueSize:     1000,                     // optional, default 1000
-    Workers:       3,                        // optional, default 3
-    BatchSize:     50,                       // optional, default 50
-    FlushInterval: 100 * time.Millisecond,   // optional, default 100ms
+    Workers:       3,                        // optional, default 3 — outbox dispatcher workers (only when Sinks set)
+    BatchSize:     50,                       // optional, default 50 — outbox claim/delivery batch size
+    FlushInterval: 100 * time.Millisecond,   // optional, default 100ms — outbox dispatch poll interval
+    MaxAttempts:   10,                       // optional, default 10 — delivery attempts before a row is dead-lettered
+    ClaimLease:    10 * time.Minute,         // optional, default 10m — floor 1m
+    OutboxMaxAge:  7 * 24 * time.Hour,       // optional, default 7d — pending-row age bound (negative disables)
+    DeadLetterTTL: 7 * 24 * time.Hour,       // optional, default 7d — dead-letter evidence window (negative keeps forever)
+    OutboxMaxRows: 100000,                   // optional, default 100000 — backlog emergency valve (negative = unbounded)
     Sinks:         []audit.EventSink{myKafkaSink}, // optional, default none
+    // EnqueueFailureMode resolves fail-open vs fail-closed per event (nil = fail-open everywhere)
 })
 goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 ```
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `Enabled` | `bool` | `false` | The two endpoints below still work while this is off — they just return no events, since none were ever published. |
-| `FailureMode` | `audit.AuditFailureMode` | fail-open | Controls asynchronous sink fan-out after a sink fails: fail-open logs the error and continues to later sinks; fail-closed logs the error and stops processing that batch. It never changes whether the request that triggered the event succeeds or fails. |
-| `RetentionDays` | `int` | `0` | `0` means keep forever. |
-| `QueueSize` | `int` | `1000` | Events are published asynchronously onto this queue. If it is full, the event is dropped with a warning regardless of `FailureMode`; publishing never blocks or fails the triggering request. |
-| `Workers` | `int` | `3` | Background goroutines draining the queue. |
-| `BatchSize` | `int` | `50` | Events per batch write to the store. |
-| `FlushInterval` | `time.Duration` | `100ms` | Max time a partial batch waits before flushing anyway. |
-| `Sinks` | `[]audit.EventSink` | none | Extra destinations — Kafka, NATS, a webhook — fired in addition to the queryable store. |
+| `Enabled` | `bool` | `false` | The two endpoints below still work while this is off — they just return no events, since none were ever recorded. |
+| `FailureMode` | `audit.AuditFailureMode` | fail-open | Controls delivery fan-out across sinks within one dispatch batch: fail-open logs the error and continues to later sinks; fail-closed logs the error and stops processing that batch. It never changes whether the request that triggered the event succeeds or fails. |
+| `EnqueueFailureMode` | `func(audit.Event) audit.AuditFailureMode` | nil (fail-open) | Decides, **per event**, whether a failed durable write blocks the triggering operation: fail-open (default) keeps authentication available and counts `record_lost`; fail-closed aborts the operation (the transaction rolls back). Fail-closed only fires where a transaction exists to roll back — at non-transactional sites (failed logins) it degrades to fail-open. |
+| `RetentionDays` | `int` | `0` | `0` means keep forever. Must exceed the worst-case outbox row lifetime `max(OutboxMaxAge, retryWindow + DeadLetterTTL)` — startup validation rejects a configuration that would let retention delete a record whose delivery obligation still exists. |
+| `Workers` | `int` | `3` | Outbox dispatcher workers. Only started when at least one external sink is configured. |
+| `BatchSize` | `int` | `50` | Outbox claim/delivery batch size. |
+| `FlushInterval` | `time.Duration` | `100ms` | Outbox dispatch poll interval. |
+| `MaxAttempts` | `int` | `10` | Delivery attempts before a row is marked dead-lettered (retained for `DeadLetterTTL`, then purged). |
+| `ClaimLease` | `time.Duration` | `10m` | How long a dispatcher claim owns a row before a crashed or slow claimer loses it to another instance. Must exceed each sink's declared worst-case batch time; floor: `1m`. |
+| `OutboxMaxAge` | `time.Duration` | `7d` | Age bound on pending rows; older obligations are evicted (the record stays intact). Negative disables. |
+| `DeadLetterTTL` | `time.Duration` | `7d` | How long a dead-lettered row is kept as failure evidence. Negative keeps forever. |
+| `OutboxMaxRows` | `int` | `100000` | Backlog emergency valve: dead-lettered rows are shed first, then oldest pending. Shredding never touches `audit_log`; shedding pending rows is logged at ERROR. Negative disables. |
+| `Sinks` | `[]audit.EventSink` | none | Extra destinations — Kafka, NATS, a webhook. Custom external sinks must also implement `audit.BatchDeliveryTimeBounder`. One outbox row tracks fan-out to the configured set. |
+| `QueueSize` | `int` | (removed — ignored) | The historical in-memory queue is gone; the `audit_outbox` table is the queue. Retained on the struct so existing config code compiles. |
 
 `WithAuditSink` appends one sink at a time without needing to repeat the whole config; calling `WithAudit` more than once doesn't duplicate sinks already added.
+
+Startup rejects an unsafe or unbounded sink/lease combination and refuses to enable external delivery when `audit_outbox` is missing. Apply the schema migration before deploying this write path; `goauth.New` returns an error instead of starting with a delivery configuration it cannot honor. Finite audit retention also rejects negative (unbounded) outbox clocks.
 
 ### Built-in webhook sink
 
@@ -53,7 +66,19 @@ goauth.WithAuditSink(sink)
 
 Each audit event is delivered as one HTTP `POST` with the JSON-serialized `audit.Event` body. When `Secret` is set, every request carries an `X-Signature: sha256=<hex>` header — the HMAC-SHA256 of the raw body — which the receiver should recompute and verify (constant-time compare) before trusting the payload; a discovered URL alone must not allow forged events.
 
-Delivery is **best-effort and at-most-once**: a failed or non-2xx POST is logged per the configured `FailureMode` and never blocks or fails the request that triggered the event, and there is no built-in retry. Point the sink at a receiver that tolerates occasional dropped events, or put a durable collector behind it.
+Delivery is **durable and at-least-once**: the delivery obligation is written in the same transaction as the record, so a process crash after commit cannot lose it. The dispatcher retries failed deliveries with exponential backoff (10s base, capped at 1h) up to `MaxAttempts`, then marks the row dead-lettered — the row is retained for `DeadLetterTTL` as failure evidence, never deleted outright. Because delivery is at-least-once, receivers must deduplicate on the event's `id` (not on the HMAC signature, which proves authenticity, not uniqueness). Delivery is ordered critical-first, oldest-first within a tier; `login.failed`-family noise ships best-effort behind it, so a login flood cannot starve the discrete compromise signals. Delivery never touches `audit_log`: retries, dead-lettering, and backlog eviction change only the outbox.
+
+At the receiver boundary, make the event `id` a unique inbox key and record it in the same transaction as the side effect triggered by the event. If that insert conflicts because the ID was already processed, skip the side effect and still return a successful `2xx` response. This covers the live-lease race where the original request is still being processed when another dispatcher steals its expired claim; both deliveries may arrive, but the receiver applies the event once. Returning an error for a recognized duplicate causes needless retries and can eventually dead-letter an event that was already handled.
+
+<Callout type="info" title="Delivery health is visible">
+  `AuthenticationService.AuditDeliveryStats` (and the per-instance counters) reports `pending`, `oldest_pending_age`, `dead_lettered`, `delivery_dropped`, `delivery_orphaned`, `delivery_duplicated`, `delivery_missed`, `record_lost`, and `record_blocked`. `oldest_pending_age` is the primary "delivery is broken" alert; `record_lost` must be zero-or-alert; a non-zero `delivery_orphaned` rate means a broken invariant (bypassed retention validation or manual deletes), not routine pressure.
+</Callout>
+
+### Consumer notes
+
+Sinks are read once at startup: a sink added after records have already run (`WithAuditSink` on a live instance) gets no outbox rows for events recorded before it was registered — those events went to the sinks that existed then. Register every delivery sink before the first request.
+
+The outbox tracks one obligation per event, not one row per sink. If an earlier sink succeeds and a later sink fails, retrying the obligation may redeliver the event to the earlier sink. This is another reason every receiver must make event-ID deduplication atomic with its side effect.
 
 
 <Callout type="info" title="This is separate from application logging">
@@ -83,6 +108,8 @@ Every event carries a `type`, a `severity` (`info` / `warning` / `error` / `crit
 | Admin — organizations | `admin.org.deleted`, `admin.org.member.added`, `admin.org.member.removed`, `admin.org.member.role_changed`, `admin.org.viewed` |
 
 This list can grow across versions — treat `event_type` as an opaque string in your filters rather than an exhaustive enum you validate against.
+
+Events emitted before an account is resolved — failed/locked login, admin login failure, verification send, and password-reset request — leave `actor_id` null and put the submitted address in `metadata.email`. This keeps PostgreSQL's UUID-typed actor column valid while preserving the security signal.
 
 <Callout type="info" title="Admin-organization events are always distinct from the self-service ones">
   A platform admin using `auth.Services.Org.AdminDeleteOrg`/`AdminRemoveMember`/`AdminUpdateMemberRole` publishes `admin.org.*`, never the plain `organization.*` type the org's own owner/admin would publish for the same action — so "the owner deleted their org" and "a platform admin force-deleted it" never look identical in the log. `admin.org.deleted` also carries the org's `name`/`slug` in its `metadata`, snapshotted at the moment of deletion — the `organizations` row is hard-deleted, so nothing else could resolve `orgId` back to a name afterward (the same limitation as the deleted-user email case below, applied to orgs).

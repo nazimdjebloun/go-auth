@@ -165,8 +165,9 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	invite.RawCode = ""
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewInviteEvent(
-			audit.EventAdminInviteCreated, input.AdminID, invite.ID, invite.Email))
+		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteCreated, input.AdminID, invite.ID, invite.Email)); err != nil {
+			return nil, err
+		}
 	}
 
 	s.log.Info("invite created", "invite_id", invite.ID, "email", input.Email, "admin_id", input.AdminID)
@@ -250,6 +251,14 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 			}
 			return err
 		}
+		// Inside the transaction: the record commits with the account it
+		// describes. The claim-and-create pair is already atomic; the audit
+		// record joins it rather than trailing it.
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewUserRegisteredEvent(user.ID, nil, "")); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -271,9 +280,6 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 			return nil, aerr
 		}
 		s.log.Info("invite registered, two-factor required", "user_id", user.ID, "invite_id", invite.ID)
-		if s.audit != nil {
-			s.audit.Publish(ctx, audit.NewUserRegisteredEvent(user.ID, nil, ""))
-		}
 		return &CompleteInviteResult{
 			User:               user,
 			RequiresTwoFactor:  true,
@@ -291,10 +297,6 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}
 
 	s.log.Info("invite registered", "user_id", user.ID, "email", user.Email, "invite_id", invite.ID)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewUserRegisteredEvent(user.ID, nil, ""))
-	}
 
 	return &CompleteInviteResult{
 		User:         user,
@@ -365,8 +367,9 @@ func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID, actorID 
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewInviteEvent(
-			audit.EventAdminInviteDeleted, actorID, invite.ID, invite.Email))
+		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteDeleted, actorID, invite.ID, invite.Email)); err != nil {
+			return err
+		}
 	}
 
 	s.log.Info("invite deleted", "invite_id", inviteID)
@@ -388,8 +391,9 @@ func (s *InviteService) RevokeInvite(ctx context.Context, inviteID, actorID stri
 		return domain.ErrInternal
 	}
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewInviteEvent(
-			audit.EventAdminInviteRevoked, actorID, invite.ID, invite.Email))
+		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteRevoked, actorID, invite.ID, invite.Email)); err != nil {
+			return err
+		}
 	}
 
 	s.log.Info("invite revoked", "invite_id", inviteID)
@@ -439,8 +443,9 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID
 	}
 
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewInviteEvent(
-			audit.EventAdminInviteResent, actorID, invite.ID, invite.Email))
+		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteResent, actorID, invite.ID, invite.Email)); err != nil {
+			return err
+		}
 	}
 
 	s.log.Info("invite resent", "invite_id", inviteID, "email", invite.Email)

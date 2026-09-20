@@ -157,6 +157,29 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_log_metadata ON audit_log USING GIN (metadata jsonb_path_ops);
 
+-- ── Audit outbox — durable delivery. ──
+-- Ephemeral companion to audit_log: a row exists only while the event still
+-- must be delivered to an external sink. audit_log is insert-only and
+-- immutable; all churn (claim, attempt, retry) lives here so backpressure,
+-- dead-lettering and eviction can never touch the record. No foreign key:
+-- it would add a check to the credential path and complicate partition
+-- drops; orphans are found by the janitor's periodic scan.
+CREATE TABLE IF NOT EXISTS audit_outbox (
+    audit_log_id UUID PRIMARY KEY,
+    org_id UUID,
+    priority INT NOT NULL DEFAULT 0,
+    attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    claimed_at TIMESTAMPTZ,
+    claim_owner TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    dead_lettered_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_outbox_claim ON audit_outbox(priority, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_audit_outbox_created_at ON audit_outbox(created_at);
+
 -- ── Admin console read paths — large-tenant list / count / filter / sort. ──
 
 -- users: role-scoped listing + sort. The trailing id keeps these usable for

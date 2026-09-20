@@ -85,8 +85,11 @@ func TestLogin_Failure_PublishesLoginFailed(t *testing.T) {
 	if event.Severity != audit.SeverityWarning {
 		t.Errorf("expected SeverityWarning, got %s", event.Severity)
 	}
-	if event.ActorID == nil || *event.ActorID != "alice@example.com" {
-		t.Errorf("expected ActorID alice@example.com, got %+v", event.ActorID)
+	if event.ActorID != nil {
+		t.Errorf("expected nil ActorID for unresolved email, got %+v", event.ActorID)
+	}
+	if got := event.Metadata["email"]; got != "alice@example.com" {
+		t.Errorf("expected metadata email alice@example.com, got %+v", got)
 	}
 	if event.IP == nil || event.IP.String() != "10.0.0.9" {
 		t.Errorf("expected IP 10.0.0.9, got %+v", event.IP)

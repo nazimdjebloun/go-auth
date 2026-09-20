@@ -569,6 +569,7 @@ func TestConfirmDeleteAccount_Success(t *testing.T) {
 	mailer := &testutil.MockMailer{}
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
+	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
 
 	oauthUser := &domain.User{
 		ID:        "oauth-user-id",
@@ -688,6 +689,7 @@ func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
 	mailer := &testutil.MockMailer{}
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
+	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
 
 	oauthUser := &domain.User{
 		ID:        "oauth-user-id",
@@ -801,6 +803,7 @@ func TestRequestDeleteAccount_ReplacesStaleLiveCode(t *testing.T) {
 	cfg.PepperRotatedAt = time.Now().UTC()
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, nil)
+	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
 
 	oauthUser := &domain.User{
 		ID:        "oauth-user-id",

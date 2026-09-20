@@ -48,7 +48,7 @@ Use the supplied interfaces to replace email delivery, templates, OAuth provider
 
 **Security**: CSRF origin checking plus a double-submit cookie layer, both on by default, per-route rate limiting, configurable password policy, tri-state cookie `Secure` and email-link `http://` policy with per-environment defaults.
 
-**Audit logging**: off by default. Opt in with one flag for an async, non-blocking event pipeline with a built-in database sink. Add your own sinks (Kafka, NATS, a webhook, anything implementing one interface) with fail-open or fail-closed behavior.
+**Audit logging**: off by default. Opt in for transaction-aware `audit_log` records and durable, at-least-once outbox delivery. Add external sinks such as Kafka, NATS, or the built-in webhook; custom sinks implement `EventSink` plus a finite batch-time bound so startup can validate the claim lease.
 
 **Logging**: a single structured `slog.Logger` used everywhere in the library (sessions, CSRF, rate limiting, audit, admin actions). Bring your own handler (JSON, text, or a third-party `slog` backend).
 

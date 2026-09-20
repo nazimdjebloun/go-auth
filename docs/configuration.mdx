@@ -698,11 +698,16 @@ goauth.WithAudit(goauth.AuditConfig{
     Enabled:       true,                    // optional, default false
     FailureMode:   audit.AuditFailureOpen,   // optional, default fail-open (or audit.AuditFailureClosed)
     RetentionDays: 0,                       // optional, default 0 (keep forever)
-    QueueSize:     1000,                     // optional, default 1000
-    Workers:       3,                        // optional, default 3
-    BatchSize:     50,                       // optional, default 50
-    FlushInterval: 100 * time.Millisecond,   // optional, default 100ms
+    Workers:       3,                        // optional, default 3 — outbox dispatcher workers
+    BatchSize:     50,                       // optional, default 50 — outbox claim/delivery batch size
+    FlushInterval: 100 * time.Millisecond,   // optional, default 100ms — dispatch poll interval
+    MaxAttempts:   10,                       // optional, default 10
+    ClaimLease:    10 * time.Minute,         // optional, default 10m (floor 1m)
+    OutboxMaxAge:  7 * 24 * time.Hour,       // optional, default 7d (negative disables)
+    DeadLetterTTL: 7 * 24 * time.Hour,       // optional, default 7d (negative keeps forever)
+    OutboxMaxRows: 100000,                   // optional, default 100000 (negative = unbounded)
     Sinks:         []audit.EventSink{myKafkaSink}, // optional, default none
+    // EnqueueFailureMode: func(audit.Event) audit.AuditFailureMode — optional, nil = fail-open everywhere
 })
 goauth.WithAuditSink(myOtherSink) // optional: adds one more sink at a time
 ```
@@ -710,17 +715,23 @@ goauth.WithAuditSink(myOtherSink) // optional: adds one more sink at a time
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `Enabled` | `bool` | Optional | `false` | |
-| `FailureMode` | `audit.AuditFailureMode` | Optional | fail-open | |
-| `RetentionDays` | `int` | Optional | `0` (keep forever) | |
-| `QueueSize` | `int` | Optional | `1000` | |
-| `Workers` | `int` | Optional | `3` | |
+| `FailureMode` | `audit.AuditFailureMode` | Optional | fail-open | Delivery fan-out across sinks within one dispatch batch. |
+| `EnqueueFailureMode` | `func(audit.Event) audit.AuditFailureMode` | Optional | nil (fail-open) | Per-event: whether a failed durable write blocks the triggering operation (only where a transaction can roll back). |
+| `RetentionDays` | `int` | Optional | `0` (keep forever) | Must exceed `max(OutboxMaxAge, retryWindow + DeadLetterTTL)` — rejected otherwise. |
+| `ClaimLease` | `time.Duration` | Optional | `10m` | Must exceed every sink's declared worst-case batch delivery time; also rejected below `1m`. |
+| `Workers` | `int` | Optional | `3` | Outbox dispatcher workers; only started when sinks are configured. |
 | `BatchSize` | `int` | Optional | `50` | |
 | `FlushInterval` | `time.Duration` | Optional | `100ms` | |
-| `Sinks` | `[]audit.EventSink` | Optional | none | Additional destinations: Kafka, NATS, a webhook. |
+| `MaxAttempts` | `int` | Optional | `10` | |
+| `OutboxMaxAge` | `time.Duration` | Optional | `7d` | |
+| `DeadLetterTTL` | `time.Duration` | Optional | `7d` | |
+| `OutboxMaxRows` | `int` | Optional | `100000` | |
+| `QueueSize` | `int` | Optional | (removed — ignored) | The in-memory queue is gone; `audit_outbox` is the queue. |
+| `Sinks` | `[]audit.EventSink` | Optional | none | Additional destinations: Kafka, NATS, a webhook. Each external sink must also implement `audit.BatchDeliveryTimeBounder`. |
 
 `WithAuditSink` appends one sink at a time and only takes effect when audit logging is enabled via `WithAudit`. Calling `WithAudit` more than once does not duplicate previously-added sinks. They are merged once, not accumulated per call.
 
-No validation errors: all fields are defaulted rather than rejected.
+Construction fails when `ClaimLease` is below `1m`, does not exceed a sink's declared maximum batch time, or a sink cannot declare a finite bound. When `RetentionDays` is positive, both outbox clocks must be finite and retention must exceed `max(OutboxMaxAge, retryWindow + DeadLetterTTL)`. Construction also fails when an external sink is configured before the `audit_outbox` migration exists; the application never starts in a state that promises delivery but cannot enqueue or drain it.
 
 ## Next
 

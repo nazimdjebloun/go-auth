@@ -2,6 +2,30 @@ package audit
 
 import "testing"
 
+func TestEmailOnlyEventsKeepActorIDDatabaseSafe(t *testing.T) {
+	tests := []struct {
+		name  string
+		event Event
+	}{
+		{"login failed", NewLoginFailedEvent("a@example.com", nil, "")},
+		{"login locked", NewLoginLockedEvent("a@example.com", nil, "")},
+		{"admin login failed", NewAdminLoginFailedEvent("a@example.com", nil, "")},
+		{"verification sent", NewEmailVerificationSentEvent("a@example.com")},
+		{"password reset requested", NewPasswordResetRequestedEvent("a@example.com", nil, "")},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.event.ActorID != nil {
+				t.Fatalf("ActorID = %q, want nil for unresolved email", *tt.event.ActorID)
+			}
+			if got := tt.event.Metadata["email"]; got != "a@example.com" {
+				t.Fatalf("metadata email = %v, want a@example.com", got)
+			}
+		})
+	}
+}
+
 func TestNewInviteEvent(t *testing.T) {
 	e := NewInviteEvent(EventAdminInviteCreated, "admin-1", "inv-9", "a@example.com")
 	if !e.Success || e.Type != EventAdminInviteCreated {

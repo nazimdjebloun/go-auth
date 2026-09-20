@@ -16,11 +16,12 @@ import (
 )
 
 type SessionService struct {
-	repo     port.SessionRepository
-	tokenGen port.TokenGenerator
-	config   SessionConfig
-	log      *slog.Logger
-	audit    AuditPublisher
+	repo      port.SessionRepository
+	tokenGen  port.TokenGenerator
+	config    SessionConfig
+	log       *slog.Logger
+	audit     AuditPublisher
+	txManager port.TxManager
 }
 
 type SessionConfig struct {
@@ -63,6 +64,22 @@ func NewSessionService(repo port.SessionRepository, tokenGen port.TokenGenerator
 	return &SessionService{repo: repo, tokenGen: tokenGen, config: config, log: logger, audit: config.Audit}
 }
 
+// AttachTxManager wires the transaction manager used to commit session
+// mutations with the audit records that describe them. Called once by the
+// library wiring before requests are served. Directly constructed services
+// without a manager retain the legacy autocommit behavior used by lightweight
+// tests and custom embeddings.
+func (s *SessionService) AttachTxManager(tm port.TxManager) {
+	s.txManager = tm
+}
+
+func (s *SessionService) withTx(ctx context.Context, fn func(context.Context) error) error {
+	if s.txManager == nil {
+		return fn(ctx)
+	}
+	return s.txManager.WithTx(ctx, fn)
+}
+
 // SessionResult bundles a session with the raw tokens issued alongside it.
 // Only the hashes are ever persisted, so Create and RefreshSession are the
 // only places the raw SessionToken/RefreshToken values exist — this is how
@@ -101,15 +118,22 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 		LastActiveAt:        now,
 	}
 
-	if err := s.repo.Create(ctx, session); err != nil {
-		return nil, fmt.Errorf("session create: %w", err)
+	err = s.withTx(ctx, func(txCtx context.Context) error {
+		if err := s.repo.Create(txCtx, session); err != nil {
+			return fmt.Errorf("session create: %w", err)
+		}
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewSessionEvent(audit.EventSessionCreated, userID, session.ID, net.ParseIP(ip), userAgent)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	s.log.Info("session created", "user_id", userID, "session_id", session.ID)
-
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewSessionEvent(audit.EventSessionCreated, userID, session.ID, net.ParseIP(ip), userAgent))
-	}
 
 	return &SessionResult{Session: session, SessionToken: sessionToken, RefreshToken: refreshToken}, nil
 }
@@ -147,7 +171,9 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 		if errors.As(err, &reused) {
 			s.log.Warn("refresh token reuse detected", "user_id", reused.UserID, "session_id", reused.SessionID)
 			if s.audit != nil {
-				s.audit.Publish(ctx, audit.NewSessionReuseDetectedEvent(reused.UserID, reused.SessionID))
+				if err := s.audit.Record(ctx, audit.NewSessionReuseDetectedEvent(reused.UserID, reused.SessionID)); err != nil {
+					return nil, err
+				}
 			}
 			return nil, domain.ErrSessionRevoked
 		}
@@ -156,7 +182,9 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 
 	s.log.Info("refresh token rotated", "user_id", session.UserID, "session_id", session.ID)
 	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewSessionEvent(audit.EventSessionRefreshed, session.UserID, session.ID, nil, ""))
+		if err := s.audit.Record(ctx, audit.NewSessionEvent(audit.EventSessionRefreshed, session.UserID, session.ID, nil, "")); err != nil {
+			return nil, err
+		}
 	}
 	return &SessionResult{Session: session, SessionToken: newSessionToken, RefreshToken: newRefreshToken}, nil
 }
@@ -233,42 +261,62 @@ func (s *SessionService) RevokeByID(ctx context.Context, id string) error {
 }
 
 func (s *SessionService) RevokeByIDForUser(ctx context.Context, id, userID string) (bool, error) {
-	ok, err := s.repo.RevokeByIDForUser(ctx, id, userID)
-	if err != nil {
-		return false, fmt.Errorf("session revoke by id: %w", err)
-	}
-	if ok && s.audit != nil {
+	var revoked bool
+	err := s.withTx(ctx, func(txCtx context.Context) error {
+		ok, err := s.repo.RevokeByIDForUser(txCtx, id, userID)
+		if err != nil {
+			return fmt.Errorf("session revoke by id: %w", err)
+		}
+		revoked = ok
+		if !revoked || s.audit == nil {
+			return nil
+		}
 		// Only publish when the session actually belonged to the caller:
 		// a failed cross-user revoke is a no-op, not a security event, and
 		// auditing it would let a caller flood the log with probes.
-		s.audit.Publish(ctx, audit.NewSessionEvent(audit.EventSessionRevoked, userID, id, nil, ""))
+		return s.audit.Record(txCtx, audit.NewSessionEvent(audit.EventSessionRevoked, userID, id, nil, ""))
+	})
+	if err != nil {
+		return false, err
 	}
-	return ok, nil
+	return revoked, nil
 }
 
 func (s *SessionService) RevokeManyForUser(ctx context.Context, ids []string, userID string) (int, error) {
-	n, err := s.repo.RevokeManyForUser(ctx, ids, userID)
-	if err != nil {
-		return 0, fmt.Errorf("session revoke many: %w", err)
-	}
-	if n > 0 && s.audit != nil {
+	var revoked int
+	err := s.withTx(ctx, func(txCtx context.Context) error {
+		n, err := s.repo.RevokeManyForUser(txCtx, ids, userID)
+		if err != nil {
+			return fmt.Errorf("session revoke many: %w", err)
+		}
+		revoked = n
+		if revoked == 0 || s.audit == nil {
+			return nil
+		}
 		// One event for the batch, with the revoked count in metadata —
 		// mirroring session.revoked_all, which also publishes a single
 		// event for an unbounded set of sessions.
-		s.audit.Publish(ctx, audit.NewEvent(audit.EventSessionRevoked,
-			audit.WithActor(userID), audit.WithMetadata("sessionCount", n)))
+		return s.audit.Record(txCtx, audit.NewEvent(audit.EventSessionRevoked,
+			audit.WithActor(userID), audit.WithMetadata("sessionCount", revoked)))
+	})
+	if err != nil {
+		return 0, err
 	}
-	return n, nil
+	return revoked, nil
 }
 
 func (s *SessionService) RevokeAll(ctx context.Context, userID string) error {
-	if err := s.repo.DeleteAllForUser(ctx, userID); err != nil {
-		return fmt.Errorf("session revoke all: %w", err)
-	}
-	if s.audit != nil {
-		s.audit.Publish(ctx, audit.NewSessionEvent(audit.EventSessionRevokedAll, userID, "", nil, ""))
-	}
-	return nil
+	return s.withTx(ctx, func(txCtx context.Context) error {
+		if err := s.repo.DeleteAllForUser(txCtx, userID); err != nil {
+			return fmt.Errorf("session revoke all: %w", err)
+		}
+		if s.audit != nil {
+			if err := s.audit.Record(txCtx, audit.NewSessionEvent(audit.EventSessionRevokedAll, userID, "", nil, "")); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 func (s *SessionService) RevokeAllExcept(ctx context.Context, userID string, exceptSessionID string) error {

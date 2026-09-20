@@ -13,6 +13,13 @@ func strPtr(s string) *string {
 	return &s
 }
 
+func emailMetadata(email string) map[string]any {
+	if email == "" {
+		return nil
+	}
+	return map[string]any{"email": email}
+}
+
 // ─── Generic Builder ────────────────────────────────────────
 
 func NewEvent(typ EventType, opts ...EventOption) Event {
@@ -100,9 +107,9 @@ func NewLoginFailedEvent(email string, ip net.IP, ua string) Event {
 		Type:      EventLoginFailed,
 		Severity:  SeverityWarning,
 		Success:   false,
-		ActorID:   strPtr(email),
 		IP:        ip,
 		UserAgent: ua,
+		Metadata:  emailMetadata(email),
 		CreatedAt: time.Now().UTC(),
 	}
 }
@@ -113,9 +120,9 @@ func NewLoginLockedEvent(email string, ip net.IP, ua string) Event {
 		Type:      EventLoginLocked,
 		Severity:  SeverityWarning,
 		Success:   false,
-		ActorID:   strPtr(email),
 		IP:        ip,
 		UserAgent: ua,
+		Metadata:  emailMetadata(email),
 		CreatedAt: time.Now().UTC(),
 	}
 }
@@ -148,9 +155,8 @@ func NewAccountDeletedEvent(userID string) Event {
 	}
 }
 
-// The 2FA builders key on userID as ActorID. Do not copy
-// NewEmailVerificationSentEvent's pattern of putting the email there — every
-// 2FA path resolves a real user before it publishes.
+// The 2FA builders key on userID as ActorID. Unresolved email addresses belong
+// in metadata because PostgreSQL stores actor_id as UUID.
 
 func NewTwoFactorCodeSentEvent(userID string) Event {
 	return Event{
@@ -247,9 +253,9 @@ func NewAdminLoginFailedEvent(email string, ip net.IP, ua string) Event {
 		Type:      EventAdminLoginFailed,
 		Severity:  SeverityWarning,
 		Success:   false,
-		ActorID:   strPtr(email),
 		IP:        ip,
 		UserAgent: ua,
+		Metadata:  emailMetadata(email),
 		CreatedAt: time.Now().UTC(),
 	}
 }
@@ -298,7 +304,7 @@ func NewEmailVerificationSentEvent(email string) Event {
 		Type:      EventEmailVerificationSent,
 		Severity:  SeverityInfo,
 		Success:   true,
-		ActorID:   strPtr(email),
+		Metadata:  emailMetadata(email),
 		CreatedAt: time.Now().UTC(),
 	}
 }
@@ -322,9 +328,9 @@ func NewPasswordResetRequestedEvent(email string, ip net.IP, ua string) Event {
 		Type:      EventPasswordResetRequest,
 		Severity:  SeverityInfo,
 		Success:   true,
-		ActorID:   strPtr(email),
 		IP:        ip,
 		UserAgent: ua,
+		Metadata:  emailMetadata(email),
 		CreatedAt: time.Now().UTC(),
 	}
 }

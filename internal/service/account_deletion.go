@@ -26,6 +26,7 @@ type deletionSessions interface {
 
 type deletionUsers interface {
 	port.AdminGuardStore
+	GetByID(ctx context.Context, userID string) (*domain.User, error)
 }
 
 // AccountDeletion is the one owner of the account-deletion invariants:
@@ -53,6 +54,13 @@ func NewAccountDeletion(tx port.TxManager, orgs deletionOrgs, sessions deletionS
 // owner), revoke all sessions, and delete the user under the last-usable-
 // admin guard — all in one transaction.
 func (d *AccountDeletion) DeleteUser(ctx context.Context, userID string) error {
+	return d.DeleteUserAndRecord(ctx, userID, nil)
+}
+
+// DeleteUserAndRecord performs the deletion and invokes record inside the
+// same transaction after every state mutation succeeds. A record failure
+// therefore rolls the deletion back when the audit policy is fail-closed.
+func (d *AccountDeletion) DeleteUserAndRecord(ctx context.Context, userID string, record func(context.Context) error) error {
 	return d.users.WithAdminGuard(ctx, func(txCtx context.Context) error {
 		if d.orgs != nil {
 			memberships, err := d.orgs.ListUserMemberships(txCtx, userID)
@@ -108,7 +116,17 @@ func (d *AccountDeletion) DeleteUser(ctx context.Context, userID string) error {
 		if !deleted {
 			// The guard matched nothing: either the row vanished mid-flight
 			// or this was the last usable admin. Distinguish by re-reading.
+			user, err := d.users.GetByID(txCtx, userID)
+			if err != nil {
+				return err
+			}
+			if user == nil {
+				return domain.ErrUserNotFound
+			}
 			return domain.ErrCannotDeleteLastAdmin
+		}
+		if record != nil {
+			return record(txCtx)
 		}
 		return nil
 	})
