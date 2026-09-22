@@ -44,8 +44,8 @@ type AdminListSessionsInput struct {
 	ExpiresBefore    *time.Time
 	LastActiveAfter  *time.Time
 	LastActiveBefore *time.Time
-	OrderBy          string
-	OrderDirection   string
+	OrderBy          port.SessionSortField
+	OrderDirection   port.SortDirection
 	Offset           int
 	Limit            int
 }

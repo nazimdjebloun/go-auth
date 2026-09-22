@@ -110,7 +110,7 @@ func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter 
 		default:
 			less = all[i].CreatedAt.Before(all[j].CreatedAt)
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return less
 		}
 		return !less

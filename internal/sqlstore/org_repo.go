@@ -191,12 +191,12 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 	whereClause, args := r.membersWhere(orgID, filter)
 	argIdx := len(args) + 1
 
-	orderCol := orgMemberOrderByWhitelist[filter.OrderBy]
+	orderCol := orgMemberOrderByWhitelist[string(filter.OrderBy)]
 	if orderCol == "" {
 		orderCol = "om.joined_at"
 	}
 	orderDir := "DESC"
-	if strings.EqualFold(filter.OrderDirection, "asc") {
+	if filter.OrderDirection == port.SortAscending {
 		orderDir = "ASC"
 	}
 
@@ -273,12 +273,12 @@ func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter 
 	whereClause, args := r.userOrgsWhere(userID, filter.Search, filter.Role)
 	argIdx := len(args) + 1
 
-	orderCol := orgOrderByWhitelist[filter.OrderBy]
+	orderCol := orgOrderByWhitelist[string(filter.OrderBy)]
 	if orderCol == "" {
 		orderCol = "o.name"
 	}
 	orderDir := "DESC"
-	if strings.EqualFold(filter.OrderDirection, "asc") {
+	if filter.OrderDirection == port.SortAscending {
 		orderDir = "ASC"
 	}
 
@@ -357,12 +357,12 @@ func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]doma
 	whereClause, args := r.buildListWhere(filter)
 	argIdx := len(args) + 1
 
-	orderCol := orgOrderByWhitelist[filter.OrderBy]
+	orderCol := orgOrderByWhitelist[string(filter.OrderBy)]
 	if orderCol == "" {
 		orderCol = "o.name"
 	}
 	orderDir := "DESC"
-	if strings.EqualFold(filter.OrderDirection, "asc") {
+	if filter.OrderDirection == port.SortAscending {
 		orderDir = "ASC"
 	}
 
@@ -577,12 +577,12 @@ func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, fil
 	whereClause, args := r.orgInvitesWhere(orgID, filter)
 	argIdx := len(args) + 1
 
-	orderCol := orgInviteOrderByWhitelist[filter.OrderBy]
+	orderCol := orgInviteOrderByWhitelist[string(filter.OrderBy)]
 	if orderCol == "" {
 		orderCol = "created_at"
 	}
 	orderDir := "DESC"
-	if strings.EqualFold(filter.OrderDirection, "asc") {
+	if filter.OrderDirection == port.SortAscending {
 		orderDir = "ASC"
 	}
 

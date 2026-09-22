@@ -105,7 +105,7 @@ func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 		} else {
 			ci, cj = matched[i].CreatedAt, matched[j].CreatedAt
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return ci.Before(cj)
 		}
 		return ci.After(cj)

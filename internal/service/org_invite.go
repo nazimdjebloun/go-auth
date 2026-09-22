@@ -261,8 +261,8 @@ type ListOrgInvitesInput struct {
 	Role           *domain.OrgRole
 	Status         *string
 	Search         *string
-	OrderBy        string
-	OrderDirection string
+	OrderBy        port.OrgInviteSortField
+	OrderDirection port.SortDirection
 	Offset         int
 	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
 }

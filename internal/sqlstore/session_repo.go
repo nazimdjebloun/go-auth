@@ -277,12 +277,12 @@ func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilt
 	whereClause, args := r.buildAllWhere(filter, now)
 	argIdx := len(args) + 1
 
-	orderCol := sessionOrderByWhitelist[filter.OrderBy]
+	orderCol := sessionOrderByWhitelist[string(filter.OrderBy)]
 	if orderCol == "" {
 		orderCol = "created_at"
 	}
 	orderDir := "DESC"
-	if strings.EqualFold(filter.OrderDirection, "asc") {
+	if filter.OrderDirection == port.SortAscending {
 		orderDir = "ASC"
 	}
 

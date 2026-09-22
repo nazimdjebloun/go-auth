@@ -55,13 +55,10 @@ func (h *Handler) AdminListOrgs(w http.ResponseWriter, r *http.Request) {
 		return &t
 	}
 
-	orderBy := r.URL.Query().Get("orderBy")
-	if orderBy != "name" && orderBy != "created_at" && orderBy != "member_count" {
-		orderBy = "name"
-	}
-	orderDirection := r.URL.Query().Get("orderDirection")
-	if orderDirection != "asc" && orderDirection != "desc" {
-		orderDirection = "asc"
+	orderBy, orderDirection, err := parseOrgSort(r.URL.Query())
+	if err != nil {
+		h.writeError(w, err)
+		return
 	}
 
 	input := service.AdminListOrgsInput{
@@ -142,13 +139,10 @@ func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orderBy := r.URL.Query().Get("orderBy")
-	if orderBy != "joined_at" && orderBy != "role" && orderBy != "name" && orderBy != "email" {
-		orderBy = "joined_at"
-	}
-	orderDirection := r.URL.Query().Get("orderDirection")
-	if orderDirection != "asc" && orderDirection != "desc" {
-		orderDirection = "asc"
+	orderBy, orderDirection, err := parseOrgMemberSort(r.URL.Query())
+	if err != nil {
+		h.writeError(w, err)
+		return
 	}
 
 	input := service.AdminListOrgMembersInput{
@@ -305,13 +299,10 @@ func (h *Handler) AdminListUserOrgs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orderBy := r.URL.Query().Get("orderBy")
-	if orderBy != "name" && orderBy != "created_at" && orderBy != "member_count" {
-		orderBy = "name"
-	}
-	orderDirection := r.URL.Query().Get("orderDirection")
-	if orderDirection != "asc" && orderDirection != "desc" {
-		orderDirection = "asc"
+	orderBy, orderDirection, err := parseUserOrgSort(r.URL.Query())
+	if err != nil {
+		h.writeError(w, err)
+		return
 	}
 
 	input := service.AdminListUserOrgsInput{

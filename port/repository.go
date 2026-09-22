@@ -50,8 +50,8 @@ type UserFilter struct {
 	CreatedAfter   *time.Time
 	CreatedBefore  *time.Time
 	Search         *string
-	OrderBy        string // "created_at" or "updated_at"
-	OrderDirection string // "asc" or "desc"
+	OrderBy        UserSortField
+	OrderDirection SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }
@@ -166,8 +166,8 @@ type SessionFilter struct {
 	ExpiresBefore    *time.Time
 	LastActiveAfter  *time.Time
 	LastActiveBefore *time.Time
-	OrderBy          string // "created_at" (default), "expires_at", "last_active_at"
-	OrderDirection   string // "asc" or "desc"
+	OrderBy          SessionSortField
+	OrderDirection   SortDirection
 	Offset           int
 	Limit            int
 }
@@ -295,8 +295,8 @@ type TokenRepository interface {
 type InviteFilter struct {
 	Search         *string
 	Status         *string
-	OrderBy        string // "created_at" (default), "expires_at", "email", "status"
-	OrderDirection string // "asc" or "desc"
+	OrderBy        InviteSortField
+	OrderDirection SortDirection
 	Offset         int
 	Limit          int
 }
@@ -337,8 +337,8 @@ type ProviderAccountRepository interface {
 type OrgMemberFilter struct {
 	Role           *domain.OrgRole
 	Search         *string // matches member's name or email
-	OrderBy        string  // "joined_at" (default), "role", "name", or "email"
-	OrderDirection string  // "asc" or "desc"
+	OrderBy        OrgMemberSortField
+	OrderDirection SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }
@@ -347,8 +347,8 @@ type OrgMemberFilter struct {
 type UserOrgFilter struct {
 	Search         *string         // matches org name or slug
 	Role           *domain.OrgRole // nil = all roles, else owner/admin/member
-	OrderBy        string          // "name" (default), "created_at", or "member_count"
-	OrderDirection string          // "asc" or "desc"
+	OrderBy        UserOrgSortField
+	OrderDirection SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }
@@ -360,8 +360,8 @@ type OrgFilter struct {
 	Search         *string // matches org name or slug
 	CreatedAfter   *time.Time
 	CreatedBefore  *time.Time
-	OrderBy        string // "name" (default), "created_at", or "member_count"
-	OrderDirection string // "asc" or "desc"
+	OrderBy        OrgSortField
+	OrderDirection SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }
@@ -436,8 +436,8 @@ type OrgInviteFilter struct {
 	Role           *domain.OrgRole
 	Status         *string // "pending" or "expired"; nil means both
 	Search         *string // matches invite email
-	OrderBy        string  // "created_at" (default), "expires_at", "email", "role"
-	OrderDirection string  // "asc" or "desc"
+	OrderBy        OrgInviteSortField
+	OrderDirection SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }

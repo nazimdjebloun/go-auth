@@ -169,12 +169,12 @@ func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) (
 	where, args := r.buildInviteWhere(filter, now)
 	argIdx := len(args) + 1
 
-	orderCol := inviteOrderByWhitelist[filter.OrderBy]
+	orderCol := inviteOrderByWhitelist[string(filter.OrderBy)]
 	if orderCol == "" {
 		orderCol = "created_at"
 	}
 	orderDir := "DESC"
-	if strings.EqualFold(filter.OrderDirection, "asc") {
+	if filter.OrderDirection == port.SortAscending {
 		orderDir = "ASC"
 	}
 

@@ -52,13 +52,10 @@ func (h *Handler) AdminListSessions(w http.ResponseWriter, r *http.Request) {
 		return &t
 	}
 
-	orderBy := r.URL.Query().Get("orderBy")
-	if orderBy != "created_at" && orderBy != "expires_at" && orderBy != "last_active_at" {
-		orderBy = "created_at"
-	}
-	orderDirection := r.URL.Query().Get("orderDirection")
-	if orderDirection != "asc" && orderDirection != "desc" {
-		orderDirection = "desc"
+	orderBy, orderDirection, err := parseSessionSort(r.URL.Query())
+	if err != nil {
+		h.writeError(w, err)
+		return
 	}
 
 	input := service.AdminListSessionsInput{

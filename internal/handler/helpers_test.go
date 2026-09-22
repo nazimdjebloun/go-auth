@@ -125,7 +125,7 @@ func (m *mockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 		} else {
 			ci, cj = matched[i].CreatedAt, matched[j].CreatedAt
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return ci.Before(cj)
 		}
 		return ci.After(cj)
@@ -1234,7 +1234,7 @@ func (m *mockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port
 		default:
 			less = all[i].JoinedAt.Before(all[j].JoinedAt)
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return less
 		}
 		return !less
@@ -1300,7 +1300,7 @@ func (m *mockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port
 		default:
 			less = all[i].Name < all[j].Name
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return less
 		}
 		return !less
@@ -1382,7 +1382,7 @@ func (m *mockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.O
 		default:
 			less = all[i].Name < all[j].Name
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return less
 		}
 		return !less
@@ -1564,7 +1564,7 @@ func (m *mockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter 
 		default:
 			less = all[i].CreatedAt.Before(all[j].CreatedAt)
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return less
 		}
 		return !less

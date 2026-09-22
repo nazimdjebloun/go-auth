@@ -209,7 +209,7 @@ func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port
 		default:
 			less = all[i].JoinedAt.Before(all[j].JoinedAt)
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return less
 		}
 		return !less
@@ -278,7 +278,7 @@ func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port
 		default:
 			less = all[i].Name < all[j].Name
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return less
 		}
 		return !less
@@ -367,7 +367,7 @@ func (m *MockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.O
 		default:
 			less = all[i].Name < all[j].Name
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return less
 		}
 		return !less

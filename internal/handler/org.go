@@ -140,14 +140,10 @@ func (h *Handler) ListUserOrgs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orderBy := r.URL.Query().Get("orderBy")
-	if orderBy != "name" && orderBy != "created_at" && orderBy != "member_count" {
-		orderBy = "name"
-	}
-
-	orderDirection := r.URL.Query().Get("orderDirection")
-	if orderDirection != "asc" && orderDirection != "desc" {
-		orderDirection = "asc"
+	orderBy, orderDirection, err := parseUserOrgSort(r.URL.Query())
+	if err != nil {
+		h.writeError(w, err)
+		return
 	}
 
 	result, err := h.services.Org.ListUserOrgs(r.Context(), service.ListUserOrgsInput{
@@ -224,14 +220,10 @@ func (h *Handler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orderBy := r.URL.Query().Get("orderBy")
-	if orderBy != "joined_at" && orderBy != "role" && orderBy != "name" && orderBy != "email" {
-		orderBy = "joined_at"
-	}
-
-	orderDirection := r.URL.Query().Get("orderDirection")
-	if orderDirection != "asc" && orderDirection != "desc" {
-		orderDirection = "asc"
+	orderBy, orderDirection, err := parseOrgMemberSort(r.URL.Query())
+	if err != nil {
+		h.writeError(w, err)
+		return
 	}
 
 	result, err := h.services.Org.ListMembers(r.Context(), service.ListMembersInput{
@@ -492,14 +484,10 @@ func (h *Handler) ListOrgInvites(w http.ResponseWriter, r *http.Request) {
 		status = &s
 	}
 
-	orderBy := r.URL.Query().Get("orderBy")
-	if orderBy != "created_at" && orderBy != "expires_at" && orderBy != "email" && orderBy != "role" {
-		orderBy = "created_at"
-	}
-
-	orderDirection := r.URL.Query().Get("orderDirection")
-	if orderDirection != "asc" && orderDirection != "desc" {
-		orderDirection = "desc"
+	orderBy, orderDirection, err := parseOrgInviteSort(r.URL.Query())
+	if err != nil {
+		h.writeError(w, err)
+		return
 	}
 
 	result, err := h.services.OrgInvite.ListOrgInvites(r.Context(), service.ListOrgInvitesInput{

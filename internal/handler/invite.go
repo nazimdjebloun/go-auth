@@ -101,13 +101,10 @@ func (h *Handler) ListInvites(w http.ResponseWriter, r *http.Request) {
 		limit = 100
 	}
 
-	orderBy := r.URL.Query().Get("orderBy")
-	if orderBy != "created_at" && orderBy != "expires_at" && orderBy != "email" && orderBy != "status" {
-		orderBy = "created_at"
-	}
-	orderDirection := r.URL.Query().Get("orderDirection")
-	if orderDirection != "asc" && orderDirection != "desc" {
-		orderDirection = "desc"
+	orderBy, orderDirection, err := parseInviteSort(r.URL.Query())
+	if err != nil {
+		h.writeError(w, err)
+		return
 	}
 
 	invites, err := h.services.Invite.ListInvites(r.Context(), service.ListInvitesInput{

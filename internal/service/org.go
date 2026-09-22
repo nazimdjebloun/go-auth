@@ -325,8 +325,8 @@ type ListUserOrgsInput struct {
 	UserID         string
 	Search         *string
 	Role           *domain.OrgRole
-	OrderBy        string
-	OrderDirection string
+	OrderBy        port.UserOrgSortField
+	OrderDirection port.SortDirection
 	Offset         int
 	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
 }
@@ -742,8 +742,8 @@ type ListMembersInput struct {
 	ActorID        string
 	Role           *domain.OrgRole
 	Search         *string
-	OrderBy        string
-	OrderDirection string
+	OrderBy        port.OrgMemberSortField
+	OrderDirection port.SortDirection
 	Offset         int
 	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
 }

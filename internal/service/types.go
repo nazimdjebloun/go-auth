@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
 )
 
 // ChallengeResult describes a pending 2FA challenge.
@@ -162,8 +163,8 @@ type AdminListUsersInput struct {
 	NeverLoggedIn   *bool
 	LastLoginBefore *time.Time
 	Search          *string
-	OrderBy         string // "created_at" or "updated_at"
-	OrderDirection  string // "asc" or "desc"
+	OrderBy         port.UserSortField
+	OrderDirection  port.SortDirection
 }
 
 type AdminListUsersResult struct {
@@ -178,8 +179,8 @@ type ListInvitesInput struct {
 	Limit          int
 	Search         string
 	Status         string
-	OrderBy        string // "created_at" (default), "expires_at", "email", "status"
-	OrderDirection string // "asc" or "desc"
+	OrderBy        port.InviteSortField
+	OrderDirection port.SortDirection
 }
 
 type CreateInviteInput struct {

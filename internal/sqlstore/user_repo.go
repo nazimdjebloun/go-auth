@@ -299,12 +299,12 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 	whereClause, args := r.buildWhere(filter)
 	argIdx := len(args) + 1
 
-	orderCol := orderByWhitelist[filter.OrderBy]
+	orderCol := orderByWhitelist[string(filter.OrderBy)]
 	if orderCol == "" {
 		orderCol = "created_at"
 	}
 	orderDir := "DESC"
-	if strings.EqualFold(filter.OrderDirection, "asc") {
+	if filter.OrderDirection == port.SortAscending {
 		orderDir = "ASC"
 	}
 

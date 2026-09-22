@@ -269,35 +269,19 @@ func TestListUserOrgs_HappyPath(t *testing.T) {
 	}
 }
 
-func TestListUserOrgs_OrderByWhitelist(t *testing.T) {
+func TestListUserOrgs_InvalidSort_BadRequest(t *testing.T) {
 	th := newTestHarness()
 	user := seedOrgUser(t, th)
-	org := seedOrg(t, th, user.ID)
+	seedOrg(t, th, user.ID)
 
-	// A bogus orderBy must fall back to the default ("name") rather than
-	// erroring — the whitelist substitution guards against it ever reaching
-	// raw SQL.
 	req := httptest.NewRequest(http.MethodGet, "/orgs?orderBy=DROP+TABLE+organizations&orderDirection=bogus", nil)
 	req = req.WithContext(middleware.ContextWithUser(req.Context(), user))
 	w := httptest.NewRecorder()
 	th.handler.ListUserOrgs(w, req)
 
 	res := w.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
-	}
-	var resp struct {
-		Orgs   []domain.Organization `json:"orgs"`
-		Total  int                   `json:"total"`
-		Limit  int                   `json:"limit"`
-		Offset int                   `json:"offset"`
-	}
-	json.NewDecoder(res.Body).Decode(&resp)
-	if len(resp.Orgs) != 1 || resp.Orgs[0].ID != org.ID {
-		t.Errorf("expected [%s], got %+v", org.ID, resp.Orgs)
-	}
-	if resp.Limit != 20 {
-		t.Errorf("expected total 1, limit 20 (default), got total %d, limit %d", resp.Total, resp.Limit)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", res.StatusCode)
 	}
 }
 
@@ -515,7 +499,7 @@ func TestListOrgMembers_HappyPath(t *testing.T) {
 	}
 }
 
-func TestListOrgMembers_OrderByWhitelist(t *testing.T) {
+func TestListOrgMembers_InvalidSort_BadRequest(t *testing.T) {
 	th := newTestHarness()
 	user := seedOrgUser(t, th)
 	org := seedOrg(t, th, user.ID)
@@ -527,18 +511,8 @@ func TestListOrgMembers_OrderByWhitelist(t *testing.T) {
 	th.handler.ListOrgMembers(w, req)
 
 	res := w.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
-	}
-	var resp struct {
-		Members []domain.OrgMemberDetail `json:"members"`
-		Total   int                      `json:"total"`
-		Limit   int                      `json:"limit"`
-		Offset  int                      `json:"offset"`
-	}
-	json.NewDecoder(res.Body).Decode(&resp)
-	if len(resp.Members) != 1 || resp.Limit != 20 {
-		t.Errorf("expected 1 member, limit 20 (default), got total %d, len %d, limit %d", resp.Total, len(resp.Members), resp.Limit)
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", res.StatusCode)
 	}
 }
 
@@ -917,7 +891,7 @@ func TestListOrgInvites_HappyPath(t *testing.T) {
 	}
 }
 
-func TestListOrgInvites_OrderByWhitelist(t *testing.T) {
+func TestListOrgInvites_InvalidSort_BadRequest(t *testing.T) {
 	th := newTestHarness()
 	owner := seedOrgUser(t, th)
 	org := seedOrg(t, th, owner.ID)
@@ -936,15 +910,8 @@ func TestListOrgInvites_OrderByWhitelist(t *testing.T) {
 	th.handler.ListOrgInvites(w, req)
 
 	res := w.Result()
-	if res.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", res.StatusCode)
-	}
-	var resp struct {
-		Invites []domain.OrgInvite `json:"invites"`
-	}
-	json.NewDecoder(res.Body).Decode(&resp)
-	if len(resp.Invites) != 1 {
-		t.Errorf("expected 1 invite (bogus orderBy/orderDirection should fall back to defaults, not error), got %d", len(resp.Invites))
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", res.StatusCode)
 	}
 }
 

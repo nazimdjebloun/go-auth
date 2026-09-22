@@ -33,8 +33,8 @@ type AdminListOrgsInput struct {
 	Search         *string
 	CreatedAfter   *time.Time
 	CreatedBefore  *time.Time
-	OrderBy        string
-	OrderDirection string
+	OrderBy        port.OrgSortField
+	OrderDirection port.SortDirection
 	Offset         int
 	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
 }
@@ -113,8 +113,8 @@ type AdminListUserOrgsInput struct {
 	UserID         string
 	Search         *string
 	Role           *domain.OrgRole
-	OrderBy        string
-	OrderDirection string
+	OrderBy        port.UserOrgSortField
+	OrderDirection port.SortDirection
 	Offset         int
 	Limit          *int
 }
@@ -201,8 +201,8 @@ type AdminListOrgMembersInput struct {
 	ActorID        string
 	Role           *domain.OrgRole
 	Search         *string
-	OrderBy        string
-	OrderDirection string
+	OrderBy        port.OrgMemberSortField
+	OrderDirection port.SortDirection
 	Offset         int
 	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
 }

@@ -162,7 +162,7 @@ func (m *MockSessionRepo) ListAll(_ context.Context, filter port.SessionFilter) 
 		default:
 			ci, cj = res[i].CreatedAt, res[j].CreatedAt
 		}
-		if strings.EqualFold(filter.OrderDirection, "asc") {
+		if filter.OrderDirection == port.SortAscending {
 			return ci.Before(cj)
 		}
 		return ci.After(cj)

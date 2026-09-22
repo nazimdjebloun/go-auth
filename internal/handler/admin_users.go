@@ -13,7 +13,7 @@ import (
 // parseListUsersInput reads the shared /admin/users query params. Offset,
 // Limit, OrderBy and OrderDirection are only meaningful for the list;
 // CountUsers ignores them.
-func parseListUsersInput(r *http.Request, actorID string) service.AdminListUsersInput {
+func parseListUsersInput(r *http.Request, actorID string) (service.AdminListUsersInput, error) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
@@ -69,14 +69,9 @@ func parseListUsersInput(r *http.Request, actorID string) service.AdminListUsers
 		}
 	}
 
-	orderBy := r.URL.Query().Get("orderBy")
-	if orderBy != "created_at" && orderBy != "updated_at" {
-		orderBy = "created_at"
-	}
-
-	orderDirection := r.URL.Query().Get("orderDirection")
-	if orderDirection != "asc" && orderDirection != "desc" {
-		orderDirection = "desc"
+	orderBy, orderDirection, err := parseUserSort(r.URL.Query())
+	if err != nil {
+		return service.AdminListUsersInput{}, err
 	}
 
 	return service.AdminListUsersInput{
@@ -93,7 +88,7 @@ func parseListUsersInput(r *http.Request, actorID string) service.AdminListUsers
 		Search:           search,
 		OrderBy:          orderBy,
 		OrderDirection:   orderDirection,
-	}
+	}, nil
 }
 
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +97,12 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
-	result, err := h.services.Admin.ListUsers(r.Context(), parseListUsersInput(r, actor.ID))
+	input, err := parseListUsersInput(r, actor.ID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	result, err := h.services.Admin.ListUsers(r.Context(), input)
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -117,7 +117,12 @@ func (h *Handler) CountUsers(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
-	n, err := h.services.Admin.CountUsers(r.Context(), parseListUsersInput(r, actor.ID))
+	input, err := parseListUsersInput(r, actor.ID)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	n, err := h.services.Admin.CountUsers(r.Context(), input)
 	if err != nil {
 		h.writeError(w, err)
 		return
