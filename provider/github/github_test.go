@@ -1,5 +1,8 @@
 package github
 
+// These tests replace http.DefaultTransport and githubEndpoint. Keep this
+// package serial: adding t.Parallel would race with the global substitutions.
+
 import (
 	"context"
 	"encoding/json"

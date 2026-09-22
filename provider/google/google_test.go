@@ -1,5 +1,8 @@
 package google
 
+// These tests replace http.DefaultTransport and package endpoints. Keep this
+// package serial: adding t.Parallel would race with the global substitutions.
+
 import (
 	"context"
 	"encoding/json"
@@ -62,9 +65,9 @@ func TestCustomScopes(t *testing.T) {
 
 func TestAuthURL(t *testing.T) {
 	g := New(Config{
-		ClientID:    "test-client",
+		ClientID:     "test-client",
 		ClientSecret: "test-secret",
-		RedirectURL: "http://localhost/callback",
+		RedirectURL:  "http://localhost/callback",
 	})
 	u := g.AuthURL("state123", "challenge456")
 	if !strings.Contains(u, "state123") {
