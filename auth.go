@@ -10,6 +10,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher"
+	"github.com/nazimdjebloun/go-auth/hasher/registry"
 	"github.com/nazimdjebloun/go-auth/internal/crypto"
 	"github.com/nazimdjebloun/go-auth/internal/handler"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
@@ -129,7 +130,7 @@ func New(in *Config) (*Auth, error) {
 		}
 		currentHasher = hasher.New(cost)
 	}
-	hasherRegistry, err := service.NewHasherRegistry(currentHasher, hasher.New(defaultBcryptCost))
+	passwordRegistry, err := registry.New(currentHasher, hasher.New(defaultBcryptCost))
 	if err != nil {
 		return nil, fmt.Errorf("goauth: building password hasher registry: %w", err)
 	}
@@ -140,7 +141,7 @@ func New(in *Config) (*Auth, error) {
 	for version, secret := range cfg.passwordPepper.Keys {
 		passwordPepperKeys[version] = keyring.DerivePasswordPepper([]byte(secret))
 	}
-	passwordHasher, err := service.NewPasswordHasher(hasherRegistry, cfg.passwordPepper.CurrentVersion, passwordPepperKeys)
+	passwordHasher, err := service.NewPasswordHasher(passwordRegistry, cfg.passwordPepper.CurrentVersion, passwordPepperKeys)
 	if err != nil {
 		return nil, fmt.Errorf("goauth: building password hasher: %w", err)
 	}
@@ -162,7 +163,10 @@ func New(in *Config) (*Auth, error) {
 			_ = sqlDB.Close()
 		}
 	}()
-	sessRepo := sqlstore.NewSessionRepository(sqlDB)
+	sessionRepo := sqlstore.NewSessionRepository(sqlDB)
+	if cfg.logger != nil {
+		sessionRepo.WithLogger(cfg.logger)
+	}
 
 	userRepo := sqlstore.NewUserRepository(sqlDB)
 	// Keep the zero-config path lazy: historically New with a borrowed pgx
@@ -179,12 +183,14 @@ func New(in *Config) (*Auth, error) {
 			return nil, fmt.Errorf("goauth: invalid password pepper configuration: %w", err)
 		}
 	}
-	sessionRepoSQL := sqlstore.NewSessionRepository(sqlDB)
 	tokenRepo := sqlstore.NewTokenRepository(sqlDB)
 	inviteRepo := sqlstore.NewInviteRepository(sqlDB)
 	providerAccountRepo := sqlstore.NewProviderAccountRepository(sqlDB)
 	if keys.OAuthEnc != nil {
-		enc, _ := crypto.NewEncryptor(keys.OAuthEnc)
+		enc, err := crypto.NewEncryptor(keys.OAuthEnc)
+		if err != nil {
+			return nil, fmt.Errorf("goauth: oauth encryptor: %w", err)
+		}
 		providerAccountRepo.WithDecryptor(enc.Decrypt)
 	}
 	auditLogRepo := sqlstore.NewAuditLogRepository(sqlDB)
@@ -248,7 +254,7 @@ func New(in *Config) (*Auth, error) {
 	sessionCfg := buildSessionConfig(&cfg, auditPub)
 	cookies := cookiesFromSession(sessionCfg)
 
-	sessSvc := service.NewSessionService(sessRepo, genImpl, sessionCfg)
+	sessSvc := service.NewSessionService(sessionRepo, genImpl, sessionCfg)
 	// Direct session API calls must get the same record-iff-commit guarantee
 	// as login: the session mutation and its audit record share one tx.
 	sessSvc.AttachTxManager(sqlDB)
@@ -272,27 +278,25 @@ func New(in *Config) (*Auth, error) {
 		ratelimit.WithoutEviction(),
 		ratelimit.WithStoreLogger(cfg.logger),
 	)
-	twoFactorSvc := service.NewTwoFactorService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
+	twoFactorSvc := service.NewTwoFactorService(userRepo, sessionRepo, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
 
-	authSvc := service.NewAuthService(userRepo, sessionRepoSQL, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
+	authSvc := service.NewAuthService(userRepo, sessionRepo, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
 	// Register commits the user row and its audit record in one
 	// transaction, so a crash cannot leave an account with no record of its
 	// registration (record-iff-commit).
 	authSvc.AttachTxManager(sqlDB)
-	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepoSQL, sqlDB, serviceCfg)
-	inviteSvc := service.NewInviteService(userRepo, sessionRepoSQL, inviteRepo, hasherImpl, genImpl, mailer, sqlDB, serviceCfg, sessSvc, twoFactorSvc)
-	adminSvc := service.NewAdminService(userRepo, sessionRepoSQL, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
-
-	// Attach logger to session repository
-	if cfg.logger != nil {
-		sessionRepoSQL.WithLogger(cfg.logger)
-	}
+	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepo, sqlDB, serviceCfg)
+	inviteSvc := service.NewInviteService(userRepo, sessionRepo, inviteRepo, hasherImpl, genImpl, mailer, sqlDB, serviceCfg, sessSvc, twoFactorSvc)
+	adminSvc := service.NewAdminService(userRepo, sessionRepo, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
 
 	var oauthSvc *service.OAuthService
 	if len(oauthProviders) > 0 {
 		var encryptor *crypto.Encryptor
 		if keys.OAuthEnc != nil {
-			encryptor, _ = crypto.NewEncryptor(keys.OAuthEnc)
+			encryptor, err = crypto.NewEncryptor(keys.OAuthEnc)
+			if err != nil {
+				return nil, fmt.Errorf("goauth: oauth encryptor: %w", err)
+			}
 		}
 		oauthCfg := service.OAuthServiceConfig{
 			CommonConfig:             commonCfg,
@@ -310,7 +314,7 @@ func New(in *Config) (*Auth, error) {
 	if cfg.organizations.Enable {
 		orgRepo = sqlstore.NewOrgRepository(sqlDB)
 		orgInviteRepo := sqlstore.NewOrgInviteRepository(sqlDB)
-		orgSvc = service.NewOrgService(orgRepo, userRepo, sessRepo, sqlDB, service.OrgServiceConfig{
+		orgSvc = service.NewOrgService(orgRepo, userRepo, sessionRepo, sqlDB, service.OrgServiceConfig{
 			MaxOrgsPerUser: cfg.organizations.MaxOrgsPerUser,
 			Logger:         cfg.logger,
 			Audit:          auditPub,
@@ -333,7 +337,7 @@ func New(in *Config) (*Auth, error) {
 	// revocation, last-usable-admin guard. orgRepo is nil when
 	// organizations are disabled, and the coordinator skips membership
 	// upkeep in that case.
-	accountDeletion := service.NewAccountDeletion(sqlDB, sqlstore.NewOrgRepository(sqlDB), sessionRepoSQL, userRepo)
+	accountDeletion := service.NewAccountDeletion(sqlDB, sqlstore.NewOrgRepository(sqlDB), sessionRepo, userRepo)
 	authSvc.AttachAccountDeletion(accountDeletion)
 	adminSvc.AttachAccountDeletion(accountDeletion)
 
@@ -407,7 +411,7 @@ func New(in *Config) (*Auth, error) {
 	orgAdminMW := middleware.RequireOrgRole(domain.OrgRoleAdmin)
 	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 
-	maintenance := newMaintenanceRunner(cfg.maintenance, collectMaintenanceTargets(sessionRepoSQL, tokenRepo))
+	maintenance := newMaintenanceRunner(cfg.maintenance, collectMaintenanceTargets(sessionRepo, tokenRepo))
 	if !cfg.maintenance.Disable {
 		maintenance.start()
 	}
