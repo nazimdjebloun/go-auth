@@ -70,7 +70,7 @@ func (g *Google) Exchange(ctx context.Context, code string, codeVerifier string)
 	if err != nil {
 		return nil, fmt.Errorf("google: failed to fetch user info: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var user struct {
 		ID            string `json:"id"`

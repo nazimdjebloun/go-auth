@@ -133,7 +133,7 @@ func (d *DB) WithTx(ctx context.Context, fn func(ctx context.Context) error) err
 		return fn(ctx)
 	}
 
-	tx, err := d.DB.BeginTx(ctx, nil)
+	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -141,7 +141,7 @@ func (d *DB) WithTx(ctx context.Context, fn func(ctx context.Context) error) err
 	// connection): the deferred Rollback releases it during unwinding, then
 	// the panic keeps propagating. After a successful Commit this is a
 	// harmless no-op returning ErrTxDone.
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	ctx = context.WithValue(ctx, txKey{}, tx)
 	if err := fn(ctx); err != nil {

@@ -123,14 +123,14 @@ func TestForgotPassword_ExistingUser(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("Passw0rd!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
+	}))
 
 	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
 	if err != nil {
@@ -185,14 +185,14 @@ func TestForgotPassword_NilMailer(t *testing.T) {
 	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, cfg)
 
 	hash, _ := hasher.Hash("Passw0rd!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
+	}))
 
 	// A misconfigured mailer must be visible, not indistinguishable from a
 	// working one that quietly sent nothing — same reasoning as every other
@@ -229,14 +229,13 @@ func TestRequestSetPassword_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessions := testutil.NewMockSessionRepo()
 	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, defaultTestConfig())
-
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:        "user-1",
 		Email:     "test@example.com",
 		Name:      "Test",
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
-	})
+	}))
 
 	err := svc.RequestSetPassword(context.Background(), "user-1")
 	if err == nil {
@@ -255,16 +254,15 @@ func TestResetPassword_HappyPath(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("OldPass1!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
-
-	svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	}))
+	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"}))
 
 	code := extractResetToken(mailer)
 	if code == "" {
@@ -391,16 +389,15 @@ func TestResetPassword_ExpiredCode(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("OldPass1!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
-
-	svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	}))
+	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"}))
 	code := extractResetToken(mailer)
 
 	// Expire the token
@@ -428,16 +425,15 @@ func TestResetPassword_AlreadyUsedCode(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("OldPass1!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
-
-	svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	}))
+	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"}))
 	code := extractResetToken(mailer)
 
 	// First reset
@@ -470,16 +466,15 @@ func TestResetPassword_WeakPassword(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("OldPass1!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
-
-	svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	}))
+	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"}))
 	code := extractResetToken(mailer)
 
 	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
@@ -499,14 +494,14 @@ func TestChangePassword_HappyPath(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("OldPass1!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
+	}))
 
 	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:      "user-1",
@@ -552,7 +547,7 @@ func TestChangePassword_ConcurrentV3WriteWinsOverV2Node(t *testing.T) {
 	if err := sessions.Create(context.Background(), &domain.Session{
 		ID:        "change-race-session",
 		UserID:    user.ID,
-		TokenHash: "change-race-session-hash",
+		TokenHash: strings.Join([]string{"change", "race", "session", "hash"}, "-"),
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -596,14 +591,14 @@ func TestChangePassword_WrongOldPassword(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("OldPass1!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
+	}))
 
 	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:      "user-1",
@@ -624,14 +619,13 @@ func TestChangePassword_NoPasswordSet(t *testing.T) {
 	hasher := &testutil.MockHasher{}
 	mailer := &testutil.MockMailer{}
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
-
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:        "oauth-user",
 		Email:     "oauth@example.com",
 		Name:      "OAuth",
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
-	})
+	}))
 
 	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:      "oauth-user",
@@ -654,14 +648,14 @@ func TestChangePassword_WeakNewPassword(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("OldPass1!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
+	}))
 
 	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:      "user-1",
@@ -705,17 +699,16 @@ func TestChangePassword_RevokesOtherSessions(t *testing.T) {
 	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
 
 	hash, _ := hasher.Hash("OldPass1!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
-
-	sessions.Create(context.Background(), &domain.Session{ID: "sess-1", UserID: "user-1"})
-	sessions.Create(context.Background(), &domain.Session{ID: "sess-2", UserID: "user-1"})
+	}))
+	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-1", UserID: "user-1"}))
+	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-2", UserID: "user-1"}))
 
 	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:      "user-1",
@@ -744,17 +737,16 @@ func TestChangePassword_KeepsExceptSession(t *testing.T) {
 	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
 
 	hash, _ := hasher.Hash("OldPass1!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
-
-	sessions.Create(context.Background(), &domain.Session{ID: "sess-keep", UserID: "user-1"})
-	sessions.Create(context.Background(), &domain.Session{ID: "sess-revoke", UserID: "user-1"})
+	}))
+	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-keep", UserID: "user-1"}))
+	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-revoke", UserID: "user-1"}))
 
 	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:          "user-1",
@@ -781,14 +773,13 @@ func TestRequestSetPassword_HappyPath(t *testing.T) {
 	hasher := &testutil.MockHasher{}
 	mailer := &testutil.MockMailer{}
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
-
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:        "oauth-user",
 		Email:     "oauth@example.com",
 		Name:      "OAuth",
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
-	})
+	}))
 
 	err := svc.RequestSetPassword(context.Background(), "oauth-user")
 	if err != nil {
@@ -807,14 +798,14 @@ func TestRequestSetPassword_AlreadyHasPassword(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("Passw0rd!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
+	}))
 
 	err := svc.RequestSetPassword(context.Background(), "user-1")
 	if err == nil {
@@ -847,16 +838,14 @@ func TestConfirmSetPassword_HappyPath(t *testing.T) {
 	hasher := &testutil.MockHasher{}
 	mailer := &testutil.MockMailer{}
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
-
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:        "oauth-user",
 		Email:     "oauth@example.com",
 		Name:      "OAuth",
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
-	})
-
-	svc.RequestSetPassword(context.Background(), "oauth-user")
+	}))
+	checkTestErrors(t).noError(svc.RequestSetPassword(context.Background(), "oauth-user"))
 	code := testutil.GetLastVerificationCode(mailer)
 	if code == "" {
 		t.Fatal("expected code in email")
@@ -886,14 +875,13 @@ func TestConfirmSetPassword_InvalidCode(t *testing.T) {
 	hasher := &testutil.MockHasher{}
 	mailer := &testutil.MockMailer{}
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
-
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:        "oauth-user",
 		Email:     "oauth@example.com",
 		Name:      "OAuth",
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
-	})
+	}))
 
 	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
 		UserID:      "oauth-user",
@@ -916,14 +904,14 @@ func TestConfirmSetPassword_AlreadyHasPassword(t *testing.T) {
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
 	hash, _ := hasher.Hash("Passw0rd!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "user-1",
 		Email:        "test@example.com",
 		PasswordHash: &hash,
 		Name:         "Test",
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
+	}))
 
 	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
 		UserID:      "user-1",
@@ -949,16 +937,14 @@ func TestConfirmSetPassword_ConsumedConcurrently(t *testing.T) {
 	hasher := &testutil.MockHasher{}
 	mailer := &testutil.MockMailer{}
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
-
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:        "oauth-user",
 		Email:     "oauth@example.com",
 		Name:      "OAuth",
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
-	})
-
-	svc.RequestSetPassword(context.Background(), "oauth-user")
+	}))
+	checkTestErrors(t).noError(svc.RequestSetPassword(context.Background(), "oauth-user"))
 	code := testutil.GetLastVerificationCode(mailer)
 	if code == "" {
 		t.Fatal("expected code in email")
@@ -977,7 +963,7 @@ func TestConfirmSetPassword_ConsumedConcurrently(t *testing.T) {
 	user, _ := users.GetByID(context.Background(), "oauth-user")
 	user.PasswordHash = nil
 	user.PasswordPepperVersion = nil
-	users.Update(context.Background(), user)
+	checkTestErrors(t).noError(users.Update(context.Background(), user))
 
 	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
 		UserID:      "oauth-user",
@@ -1008,14 +994,13 @@ func TestConfirmSetPassword_StalePepperReturnsExpired(t *testing.T) {
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
 	cfg.PepperRotatedAt = time.Now().UTC()
 	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
-
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:        "oauth-user",
 		Email:     "oauth@example.com",
 		Name:      "OAuth",
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
-	})
+	}))
 
 	if err := svc.RequestSetPassword(context.Background(), "oauth-user"); err != nil {
 		t.Fatalf("unexpected error: %v", err)

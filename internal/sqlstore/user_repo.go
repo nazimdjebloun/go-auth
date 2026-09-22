@@ -125,7 +125,7 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string
 	if err != nil {
 		return false, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now().UTC()
 
@@ -183,21 +183,26 @@ func (r *UserRepository) ListPasswordPepperVersions(ctx context.Context) ([]uint
 	if err != nil {
 		return nil, fmt.Errorf("listing password pepper versions: %w", err)
 	}
-	defer rows.Close()
 
 	var versions []uint32
 	for rows.Next() {
 		var version uint32
 		if err := rows.Scan(&version); err != nil {
+			_ = rows.Close()
 			return nil, fmt.Errorf("scanning password pepper version: %w", err)
 		}
 		if version == 0 {
+			_ = rows.Close()
 			return nil, fmt.Errorf("scanning password pepper version: zero is reserved for unpeppered passwords")
 		}
 		versions = append(versions, version)
 	}
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
 		return nil, fmt.Errorf("iterating password pepper versions: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("closing password pepper versions: %w", err)
 	}
 	return versions, nil
 }
@@ -289,7 +294,6 @@ func (r *UserRepository) buildWhere(filter port.UserFilter) (string, []any) {
 		// by two separate (equal-valued) entries in args, one per occurrence.
 		where = append(where, fmt.Sprintf("(name %s $%d OR email %s $%d)", op, argIdx, op, argIdx+1))
 		args = append(args, searchTerm, searchTerm)
-		argIdx += 2
 	}
 
 	return strings.Join(where, " AND "), args
@@ -320,18 +324,25 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	users := []domain.User{}
 	for rows.Next() {
 		u, err := scanRow(rows)
 		if err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		users = append(users, *u)
 	}
 
-	return users, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("user list close: %w", err)
+	}
+	return users, nil
 }
 
 // Count returns how many users match filter. Pagination/order on filter are
@@ -372,7 +383,6 @@ func (r *UserRepository) CountByDay(ctx context.Context, filter port.UserFilter)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var counts []port.DailyCount
 	for rows.Next() {
@@ -382,14 +392,17 @@ func (r *UserRepository) CountByDay(ctx context.Context, filter port.UserFilter)
 			// modernc.org/sqlite returns date() as a string, not a time.Time.
 			var dayStr string
 			if err := rows.Scan(&dayStr, &c.Count); err != nil {
+				_ = rows.Close()
 				return nil, err
 			}
 			day, err = time.Parse("2006-01-02", dayStr)
 			if err != nil {
+				_ = rows.Close()
 				return nil, err
 			}
 		} else {
 			if err := rows.Scan(&day, &c.Count); err != nil {
+				_ = rows.Close()
 				return nil, err
 			}
 		}
@@ -399,5 +412,12 @@ func (r *UserRepository) CountByDay(ctx context.Context, filter port.UserFilter)
 	if counts == nil {
 		counts = []port.DailyCount{}
 	}
-	return counts, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("user daily counts close: %w", err)
+	}
+	return counts, nil
 }

@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -62,7 +63,6 @@ func (r *ProviderAccountRepository) ListByUserID(ctx context.Context, userID str
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var accounts []domain.ProviderAccount
 	for rows.Next() {
@@ -72,6 +72,7 @@ func (r *ProviderAccountRepository) ListByUserID(ctx context.Context, userID str
 		if err := rows.Scan(
 			&pa.ID, &pa.UserID, &pa.Provider, &pa.ProviderUserID, &pa.ProviderEmail, &pa.ProviderName, &pa.AvatarURL,
 			&accessToken, &refreshToken, &tokenExpiresAt, &pa.CreatedAt, &pa.UpdatedAt); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		if accessToken.Valid {
@@ -85,10 +86,17 @@ func (r *ProviderAccountRepository) ListByUserID(ctx context.Context, userID str
 		}
 		accounts = append(accounts, pa)
 	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("provider account list close: %w", err)
+	}
 	if accounts == nil {
 		return []domain.ProviderAccount{}, nil
 	}
-	return accounts, rows.Err()
+	return accounts, nil
 }
 
 func (r *ProviderAccountRepository) decrypt(s string) string {

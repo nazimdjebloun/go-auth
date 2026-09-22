@@ -169,16 +169,16 @@ func openDatabase(ctx context.Context, cfg *Config) (*pgxpool.Pool, *sqlstore.DB
 			return nil, nil, fmt.Errorf("goauth: open database: %w", err)
 		}
 		if err := cfg.app.Database.applyConnectionLimits(db); err != nil {
-			db.Close()
+			_ = db.Close()
 			return nil, nil, err
 		}
 		if err := db.PingContext(ctx); err != nil {
-			db.Close()
+			_ = db.Close()
 			return nil, nil, fmt.Errorf("goauth: ping database: %w", err)
 		}
 		if cfg.app.Database.Driver == DriverSQLite {
 			if err := requireSQLiteForeignKeys(ctx, db); err != nil {
-				db.Close()
+				_ = db.Close()
 				return nil, nil, err
 			}
 		}
@@ -236,12 +236,12 @@ func resolveTemplates(cfg *Config) (port.TemplateProvider, *port.URLValidator, e
 // transaction; external delivery sinks are fed from the audit_outbox table
 // by the dispatcher. Both return values are nil when auditing is off, which
 // every caller treats as "do not record".
-func startAuditService(cfg *Config, sqlDB *sqlstore.DB) (*audit.AuditService, service.AuditPublisher, error) {
+func startAuditService(cfg *Config, sqlDB *sqlstore.DB) (*audit.Service, service.AuditPublisher, error) {
 	if !cfg.audit.Enabled {
 		return nil, nil, nil
 	}
 
-	auditCfg := audit.AuditServiceConfig{
+	auditCfg := audit.ServiceConfig{
 		FailureMode:        cfg.audit.FailureMode,
 		Workers:            cfg.audit.Workers,
 		BatchSize:          cfg.audit.BatchSize,
@@ -269,7 +269,7 @@ func startAuditService(cfg *Config, sqlDB *sqlstore.DB) (*audit.AuditService, se
 		outbox = sqlstore.NewOutboxRepository(sqlDB)
 	}
 
-	auditSvc := audit.NewAuditService(
+	auditSvc := audit.NewService(
 		auditCfg,
 		sqlDB,
 		sqlstore.NewRecordRepository(sqlDB),

@@ -95,7 +95,7 @@ type OrganizationConfig struct {
 // AuditConfig controls audit logging behavior.
 type AuditConfig struct {
 	Enabled       bool
-	FailureMode   audit.AuditFailureMode
+	FailureMode   audit.FailureMode
 	RetentionDays int           // days of audit rows to retain; 0 = keep forever
 	QueueSize     int           // Deprecated: the in-memory queue is gone; the outbox is the queue. Ignored.
 	Workers       int           // dispatcher workers, default 3

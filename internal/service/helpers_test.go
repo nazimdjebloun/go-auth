@@ -94,7 +94,9 @@ func newTestAdminServiceWithAudit(users *testutil.MockUserRepo, sessions *testut
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
 	providers := testutil.NewMockProviderAccountRepo()
 	actor := &domain.User{ID: "actor-admin", Email: "actor-admin@example.com", Role: domain.RoleAdmin}
-	users.Create(context.Background(), actor)
+	if err := users.Create(context.Background(), actor); err != nil {
+		panic(err)
+	}
 	svc := NewAdminService(users, sessions, providers, auditLogs, hasher, cfg, sessSvc)
 	// Production wiring always attaches the coordinator; do the same here
 	// so DeleteUser exercises the real transactional path.

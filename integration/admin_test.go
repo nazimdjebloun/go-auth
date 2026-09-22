@@ -200,7 +200,7 @@ func TestAdmin_GetLoginActivity(t *testing.T) {
 	if _, err := a.Login(ctx, goauth.LoginInput{Email: "loginuser@example.com", Password: "Passw0rd!"}); err != nil {
 		t.Fatal(err)
 	}
-	// Audit events are published asynchronously (AuditServiceConfig's default
+	// Audit events are published asynchronously (ServiceConfig's default
 	// FlushInterval is 100ms) — wait for the batch to land before querying.
 	time.Sleep(200 * time.Millisecond)
 
@@ -468,7 +468,7 @@ func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
 		t.Fatalf("expected the org to be gone (ErrOrgNotFound), got %+v, err=%v", got, err)
 	}
 
-	// Audit events flush asynchronously (AuditServiceConfig's default
+	// Audit events flush asynchronously (ServiceConfig's default
 	// FlushInterval is 100ms).
 	time.Sleep(200 * time.Millisecond)
 

@@ -62,30 +62,30 @@ func postgresTestDB(t *testing.T, dsn string) (*sql.DB, func()) {
 		t.Fatalf("pgx.ParseConfig: %v", err)
 	}
 
-	origDB := connConfig.Config.Database
+	origDB := connConfig.Database
 
 	// Connect to the user's database to create the test database.
-	connConfig.Config.Database = origDB
+	connConfig.Database = origDB
 	adminDB := stdlib.OpenDB(*connConfig)
 
 	_, err = adminDB.Exec("CREATE DATABASE " + testDBName)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		adminDB.Close()
+		checkTestErrors(t).noError(adminDB.Close())
 		t.Fatalf("CREATE DATABASE: %v", err)
 	}
-	adminDB.Close()
+	checkTestErrors(t).noError(adminDB.Close())
 
 	// Connect to the test database.
-	connConfig.Config.Database = testDBName
+	connConfig.Database = testDBName
 	testDB := stdlib.OpenDB(*connConfig)
 
 	cleanup := func() {
-		testDB.Close()
+		checkTestErrors(t).noError(testDB.Close())
 		// Connect back to the user's database to drop the test database.
-		connConfig.Config.Database = origDB
+		connConfig.Database = origDB
 		cleanupDB := stdlib.OpenDB(*connConfig)
-		cleanupDB.Exec("DROP DATABASE IF EXISTS " + testDBName + " WITH (FORCE)")
-		cleanupDB.Close()
+		checkTestErrors(t).result(cleanupDB.Exec("DROP DATABASE IF EXISTS " + testDBName + " WITH (FORCE)"))
+		checkTestErrors(t).noError(cleanupDB.Close())
 	}
 
 	return testDB, cleanup
@@ -113,7 +113,7 @@ func TestPostgres_RegisterAndValidateSession(t *testing.T) {
 	// Register
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
 		Email:    "alice@pg.test",
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Alice",
 	})
 	if aerr != nil {
@@ -181,7 +181,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	// Register (admin email skips verified check for login)
 	if _, aerr := a.Register(ctx, goauth.RegisterInput{
 		Email:    "admin@pg.test",
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Admin",
 	}); aerr != nil {
 		t.Fatal(aerr)

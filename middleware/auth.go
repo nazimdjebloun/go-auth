@@ -60,7 +60,9 @@ func AuthMiddleware(sessionSvc SessionAuthenticator, cookies CookieSettings, use
 				return
 			}
 
-			sessionSvc.Touch(r.Context(), rawToken, session.LastActiveAt)
+			if err := sessionSvc.Touch(r.Context(), rawToken, session.LastActiveAt); err != nil {
+				logger.Warn("goauth: update session activity", "err", err)
+			}
 
 			ctx := context.WithValue(r.Context(), ctxSession, session)
 			ctx = context.WithValue(ctx, ctxUser, user)

@@ -7,7 +7,7 @@ import (
 )
 
 func corsResponse(allowedOrigins []string, origin string) *httptest.ResponseRecorder {
-	h := CORS(allowedOrigins)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := CORS(allowedOrigins)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	req := httptest.NewRequest("GET", "/", nil)

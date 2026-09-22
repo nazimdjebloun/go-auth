@@ -152,7 +152,9 @@ func TestAdminListUserSessions(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&user); err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	if err := res.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	if user.ID == "" {
 		t.Fatal("expected non-empty user ID")
@@ -241,7 +243,9 @@ func TestAdminRevokeUserSession(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&user); err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	if err := res.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	sess := &domain.Session{
 		ID:        "revoke-sess-1",
@@ -294,7 +298,9 @@ func TestAdminRevokeUserSession_NotFound(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&user); err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	if err := res.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	req2 := httptest.NewRequest(http.MethodDelete, "/admin/users/"+user.ID+"/sessions/no-such-session", nil)
 	req2.SetPathValue("id", user.ID)
@@ -330,7 +336,9 @@ func TestAdminBanUser(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&user); err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	if err := res.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	req2 := httptest.NewRequest(http.MethodPatch, "/admin/users/"+user.ID+"/ban", nil)
 	req2.SetPathValue("id", user.ID)
@@ -369,7 +377,7 @@ func TestAdminUnbanUser(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&user); err != nil {
 		t.Fatal(err)
 	}
-	res.Body.Close()
+	checkTestErrors(t).noError(res.Body.Close())
 
 	banReq := httptest.NewRequest(http.MethodPatch, "/admin/users/"+user.ID+"/ban", nil)
 	banReq.SetPathValue("id", user.ID)
@@ -598,14 +606,14 @@ func TestAdminListSessions(t *testing.T) {
 	actor := seedAdminActor(t, th)
 
 	now := time.Now().UTC()
-	th.sessions.Create(context.Background(), &domain.Session{
+	checkTestErrors(t).noError(th.sessions.Create(context.Background(), &domain.Session{
 		ID: "s1", UserID: "user-1", TokenHash: "s1-token", IP: "1.1.1.1",
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now, LastActiveAt: now,
-	})
-	th.sessions.Create(context.Background(), &domain.Session{
+	}))
+	checkTestErrors(t).noError(th.sessions.Create(context.Background(), &domain.Session{
 		ID: "s2", UserID: "user-2", TokenHash: "s2-token", IP: "2.2.2.2",
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now, LastActiveAt: now,
-	})
+	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/sessions", nil)
 	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
@@ -633,14 +641,14 @@ func TestAdminListSessions_FilterByUserID(t *testing.T) {
 	actor := seedAdminActor(t, th)
 
 	now := time.Now().UTC()
-	th.sessions.Create(context.Background(), &domain.Session{
+	checkTestErrors(t).noError(th.sessions.Create(context.Background(), &domain.Session{
 		ID: "s1", UserID: "user-1", TokenHash: "s1-token", IP: "1.1.1.1",
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now, LastActiveAt: now,
-	})
-	th.sessions.Create(context.Background(), &domain.Session{
+	}))
+	checkTestErrors(t).noError(th.sessions.Create(context.Background(), &domain.Session{
 		ID: "s2", UserID: "user-2", TokenHash: "s2-token", IP: "2.2.2.2",
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now, LastActiveAt: now,
-	})
+	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/sessions?userId=user-1", nil)
 	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
@@ -680,9 +688,8 @@ func TestAdminListSessions_Unauthenticated(t *testing.T) {
 func TestBulkBanUsers(t *testing.T) {
 	th := newTestHarness()
 	actor := seedAdminActor(t, th)
-
-	th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"})
-	th.users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com"})
+	checkTestErrors(t).noError(th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"}))
+	checkTestErrors(t).noError(th.users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com"}))
 
 	body := `{"userIds":["user-1","user-2","nonexistent"]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users/bulk/ban", strings.NewReader(body))
@@ -725,7 +732,7 @@ func TestBulkUnbanUsers(t *testing.T) {
 	actor := seedAdminActor(t, th)
 
 	now := time.Now().UTC()
-	th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com", IsBanned: true, BannedAt: &now})
+	checkTestErrors(t).noError(th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com", IsBanned: true, BannedAt: &now}))
 
 	body := `{"userIds":["user-1"]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users/bulk/unban", strings.NewReader(body))
@@ -750,8 +757,7 @@ func TestBulkUnbanUsers(t *testing.T) {
 func TestBulkDeleteUsers(t *testing.T) {
 	th := newTestHarness()
 	actor := seedAdminActor(t, th)
-
-	th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"})
+	checkTestErrors(t).noError(th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"}))
 
 	body := `{"userIds":["user-1"]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users/bulk/delete", strings.NewReader(body))
@@ -776,12 +782,11 @@ func TestBulkDeleteUsers(t *testing.T) {
 func TestBulkRevokeUserSessions(t *testing.T) {
 	th := newTestHarness()
 	actor := seedAdminActor(t, th)
-
-	th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"})
+	checkTestErrors(t).noError(th.users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"}))
 	now := time.Now().UTC()
-	th.sessions.Create(context.Background(), &domain.Session{
+	checkTestErrors(t).noError(th.sessions.Create(context.Background(), &domain.Session{
 		ID: "s1", UserID: "user-1", TokenHash: "s1-token", ExpiresAt: now.Add(time.Hour), CreatedAt: now,
-	})
+	}))
 
 	body := `{"userIds":["user-1"]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/users/bulk/revoke-sessions", strings.NewReader(body))
@@ -835,8 +840,7 @@ func TestAdminListAuditLogs_MultiEventType(t *testing.T) {
 func TestAdminListAuditLogs_ActorEmail(t *testing.T) {
 	th := newTestHarness()
 	actor := seedAdminActor(t, th)
-
-	th.users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"})
+	checkTestErrors(t).noError(th.users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"}))
 	alice := "alice-id"
 	now := time.Now().UTC()
 	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
@@ -904,8 +908,7 @@ func TestAdminListUserAuditLogs_ScopesToPathUser(t *testing.T) {
 func TestAdminListAuditLogs_ResolvesEmails(t *testing.T) {
 	th := newTestHarness()
 	actor := seedAdminActor(t, th)
-
-	th.users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"})
+	checkTestErrors(t).noError(th.users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"}))
 	alice := "alice-id"
 	now := time.Now().UTC()
 	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})

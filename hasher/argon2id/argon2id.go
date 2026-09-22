@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -94,7 +95,7 @@ func (h *argon2idHasher) Compare(password, stored string) error {
 	}
 	actual := argon2.IDKey(
 		[]byte(password), salt,
-		opts.Iterations, opts.Memory, opts.Parallelism, uint32(len(expected)),
+		opts.Iterations, opts.Memory, opts.Parallelism, opts.KeyLength,
 	)
 	if subtle.ConstantTimeCompare(actual, expected) != 1 {
 		return ErrPasswordMismatch
@@ -149,17 +150,36 @@ func parse(stored string) (Options, []byte, []byte, error) {
 	if err != nil {
 		return Options{}, nil, nil, fmt.Errorf("%w: invalid key encoding", ErrInvalidHash)
 	}
+	if memory > math.MaxUint32 || iterations > math.MaxUint32 || parallelism > math.MaxUint8 ||
+		uint64(len(salt)) > math.MaxUint32 || uint64(len(key)) > math.MaxUint32 {
+		return Options{}, nil, nil, fmt.Errorf("%w: parameter overflows supported range", ErrInvalidHash)
+	}
+	saltLength, err := lengthAsUint32(len(salt))
+	if err != nil {
+		return Options{}, nil, nil, fmt.Errorf("%w: invalid salt length", ErrInvalidHash)
+	}
+	keyLength, err := lengthAsUint32(len(key))
+	if err != nil {
+		return Options{}, nil, nil, fmt.Errorf("%w: invalid key length", ErrInvalidHash)
+	}
 	opts := Options{
 		Memory:      uint32(memory),
 		Iterations:  uint32(iterations),
 		Parallelism: uint8(parallelism),
-		SaltLength:  uint32(len(salt)),
-		KeyLength:   uint32(len(key)),
+		SaltLength:  saltLength,
+		KeyLength:   keyLength,
 	}
 	if err := validateOptions(opts); err != nil {
 		return Options{}, nil, nil, fmt.Errorf("%w: %v", ErrInvalidHash, err)
 	}
 	return opts, salt, key, nil
+}
+
+func lengthAsUint32(length int) (uint32, error) {
+	if length < 0 || uint64(length) > math.MaxUint32 {
+		return 0, ErrInvalidHash
+	}
+	return uint32(length), nil
 }
 
 func parseUintField(field, prefix string, bitSize int) (uint64, error) {

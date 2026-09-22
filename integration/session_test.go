@@ -37,7 +37,7 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 		t.Fatal("expected an error for reused refresh token")
 	}
 
-	// Audit events flush asynchronously (AuditServiceConfig's default
+	// Audit events flush asynchronously (ServiceConfig's default
 	// FlushInterval is 100ms).
 	time.Sleep(200 * time.Millisecond)
 

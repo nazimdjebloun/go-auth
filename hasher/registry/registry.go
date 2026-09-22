@@ -145,12 +145,12 @@ func New(current port.Hasher, legacyForVerify ...port.Hasher) (*Registry, error)
 	if isNilHasher(current) {
 		return nil, fmt.Errorf("hasher registry: current hasher is nil")
 	}
-	const probePassword = "goauth-hasher-registry-probe"
-	probe, err := current.Hash(probePassword)
+	const probeInput = "goauth-hasher-registry-probe"
+	probe, err := current.Hash(probeInput)
 	if err != nil {
 		return nil, fmt.Errorf("hasher registry: current hasher failed to hash: %w", err)
 	}
-	if err := current.Compare(probePassword, probe); err != nil {
+	if err := current.Compare(probeInput, probe); err != nil {
 		return nil, fmt.Errorf("hasher registry: current hasher cannot verify its own output: %w", err)
 	}
 	prefix := hashFormatPrefix(probe)
@@ -199,7 +199,7 @@ func New(current port.Hasher, legacyForVerify ...port.Hasher) (*Registry, error)
 		if isNilHasher(h) {
 			continue
 		}
-		legacyProbe, lerr := h.Hash(probePassword)
+		legacyProbe, lerr := h.Hash(probeInput)
 		if lerr != nil {
 			return nil, fmt.Errorf("hasher registry: legacy hasher failed to hash: %w", lerr)
 		}
@@ -314,7 +314,7 @@ func (r *Registry) NeedsRehash(stored string) bool {
 		// true so a caller that somehow reaches here still upgrades.
 		return true
 	}
-	if storedPrefix != r.currentPrefix && !(r.currentIsBcrypt && isBcryptFormat(stored)) {
+	if storedPrefix != r.currentPrefix && (!r.currentIsBcrypt || !isBcryptFormat(stored)) {
 		// A different registered prefix was verified by a legacy hasher.
 		return true
 	}

@@ -696,7 +696,7 @@ No validation errors: any non-nil logger is accepted as-is.
 ```go
 goauth.WithAudit(goauth.AuditConfig{
     Enabled:       true,                    // optional, default false
-    FailureMode:   audit.AuditFailureOpen,   // optional, default fail-open (or audit.AuditFailureClosed)
+    FailureMode:   audit.FailureOpen,   // optional, default fail-open (or audit.FailureClosed)
     RetentionDays: 0,                       // optional, default 0 (keep forever)
     Workers:       3,                        // optional, default 3 — outbox dispatcher workers
     BatchSize:     50,                       // optional, default 50 — outbox claim/delivery batch size
@@ -707,7 +707,7 @@ goauth.WithAudit(goauth.AuditConfig{
     DeadLetterTTL: 7 * 24 * time.Hour,       // optional, default 7d (negative keeps forever)
     OutboxMaxRows: 100000,                   // optional, default 100000 (negative = unbounded)
     Sinks:         []audit.EventSink{myKafkaSink}, // optional, default none
-    // EnqueueFailureMode: func(audit.Event) audit.AuditFailureMode — optional, nil = fail-open everywhere
+    // EnqueueFailureMode: func(audit.Event) audit.FailureMode — optional, nil = fail-open everywhere
 })
 goauth.WithAuditSink(myOtherSink) // optional: adds one more sink at a time
 ```
@@ -715,8 +715,8 @@ goauth.WithAuditSink(myOtherSink) // optional: adds one more sink at a time
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `Enabled` | `bool` | Optional | `false` | |
-| `FailureMode` | `audit.AuditFailureMode` | Optional | fail-open | Delivery fan-out across sinks within one dispatch batch. |
-| `EnqueueFailureMode` | `func(audit.Event) audit.AuditFailureMode` | Optional | nil (fail-open) | Per-event: whether a failed durable write blocks the triggering operation (only where a transaction can roll back). |
+| `FailureMode` | `audit.FailureMode` | Optional | fail-open | Delivery fan-out across sinks within one dispatch batch. |
+| `EnqueueFailureMode` | `func(audit.Event) audit.FailureMode` | Optional | nil (fail-open) | Per-event: whether a failed durable write blocks the triggering operation (only where a transaction can roll back). |
 | `RetentionDays` | `int` | Optional | `0` (keep forever) | Must exceed `max(OutboxMaxAge, retryWindow + DeadLetterTTL)` — rejected otherwise. |
 | `ClaimLease` | `time.Duration` | Optional | `10m` | Must exceed every sink's declared worst-case batch delivery time; also rejected below `1m`. |
 | `Workers` | `int` | Optional | `3` | Outbox dispatcher workers; only started when sinks are configured. |

@@ -13,7 +13,7 @@ Audit logging is **off by default**. When enabled, significant activity is recor
 ```go
 goauth.WithAudit(goauth.AuditConfig{
     Enabled:       true,                    // optional, default false
-    FailureMode:   audit.AuditFailureOpen,   // optional, default fail-open — or audit.AuditFailureClosed
+    FailureMode:   audit.FailureOpen,   // optional, default fail-open — or audit.FailureClosed
     RetentionDays: 0,                       // optional, default 0 — keep forever (0 = forever)
     Workers:       3,                        // optional, default 3 — outbox dispatcher workers (only when Sinks set)
     BatchSize:     50,                       // optional, default 50 — outbox claim/delivery batch size
@@ -32,8 +32,8 @@ goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 | Field | Type | Default | Notes |
 |---|---|---|---|
 | `Enabled` | `bool` | `false` | The two endpoints below still work while this is off — they just return no events, since none were ever recorded. |
-| `FailureMode` | `audit.AuditFailureMode` | fail-open | Controls delivery fan-out across sinks within one dispatch batch: fail-open logs the error and continues to later sinks; fail-closed logs the error and stops processing that batch. It never changes whether the request that triggered the event succeeds or fails. |
-| `EnqueueFailureMode` | `func(audit.Event) audit.AuditFailureMode` | nil (fail-open) | Decides, **per event**, whether a failed durable write blocks the triggering operation: fail-open (default) keeps authentication available and counts `record_lost`; fail-closed aborts the operation (the transaction rolls back). Fail-closed only fires where a transaction exists to roll back — at non-transactional sites (failed logins) it degrades to fail-open. |
+| `FailureMode` | `audit.FailureMode` | fail-open | Controls delivery fan-out across sinks within one dispatch batch: fail-open logs the error and continues to later sinks; fail-closed logs the error and stops processing that batch. It never changes whether the request that triggered the event succeeds or fails. |
+| `EnqueueFailureMode` | `func(audit.Event) audit.FailureMode` | nil (fail-open) | Decides, **per event**, whether a failed durable write blocks the triggering operation: fail-open (default) keeps authentication available and counts `record_lost`; fail-closed aborts the operation (the transaction rolls back). Fail-closed only fires where a transaction exists to roll back — at non-transactional sites (failed logins) it degrades to fail-open. |
 | `RetentionDays` | `int` | `0` | `0` means keep forever. Must exceed the worst-case outbox row lifetime `max(OutboxMaxAge, retryWindow + DeadLetterTTL)` — startup validation rejects a configuration that would let retention delete a record whose delivery obligation still exists. |
 | `Workers` | `int` | `3` | Outbox dispatcher workers. Only started when at least one external sink is configured. |
 | `BatchSize` | `int` | `50` | Outbox claim/delivery batch size. |

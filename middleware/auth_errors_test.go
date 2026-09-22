@@ -83,8 +83,8 @@ func TestAuthMiddleware_InfrastructureErrors(t *testing.T) {
 			cookies := DefaultCookieSettings()
 			handler := AuthMiddleware(svc, cookies, users, logger)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("protected handler ran") }))
 			req := httptest.NewRequest("GET", "/private?secret=query-secret", nil)
-			req.AddCookie(&http.Cookie{Name: cookies.Name, Value: "raw-session-secret"})
-			req.AddCookie(&http.Cookie{Name: cookies.RefreshName, Value: "raw-refresh-secret"})
+			req.AddCookie(secureRequestCookie(cookies.Name, "raw-session-secret"))
+			req.AddCookie(secureRequestCookie(cookies.RefreshName, "raw-refresh-secret"))
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 			if rec.Code != tc.status {

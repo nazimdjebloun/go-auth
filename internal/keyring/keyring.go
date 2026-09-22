@@ -1,3 +1,8 @@
+// Package keyring derives the library's purpose-separated sub-keys — CSRF
+// signing, OAuth token encryption, 2FA binding, OTP pepper, and the password
+// pepper — from the configured root secrets via HKDF. Derivation is pure: the
+// same secret yields the same keys on every instance and every boot, so
+// rolling deploys never disagree about key material.
 package keyring
 
 import (

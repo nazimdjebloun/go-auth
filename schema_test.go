@@ -24,12 +24,23 @@ func TestGenerateSchema_WritesEmbeddedSchemaForEachDriverAlias(t *testing.T) {
 				t.Fatalf("GetSchema(%q) returned an empty schema", driver)
 			}
 
-			outPath := filepath.Join(t.TempDir(), "auth.schema.sql")
+			tempDir := t.TempDir()
+			outPath := filepath.Join(tempDir, "auth.schema.sql")
 			if err := GenerateSchema(driver, outPath); err != nil {
 				t.Fatalf("GenerateSchema(%q): %v", driver, err)
 			}
 
-			got, err := os.ReadFile(outPath)
+			root, err := os.OpenRoot(tempDir)
+			if err != nil {
+				t.Fatalf("opening temporary directory: %v", err)
+			}
+			t.Cleanup(func() {
+				if err := root.Close(); err != nil {
+					t.Errorf("closing temporary directory: %v", err)
+				}
+			})
+
+			got, err := root.ReadFile("auth.schema.sql")
 			if err != nil {
 				t.Fatalf("reading generated file: %v", err)
 			}

@@ -410,15 +410,15 @@ func (m *MockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID strin
 	return nil
 }
 
-func (m *MockOrgRepo) DecrementUserOrgOwnerCount(_ context.Context, userID string) error {
+func (m *MockOrgRepo) DecrementUserOrgOwnerCount(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *MockOrgRepo) IncrementOrgMemberCount(_ context.Context, orgID string, maxMembers int) error {
+func (m *MockOrgRepo) IncrementOrgMemberCount(_ context.Context, _ string, _ int) error {
 	return nil
 }
 
-func (m *MockOrgRepo) DecrementOrgMemberCount(_ context.Context, orgID string) error {
+func (m *MockOrgRepo) DecrementOrgMemberCount(_ context.Context, _ string) error {
 	return nil
 }
 
@@ -443,10 +443,10 @@ func (m *MockOrgRepo) TryDecrementOrgOwnerCount(_ context.Context, orgID string)
 	return nil
 }
 
-func (m *MockOrgRepo) IncrementOrgOwnerCount(_ context.Context, orgID string) error {
+func (m *MockOrgRepo) IncrementOrgOwnerCount(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *MockOrgRepo) DecrementOwnerCountForOrgOwners(_ context.Context, orgID string) error {
+func (m *MockOrgRepo) DecrementOwnerCountForOrgOwners(_ context.Context, _ string) error {
 	return nil
 }

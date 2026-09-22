@@ -15,9 +15,8 @@ func TestBulkBanUsers_PartialFailure(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
-
-	users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"})
-	users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com"})
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"}))
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com"}))
 
 	result, err := svc.BulkBanUsers(context.Background(), BulkUserActionInput{
 		UserIDs: []string{"user-1", "user-2", "nonexistent"}, ActorID: actorID,
@@ -70,7 +69,7 @@ func TestBulkBanUsers_ActorNotAdmin_Forbidden(t *testing.T) {
 	svc, _ := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
-	users.Create(context.Background(), nonAdmin)
+	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
 	_, err := svc.BulkBanUsers(context.Background(), BulkUserActionInput{UserIDs: []string{"user-1"}, ActorID: "not-admin"})
 	if err != domain.ErrForbidden {
@@ -84,8 +83,8 @@ func TestBulkUnbanUsers_HappyPath(t *testing.T) {
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
 	now := time.Now().UTC()
-	users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com", IsBanned: true, BannedAt: &now})
-	users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com", IsBanned: true, BannedAt: &now})
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com", IsBanned: true, BannedAt: &now}))
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com", IsBanned: true, BannedAt: &now}))
 
 	result, err := svc.BulkUnbanUsers(context.Background(), BulkUserActionInput{
 		UserIDs: []string{"user-1", "user-2"}, ActorID: actorID,
@@ -102,9 +101,8 @@ func TestBulkDeleteUsers_HappyPath(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
-
-	users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"})
-	users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com"})
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"}))
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com"}))
 
 	result, err := svc.BulkDeleteUsers(context.Background(), BulkUserActionInput{
 		UserIDs: []string{"user-1", "user-2"}, ActorID: actorID,
@@ -124,8 +122,7 @@ func TestBulkRevokeUserSessions_HappyPath(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
-
-	users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"})
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"}))
 	seedSession(t, sessions, "s1", "user-1", "1.1.1.1")
 
 	result, err := svc.BulkRevokeUserSessions(context.Background(), BulkUserActionInput{

@@ -381,8 +381,8 @@ func clonePepperVersion(value *uint32) *uint32 {
 	if value == nil {
 		return nil
 	}
-	copy := *value
-	return &copy
+	cloned := *value
+	return &cloned
 }
 
 func pepperVersionNumber(value *uint32) uint32 {
@@ -836,11 +836,11 @@ func (m *mockSessionRepo) UpdateRefreshToken(_ context.Context, input port.Updat
 	return nil, domain.ErrInvalidRefreshToken
 }
 
-func (m *mockSessionRepo) UpdateActiveOrgRoleForUser(_ context.Context, userID, orgID string, newRole domain.OrgRole) error {
+func (m *mockSessionRepo) UpdateActiveOrgRoleForUser(_ context.Context, _, _ string, _ domain.OrgRole) error {
 	return nil
 }
 
-func (m *mockSessionRepo) ClearActiveOrgForUser(_ context.Context, userID, orgID string) error {
+func (m *mockSessionRepo) ClearActiveOrgForUser(_ context.Context, _, _ string) error {
 	return nil
 }
 
@@ -851,11 +851,11 @@ func (m *mockSessionRepo) ClearActiveOrg(_ context.Context, sessionID string) er
 	return nil
 }
 
-func (m *mockSessionRepo) ClearActiveOrgForAllMembers(_ context.Context, orgID string) error {
+func (m *mockSessionRepo) ClearActiveOrgForAllMembers(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *mockSessionRepo) SetActiveOrg(_ context.Context, sessionID, orgID string, role domain.OrgRole) error {
+func (m *mockSessionRepo) SetActiveOrg(_ context.Context, _, _ string, _ domain.OrgRole) error {
 	return nil
 }
 
@@ -988,7 +988,7 @@ func (m *mockTokenRepo) DeleteExpired(_ context.Context) error {
 	return nil
 }
 
-func (m *mockTokenRepo) DeleteUnusedByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) error {
+func (m *mockTokenRepo) DeleteUnusedByUserAndType(_ context.Context, _ string, _ domain.TokenType) error {
 	return nil
 }
 
@@ -1425,15 +1425,15 @@ func (m *mockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID strin
 	return nil
 }
 
-func (m *mockOrgRepo) DecrementUserOrgOwnerCount(_ context.Context, userID string) error {
+func (m *mockOrgRepo) DecrementUserOrgOwnerCount(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *mockOrgRepo) IncrementOrgMemberCount(_ context.Context, orgID string, maxMembers int) error {
+func (m *mockOrgRepo) IncrementOrgMemberCount(_ context.Context, _ string, _ int) error {
 	return nil
 }
 
-func (m *mockOrgRepo) DecrementOrgMemberCount(_ context.Context, orgID string) error {
+func (m *mockOrgRepo) DecrementOrgMemberCount(_ context.Context, _ string) error {
 	return nil
 }
 
@@ -1455,11 +1455,11 @@ func (m *mockOrgRepo) TryDecrementOrgOwnerCount(_ context.Context, orgID string)
 	return nil
 }
 
-func (m *mockOrgRepo) IncrementOrgOwnerCount(_ context.Context, orgID string) error {
+func (m *mockOrgRepo) IncrementOrgOwnerCount(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *mockOrgRepo) DecrementOwnerCountForOrgOwners(_ context.Context, orgID string) error {
+func (m *mockOrgRepo) DecrementOwnerCountForOrgOwners(_ context.Context, _ string) error {
 	return nil
 }
 

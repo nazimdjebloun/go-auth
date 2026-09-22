@@ -77,10 +77,10 @@ func mysqlTestDB(t *testing.T, dsn string) (*sql.DB, func()) {
 		t.Fatalf("open admin db: %v", err)
 	}
 	if _, err := adminDB.Exec("CREATE DATABASE IF NOT EXISTS `goauth_test`"); err != nil {
-		adminDB.Close()
+		checkTestErrors(t).noError(adminDB.Close())
 		t.Fatalf("CREATE DATABASE: %v", err)
 	}
-	adminDB.Close()
+	checkTestErrors(t).noError(adminDB.Close())
 
 	cfg.DBName = "goauth_test"
 	testDB, err := sql.Open("mysql", cfg.FormatDSN())
@@ -89,11 +89,11 @@ func mysqlTestDB(t *testing.T, dsn string) (*sql.DB, func()) {
 	}
 
 	cleanup := func() {
-		testDB.Close()
+		checkTestErrors(t).noError(testDB.Close())
 		cfg.DBName = ""
 		if cleanupDB, err := sql.Open("mysql", cfg.FormatDSN()); err == nil {
 			_, _ = cleanupDB.Exec("DROP DATABASE IF EXISTS `goauth_test`")
-			cleanupDB.Close()
+			checkTestErrors(t).noError(cleanupDB.Close())
 		}
 	}
 	return testDB, cleanup
@@ -124,7 +124,7 @@ func TestMySQL_RegisterAndValidateSession(t *testing.T) {
 
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
 		Email:    "alice@mysql.test",
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Alice",
 	})
 	if aerr != nil {
@@ -184,7 +184,7 @@ func TestMySQL_RefreshRotation(t *testing.T) {
 
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
 		Email:    "bob@mysql.test",
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Bob",
 	})
 	if aerr != nil {
@@ -244,7 +244,7 @@ func TestMySQL_PasswordReset(t *testing.T) {
 
 	if _, aerr := a.Register(ctx, goauth.RegisterInput{
 		Email:    "admin@mysql.test",
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Admin",
 	}); aerr != nil {
 		t.Fatal(aerr)

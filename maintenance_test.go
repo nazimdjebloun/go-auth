@@ -41,7 +41,11 @@ func newMaintenanceTestDB(t *testing.T) (*sqlstore.DB, *sqlstore.SessionReposito
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 
 	ddl, err := GetSchema("sqlite")
 	if err != nil {
@@ -63,7 +67,7 @@ func newMaintenanceTestDB(t *testing.T) (*sqlstore.DB, *sqlstore.SessionReposito
 	return db, sqlstore.NewSessionRepository(db), sqlstore.NewTokenRepository(db)
 }
 
-func insertMaintenanceSession(t *testing.T, ctx context.Context, db *sqlstore.DB, id string, expiresAt, refreshExpiresAt time.Time) {
+func insertMaintenanceSession(ctx context.Context, t *testing.T, db *sqlstore.DB, id string, expiresAt, refreshExpiresAt time.Time) {
 	t.Helper()
 	_, err := db.ExecContext(ctx, `INSERT INTO sessions
 		(id, user_id, token_hash, refresh_token_hash, prev_refresh_token_hash, ip_address, user_agent, is_revoked, expires_at, refresh_expires_at, created_at, last_active_at)
@@ -74,7 +78,7 @@ func insertMaintenanceSession(t *testing.T, ctx context.Context, db *sqlstore.DB
 	}
 }
 
-func insertMaintenanceToken(t *testing.T, ctx context.Context, db *sqlstore.DB, id string, expiresAt time.Time) {
+func insertMaintenanceToken(ctx context.Context, t *testing.T, db *sqlstore.DB, id string, expiresAt time.Time) {
 	t.Helper()
 	_, err := db.ExecContext(ctx, `INSERT INTO verification_tokens
 		(id, user_id, email, token_hash, type, expires_at) VALUES ($1, 'u1', 'janitor@example.com', $2, 'password_reset', $3)`,
@@ -84,7 +88,7 @@ func insertMaintenanceToken(t *testing.T, ctx context.Context, db *sqlstore.DB, 
 	}
 }
 
-func rowExists(t *testing.T, ctx context.Context, db *sqlstore.DB, table, id string) bool {
+func rowExists(ctx context.Context, t *testing.T, db *sqlstore.DB, table, id string) bool {
 	t.Helper()
 	var n int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table+` WHERE id = $1`, id).Scan(&n); err != nil {
@@ -102,9 +106,9 @@ func TestDeleteExpiredBatch_SessionsOnlyWhenFullyDead(t *testing.T) {
 	db, sessions, _ := newMaintenanceTestDB(t)
 	now := time.Now().UTC()
 
-	insertMaintenanceSession(t, ctx, db, "fully-expired", now.Add(-48*time.Hour), now.Add(-48*time.Hour))
-	insertMaintenanceSession(t, ctx, db, "refresh-still-live", now.Add(-48*time.Hour), now.Add(24*time.Hour))
-	insertMaintenanceSession(t, ctx, db, "live", now.Add(24*time.Hour), now.Add(24*time.Hour))
+	insertMaintenanceSession(ctx, t, db, "fully-expired", now.Add(-48*time.Hour), now.Add(-48*time.Hour))
+	insertMaintenanceSession(ctx, t, db, "refresh-still-live", now.Add(-48*time.Hour), now.Add(24*time.Hour))
+	insertMaintenanceSession(ctx, t, db, "live", now.Add(24*time.Hour), now.Add(24*time.Hour))
 
 	n, err := sessions.DeleteExpiredBatch(ctx, now, 100)
 	if err != nil {
@@ -113,13 +117,13 @@ func TestDeleteExpiredBatch_SessionsOnlyWhenFullyDead(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("deleted %d sessions, want 1", n)
 	}
-	if rowExists(t, ctx, db, "sessions", "fully-expired") {
+	if rowExists(ctx, t, db, "sessions", "fully-expired") {
 		t.Error("fully expired session survived cleanup")
 	}
-	if !rowExists(t, ctx, db, "sessions", "refresh-still-live") {
+	if !rowExists(ctx, t, db, "sessions", "refresh-still-live") {
 		t.Error("session with a live refresh token was deleted")
 	}
-	if !rowExists(t, ctx, db, "sessions", "live") {
+	if !rowExists(ctx, t, db, "sessions", "live") {
 		t.Error("live session was deleted")
 	}
 }
@@ -130,7 +134,7 @@ func TestDeleteExpiredBatch_RespectsBatchLimit(t *testing.T) {
 	now := time.Now().UTC()
 
 	for _, id := range []string{"e1", "e2", "e3"} {
-		insertMaintenanceSession(t, ctx, db, id, now.Add(-72*time.Hour), now.Add(-72*time.Hour))
+		insertMaintenanceSession(ctx, t, db, id, now.Add(-72*time.Hour), now.Add(-72*time.Hour))
 	}
 
 	n, err := sessions.DeleteExpiredBatch(ctx, now, 2)
@@ -143,7 +147,7 @@ func TestDeleteExpiredBatch_RespectsBatchLimit(t *testing.T) {
 
 	remaining := 0
 	for _, id := range []string{"e1", "e2", "e3"} {
-		if rowExists(t, ctx, db, "sessions", id) {
+		if rowExists(ctx, t, db, "sessions", id) {
 			remaining++
 		}
 	}
@@ -157,8 +161,8 @@ func TestDeleteExpiredBatch_Tokens(t *testing.T) {
 	db, _, tokens := newMaintenanceTestDB(t)
 	now := time.Now().UTC()
 
-	insertMaintenanceToken(t, ctx, db, "expired-token", now.Add(-2*time.Hour))
-	insertMaintenanceToken(t, ctx, db, "live-token", now.Add(2*time.Hour))
+	insertMaintenanceToken(ctx, t, db, "expired-token", now.Add(-2*time.Hour))
+	insertMaintenanceToken(ctx, t, db, "live-token", now.Add(2*time.Hour))
 
 	n, err := tokens.DeleteExpiredBatch(ctx, now, 100)
 	if err != nil {
@@ -167,10 +171,10 @@ func TestDeleteExpiredBatch_Tokens(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("deleted %d tokens, want 1", n)
 	}
-	if rowExists(t, ctx, db, "verification_tokens", "expired-token") {
+	if rowExists(ctx, t, db, "verification_tokens", "expired-token") {
 		t.Error("expired token survived cleanup")
 	}
-	if !rowExists(t, ctx, db, "verification_tokens", "live-token") {
+	if !rowExists(ctx, t, db, "verification_tokens", "live-token") {
 		t.Error("live token was deleted")
 	}
 }

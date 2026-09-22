@@ -24,6 +24,9 @@ var constructionOnly = map[string]bool{
 	"AuditPublisher":         true,
 	// Built and attached internally by New(); consumers never name it.
 	"AccountDeletion": true,
+	// New() keeps the concrete pipeline only to run ValidateStoredVersions at
+	// startup and to expose it to the services as a port.Hasher.
+	"PasswordHasher": true,
 }
 
 // TestServiceTypesAreAliased fails when a type is added to internal/service

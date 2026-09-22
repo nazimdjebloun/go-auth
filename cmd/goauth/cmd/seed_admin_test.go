@@ -28,7 +28,7 @@ func newFakeUserRepo() *fakeUserRepo {
 	return &fakeUserRepo{byEmail: map[string]*domain.User{}}
 }
 
-func (f *fakeUserRepo) Create(ctx context.Context, user *domain.User) error {
+func (f *fakeUserRepo) Create(_ context.Context, user *domain.User) error {
 	if f.createErr != nil {
 		return f.createErr
 	}
@@ -40,25 +40,25 @@ func (f *fakeUserRepo) Create(ctx context.Context, user *domain.User) error {
 	return nil
 }
 
-func (f *fakeUserRepo) GetByID(ctx context.Context, id string) (*domain.User, error) {
+func (f *fakeUserRepo) GetByID(_ context.Context, _ string) (*domain.User, error) {
 	return nil, nil
 }
 
-func (f *fakeUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+func (f *fakeUserRepo) GetByEmail(_ context.Context, email string) (*domain.User, error) {
 	return f.byEmail[email], nil
 }
 
-func (f *fakeUserRepo) Update(ctx context.Context, user *domain.User) error { return nil }
-func (f *fakeUserRepo) Delete(ctx context.Context, id string) error         { return nil }
+func (f *fakeUserRepo) Update(_ context.Context, _ *domain.User) error { return nil }
+func (f *fakeUserRepo) Delete(_ context.Context, _ string) error       { return nil }
 
-func (f *fakeUserRepo) List(ctx context.Context, filter port.UserFilter) ([]domain.User, error) {
+func (f *fakeUserRepo) List(_ context.Context, _ port.UserFilter) ([]domain.User, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
 	return nil, nil
 }
 
-func (f *fakeUserRepo) Count(ctx context.Context, filter port.UserFilter) (int, error) {
+func (f *fakeUserRepo) Count(_ context.Context, filter port.UserFilter) (int, error) {
 	if f.listErr != nil {
 		return 0, f.listErr
 	}
@@ -68,40 +68,40 @@ func (f *fakeUserRepo) Count(ctx context.Context, filter port.UserFilter) (int, 
 	return len(f.byEmail), nil
 }
 
-func (f *fakeUserRepo) CountByDay(ctx context.Context, filter port.UserFilter) ([]port.DailyCount, error) {
+func (f *fakeUserRepo) CountByDay(_ context.Context, _ port.UserFilter) ([]port.DailyCount, error) {
 	return nil, nil
 }
-func (f *fakeUserRepo) SetPasswordAndVerify(ctx context.Context, userID, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
+func (f *fakeUserRepo) SetPasswordAndVerify(_ context.Context, _, _ string, _ *uint32, _ string) (bool, error) {
 	return true, nil
 }
-func (f *fakeUserRepo) SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error {
+func (f *fakeUserRepo) SetBanStatus(_ context.Context, _ string, _ bool, _ *time.Time, _ time.Time) error {
 	return nil
 }
-func (f *fakeUserRepo) UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error {
+func (f *fakeUserRepo) UpdateLastLoginAt(_ context.Context, _ string, _ time.Time) error {
 	return nil
 }
-func (f *fakeUserRepo) UpdatePasswordHash(ctx context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {
+func (f *fakeUserRepo) UpdatePasswordHash(_ context.Context, _, _ string, _ *uint32, _ string, _ *uint32, _ time.Time) (bool, error) {
 	return false, nil
 }
-func (f *fakeUserRepo) SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error {
+func (f *fakeUserRepo) SetTwoFactorEnabled(_ context.Context, _ string, _ bool, _ time.Time) error {
 	return nil
 }
-func (f *fakeUserRepo) UpdateName(ctx context.Context, userID, name string, updatedAt time.Time) (bool, error) {
+func (f *fakeUserRepo) UpdateName(_ context.Context, _, _ string, _ time.Time) (bool, error) {
 	return true, nil
 }
-func (f *fakeUserRepo) VerifyEmailIfMatches(ctx context.Context, userID, expectedEmail string, verifiedAt time.Time) (bool, error) {
+func (f *fakeUserRepo) VerifyEmailIfMatches(_ context.Context, _, _ string, _ time.Time) (bool, error) {
 	return true, nil
 }
 func (f *fakeUserRepo) WithAdminGuard(ctx context.Context, fn func(context.Context) error) error {
 	return fn(ctx)
 }
-func (f *fakeUserRepo) DeleteWithAdminGuard(ctx context.Context, userID string) (bool, error) {
+func (f *fakeUserRepo) DeleteWithAdminGuard(_ context.Context, _ string) (bool, error) {
 	return true, nil
 }
-func (f *fakeUserRepo) BanWithAdminGuard(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) (bool, error) {
+func (f *fakeUserRepo) BanWithAdminGuard(_ context.Context, _ string, _ bool, _ *time.Time, _ time.Time) (bool, error) {
 	return true, nil
 }
-func (f *fakeUserRepo) DemoteWithAdminGuard(ctx context.Context, userID string, role domain.Role, updatedAt time.Time) (bool, error) {
+func (f *fakeUserRepo) DemoteWithAdminGuard(_ context.Context, _ string, _ domain.Role, _ time.Time) (bool, error) {
 	return true, nil
 }
 
@@ -113,7 +113,7 @@ type fakeMailer struct {
 	lastBody    string
 }
 
-func (f *fakeMailer) Send(ctx context.Context, to, subject, html, text string) error {
+func (f *fakeMailer) Send(_ context.Context, to, subject, html, text string) error {
 	if f.sendErr != nil {
 		return f.sendErr
 	}
@@ -170,7 +170,7 @@ func TestResolveAdminEmail_NoTTYNoEnv_Errors(t *testing.T) {
 }
 
 func TestResolveAdminEmail_TTYPrompts(t *testing.T) {
-	email, err := resolveAdminEmail("", false, true, func(label string) (string, error) {
+	email, err := resolveAdminEmail("", false, true, func(_ string) (string, error) {
 		return "typed@example.com", nil
 	})
 	if err != nil {

@@ -67,11 +67,11 @@ func lastTwoFactorCode(t *testing.T, mailer *testutil.MockMailer) string {
 	return code
 }
 
-func wrongTwoFactorCode(real string) string {
-	if strings.HasPrefix(real, "0") {
-		return "1" + real[1:]
+func wrongTwoFactorCode(actualCode string) string {
+	if strings.HasPrefix(actualCode, "0") {
+		return "1" + actualCode[1:]
 	}
-	return "0" + real[1:]
+	return "0" + actualCode[1:]
 }
 
 // backdateLineage simulates a pepper rotation after issuance: every stored
@@ -217,7 +217,9 @@ func newTwoFactorUser(users *testutil.MockUserRepo, email string) *domain.User {
 		CreatedAt:        time.Now().UTC(),
 		UpdatedAt:        time.Now().UTC(),
 	}
-	users.Create(context.Background(), user)
+	if err := users.Create(context.Background(), user); err != nil {
+		panic(err)
+	}
 	return user
 }
 

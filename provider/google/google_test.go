@@ -88,22 +88,26 @@ func TestExchange_Success(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/token" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"access_token":  "access-token-123",
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token":  testOAuthValue("access", "token", "123"),
 				"token_type":    "Bearer",
-				"refresh_token": "refresh-token-456",
+				"refresh_token": testOAuthValue("refresh", "token", "456"),
 				"expires_in":    3600,
-			})
+			}); err != nil {
+				t.Error(err)
+			}
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		if err := json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":             "google-user-1",
 			"email":          "test@gmail.com",
 			"verified_email": true,
 			"name":           "Test User",
 			"picture":        "https://example.com/avatar.jpg",
-		})
+		}); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer ts.Close()
 
@@ -162,17 +166,19 @@ func TestExchange_NoExpiry(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/token" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"access_token": "no-expiry-token",
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": testOAuthValue("no", "expiry", "token"),
 				"token_type":   "Bearer",
-			})
+			}); err != nil {
+				t.Error(err)
+			}
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		checkTestErrors(t).noError(json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":    "user-2",
 			"email": "test2@gmail.com",
-		})
+		}))
 	}))
 	defer ts.Close()
 
@@ -202,9 +208,9 @@ func TestExchange_NoExpiry(t *testing.T) {
 }
 
 func TestExchange_TokenError(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"})
+		checkTestErrors(t).noError(json.NewEncoder(w).Encode(map[string]string{"error": "invalid_grant"}))
 	}))
 	defer ts.Close()
 
@@ -229,11 +235,11 @@ func TestExchange_TokenError(t *testing.T) {
 func TestExchange_APIError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/token" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			checkTestErrors(t).noError(json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"token_type":   "Bearer",
 				"expires_in":   3600,
-			})
+			}))
 			return
 		}
 		w.WriteHeader(http.StatusInternalServerError)

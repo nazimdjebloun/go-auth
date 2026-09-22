@@ -65,7 +65,9 @@ func createVerifiedUser(users *testutil.MockUserRepo, email string) *domain.User
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
-	users.Create(context.Background(), user)
+	if err := users.Create(context.Background(), user); err != nil {
+		panic(err)
+	}
 	return user
 }
 
@@ -79,7 +81,9 @@ func createUnverifiedUser(users *testutil.MockUserRepo, email string) *domain.Us
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
-	users.Create(context.Background(), user)
+	if err := users.Create(context.Background(), user); err != nil {
+		panic(err)
+	}
 	return user
 }
 
@@ -184,7 +188,7 @@ func TestSendVerification_ReusesOutstandingCode(t *testing.T) {
 
 	now := time.Now().UTC()
 	outstanding := now.Add(15 * time.Minute)
-	tokens.Create(context.Background(), &domain.VerificationToken{
+	if err := tokens.Create(context.Background(), &domain.VerificationToken{
 		ID:        "tok-live",
 		UserID:    &user.ID,
 		Email:     user.Email,
@@ -192,7 +196,9 @@ func TestSendVerification_ReusesOutstandingCode(t *testing.T) {
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: outstanding,
 		CreatedAt: now,
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.SendVerification(context.Background(), user)
 	if err != nil {
@@ -223,7 +229,7 @@ func TestSendVerification_ThrottlesInsideResendInterval(t *testing.T) {
 	// Spent, so not reusable — the throttle is what has to hold here.
 	now := time.Now().UTC()
 	usedAt := now.Add(-5 * time.Second)
-	tokens.Create(context.Background(), &domain.VerificationToken{
+	if err := tokens.Create(context.Background(), &domain.VerificationToken{
 		ID:        "tok-spent",
 		UserID:    &user.ID,
 		Email:     user.Email,
@@ -232,7 +238,9 @@ func TestSendVerification_ThrottlesInsideResendInterval(t *testing.T) {
 		ExpiresAt: now.Add(15 * time.Minute),
 		UsedAt:    &usedAt,
 		CreatedAt: now.Add(-10 * time.Second),
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.SendVerification(context.Background(), user)
 	if err != nil {
@@ -261,7 +269,7 @@ func TestSendVerification_NegativeIntervalDisablesThrottle(t *testing.T) {
 	// with the explicit opt-out.
 	now := time.Now().UTC()
 	usedAt := now.Add(-5 * time.Second)
-	tokens.Create(context.Background(), &domain.VerificationToken{
+	if err := tokens.Create(context.Background(), &domain.VerificationToken{
 		ID:        "tok-spent",
 		UserID:    &user.ID,
 		Email:     user.Email,
@@ -270,7 +278,9 @@ func TestSendVerification_NegativeIntervalDisablesThrottle(t *testing.T) {
 		ExpiresAt: now.Add(15 * time.Minute),
 		UsedAt:    &usedAt,
 		CreatedAt: now.Add(-10 * time.Second),
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.SendVerification(context.Background(), user)
 	if err != nil {
@@ -296,7 +306,7 @@ func TestSendVerification_MailsAgainOnceCodeIsSpentAndIntervalPassed(t *testing.
 	user := createUnverifiedUser(users, "test@example.com")
 
 	now := time.Now().UTC()
-	tokens.Create(context.Background(), &domain.VerificationToken{
+	if err := tokens.Create(context.Background(), &domain.VerificationToken{
 		ID:        "tok-expired",
 		UserID:    &user.ID,
 		Email:     user.Email,
@@ -304,7 +314,9 @@ func TestSendVerification_MailsAgainOnceCodeIsSpentAndIntervalPassed(t *testing.
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(-1 * time.Minute),
 		CreatedAt: now.Add(-30 * time.Minute),
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := svc.SendVerification(context.Background(), user)
 	if err != nil {
@@ -381,7 +393,9 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(15 * time.Minute),
 	}
-	tokens.Create(context.Background(), token)
+	if err := tokens.Create(context.Background(), token); err != nil {
+		t.Fatal(err)
+	}
 
 	verifiedUser, err := svc.VerifyEmail(context.Background(), code)
 	if err != nil {
@@ -443,7 +457,9 @@ func TestVerifyEmail_AlreadyUsed(t *testing.T) {
 		ExpiresAt: now.Add(15 * time.Minute),
 		UsedAt:    &usedAt,
 	}
-	tokens.Create(context.Background(), token)
+	if err := tokens.Create(context.Background(), token); err != nil {
+		t.Fatal(err)
+	}
 
 	_, err := svc.VerifyEmail(context.Background(), code)
 	if err == nil {
@@ -510,7 +526,7 @@ func TestVerifyEmail_Expired(t *testing.T) {
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(-1 * time.Hour),
 	}
-	tokens.Create(context.Background(), token)
+	checkTestErrors(t).noError(tokens.Create(context.Background(), token))
 
 	_, err := svc.VerifyEmail(context.Background(), code)
 	if err == nil {
@@ -537,7 +553,7 @@ func TestVerifyEmail_StalePepperReturnsExpired(t *testing.T) {
 	// never invalid (retype).
 	code := "ABC123"
 	now := time.Now().UTC()
-	tokens.Create(context.Background(), &domain.VerificationToken{
+	checkTestErrors(t).noError(tokens.Create(context.Background(), &domain.VerificationToken{
 		ID:        "tok-stale",
 		UserID:    &user.ID,
 		Email:     user.Email,
@@ -545,7 +561,7 @@ func TestVerifyEmail_StalePepperReturnsExpired(t *testing.T) {
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(15 * time.Minute),
 		CreatedAt: now.Add(-time.Hour),
-	})
+	}))
 
 	_, err := svc.VerifyEmail(context.Background(), code)
 	if err == nil {
@@ -570,7 +586,7 @@ func TestSendVerification_ReplacesStaleLiveCode(t *testing.T) {
 	// Live but rotation-stale: reusing it would hand back a dead code that
 	// VerifyEmail can only answer expired to.
 	now := time.Now().UTC()
-	tokens.Create(context.Background(), &domain.VerificationToken{
+	checkTestErrors(t).noError(tokens.Create(context.Background(), &domain.VerificationToken{
 		ID:        "tok-stale-live",
 		UserID:    &user.ID,
 		Email:     user.Email,
@@ -578,7 +594,7 @@ func TestSendVerification_ReplacesStaleLiveCode(t *testing.T) {
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(15 * time.Minute),
 		CreatedAt: now.Add(-time.Hour),
-	})
+	}))
 
 	result, err := svc.SendVerification(context.Background(), user)
 	if err != nil {

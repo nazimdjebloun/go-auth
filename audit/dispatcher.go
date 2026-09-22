@@ -48,7 +48,7 @@ func nextBackoff(attempts int) time.Duration {
 // external delivery sink is configured — with a DB-only audit configuration
 // there is no queue, no workers, and no dispatcher; the in-tx insert is the
 // entire mechanism.
-func (s *AuditService) startDispatcher(ctx context.Context) {
+func (s *Service) startDispatcher(ctx context.Context) {
 	if s.outbox == nil || !s.hasDeliverySinks() {
 		return
 	}
@@ -61,7 +61,7 @@ func (s *AuditService) startDispatcher(ctx context.Context) {
 	go s.janitorLoop(ctx)
 }
 
-func (s *AuditService) dispatchLoop(ctx context.Context, worker int) {
+func (s *Service) dispatchLoop(ctx context.Context, worker int) {
 	defer s.wg.Done()
 	owner := dispatchOwner(worker)
 	ticker := time.NewTicker(s.dispatchInterval)
@@ -90,7 +90,7 @@ func dispatchOwner(worker int) string {
 // semantics are unchanged; FailureMode governs fan-out across sinks within
 // a batch (stop-at-first-failure vs log-and-continue) and still never
 // changes whether the user's request succeeded.
-func (s *AuditService) dispatchOnce(ctx context.Context, owner string) {
+func (s *Service) dispatchOnce(ctx context.Context, owner string) {
 	rows, err := s.outbox.ClaimBatch(ctx, owner, s.batchSize, s.claimLease)
 	if err != nil {
 		if !errors.Is(err, context.Canceled) {
@@ -125,7 +125,7 @@ func (s *AuditService) dispatchOnce(ctx context.Context, owner string) {
 	for _, sink := range sinks {
 		if err := sink.HandleBatch(ctx, events); err != nil {
 			sinkErr = err
-			if s.failureMode == AuditFailureClosed {
+			if s.failureMode == FailureClosed {
 				s.log.ErrorContext(ctx, "audit sink batch error (fail-closed)",
 					"sink", sinkName(sink), "error", err, "batch_size", len(events))
 				break
@@ -143,7 +143,7 @@ func (s *AuditService) dispatchOnce(ctx context.Context, owner string) {
 // or dead-letters. Dead letters are marked, not deleted — the retained row
 // carries the failure evidence across restarts, until DeadLetterTTL purges
 // it.
-func (s *AuditService) settleBatch(ctx context.Context, rows []OutboxRow, sinkErr error) {
+func (s *Service) settleBatch(ctx context.Context, rows []OutboxRow, sinkErr error) {
 	for _, row := range rows {
 		if sinkErr == nil {
 			if err := s.outbox.MarkSuccess(ctx, row.EventID); err != nil {
@@ -172,7 +172,7 @@ func (s *AuditService) settleBatch(ctx context.Context, rows []OutboxRow, sinkEr
 
 // janitorLoop enforces the outbox clocks, the emergency valve, and the
 // orphan scan.
-func (s *AuditService) janitorLoop(ctx context.Context) {
+func (s *Service) janitorLoop(ctx context.Context) {
 	defer s.wg.Done()
 	janitor := time.NewTicker(janitorInterval)
 	defer janitor.Stop()
@@ -200,7 +200,7 @@ func (s *AuditService) janitorLoop(ctx context.Context) {
 	}
 }
 
-func (s *AuditService) janitorOnce(ctx context.Context) {
+func (s *Service) janitorOnce(ctx context.Context) {
 	now := time.Now().UTC()
 
 	// The two clocks: pending rows past OutboxMaxAge are evicted (delivery
@@ -243,7 +243,7 @@ func (s *AuditService) janitorOnce(ctx context.Context) {
 // DeliveryStats returns the observability surface. Counters are cumulative
 // for the process run; the gauges come from the store. With no outbox
 // configured, only the counters are meaningful (all zero).
-func (s *AuditService) DeliveryStats(ctx context.Context) DeliveryStats {
+func (s *Service) DeliveryStats(ctx context.Context) DeliveryStats {
 	st := DeliveryStats{
 		DeadLettered:       s.counters.deadLettered.Load(),
 		DeliveryDropped:    s.counters.deliveryDropped.Load(),

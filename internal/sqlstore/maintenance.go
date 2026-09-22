@@ -35,14 +35,17 @@ func deleteExpiredBatch(ctx context.Context, db *DB, selectQuery string, selectA
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return 0, err
 		}
 		ids = append(ids, id)
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
 		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, fmt.Errorf("select expired rows close: %w", err)
 	}
 	if len(ids) == 0 {
 		return 0, nil

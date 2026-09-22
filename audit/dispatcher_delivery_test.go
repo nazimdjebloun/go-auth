@@ -88,7 +88,7 @@ func TestDispatchOnce_LiveLeaseStealIsDedupedAtReceiver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewAuditService(AuditServiceConfig{}, txSaverDB{}, &mockRecordStore{}, outbox, nil)
+	svc := NewService(ServiceConfig{}, txSaverDB{}, &mockRecordStore{}, outbox, nil)
 	svc.AddSink(sink)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

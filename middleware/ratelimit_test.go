@@ -33,7 +33,7 @@ func TestRateLimit_PathParamCannotMintFreshCounters(t *testing.T) {
 	rl := RateLimit(cfg)
 
 	var calls int
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -74,7 +74,7 @@ func TestRateLimit_JunkForwardedHeaderCannotMintFreshCounters(t *testing.T) {
 	rl := RateLimit(cfg)
 
 	var calls int
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -109,7 +109,7 @@ func TestRateLimit_OversizedMethodCannotMintFreshCounters(t *testing.T) {
 	rl := RateLimit(cfg)
 
 	var calls int
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -139,7 +139,7 @@ func TestRateLimit_StandardMethodsKeepSeparateCounters(t *testing.T) {
 	rl := RateLimit(cfg)
 
 	var calls int
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -168,7 +168,7 @@ func TestRateLimit_DistinctClientsStayDistinct(t *testing.T) {
 	rl := RateLimit(cfg)
 
 	var calls int
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -199,7 +199,7 @@ func TestRateLimit_ServeMuxPatternKeepsRoutesSeparate(t *testing.T) {
 	rl := RateLimit(cfg)
 
 	var calls int
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -235,7 +235,7 @@ func TestRateLimitWithPattern_SeparatesRoutesOnPatternlessRouters(t *testing.T) 
 	}
 
 	var calls int
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	})
@@ -266,7 +266,7 @@ func TestRateLimit_RetryAfterIsAtLeastOne(t *testing.T) {
 		Default:    ratelimit.Rate{Requests: 1, Window: 50 * time.Millisecond},
 	}
 	rl := RateLimit(cfg)
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	h := rl(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 
 	var last *httptest.ResponseRecorder
 	for i := 0; i < 2; i++ {
@@ -302,7 +302,7 @@ func TestRateLimit_WildcardMatch_MidPathSegment(t *testing.T) {
 	rl := RateLimit(cfg)
 
 	var calls int
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -341,7 +341,7 @@ func TestRateLimit_WildcardMatch_TrailingSegment(t *testing.T) {
 	req := httptest.NewRequest("GET", "/auth/orgs/org_abc123", nil)
 	req.RemoteAddr = "192.0.2.50:1234"
 	rec := httptest.NewRecorder()
-	rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(rec, req)
 
@@ -367,7 +367,7 @@ func TestRateLimit_WildcardMatch_DoesNotMatchDeeperPath(t *testing.T) {
 	rl := RateLimit(cfg)
 
 	var calls int
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -400,7 +400,7 @@ func TestRateLimit_NoMatch_FallsBackToDefault(t *testing.T) {
 	rl := RateLimit(cfg)
 
 	var last *httptest.ResponseRecorder
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

@@ -200,7 +200,7 @@ func (s *WebhookSink) postOnce(ctx context.Context, body []byte, signature strin
 	if err != nil {
 		return true, fmt.Errorf("webhook sink: post: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	// Drain a bounded amount so the connection is reusable; an unbounded
 	// copy is unnecessary — we only care about the status code.
 	_, _ = io.CopyN(io.Discard, resp.Body, 1<<16)

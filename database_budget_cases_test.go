@@ -14,22 +14,24 @@ func TestDatabaseBudget_LimitsAndCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	first, err := db.Conn(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer first.Close()
+	defer func() { _ = first.Close() }()
 	second, err := db.Conn(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	if conn, err := db.Conn(ctx); !errors.Is(err, context.DeadlineExceeded) {
 		if conn != nil {
-			conn.Close()
+			if closeErr := conn.Close(); closeErr != nil {
+				t.Error(closeErr)
+			}
 		}
 		t.Fatalf("exhausted pool: %v", err)
 	}
@@ -44,7 +46,7 @@ func TestDatabaseBudget_DefaultMemoryPersists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if _, err := db.Exec("CREATE TABLE budget_test (id INTEGER)"); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +64,7 @@ func TestDatabaseBudget_BorrowedSQLUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(7)
 	cfg, err := NewConfig(minimalOpts(WithApp(AppConfig{
 		Name: "app", BaseURL: "https://example.com",

@@ -168,12 +168,18 @@ func newSQLiteTestDB(t *testing.T) *DB {
 	}
 	rawDB, err := sql.Open("sqlite", f.Name()+"?_pragma=busy_timeout(10000)")
 	if err != nil {
-		os.Remove(f.Name())
+		if removeErr := os.Remove(f.Name()); removeErr != nil {
+			t.Fatal(removeErr)
+		}
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		rawDB.Close()
-		os.Remove(f.Name())
+		if err := rawDB.Close(); err != nil {
+			t.Error(err)
+		}
+		if err := os.Remove(f.Name()); err != nil && !os.IsNotExist(err) {
+			t.Error(err)
+		}
 	})
 	if _, err := rawDB.Exec("CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)"); err != nil {
 		t.Fatal(err)

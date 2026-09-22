@@ -79,7 +79,7 @@ func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
 	ctx := context.Background()
 
 	reg, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "oauthonly@test.com", Password: "V@lidPswd1", Name: "OAuthOnly",
+		Email: "oauthonly@test.com", Password: validTestPassword(), Name: "OAuthOnly",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -189,7 +189,7 @@ func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
 	ctx := context.Background()
 
 	admin, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "admin@test.com", Password: "V@lidPswd1", Name: "Admin",
+		Email: "admin@test.com", Password: validTestPassword(), Name: "Admin",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -267,7 +267,7 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 	ctx := context.Background()
 
 	admin, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "admin@test.com", Password: "V@lidPswd1", Name: "Admin",
+		Email: "admin@test.com", Password: validTestPassword(), Name: "Admin",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -288,7 +288,7 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 
 	// The address registers normally after the invite was sent.
 	if _, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "late@example.com", Password: "V@lidPswd1", Name: "Late",
+		Email: "late@example.com", Password: validTestPassword(), Name: "Late",
 	}); aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -341,13 +341,13 @@ func TestOrg_ConcurrentRemoveMember_CountsConsistent(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	member, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "member@test.com", Password: "V@lidPswd1", Name: "Member",
+		Email: "member@test.com", Password: validTestPassword(), Name: "Member",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -419,13 +419,13 @@ func TestOrg_ConcurrentDemoteSameMemberTwice(t *testing.T) {
 	ctx := context.Background()
 
 	owner1, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner1@test.com", Password: "V@lidPswd1", Name: "Owner1",
+		Email: "owner1@test.com", Password: validTestPassword(), Name: "Owner1",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	owner2, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner2@test.com", Password: "V@lidPswd1", Name: "Owner2",
+		Email: "owner2@test.com", Password: validTestPassword(), Name: "Owner2",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -491,13 +491,13 @@ func TestOrg_ConcurrentRemoveVsDemote(t *testing.T) {
 	ctx := context.Background()
 
 	owner1, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner1@test.com", Password: "V@lidPswd1", Name: "Owner1",
+		Email: "owner1@test.com", Password: validTestPassword(), Name: "Owner1",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	owner2, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner2@test.com", Password: "V@lidPswd1", Name: "Owner2",
+		Email: "owner2@test.com", Password: validTestPassword(), Name: "Owner2",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -595,7 +595,7 @@ func TestOrg_ConcurrentDeleteOrg_CountsConsistent(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -658,13 +658,13 @@ func TestOrg_ConcurrentAddMember_CountsConsistent(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	member, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "member@test.com", Password: "V@lidPswd1", Name: "Member",
+		Email: "member@test.com", Password: validTestPassword(), Name: "Member",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -731,13 +731,13 @@ func TestOrgInvite_RotatedCodeRejected(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	invitee, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "invitee@test.com", Password: "V@lidPswd1", Name: "Invitee",
+		Email: "invitee@test.com", Password: validTestPassword(), Name: "Invitee",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -878,7 +878,7 @@ func oauthStateFromURL(t *testing.T, url string) string {
 
 // oauthRegister drives a full OAuth registration through the public service
 // surface and returns the new user's ID.
-func oauthRegister(t *testing.T, a *goauth.Auth, ctx context.Context, provider string) string {
+func oauthRegister(ctx context.Context, t *testing.T, a *goauth.Auth, provider string) string {
 	t.Helper()
 	authURL, err := a.Services.OAuth.Initiate(ctx, provider)
 	if err != nil {
@@ -898,7 +898,7 @@ func oauthRegister(t *testing.T, a *goauth.Auth, ctx context.Context, provider s
 	return user.ID
 }
 
-func oauthLink(t *testing.T, a *goauth.Auth, ctx context.Context, provider, userID string) {
+func oauthLink(ctx context.Context, t *testing.T, a *goauth.Auth, provider, userID string) {
 	t.Helper()
 	authURL, err := a.Services.OAuth.InitiateLink(ctx, provider, userID)
 	if err != nil {
@@ -926,8 +926,8 @@ func TestUnlink_ConcurrentLastProvider(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	userID := oauthRegister(t, a, ctx, "stubA")
-	oauthLink(t, a, ctx, "stubB", userID)
+	userID := oauthRegister(ctx, t, a, "stubA")
+	oauthLink(ctx, t, a, "stubB", userID)
 
 	var wg sync.WaitGroup
 	var succeeded int32

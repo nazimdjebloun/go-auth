@@ -69,12 +69,11 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
-
-	svc.Register(context.Background(), RegisterInput{
+	checkTestErrors(t).result(svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test",
-	})
+	}))
 
 	_, err := svc.Register(context.Background(), RegisterInput{
 		Email:    "test@example.com",
@@ -192,7 +191,7 @@ func TestLogin(t *testing.T) {
 	})
 
 	regResult.User.IsVerified = true
-	users.Update(context.Background(), regResult.User)
+	checkTestErrors(t).noError(users.Update(context.Background(), regResult.User))
 
 	result, err := svc.Login(context.Background(), LoginInput{
 		Email:    "test@example.com",
@@ -227,7 +226,7 @@ func TestLoginWrongPassword(t *testing.T) {
 	})
 
 	regResult.User.IsVerified = true
-	users.Update(context.Background(), regResult.User)
+	checkTestErrors(t).noError(users.Update(context.Background(), regResult.User))
 
 	_, err := svc.Login(context.Background(), LoginInput{
 		Email:    "test@example.com",
@@ -350,7 +349,7 @@ func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
 
 	// Directly create an unverified user (Register would call SendVerification and fail with nil mailer)
 	hash, _ := hasher.Hash("Passw0rd!")
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:           "unverified-user-id",
 		Email:        "unverified@example.com",
 		PasswordHash: &hash,
@@ -359,7 +358,7 @@ func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
 		IsVerified:   false,
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
-	})
+	}))
 
 	result, err := svc.Login(context.Background(), LoginInput{
 		Email:    "unverified@example.com",
@@ -462,7 +461,7 @@ func TestDeleteAccount_PasswordRequired(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	users.Create(context.Background(), oauthUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
 	err := svc.DeleteAccount(context.Background(), oauthUser.ID, "")
 	if err == nil {
@@ -492,7 +491,7 @@ func TestRequestDeleteAccount_Success(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	users.Create(context.Background(), oauthUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
 	err := svc.RequestDeleteAccount(context.Background(), oauthUser.ID)
 	if err != nil {
@@ -528,7 +527,7 @@ func TestRequestDeleteAccount_PasswordUser(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}
-	users.Create(context.Background(), passwordUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), passwordUser))
 
 	err := svc.RequestDeleteAccount(context.Background(), passwordUser.ID)
 	if err == nil {
@@ -579,7 +578,7 @@ func TestConfirmDeleteAccount_Success(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	users.Create(context.Background(), oauthUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
 	reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID)
 	if reqErr != nil {
@@ -621,7 +620,7 @@ func TestConfirmDeleteAccount_InvalidCode(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	users.Create(context.Background(), oauthUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
 	err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
 		UserID: oauthUser.ID,
@@ -654,7 +653,7 @@ func TestConfirmDeleteAccount_ExpiredCode(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	users.Create(context.Background(), oauthUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
 	reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID)
 	if reqErr != nil {
@@ -699,7 +698,7 @@ func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	users.Create(context.Background(), oauthUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
 	reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID)
 	if reqErr != nil {
@@ -724,7 +723,7 @@ func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	users.Create(context.Background(), newUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), newUser))
 
 	reqErr2 := svc.RequestDeleteAccount(context.Background(), newUser.ID)
 	if reqErr2 != nil {
@@ -769,7 +768,7 @@ func TestConfirmDeleteAccount_StalePepperReturnsExpired(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	users.Create(context.Background(), oauthUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
 	if reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID); reqErr != nil {
 		t.Fatalf("RequestDeleteAccount failed: %v", reqErr)
@@ -813,7 +812,7 @@ func TestRequestDeleteAccount_ReplacesStaleLiveCode(t *testing.T) {
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
-	users.Create(context.Background(), oauthUser)
+	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
 	if reqErr := svc.RequestDeleteAccount(context.Background(), oauthUser.ID); reqErr != nil {
 		t.Fatalf("RequestDeleteAccount failed: %v", reqErr)

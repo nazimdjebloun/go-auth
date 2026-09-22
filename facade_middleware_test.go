@@ -28,7 +28,7 @@ func registerForScopedRoute(t *testing.T, a *Auth, email string) *RegisterResult
 	t.Helper()
 	result, err := a.Register(context.Background(), RegisterInput{
 		Email:    email,
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Scoped route user",
 	})
 	if err != nil {

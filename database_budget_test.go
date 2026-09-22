@@ -14,7 +14,7 @@ func TestDatabaseBudget_DefaultOwnedSQLite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if got := db.Stats().MaxOpenConnections; got != 1 {
 		t.Fatalf("SQLite max connections = %d, want 1", got)
 	}
@@ -31,7 +31,7 @@ func TestDatabaseBudget_BorrowedPoolAdapterIsOwned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if !cfg.app.Database.opened {
 		t.Fatal("library-created SQL adapter has no cleanup owner")
 	}

@@ -46,7 +46,7 @@ func (r *UserRepository) WithAdminGuard(ctx context.Context, fn func(context.Con
 		for rows.Next() {
 			var id string
 			if err := rows.Scan(&id); err != nil {
-				rows.Close()
+				_ = rows.Close()
 				return err
 			}
 		}
@@ -74,13 +74,13 @@ func (r *UserRepository) adminReductionAllowed(ctx context.Context, userID strin
 	if err != nil {
 		return false, err
 	}
-	defer rows.Close()
 	found, targetUsable, otherUsable := false, false, false
 	for rows.Next() {
 		var id string
 		var role domain.Role
 		var banned bool
 		if err := rows.Scan(&id, &role, &banned); err != nil {
+			_ = rows.Close()
 			return false, err
 		}
 		usable := role == domain.RoleAdmin && !banned
@@ -91,7 +91,11 @@ func (r *UserRepository) adminReductionAllowed(ctx context.Context, userID strin
 		}
 	}
 	if err := rows.Err(); err != nil {
+		_ = rows.Close()
 		return false, err
+	}
+	if err := rows.Close(); err != nil {
+		return false, fmt.Errorf("admin guard rows close: %w", err)
 	}
 	if !found {
 		return false, domain.ErrUserNotFound

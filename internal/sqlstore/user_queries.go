@@ -1,6 +1,6 @@
 package sqlstore
 
-const (
+var (
 	userCreateQuery = `
 		INSERT INTO users (id, email, password_hash, password_pepper_version, name, role, is_verified, verified_at, is_banned, two_factor_enabled, org_owner_count, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
@@ -22,20 +22,20 @@ const (
 	userBanQuery = `
 		UPDATE users SET is_banned=$1, banned_at=$2, updated_at=$3 WHERE id=$4`
 
-	userSetPasswordQuery = `
+	userSetPasswordQuery = sqlText(`
 		UPDATE users SET password_hash=$1, password_pepper_version=$2, is_verified=true, verified_at=$3, updated_at=$4
-		WHERE id=$5`
+		WHERE id=$5`)
 
-	userUpdatePasswordHashQuery = `
+	userUpdatePasswordHashQuery = sqlText(`
 		UPDATE users SET password_hash=$1, password_pepper_version=$2, updated_at=$3
 		WHERE id=$4 AND password_hash=$5
 			AND COALESCE(password_pepper_version, 0) = $6
-			AND COALESCE(password_pepper_version, 0) <= $7`
+			AND COALESCE(password_pepper_version, 0) <= $7`)
 
-	userPasswordPepperVersionsQuery = `
+	userPasswordPepperVersionsQuery = sqlText(`
 		SELECT DISTINCT password_pepper_version FROM users
 		WHERE password_pepper_version IS NOT NULL
-		ORDER BY password_pepper_version`
+		ORDER BY password_pepper_version`)
 
 	userDeleteQuery = `DELETE FROM users WHERE id = $1`
 

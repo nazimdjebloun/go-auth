@@ -21,7 +21,7 @@ func TestApplySchema_SQLite_CreatesExpectedTablesAndIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
 
@@ -66,7 +66,7 @@ func TestApplySchema_UnsupportedDriver_ReturnsErrorWithoutTouchingDB(t *testing.
 	if err != nil {
 		t.Fatalf("sql.Open: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	err = applySchema(context.Background(), db, "oracle")
 	if err == nil {

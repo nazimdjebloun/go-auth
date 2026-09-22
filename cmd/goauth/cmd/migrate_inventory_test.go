@@ -30,7 +30,7 @@ func TestApplySchema_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer admin.Close()
+	defer func() { _ = admin.Close() }()
 	name := "goauth_schema_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	// Deliberately conflict with the schema's utf8mb4 table defaults.
 	if _, err := admin.Exec("CREATE DATABASE " + name + " CHARACTER SET latin1 COLLATE latin1_swedish_ci"); err != nil {
@@ -46,7 +46,7 @@ func TestApplySchema_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	ctx := context.Background()
 	script, err := goauth.GetSchema("mysql")
 	if err != nil {
@@ -95,7 +95,7 @@ func TestApplySchema_SQLite_Inventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
 	script, err := goauth.GetSchema("sqlite")
 	if err != nil {

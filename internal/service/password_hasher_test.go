@@ -31,7 +31,7 @@ func (h *recordingPasswordHasher) Compare(password, stored string) error {
 	return nil
 }
 
-func newRecordingPasswordHasher(t *testing.T, currentVersion uint32, keys map[uint32][]byte) (*passwordHasher, *registry.Registry, *recordingPasswordHasher) {
+func newRecordingPasswordHasher(t *testing.T, currentVersion uint32, keys map[uint32][]byte) (*PasswordHasher, *registry.Registry, *recordingPasswordHasher) {
 	t.Helper()
 	current := &recordingPasswordHasher{}
 	registry, err := registry.New(current, hasher.New(4))

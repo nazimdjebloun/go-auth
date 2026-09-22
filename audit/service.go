@@ -11,15 +11,15 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/id"
 )
 
-type AuditFailureMode int
+type FailureMode int
 
 const (
-	AuditFailureOpen AuditFailureMode = iota
-	AuditFailureClosed
+	FailureOpen FailureMode = iota
+	FailureClosed
 )
 
-type AuditServiceConfig struct {
-	FailureMode AuditFailureMode
+type ServiceConfig struct {
+	FailureMode FailureMode
 	// Deprecated: the in-memory queue is gone — the outbox is the queue.
 	// Retained so existing config wiring compiles; ignored.
 	QueueSize int
@@ -68,7 +68,7 @@ type AuditServiceConfig struct {
 //   - max(OutboxMaxAge, retryWindow + DeadLetterTTL) < RetentionDays, so
 //     retention never deletes an audit_log row while its obligation still
 //     exists — which would orphan a delivery that can never succeed.
-func ValidateConfig(cfg AuditServiceConfig, sinks ...EventSink) error {
+func ValidateConfig(cfg ServiceConfig, sinks ...EventSink) error {
 	cfg = defaultConfig(cfg)
 
 	if cfg.ClaimLease < minClaimLease {
@@ -124,7 +124,7 @@ func retryWindowFor(maxAttempts int) time.Duration {
 	return total
 }
 
-func defaultConfig(cfg AuditServiceConfig) AuditServiceConfig {
+func defaultConfig(cfg ServiceConfig) ServiceConfig {
 	if cfg.Workers <= 0 {
 		cfg.Workers = 3
 	}
@@ -155,12 +155,12 @@ func defaultConfig(cfg AuditServiceConfig) AuditServiceConfig {
 	return cfg
 }
 
-// AuditService is the durable audit pipeline. Records are written in the
+// Service is the durable audit pipeline. Records are written in the
 // caller's transaction by Record; external delivery sinks are fed from the
 // audit_outbox table by the dispatcher. The in-memory queue this type once
 // owned — and its drop-on-full behavior and shutdown drain — are gone: the
 // database is the queue.
-type AuditService struct {
+type Service struct {
 	recordStore RecordStore
 	outbox      OutboxStore
 	db          saverDB // savepoints + table check; nil in sink-only tests
@@ -172,7 +172,7 @@ type AuditService struct {
 	// record time. They are not delivery obligations.
 	inlineSinks []EventSink
 
-	failureMode AuditFailureMode
+	failureMode FailureMode
 	enqueueMode EnqueueFailureModeResolver
 	enabled     bool
 
@@ -221,12 +221,12 @@ func (noopSaverDB) Savepoint(ctx context.Context, _ string, fn func(ctx context.
 }
 func (noopSaverDB) TableExists(context.Context, string) (bool, error) { return true, nil }
 
-// NewAuditService builds the durable audit pipeline. recordStore writes the
+// NewService builds the durable audit pipeline. recordStore writes the
 // audit_log rows (in the caller's transaction); outbox is the durable
 // delivery queue (nil when the consumer runs no external sinks, in which
 // case db may also be nil). The dispatcher only starts when at least one
 // external delivery sink is registered via AddSink.
-func NewAuditService(cfg AuditServiceConfig, db saverDB, recordStore RecordStore, outbox OutboxStore, log *slog.Logger) *AuditService {
+func NewService(cfg ServiceConfig, db saverDB, recordStore RecordStore, outbox OutboxStore, log *slog.Logger) *Service {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -235,7 +235,7 @@ func NewAuditService(cfg AuditServiceConfig, db saverDB, recordStore RecordStore
 	if db == nil {
 		db = noopSaverDB{}
 	}
-	return &AuditService{
+	return &Service{
 		db:                db,
 		recordStore:       recordStore,
 		outbox:            outbox,
@@ -260,7 +260,7 @@ func NewAuditService(cfg AuditServiceConfig, db saverDB, recordStore RecordStore
 // each event gets one audit_outbox row; the dispatcher fans that obligation
 // out to the complete sink set with at-least-once semantics. Consumers
 // deduplicate on the event's id.
-func (s *AuditService) AddSink(sink EventSink) {
+func (s *Service) AddSink(sink EventSink) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sinks = append(s.sinks, sink)
@@ -269,13 +269,13 @@ func (s *AuditService) AddSink(sink EventSink) {
 // AddInlineSink registers a process-local sink (the built-in logger). It is
 // invoked at record time, not via the outbox: it cannot fail in a way worth
 // a delivery obligation.
-func (s *AuditService) AddInlineSink(sink EventSink) {
+func (s *Service) AddInlineSink(sink EventSink) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.inlineSinks = append(s.inlineSinks, sink)
 }
 
-func (s *AuditService) hasDeliverySinks() bool {
+func (s *Service) hasDeliverySinks() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.sinks) > 0
@@ -284,12 +284,12 @@ func (s *AuditService) hasDeliverySinks() bool {
 // Start validates durable-delivery prerequisites before launching background
 // workers. A configured external sink requires a real outbox store, a database
 // handle, the audit_outbox table, and a finite delivery-time declaration.
-func (s *AuditService) Start(ctx context.Context) error {
+func (s *Service) Start(ctx context.Context) error {
 	s.mu.RLock()
 	sinks := append([]EventSink(nil), s.sinks...)
 	s.mu.RUnlock()
 
-	cfg := AuditServiceConfig{
+	cfg := ServiceConfig{
 		Workers:       s.workers,
 		BatchSize:     s.batchSize,
 		FlushInterval: s.dispatchInterval,
@@ -332,7 +332,7 @@ func (s *AuditService) Start(ctx context.Context) error {
 // Stop cancels the dispatcher and janitor and waits for them. No shutdown
 // drain is required: the queue is the database, so there is nothing
 // in-process to lose.
-func (s *AuditService) Stop(ctx context.Context) error {
+func (s *Service) Stop(ctx context.Context) error {
 	if s.cancel != nil {
 		s.cancel()
 	}
@@ -349,7 +349,7 @@ func (s *AuditService) Stop(ctx context.Context) error {
 	}
 }
 
-func (s *AuditService) startRetentionCleanup(ctx context.Context) {
+func (s *Service) startRetentionCleanup(ctx context.Context) {
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 	for {

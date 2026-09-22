@@ -34,7 +34,6 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	entries := []port.AuditLogEntry{}
 	for rows.Next() {
@@ -46,6 +45,7 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 			&e.IP, &e.UserAgent, &parsedUA, &e.RequestID, &e.CorrelationID,
 			&metadata, &e.CreatedAt,
 		); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		e.ParsedUA = json.RawMessage(parsedUA.String)
@@ -58,7 +58,14 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 		}
 		entries = append(entries, e)
 	}
-	return entries, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("audit log list close: %w", err)
+	}
+	return entries, nil
 }
 
 // Count returns how many audit entries match filter (Offset/Limit ignored).
@@ -105,7 +112,6 @@ func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLo
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var counts []port.DailyCount
 	for rows.Next() {
@@ -115,14 +121,17 @@ func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLo
 			// modernc.org/sqlite returns date() as a string, not a time.Time.
 			var dayStr string
 			if err := rows.Scan(&dayStr, &c.Count); err != nil {
+				_ = rows.Close()
 				return nil, err
 			}
 			day, err = time.Parse("2006-01-02", dayStr)
 			if err != nil {
+				_ = rows.Close()
 				return nil, err
 			}
 		} else {
 			if err := rows.Scan(&day, &c.Count); err != nil {
+				_ = rows.Close()
 				return nil, err
 			}
 		}
@@ -132,7 +141,14 @@ func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLo
 	if counts == nil {
 		counts = []port.DailyCount{}
 	}
-	return counts, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("audit log daily counts close: %w", err)
+	}
+	return counts, nil
 }
 
 func (r *AuditLogRepository) GetByID(ctx context.Context, id string) (*port.AuditLogEntry, error) {
@@ -253,7 +269,6 @@ func (r *AuditLogRepository) buildWhere(filter port.AuditLogFilter) (string, []a
 	if filter.ToDate != nil {
 		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argIdx))
 		args = append(args, *filter.ToDate)
-		argIdx++
 	}
 
 	return strings.Join(conditions, " AND "), args

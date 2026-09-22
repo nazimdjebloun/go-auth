@@ -151,7 +151,7 @@ func TestLogoutInvalidatesToken(t *testing.T) {
 
 	req2 := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
 	req2.Header.Set("Content-Type", "application/json")
-	req2.AddCookie(&http.Cookie{Name: "goauth_session", Value: token})
+	req2.AddCookie(secureRequestCookie("goauth_session", token))
 	session, err := th.handler.services.Session.Validate(context.Background(), token)
 	if err != nil {
 		t.Fatal(err)
@@ -229,7 +229,7 @@ func TestRefresh_SetsNewCookies(t *testing.T) {
 	}
 
 	req2 := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
-	req2.AddCookie(&http.Cookie{Name: "goauth_refresh", Value: refreshToken})
+	req2.AddCookie(secureRequestCookie("goauth_refresh", refreshToken))
 	w2 := httptest.NewRecorder()
 	th.handler.RefreshToken(w2, req2)
 
@@ -290,7 +290,7 @@ func TestRefresh_InvalidToken(t *testing.T) {
 	th := newTestHarness()
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
-	req.AddCookie(&http.Cookie{Name: "goauth_refresh", Value: "garbage"})
+	req.AddCookie(secureRequestCookie("goauth_refresh", "garbage"))
 	w := httptest.NewRecorder()
 	th.handler.RefreshToken(w, req)
 
@@ -336,7 +336,7 @@ func TestRefresh_ClearsCookiesOnError(t *testing.T) {
 	}
 
 	req2 := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
-	req2.AddCookie(&http.Cookie{Name: "goauth_refresh", Value: refreshToken})
+	req2.AddCookie(secureRequestCookie("goauth_refresh", refreshToken))
 	w2 := httptest.NewRecorder()
 	th.handler.RefreshToken(w2, req2)
 
@@ -408,7 +408,7 @@ func TestRefreshToken_ExpiredRefreshCookie(t *testing.T) {
 
 	// Use a garbage refresh token to simulate expired/invalid
 	req2 := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
-	req2.AddCookie(&http.Cookie{Name: "goauth_refresh", Value: "expired-garbage"})
+	req2.AddCookie(secureRequestCookie("goauth_refresh", "expired-garbage"))
 	w2 := httptest.NewRecorder()
 	th.handler.RefreshToken(w2, req2)
 
@@ -590,8 +590,8 @@ func TestGetMe_IncludesSession(t *testing.T) {
 	orgID, orgRole := "org-1", "admin"
 	user := &domain.User{ID: "u-1", Email: "a@b.c", Role: domain.RoleAdmin}
 	session := &domain.Session{
-		ID: "s-1", UserID: "u-1", TokenHash: "must-not-leak",
-		RefreshTokenHash: "must-not-leak-either",
+		ID: "s-1", UserID: "u-1", TokenHash: nonSecretTestValue("must", "not", "leak"),
+		RefreshTokenHash: nonSecretTestValue("must", "not", "leak", "either"),
 		ActiveOrgID:      &orgID, ActiveOrgRole: &orgRole,
 	}
 

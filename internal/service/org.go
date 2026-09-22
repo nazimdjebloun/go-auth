@@ -60,7 +60,7 @@ func (s *OrgService) guardAndIncrementOwnerCount(ctx context.Context, userID str
 // same authorization is enforced whether a call arrives over HTTP (already
 // pre-checked by that middleware) or directly through this service — this is
 // the actual authority, the HTTP middleware is only a fast-fail pre-check.
-func (s *OrgService) requireRole(ctx context.Context, orgID, actorID string, min domain.OrgRole) error {
+func (s *OrgService) requireRole(ctx context.Context, orgID, actorID string, minimumRole domain.OrgRole) error {
 	if actorID == "" {
 		return domain.ErrForbidden
 	}
@@ -71,7 +71,7 @@ func (s *OrgService) requireRole(ctx context.Context, orgID, actorID string, min
 	if m == nil {
 		return domain.ErrOrgMemberNotFound
 	}
-	if m.Role.Weight() < min.Weight() {
+	if m.Role.Weight() < minimumRole.Weight() {
 		return domain.ErrOrgForbidden
 	}
 	return nil

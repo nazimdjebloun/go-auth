@@ -301,14 +301,14 @@ func verifyCSRFToken(token string, secret []byte) bool {
 }
 
 func setCSRFCookie(w http.ResponseWriter, cfg *CSRFTokenConfig, token string) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.CookieName,
-		Value:    token,
-		Path:     cfg.CookiePath,
-		Domain:   cfg.CookieDomain,
-		HttpOnly: false,
-		Secure:   cfg.CookieSecure,
-		SameSite: cfg.CookieSameSite,
-		MaxAge:   0,
-	})
+	http.SetCookie(w, newResponseCookie(responseCookieParams{
+		name:     cfg.CookieName,
+		value:    token,
+		path:     cfg.CookiePath,
+		domain:   cfg.CookieDomain,
+		httpOnly: false,
+		secure:   cfg.CookieSecure,
+		sameSite: cfg.CookieSameSite,
+		maxAge:   0,
+	}))
 }

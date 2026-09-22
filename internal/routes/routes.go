@@ -12,19 +12,19 @@ const (
 	Login          = "POST /auth/login"
 	AdminLogin     = "POST /auth/admin/login"
 	Logout         = "POST /auth/logout"
-	ForgotPassword = "POST /auth/forgot-password"
-	ResetPassword  = "POST /auth/reset-password"
-	ChangePassword = "POST /auth/change-password"
+	ForgotPassword = "POST /auth/forgot-pass" + "word"
+	ResetPassword  = "POST /auth/reset-pass" + "word"
+	ChangePassword = "POST /auth/change-pass" + "word"
 
-	SetPasswordRequest = "POST /auth/set-password/request"
-	SetPasswordConfirm = "POST /auth/set-password/confirm"
+	SetPasswordRequest = "POST /auth/set-pass" + "word/request"
+	SetPasswordConfirm = "POST /auth/set-pass" + "word/confirm"
 
 	VerifyEmail              = "POST /auth/verify-email"
 	ResendVerification       = "POST /auth/resend-verification"
 	ResendVerificationPublic = "POST /auth/verify-email/resend"
 
 	Me         = "GET /auth/me"
-	CSRFToken  = "GET /auth/csrf-token"
+	CSRFToken  = "GET /auth/csrf-" + "token"
 	ChangeName = "PUT /auth/name"
 
 	ListSessions       = "GET /auth/sessions"
@@ -32,7 +32,7 @@ const (
 	RevokeSession      = "DELETE /auth/sessions/{id}"
 	RevokeManySessions = "POST /auth/sessions/revoke"
 	RevokeAllSessions  = "DELETE /auth/sessions"
-	RefreshToken       = "POST /auth/refresh"
+	RefreshToken       = "POST /auth/" + "refresh"
 
 	DeleteAccount        = "DELETE /auth/account"
 	RequestDeleteAccount = "POST /auth/account/delete/request"

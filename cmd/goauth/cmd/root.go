@@ -17,3 +17,9 @@ func Execute() {
 		os.Exit(1)
 	}
 }
+
+func mustMarkFlagRequired(cmd *cobra.Command, name string) {
+	if err := cmd.MarkFlagRequired(name); err != nil {
+		panic(err)
+	}
+}

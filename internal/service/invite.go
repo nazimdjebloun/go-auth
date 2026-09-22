@@ -80,7 +80,9 @@ func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (
 
 	if time.Now().UTC().After(invite.ExpiresAt) {
 		invite.Status = domain.InviteExpired
-		s.invites.Update(ctx, invite)
+		if err := s.invites.Update(ctx, invite); err != nil {
+			return nil, fmt.Errorf("expire invite: %w", err)
+		}
 		return nil, domain.ErrInviteExpired
 	}
 

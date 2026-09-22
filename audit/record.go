@@ -37,7 +37,7 @@ var ErrRecordBlocked = errors.New("audit: durable record write failed (fail-clos
 //     outcome is already determined — so fail-closed degrades to fail-open
 //     plus record_lost. record_blocked therefore only ever fires where a
 //     transaction exists.
-func (s *AuditService) Record(ctx context.Context, event Event) error {
+func (s *Service) Record(ctx context.Context, event Event) error {
 	if !s.enabled {
 		return nil
 	}
@@ -51,15 +51,15 @@ func (s *AuditService) Record(ctx context.Context, event Event) error {
 		event.ParsedUA = domain.ParseUserAgent(event.UserAgent)
 	}
 
-	mode := AuditFailureOpen
+	mode := FailureOpen
 	if s.enqueueMode != nil {
 		mode = s.enqueueMode(event)
 	}
 	// Fail-closed is only meaningful where a transaction exists to roll
 	// back. Outside one, the operation cannot be aborted — degrade to
 	// fail-open rather than report a failure nobody can act on.
-	if mode == AuditFailureClosed && !s.db.InTx(ctx) {
-		mode = AuditFailureOpen
+	if mode == FailureClosed && !s.db.InTx(ctx) {
+		mode = FailureOpen
 	}
 
 	// Storage is optional: a service built without a record store (tests,
@@ -76,7 +76,7 @@ func (s *AuditService) Record(ctx context.Context, event Event) error {
 		return s.recordStore.Insert(spCtx, event)
 	})
 	if recordErr != nil {
-		if mode == AuditFailureClosed {
+		if mode == FailureClosed {
 			s.counters.recordBlocked.Add(1)
 			s.log.ErrorContext(ctx, "audit record insert failed (fail-closed)",
 				"marker", "audit_record_blocked",
@@ -111,7 +111,7 @@ func (s *AuditService) Record(ctx context.Context, event Event) error {
 		})
 	}
 	if outboxErr != nil {
-		if mode == AuditFailureClosed {
+		if mode == FailureClosed {
 			// The record is already inserted; rolling the transaction back
 			// discards it too, so the record loss and the operation failure
 			// are the same event.
@@ -134,7 +134,7 @@ func (s *AuditService) Record(ctx context.Context, event Event) error {
 
 // runInlineSinks invokes process-local sinks (the built-in logger). Their
 // failures are logged, never fatal: they have no delivery obligation.
-func (s *AuditService) runInlineSinks(ctx context.Context, event Event) {
+func (s *Service) runInlineSinks(ctx context.Context, event Event) {
 	for _, sink := range s.inlineSinks {
 		if err := sink.Handle(ctx, event); err != nil {
 			s.log.ErrorContext(ctx, "audit inline sink error",

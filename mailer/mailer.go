@@ -110,7 +110,7 @@ func NewLog(logger *slog.Logger) *Log {
 	return &Log{log: logger}
 }
 
-func (m *Log) Send(ctx context.Context, to, subject, html, text string) error {
+func (m *Log) Send(_ context.Context, to, subject, _, text string) error {
 	m.log.Info("mail (log driver — not delivered)", "to", to, "subject", subject, "text", text)
 	return nil
 }

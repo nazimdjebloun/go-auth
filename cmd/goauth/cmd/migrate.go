@@ -15,7 +15,9 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/go-sql-driver/mysql"
+	// Register the PostgreSQL database/sql driver used by migrate.
 	_ "github.com/jackc/pgx/v5/stdlib"
+	// Register the SQLite database/sql driver used by migrate.
 	_ "modernc.org/sqlite"
 )
 
@@ -27,7 +29,7 @@ then applies the canonical auth schema to it.
 
 Supported drivers: postgres, sqlite, mysql`,
 	Args: cobra.NoArgs,
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(cmd *cobra.Command, _ []string) {
 		driver, _ := cmd.Flags().GetString("driver")
 		dsn, _ := cmd.Flags().GetString("dsn")
 
@@ -45,7 +47,11 @@ Supported drivers: postgres, sqlite, mysql`,
 		if err != nil {
 			log.Fatalf("goauth: failed to connect: %v", err)
 		}
-		defer db.Close()
+		defer func() {
+			if err := db.Close(); err != nil {
+				log.Printf("goauth: close database: %v", err)
+			}
+		}()
 
 		if err := db.Ping(); err != nil {
 			log.Fatalf("goauth: ping failed: %v", err)
@@ -106,7 +112,7 @@ func isMySQLDuplicateIndexErr(err error) bool {
 func init() {
 	migrateCmd.Flags().String("driver", "", "Database driver (postgres, sqlite, mysql)")
 	migrateCmd.Flags().String("dsn", "", "Database DSN")
-	migrateCmd.MarkFlagRequired("driver")
-	migrateCmd.MarkFlagRequired("dsn")
+	mustMarkFlagRequired(migrateCmd, "driver")
+	mustMarkFlagRequired(migrateCmd, "dsn")
 	rootCmd.AddCommand(migrateCmd)
 }

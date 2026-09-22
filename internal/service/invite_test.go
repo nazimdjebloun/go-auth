@@ -31,7 +31,7 @@ func TestInviteRegister(t *testing.T) {
 		ExpiresAt: now.Add(defaultTestConfig().InviteTTL),
 		CreatedAt: now,
 	}
-	invites.Create(context.Background(), invite)
+	checkTestErrors(t).noError(invites.Create(context.Background(), invite))
 
 	result, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
 		Code:            raw,
@@ -80,7 +80,7 @@ func TestInviteRegisterExpired(t *testing.T) {
 		ExpiresAt: now.Add(cfg.InviteTTL),
 		CreatedAt: now,
 	}
-	invites.Create(context.Background(), invite)
+	checkTestErrors(t).noError(invites.Create(context.Background(), invite))
 
 	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
 		Code:            raw,
@@ -110,17 +110,18 @@ func TestCompleteInviteRegistration_DuplicateEmail(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, &testutil.MockTxManager{}, defaultTestConfig(), sessSvc, nil)
+	checkTestErrors(
 
-	// The address registered normally after the invite was sent: the user
-	// creation inside the redemption transaction hits the unique email
-	// constraint.
-	users.Create(context.Background(), &domain.User{
+		// The address registered normally after the invite was sent: the user
+		// creation inside the redemption transaction hits the unique email
+		// constraint.
+		t).noError(users.Create(context.Background(), &domain.User{
 		ID: "existing", Email: "invited@example.com", Role: domain.RoleUser,
-	})
+	}))
 
 	raw, _ := gen.Generate()
 	now := time.Now().UTC()
-	invites.Create(context.Background(), &domain.Invite{
+	checkTestErrors(t).noError(invites.Create(context.Background(), &domain.Invite{
 		ID:        raw,
 		Email:     "invited@example.com",
 		Code:      hashToken(raw),
@@ -128,7 +129,7 @@ func TestCompleteInviteRegistration_DuplicateEmail(t *testing.T) {
 		Status:    domain.InvitePending,
 		ExpiresAt: now.Add(defaultTestConfig().InviteTTL),
 		CreatedAt: now,
-	})
+	}))
 
 	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
 		Code:            raw,
@@ -161,7 +162,7 @@ func TestInviteRegisterPasswordMismatch(t *testing.T) {
 		ExpiresAt: time.Now().UTC().Add(24 * time.Hour),
 		CreatedAt: time.Now().UTC(),
 	}
-	invites.Create(context.Background(), invite)
+	checkTestErrors(t).noError(invites.Create(context.Background(), invite))
 
 	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
 		Code:            raw,
@@ -225,7 +226,7 @@ func TestResendInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 		ExpiresAt: now.Add(defaultTestConfig().InviteTTL),
 		CreatedAt: now,
 	}
-	invites.Create(context.Background(), invite)
+	checkTestErrors(t).noError(invites.Create(context.Background(), invite))
 
 	err := svc.ResendInviteEmail(context.Background(), invite.ID, adminID)
 	if err == nil {
@@ -240,7 +241,9 @@ func TestResendInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 // returns its ID.
 func seedInviteAdmin(users *testutil.MockUserRepo) string {
 	admin := &domain.User{ID: "invite-admin", Email: "invite-admin@example.com", Role: domain.RoleAdmin}
-	users.Create(context.Background(), admin)
+	if err := users.Create(context.Background(), admin); err != nil {
+		panic(err)
+	}
 	return admin.ID
 }
 
@@ -258,15 +261,15 @@ func newInviteTestService(users *testutil.MockUserRepo) (*InviteService, *testut
 func TestInvite_NonAdminActorIsForbidden(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	svc, invites, _ := newInviteTestService(users)
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID: "plain-user", Email: "plain@example.com", Role: domain.RoleUser,
-	})
+	}))
 
 	inv := &domain.Invite{
 		ID: "inv-1", Email: "x@example.com", Status: domain.InvitePending,
 		ExpiresAt: time.Now().UTC().Add(time.Hour), CreatedAt: time.Now().UTC(),
 	}
-	invites.Create(context.Background(), inv)
+	checkTestErrors(t).noError(invites.Create(context.Background(), inv))
 
 	ctx := context.Background()
 	calls := map[string]error{
@@ -291,9 +294,9 @@ func TestInvite_NonAdminActorIsForbidden(t *testing.T) {
 func TestCreateInvite_EmailAlreadyRegistered(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	svc, _, adminID := newInviteTestService(users)
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID: "existing", Email: "taken@example.com", Role: domain.RoleUser,
-	})
+	}))
 
 	_, err := svc.CreateInvite(context.Background(), CreateInviteInput{
 		Email: "taken@example.com", AdminID: adminID,
@@ -307,10 +310,10 @@ func TestCreateInvite_DuplicatePendingInviteRejected(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	svc, invites, adminID := newInviteTestService(users)
 	now := time.Now().UTC()
-	invites.Create(context.Background(), &domain.Invite{
+	checkTestErrors(t).noError(invites.Create(context.Background(), &domain.Invite{
 		ID: "inv-live", Email: "dup@example.com", Status: domain.InvitePending,
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now,
-	})
+	}))
 
 	_, err := svc.CreateInvite(context.Background(), CreateInviteInput{
 		Email: "dup@example.com", AdminID: adminID,
@@ -326,10 +329,10 @@ func TestCreateInvite_ExpiredInviteDoesNotBlockReinvite(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	svc, invites, adminID := newInviteTestService(users)
 	now := time.Now().UTC()
-	invites.Create(context.Background(), &domain.Invite{
+	checkTestErrors(t).noError(invites.Create(context.Background(), &domain.Invite{
 		ID: "inv-old", Email: "again@example.com", Status: domain.InvitePending,
 		ExpiresAt: now.Add(-time.Hour), CreatedAt: now.Add(-2 * time.Hour),
-	})
+	}))
 
 	_, err := svc.CreateInvite(context.Background(), CreateInviteInput{
 		Email: "again@example.com", AdminID: adminID,
@@ -356,10 +359,10 @@ func newBulkInviteService(users *testutil.MockUserRepo, mailer port.Mailer) (*In
 func seedPendingInvite(t *testing.T, invites *testutil.MockInviteRepo, id, email string) {
 	t.Helper()
 	now := time.Now().UTC()
-	invites.Create(context.Background(), &domain.Invite{
+	checkTestErrors(t).noError(invites.Create(context.Background(), &domain.Invite{
 		ID: id, Email: email, Status: domain.InvitePending,
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now,
-	})
+	}))
 }
 
 func TestBulkRevokeInvites_PartialFailure(t *testing.T) {
@@ -408,11 +411,12 @@ func TestBulkSendInvites_SendsEachAndReportsRejections(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	mailer := &testutil.MockMailer{}
 	svc, invites, adminID := newBulkInviteService(users, mailer)
+	checkTestErrors(
 
-	// one address already has an account, one already has a live invite
-	users.Create(context.Background(), &domain.User{
+		// one address already has an account, one already has a live invite
+		t).noError(users.Create(context.Background(), &domain.User{
 		ID: "u1", Email: "taken@example.com", Role: domain.RoleUser,
-	})
+	}))
 	seedPendingInvite(t, invites, "inv-live", "pending@example.com")
 
 	res, err := svc.BulkSendInvites(context.Background(), BulkInviteEmailsInput{
@@ -478,9 +482,9 @@ func TestBulkInvites_CapsRejectOversizedRequests(t *testing.T) {
 func TestBulkInvites_NonAdminForbidden(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	svc, _, _ := newBulkInviteService(users, &testutil.MockMailer{})
-	users.Create(context.Background(), &domain.User{
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID: "plain", Email: "plain2@example.com", Role: domain.RoleUser,
-	})
+	}))
 	ctx := context.Background()
 
 	checks := map[string]error{

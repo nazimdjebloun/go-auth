@@ -1,3 +1,7 @@
+// Package hasher provides the default password hasher: bcrypt. The optional
+// Argon2id implementation lives in hasher/argon2id, and hasher/registry
+// verifies existing hashes by their algorithm prefix so swapping hashers never
+// invalidates stored passwords. See port.Hasher for the contract.
 package hasher
 
 import (

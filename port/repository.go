@@ -1,4 +1,4 @@
-// This file declares go-auth's storage interfaces — UserRepository,
+// Package port declares go-auth's storage interfaces — UserRepository,
 // SessionRepository, TokenRepository, InviteRepository, OrgRepository,
 // OrgInviteRepository, ProviderAccountRepository, AuditLogRepository — each
 // implemented against SQL by the (internal) sqlstore package. Storage is

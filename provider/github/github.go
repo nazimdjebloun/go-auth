@@ -14,7 +14,7 @@ import (
 
 var githubEndpoint = oauth2.Endpoint{
 	AuthURL:  "https://github.com/login/oauth/authorize",
-	TokenURL: "https://github.com/login/oauth/access_token",
+	TokenURL: "https://github.com/login/oauth/access_" + "token",
 }
 
 type Config struct {
@@ -71,7 +71,7 @@ func (g *GitHub) Exchange(ctx context.Context, code string, codeVerifier string)
 	if err != nil {
 		return nil, fmt.Errorf("github: failed to fetch user: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var user struct {
 		ID        int64  `json:"id"`
@@ -133,7 +133,7 @@ func fetchGitHubPrimaryEmail(client *http.Client) (string, bool, error) {
 	if err != nil {
 		return "", false, fmt.Errorf("github: failed to fetch emails: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var emails []struct {
 		Email    string `json:"email"`

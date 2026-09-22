@@ -86,7 +86,7 @@ func TestLockByUserID_SerializesConcurrentUnlinks(t *testing.T) {
 
 	locked := make(chan struct{})
 	done := make(chan struct{})
-	var secondObservedCount int32 = -1
+	var secondObservedCount int64 = -1
 	var secondWaited atomic.Bool
 
 	// First unlink: lock, delete one provider, and hold the locks across a
@@ -129,7 +129,7 @@ func TestLockByUserID_SerializesConcurrentUnlinks(t *testing.T) {
 				t.Error(err)
 				return err
 			}
-			atomic.StoreInt32(&secondObservedCount, int32(len(accounts)))
+			atomic.StoreInt64(&secondObservedCount, int64(len(accounts)))
 			return nil
 		})
 	}()
@@ -139,7 +139,7 @@ func TestLockByUserID_SerializesConcurrentUnlinks(t *testing.T) {
 	if !secondWaited.Load() {
 		t.Error("second unlink did not block on the first transaction's locks")
 	}
-	if got := atomic.LoadInt32(&secondObservedCount); got != 1 {
+	if got := atomic.LoadInt64(&secondObservedCount); got != 1 {
 		t.Fatalf("second unlink observed %d providers, want 1 (post-delete state)", got)
 	}
 	if n := countProviderAccounts(t, db, "u1"); n != 1 {

@@ -145,7 +145,7 @@ func TestWebhookSink_EmptyBatchNoPost(t *testing.T) {
 	}
 }
 
-func TestWebhookSink_SinkInterfaceCompliance(t *testing.T) {
+func TestWebhookSink_SinkInterfaceCompliance(_ *testing.T) {
 	var _ EventSink = (*WebhookSink)(nil)
 	var _ BatchDeliveryTimeBounder = (*WebhookSink)(nil)
 }

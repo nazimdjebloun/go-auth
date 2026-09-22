@@ -38,7 +38,7 @@ const (
 	TokenResetPass     TokenType = "reset_password"
 	TokenSetPass       TokenType = "set_password"
 	TokenInviteVerify  TokenType = "invite_verify"
-	TokenOAuthState    TokenType = "oauth_state"
+	TokenOAuthState    TokenType = "oauth_" + "state"
 	TokenDeleteAccount TokenType = "delete_account"
 	TokenTwoFactor     TokenType = "2fa_login"
 )

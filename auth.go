@@ -49,7 +49,7 @@ type Auth struct {
 	oAuthService     *service.OAuthService
 	orgService       *service.OrgService
 	orgInviteService *service.OrgInviteService
-	auditService     *audit.AuditService
+	auditService     *audit.Service
 	auditLogRepo     port.AuditLogRepository
 
 	// twoFactorStore is always library-constructed (see New), so unlike the
@@ -122,7 +122,7 @@ func New(in *Config) (*Auth, error) {
 	// using a caller's WithBcryptCost value here would only make the startup
 	// probe needlessly expensive when a custom current hasher is active.
 	const defaultBcryptCost = 12
-	currentHasher := cfg.passwordHasher
+	currentHasher := cfg.PasswordHasher
 	if currentHasher == nil {
 		cost := defaultBcryptCost
 		if cfg.bcryptCost > 0 {
@@ -141,11 +141,11 @@ func New(in *Config) (*Auth, error) {
 	for version, secret := range cfg.passwordPepper.Keys {
 		passwordPepperKeys[version] = keyring.DerivePasswordPepper([]byte(secret))
 	}
-	passwordHasher, err := service.NewPasswordHasher(passwordRegistry, cfg.passwordPepper.CurrentVersion, passwordPepperKeys)
+	PasswordHasher, err := service.NewPasswordHasher(passwordRegistry, cfg.passwordPepper.CurrentVersion, passwordPepperKeys)
 	if err != nil {
 		return nil, fmt.Errorf("goauth: building password hasher: %w", err)
 	}
-	var hasherImpl port.Hasher = passwordHasher
+	var hasherImpl port.Hasher = PasswordHasher
 
 	if err := requireDriverSupport(&cfg); err != nil {
 		return nil, err
@@ -179,7 +179,7 @@ func New(in *Config) (*Auth, error) {
 		if err != nil {
 			return nil, fmt.Errorf("goauth: validating stored password pepper versions: %w", err)
 		}
-		if err := passwordHasher.ValidateStoredVersions(storedPepperVersions); err != nil {
+		if err := PasswordHasher.ValidateStoredVersions(storedPepperVersions); err != nil {
 			return nil, fmt.Errorf("goauth: invalid password pepper configuration: %w", err)
 		}
 	}
@@ -607,6 +607,8 @@ func (a *Auth) Close() {
 		closer.Close()
 	}
 	if a.cfg.app.Database.opened && a.db != nil {
-		a.db.Close()
+		if err := a.db.Close(); err != nil && a.cfg.logger != nil {
+			a.cfg.logger.Error("goauth: close database", "err", err)
+		}
 	}
 }

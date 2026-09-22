@@ -73,7 +73,7 @@ func TestOrg_CreateOrgAndGetByID(t *testing.T) {
 	ctx := context.Background()
 
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -128,7 +128,7 @@ func TestOrg_CreateOrgDuplicateSlug(t *testing.T) {
 
 	ctx := context.Background()
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "u@test.com", Password: "V@lidPswd1", Name: "U",
+		Email: "u@test.com", Password: validTestPassword(), Name: "U",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -159,7 +159,7 @@ func TestOrg_CreateOrgReservedSlug(t *testing.T) {
 
 	ctx := context.Background()
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "u@test.com", Password: "V@lidPswd1", Name: "U",
+		Email: "u@test.com", Password: validTestPassword(), Name: "U",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -184,7 +184,7 @@ func TestOrg_GetBySlug(t *testing.T) {
 
 	ctx := context.Background()
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "u@test.com", Password: "V@lidPswd1", Name: "U",
+		Email: "u@test.com", Password: validTestPassword(), Name: "U",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -219,7 +219,7 @@ func TestOrg_UpdateOrg(t *testing.T) {
 
 	ctx := context.Background()
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "u@test.com", Password: "V@lidPswd1", Name: "U",
+		Email: "u@test.com", Password: validTestPassword(), Name: "U",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -244,7 +244,7 @@ func TestOrg_UpdateOrg(t *testing.T) {
 	}
 
 	var dbSlug string
-	db.QueryRow("SELECT slug FROM organizations WHERE id=?", org.ID).Scan(&dbSlug)
+	checkTestErrors(t).noError(db.QueryRow("SELECT slug FROM organizations WHERE id=?", org.ID).Scan(&dbSlug))
 	if dbSlug != newSlug {
 		t.Errorf("db slug=%q", dbSlug)
 	}
@@ -258,7 +258,7 @@ func TestOrg_DeleteOrg(t *testing.T) {
 
 	ctx := context.Background()
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "u@test.com", Password: "V@lidPswd1", Name: "U",
+		Email: "u@test.com", Password: validTestPassword(), Name: "U",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -289,14 +289,14 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 
 	member, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "member@test.com", Password: "V@lidPswd1", Name: "Member",
+		Email: "member@test.com", Password: validTestPassword(), Name: "Member",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -324,7 +324,7 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 	}
 
 	var dbCount int
-	db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount)
+	checkTestErrors(t).noError(db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount))
 	if dbCount != 2 {
 		t.Errorf("member_count=%d", dbCount)
 	}
@@ -336,8 +336,7 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 	if _, err := a.Services.Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID}); err == nil {
 		t.Fatal("expected error after removal")
 	}
-
-	db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount)
+	checkTestErrors(t).noError(db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount))
 	if dbCount != 1 {
 		t.Errorf("member_count=%d", dbCount)
 	}
@@ -352,7 +351,7 @@ func TestOrg_AddDuplicateMember(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -385,14 +384,14 @@ func TestOrg_UpdateMemberRole(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 
 	member, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "member@test.com", Password: "V@lidPswd1", Name: "Member",
+		Email: "member@test.com", Password: validTestPassword(), Name: "Member",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -418,13 +417,13 @@ func TestOrg_UpdateMemberRole(t *testing.T) {
 	}
 
 	var dbRole string
-	db.QueryRow("SELECT role FROM organization_members WHERE org_id=? AND user_id=?", org.ID, member.User.ID).Scan(&dbRole)
+	checkTestErrors(t).noError(db.QueryRow("SELECT role FROM organization_members WHERE org_id=? AND user_id=?", org.ID, member.User.ID).Scan(&dbRole))
 	if dbRole != "owner" {
 		t.Errorf("role=%q", dbRole)
 	}
 
 	var dbOwnerCount int
-	db.QueryRow("SELECT owner_count FROM organizations WHERE id=?", org.ID).Scan(&dbOwnerCount)
+	checkTestErrors(t).noError(db.QueryRow("SELECT owner_count FROM organizations WHERE id=?", org.ID).Scan(&dbOwnerCount))
 	if dbOwnerCount != 2 {
 		t.Errorf("owner_count=%d", dbOwnerCount)
 	}
@@ -439,7 +438,7 @@ func TestOrg_CannotRemoveLastOwner(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -466,7 +465,7 @@ func TestOrg_ListMembers(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -481,7 +480,7 @@ func TestOrg_ListMembers(t *testing.T) {
 
 	for _, email := range []string{"m1@test.com", "m2@test.com", "m3@test.com"} {
 		u, rerr := a.Register(ctx, goauth.RegisterInput{
-			Email: email, Password: "V@lidPswd1", Name: "M",
+			Email: email, Password: validTestPassword(), Name: "M",
 		})
 		if rerr != nil {
 			t.Fatal(rerr)
@@ -532,7 +531,7 @@ func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -547,7 +546,7 @@ func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
 
 	for i := 0; i < 24; i++ { // + the owner = 25 members total
 		u, rerr := a.Register(ctx, goauth.RegisterInput{
-			Email: fmt.Sprintf("m%d@test.com", i), Password: "V@lidPswd1", Name: "M",
+			Email: fmt.Sprintf("m%d@test.com", i), Password: validTestPassword(), Name: "M",
 		})
 		if rerr != nil {
 			t.Fatal(rerr)
@@ -597,7 +596,7 @@ func TestOrg_ListMembers_Search(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -611,7 +610,7 @@ func TestOrg_ListMembers_Search(t *testing.T) {
 	}
 
 	alice, rerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "alice@test.com", Password: "V@lidPswd1", Name: "Alice Anderson",
+		Email: "alice@test.com", Password: validTestPassword(), Name: "Alice Anderson",
 	})
 	if rerr != nil {
 		t.Fatal(rerr)
@@ -623,7 +622,7 @@ func TestOrg_ListMembers_Search(t *testing.T) {
 	}
 
 	bob, rerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "bob@test.com", Password: "V@lidPswd1", Name: "Bob Baker",
+		Email: "bob@test.com", Password: validTestPassword(), Name: "Bob Baker",
 	})
 	if rerr != nil {
 		t.Fatal(rerr)
@@ -653,7 +652,7 @@ func TestOrg_ListUserOrgs(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -703,7 +702,7 @@ func TestOrg_ListUserOrgs_Search(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -740,7 +739,7 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -764,7 +763,7 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 	}
 
 	var dbEmail, dbRole string
-	db.QueryRow("SELECT email, role FROM organization_invites WHERE id=?", invite.ID).Scan(&dbEmail, &dbRole)
+	checkTestErrors(t).noError(db.QueryRow("SELECT email, role FROM organization_invites WHERE id=?", invite.ID).Scan(&dbEmail, &dbRole))
 	if dbEmail != "newguy@test.com" || dbRole != "member" {
 		t.Errorf("email=%q role=%q", dbEmail, dbRole)
 	}
@@ -806,7 +805,7 @@ func TestOrg_MaxOrgLimit(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -839,14 +838,14 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 
 	invitee, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "invitee@test.com", Password: "V@lidPswd1", Name: "Invitee",
+		Email: "invitee@test.com", Password: validTestPassword(), Name: "Invitee",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -887,7 +886,7 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 
 	// Member count incremented
 	var dbCount int
-	db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount)
+	checkTestErrors(t).noError(db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount))
 	if dbCount != 2 {
 		t.Errorf("member_count=%d, want 2", dbCount)
 	}
@@ -911,14 +910,14 @@ func TestOrg_AcceptInvite_WrongEmail(t *testing.T) {
 	ctx := context.Background()
 
 	owner, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "owner@test.com", Password: "V@lidPswd1", Name: "Owner",
+		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 
 	invitee, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "wrong@test.com", Password: "V@lidPswd1", Name: "Wrong",
+		Email: "wrong@test.com", Password: validTestPassword(), Name: "Wrong",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -964,7 +963,7 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 	ctx := context.Background()
 
 	res, aerr := a.Register(ctx, goauth.RegisterInput{
-		Email: "active@test.com", Password: "V@lidPswd1", Name: "Active",
+		Email: "active@test.com", Password: validTestPassword(), Name: "Active",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -978,7 +977,7 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 	}
 
 	login, aerr := a.Services.Auth.Login(ctx, service.LoginInput{
-		Email: "active@test.com", Password: "V@lidPswd1",
+		Email: "active@test.com", Password: validTestPassword(),
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
@@ -987,7 +986,7 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 	mux := http.NewServeMux()
 	a.Mount(mux)
 
-	sessionCookie := &http.Cookie{Name: "goauth_session", Value: login.SessionToken}
+	sessionCookie := secureRequestCookie("goauth_session", login.SessionToken)
 
 	// GET /auth/csrf-token establishes the CSRF double-submit cookie that the
 	// state-changing routes below require. (The PUT/DELETE themselves prove
@@ -1009,7 +1008,7 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 		t.Fatal("expected a _csrf cookie from GET /auth/csrf-token")
 	}
 
-	csrfCookie := &http.Cookie{Name: "_csrf", Value: csrf}
+	csrfCookie := secureRequestCookie("_csrf", csrf)
 	origin := "http://localhost:8080"
 
 	// PUT /auth/orgs/active — set the active org.

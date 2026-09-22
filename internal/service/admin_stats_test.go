@@ -18,7 +18,7 @@ func TestGetStats_ActorNotAdmin_Forbidden(t *testing.T) {
 	svc, _ := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
-	users.Create(context.Background(), nonAdmin)
+	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
 	_, err := svc.GetStats(context.Background(), "not-admin")
 	if err != domain.ErrForbidden {
@@ -32,9 +32,9 @@ func TestGetStats_HappyPath(t *testing.T) {
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
 	loggedIn := time.Now().UTC()
-	users.Create(context.Background(), &domain.User{ID: "u1", Email: "u1@example.com", IsVerified: true, LastLoginAt: &loggedIn})
-	users.Create(context.Background(), &domain.User{ID: "u2", Email: "u2@example.com", IsBanned: true})
-	users.Create(context.Background(), &domain.User{ID: "u3", Email: "u3@example.com", TwoFactorEnabled: true})
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u1", Email: "u1@example.com", IsVerified: true, LastLoginAt: &loggedIn}))
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u2", Email: "u2@example.com", IsBanned: true}))
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u3", Email: "u3@example.com", TwoFactorEnabled: true}))
 
 	stats, err := svc.GetStats(context.Background(), actorID)
 	if err != nil {
@@ -65,7 +65,7 @@ func TestGetRegistrationTrend_ActorNotAdmin_Forbidden(t *testing.T) {
 	svc, _ := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
-	users.Create(context.Background(), nonAdmin)
+	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
 	_, err := svc.GetRegistrationTrend(context.Background(), StatsRangeInput{
 		ActorID: "not-admin", From: time.Now().Add(-time.Hour), To: time.Now(),
@@ -97,8 +97,8 @@ func TestGetRegistrationTrend_HappyPath(t *testing.T) {
 
 	today := time.Now().UTC()
 	yesterday := today.Add(-24 * time.Hour)
-	users.Create(context.Background(), &domain.User{ID: "u1", Email: "u1@example.com", CreatedAt: today})
-	users.Create(context.Background(), &domain.User{ID: "u2", Email: "u2@example.com", CreatedAt: yesterday})
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u1", Email: "u1@example.com", CreatedAt: today}))
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u2", Email: "u2@example.com", CreatedAt: yesterday}))
 
 	counts, err := svc.GetRegistrationTrend(context.Background(), StatsRangeInput{
 		ActorID: actorID, From: yesterday.Add(-time.Hour), To: today.Add(time.Hour),
@@ -123,7 +123,7 @@ func TestGetLoginActivity_ActorNotAdmin_Forbidden(t *testing.T) {
 	svc, _ := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
-	users.Create(context.Background(), nonAdmin)
+	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
 	_, err := svc.GetLoginActivity(context.Background(), LoginActivityInput{
 		ActorID: "not-admin", From: time.Now().Add(-time.Hour), To: time.Now(),

@@ -110,7 +110,7 @@ func TestRegister_PersistsIPAndUserAgent(t *testing.T) {
 
 	res, aerr := a.Register(context.Background(), RegisterInput{
 		Email:     "ada@example.com",
-		Password:  "V@lidPswd1",
+		Password:  validTestPassword(),
 		Name:      "Ada",
 		IP:        "203.0.113.7",
 		UserAgent: "test-agent/1.0",
@@ -138,7 +138,7 @@ func TestLogin_PersistsIPAndUserAgent(t *testing.T) {
 
 	if _, aerr := a.Register(context.Background(), RegisterInput{
 		Email:    "bob@example.com",
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Bob",
 	}); aerr != nil {
 		t.Fatalf("Register: %v", aerr)
@@ -146,7 +146,7 @@ func TestLogin_PersistsIPAndUserAgent(t *testing.T) {
 
 	res, aerr := a.Login(context.Background(), LoginInput{
 		Email:     "bob@example.com",
-		Password:  "V@lidPswd1",
+		Password:  validTestPassword(),
 		IP:        "198.51.100.9",
 		UserAgent: "test-agent/2.0",
 	})

@@ -49,8 +49,7 @@ func TestAdminListAuditLogs_ActorByEmail(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	auditLogs := testutil.NewMockAuditLogRepo()
 	svc, actorID, _ := newTestAdminServiceWithAudit(users, sessions, auditLogs, &testutil.MockHasher{})
-
-	users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"})
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"}))
 	alice, bob := "alice-id", "bob-id"
 	now := time.Now().UTC()
 	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
@@ -88,8 +87,7 @@ func TestAdminListAuditLogs_TargetByEmail(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	auditLogs := testutil.NewMockAuditLogRepo()
 	svc, actorID, _ := newTestAdminServiceWithAudit(users, sessions, auditLogs, &testutil.MockHasher{})
-
-	users.Create(context.Background(), &domain.User{ID: "target-id", Email: "target@example.com"})
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "target-id", Email: "target@example.com"}))
 	target, other := "target-id", "other-id"
 	now := time.Now().UTC()
 	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "admin.user.banned", TargetUserID: &target, CreatedAt: now})
@@ -178,9 +176,8 @@ func TestAdminListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	auditLogs := testutil.NewMockAuditLogRepo()
 	svc, actorID, _ := newTestAdminServiceWithAudit(users, sessions, auditLogs, &testutil.MockHasher{})
-
-	users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"})
-	users.Create(context.Background(), &domain.User{ID: "bob-id", Email: "bob@example.com"})
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"}))
+	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "bob-id", Email: "bob@example.com"}))
 	alice, bob, ghost := "alice-id", "bob-id", "deleted-user-id"
 	now := time.Now().UTC()
 	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "admin.user.banned", ActorID: &alice, TargetUserID: &bob, CreatedAt: now})
@@ -224,7 +221,7 @@ func TestAdminListAuditLogs_ActorNotAdmin_Forbidden(t *testing.T) {
 	svc, _, _ := newTestAdminServiceWithAudit(users, sessions, auditLogs, &testutil.MockHasher{})
 
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
-	users.Create(context.Background(), nonAdmin)
+	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
 	_, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{ActorID: "not-admin"})
 	if err != domain.ErrForbidden {

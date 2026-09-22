@@ -199,7 +199,7 @@ func TestRateLimit_SpoofedHeaderCannotBypass(t *testing.T) {
 
 	var calls int
 	var last *httptest.ResponseRecorder
-	h := rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -242,7 +242,7 @@ func TestRateLimit_StoreErrorLogsStructured(t *testing.T) {
 	req := httptest.NewRequest("POST", "/auth/login", nil)
 	req.RemoteAddr = "192.0.2.50:1234"
 	rec := httptest.NewRecorder()
-	rl(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	rl(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})).ServeHTTP(rec, req)
 
@@ -513,7 +513,7 @@ func TestAuthMiddleware_MissingCookie(t *testing.T) {
 	sessCfg := service.DefaultSessionConfig()
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -525,7 +525,9 @@ func TestAuthMiddleware_MissingCookie(t *testing.T) {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 	var body map[string]string
-	json.NewDecoder(rec.Body).Decode(&body)
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
 	if body["error"] != "session_expired" {
 		t.Fatalf("expected session_expired, got %s", body["error"])
 	}
@@ -542,7 +544,7 @@ func TestAuthMiddleware_ExpiredSession(t *testing.T) {
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
-	users.Create(t.Context(), user)
+	checkTestErrors(t).noError(users.Create(t.Context(), user))
 
 	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
 	rawToken := sessResult.SessionToken
@@ -550,12 +552,12 @@ func TestAuthMiddleware_ExpiredSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
+	req.AddCookie(secureRequestCookie(sessCfg.CookieName, rawToken))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -563,7 +565,9 @@ func TestAuthMiddleware_ExpiredSession(t *testing.T) {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 	var body map[string]string
-	json.NewDecoder(rec.Body).Decode(&body)
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
 	if body["error"] != "session_expired" {
 		t.Fatalf("expected session_expired, got %s", body["error"])
 	}
@@ -578,12 +582,12 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	sessCfg := service.DefaultSessionConfig()
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: "garbage-token"})
+	req.AddCookie(secureRequestCookie(sessCfg.CookieName, "garbage-token"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -591,7 +595,9 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 	var body map[string]string
-	json.NewDecoder(rec.Body).Decode(&body)
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
 	if body["error"] != "unauthorized" {
 		t.Fatalf("expected unauthorized, got %s", body["error"])
 	}
@@ -607,7 +613,7 @@ func TestAuthMiddleware_BannedUser(t *testing.T) {
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: true}
-	users.Create(t.Context(), user)
+	checkTestErrors(t).noError(users.Create(t.Context(), user))
 
 	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
 	rawToken := sessResult.SessionToken
@@ -615,12 +621,12 @@ func TestAuthMiddleware_BannedUser(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
+	req.AddCookie(secureRequestCookie(sessCfg.CookieName, rawToken))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -628,7 +634,9 @@ func TestAuthMiddleware_BannedUser(t *testing.T) {
 		t.Fatalf("expected 403, got %d", rec.Code)
 	}
 	var body map[string]string
-	json.NewDecoder(rec.Body).Decode(&body)
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
 	if body["error"] != "user_banned" {
 		t.Fatalf("expected user_banned, got %s", body["error"])
 	}
@@ -644,22 +652,21 @@ func TestAuthMiddleware_DeletedUser(t *testing.T) {
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
-	users.Create(t.Context(), user)
+	checkTestErrors(t).noError(users.Create(t.Context(), user))
 
 	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
 	rawToken := sessResult.SessionToken
 	if err != nil {
 		t.Fatal(err)
 	}
+	checkTestErrors(t).noError(users.Delete(t.Context(), "user-1"))
 
-	users.Delete(t.Context(), "user-1")
-
-	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
+	req.AddCookie(secureRequestCookie(sessCfg.CookieName, rawToken))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -667,7 +674,9 @@ func TestAuthMiddleware_DeletedUser(t *testing.T) {
 		t.Fatalf("expected 401, got %d", rec.Code)
 	}
 	var body map[string]string
-	json.NewDecoder(rec.Body).Decode(&body)
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
 	if body["error"] != "unauthorized" {
 		t.Fatalf("expected unauthorized, got %s", body["error"])
 	}
@@ -683,7 +692,7 @@ func TestRequireRole_CorrectRole(t *testing.T) {
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com", Role: domain.RoleAdmin}
-	users.Create(t.Context(), user)
+	checkTestErrors(t).noError(users.Create(t.Context(), user))
 
 	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
 	rawToken := sessResult.SessionToken
@@ -691,12 +700,12 @@ func TestRequireRole_CorrectRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(RequireRole(domain.RoleAdmin, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(RequireRole(domain.RoleAdmin, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})))
 
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
+	req.AddCookie(secureRequestCookie(sessCfg.CookieName, rawToken))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -715,7 +724,7 @@ func TestRequireRole_WrongRole(t *testing.T) {
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com", Role: domain.RoleUser}
-	users.Create(t.Context(), user)
+	checkTestErrors(t).noError(users.Create(t.Context(), user))
 
 	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
 	rawToken := sessResult.SessionToken
@@ -723,12 +732,12 @@ func TestRequireRole_WrongRole(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(RequireRole(domain.RoleAdmin, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(RequireRole(domain.RoleAdmin, nil)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	})))
 
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
+	req.AddCookie(secureRequestCookie(sessCfg.CookieName, rawToken))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -736,7 +745,9 @@ func TestRequireRole_WrongRole(t *testing.T) {
 		t.Fatalf("expected 403, got %d", rec.Code)
 	}
 	var body map[string]string
-	json.NewDecoder(rec.Body).Decode(&body)
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
 	if body["error"] != "forbidden" {
 		t.Fatalf("expected forbidden, got %s", body["error"])
 	}
@@ -755,7 +766,7 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
-	users.Create(t.Context(), user)
+	checkTestErrors(t).noError(users.Create(t.Context(), user))
 
 	sessResult, err := sessSvc.Create(t.Context(), user.ID, "127.0.0.1", "test-agent")
 	rawToken, rawRefreshToken := sessResult.SessionToken, sessResult.RefreshToken
@@ -773,8 +784,8 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 
 	t.Run("does not rotate token on valid session", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
-		req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
-		req.AddCookie(&http.Cookie{Name: sessCfg.RefreshCookieName, Value: rawRefreshToken})
+		req.AddCookie(secureRequestCookie(sessCfg.CookieName, rawToken))
+		req.AddCookie(secureRequestCookie(sessCfg.RefreshCookieName, rawRefreshToken))
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
@@ -793,7 +804,7 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 
 	t.Run("proceeds without refresh cookie", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/", nil)
-		req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
+		req.AddCookie(secureRequestCookie(sessCfg.CookieName, rawToken))
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
@@ -815,8 +826,8 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 		for range concurrency {
 			go func() {
 				req := httptest.NewRequest("GET", "/", nil)
-				req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken2})
-				req.AddCookie(&http.Cookie{Name: sessCfg.RefreshCookieName, Value: rawRefresh2})
+				req.AddCookie(secureRequestCookie(sessCfg.CookieName, rawToken2))
+				req.AddCookie(secureRequestCookie(sessCfg.RefreshCookieName, rawRefresh2))
 				rec := httptest.NewRecorder()
 				handler.ServeHTTP(rec, req)
 				results <- rec.Code
@@ -836,7 +847,7 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 		shortCfg.RefreshTTL = 60 * time.Minute
 		shortCfg.IdleTTL = 0
 		shortSessSvc := service.NewSessionService(sessions, gen, shortCfg)
-		shortHandler := AuthMiddleware(shortSessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		shortHandler := AuthMiddleware(shortSessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
 
@@ -849,8 +860,8 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 		time.Sleep(2 * time.Millisecond)
 
 		req := httptest.NewRequest("GET", "/", nil)
-		req.AddCookie(&http.Cookie{Name: shortCfg.CookieName, Value: rawToken3})
-		req.AddCookie(&http.Cookie{Name: shortCfg.RefreshCookieName, Value: rawRefresh3})
+		req.AddCookie(secureRequestCookie(shortCfg.CookieName, rawToken3))
+		req.AddCookie(secureRequestCookie(shortCfg.RefreshCookieName, rawRefresh3))
 		rec := httptest.NewRecorder()
 
 		shortHandler.ServeHTTP(rec, req)
@@ -898,7 +909,7 @@ func TestAuthMiddleware_MissingCookieLogsDebug(t *testing.T) {
 	sessCfg := service.DefaultSessionConfig()
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
-	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, logger)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -929,7 +940,7 @@ func TestAuthMiddleware_BannedUserLogsWarn(t *testing.T) {
 	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: true}
-	users.Create(t.Context(), user)
+	checkTestErrors(t).noError(users.Create(t.Context(), user))
 
 	sessResult, err := sessSvc.Create(t.Context(), user.ID, "", "")
 	rawToken := sessResult.SessionToken
@@ -937,12 +948,12 @@ func TestAuthMiddleware_BannedUserLogsWarn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, logger)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, logger)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
 	req := httptest.NewRequest("GET", "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessCfg.CookieName, Value: rawToken})
+	req.AddCookie(secureRequestCookie(sessCfg.CookieName, rawToken))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -962,7 +973,7 @@ func TestOriginCheck_RejectedOriginLogsWarn(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
 	oc := OriginCheck([]string{"http://example.com"}, false, nil, logger)
-	handler := oc(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := oc(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -987,7 +998,7 @@ func TestOriginCheck_RejectedRefererLogsWarn(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
 	oc := OriginCheck([]string{"http://example.com"}, false, nil, logger)
-	handler := oc(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := oc(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 

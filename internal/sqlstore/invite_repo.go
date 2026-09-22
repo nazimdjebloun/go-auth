@@ -132,7 +132,6 @@ func (r *InviteRepository) buildInviteWhere(filter port.InviteFilter, now time.T
 			where = append(where, fmt.Sprintf("status = $%d", argIdx))
 			args = append(args, *filter.Status)
 		}
-		argIdx++
 	}
 
 	if len(where) == 0 {
@@ -194,7 +193,6 @@ func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) (
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	invites := []domain.Invite{}
 	for rows.Next() {
@@ -202,6 +200,7 @@ func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) (
 		var acceptedAt sql.NullTime
 		if err := rows.Scan(&inv.ID, &inv.Email, &inv.Code, &inv.CreatedBy, &inv.Status,
 			&inv.ExpiresAt, &acceptedAt, &inv.CreatedAt); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		if acceptedAt.Valid {
@@ -210,7 +209,14 @@ func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) (
 		deriveInviteStatus(&inv, now)
 		invites = append(invites, inv)
 	}
-	return invites, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("invite list close: %w", err)
+	}
+	return invites, nil
 }
 
 func (r *InviteRepository) Update(ctx context.Context, invite *domain.Invite) error {

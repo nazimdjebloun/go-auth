@@ -14,11 +14,11 @@ import (
 
 var errUnsupportedPepperVersion = errors.New("service: unsupported password pepper version")
 
-// passwordHasher composes an algorithm-dispatching registry with an exact,
+// PasswordHasher composes an algorithm-dispatching registry with an exact,
 // versioned pepper keyring. A nil stored version means the row is unpeppered;
 // non-nil versions select exactly one key. Verification never searches the
 // keyring, which keeps work bounded and prevents ambiguous migrations.
-type passwordHasher struct {
+type PasswordHasher struct {
 	registry       *registry.Registry
 	currentVersion uint32
 	keys           map[uint32][]byte
@@ -28,7 +28,7 @@ type passwordHasher struct {
 // currentVersion zero leaves new hashes unpeppered while still allowing
 // preloaded keys to verify rows written by newer nodes during a rolling
 // deployment.
-func NewPasswordHasher(registry *registry.Registry, currentVersion uint32, keys map[uint32][]byte) (*passwordHasher, error) {
+func NewPasswordHasher(registry *registry.Registry, currentVersion uint32, keys map[uint32][]byte) (*PasswordHasher, error) {
 	if registry == nil {
 		return nil, errors.New("password hasher: registry is nil")
 	}
@@ -47,13 +47,13 @@ func NewPasswordHasher(registry *registry.Registry, currentVersion uint32, keys 
 			return nil, fmt.Errorf("password hasher: current pepper version %d has no key", currentVersion)
 		}
 	}
-	return &passwordHasher{registry: registry, currentVersion: currentVersion, keys: cloned}, nil
+	return &PasswordHasher{registry: registry, currentVersion: currentVersion, keys: cloned}, nil
 }
 
 // ValidateStoredVersions is the startup fail-closed check. Every pepper
 // version found in the database must be available on this instance before it
 // can serve authentication traffic.
-func (h *passwordHasher) ValidateStoredVersions(versions []uint32) error {
+func (h *PasswordHasher) ValidateStoredVersions(versions []uint32) error {
 	missing := make([]uint32, 0)
 	for _, version := range versions {
 		if _, ok := h.keys[version]; !ok {
@@ -69,7 +69,7 @@ func (h *passwordHasher) ValidateStoredVersions(versions []uint32) error {
 
 // Hash implements port.Hasher for compatibility. Service password writes use
 // hashPassword below so the matching version is persisted with the hash.
-func (h *passwordHasher) Hash(password string) (string, error) {
+func (h *PasswordHasher) Hash(password string) (string, error) {
 	hash, _, err := h.hashVersioned(password)
 	return hash, err
 }
@@ -77,15 +77,15 @@ func (h *passwordHasher) Hash(password string) (string, error) {
 // Compare implements port.Hasher for compatibility and checks against the
 // current representation. Reads of persisted users use comparePassword below
 // and therefore select the exact version stored beside the hash.
-func (h *passwordHasher) Compare(password, stored string) error {
+func (h *PasswordHasher) Compare(password, stored string) error {
 	return h.compareVersioned(password, stored, uint32Pointer(h.currentVersion))
 }
 
-func (h *passwordHasher) hashVersioned(password string) (string, *uint32, error) {
+func (h *PasswordHasher) hashVersioned(password string) (string, *uint32, error) {
 	return h.hashVersionedAtLeast(password, nil)
 }
 
-func (h *passwordHasher) hashVersionedAtLeast(password string, minimumVersion *uint32) (string, *uint32, error) {
+func (h *PasswordHasher) hashVersionedAtLeast(password string, minimumVersion *uint32) (string, *uint32, error) {
 	version := h.currentVersion
 	if minimumVersion != nil && *minimumVersion > version {
 		// A password change/reset handled by an older node must not downgrade
@@ -108,7 +108,7 @@ func (h *passwordHasher) hashVersionedAtLeast(password string, minimumVersion *u
 	return hash, uint32Pointer(version), err
 }
 
-func (h *passwordHasher) compareVersioned(password, stored string, version *uint32) error {
+func (h *PasswordHasher) compareVersioned(password, stored string, version *uint32) error {
 	if version == nil {
 		return h.registry.Compare(password, stored)
 	}
@@ -120,7 +120,7 @@ func (h *passwordHasher) compareVersioned(password, stored string, version *uint
 	return h.registry.Compare(pepperPassword(password, key), stored)
 }
 
-func (h *passwordHasher) needsRehash(stored string, storedVersion *uint32) bool {
+func (h *PasswordHasher) needsRehash(stored string, storedVersion *uint32) bool {
 	version := uint32(0)
 	if storedVersion != nil {
 		version = *storedVersion
@@ -133,7 +133,7 @@ func (h *passwordHasher) needsRehash(stored string, storedVersion *uint32) bool 
 	return version < h.currentVersion || h.registry.NeedsRehash(stored)
 }
 
-func (h *passwordHasher) dummyHash() string {
+func (h *PasswordHasher) dummyHash() string {
 	return h.registry.DummyHash()
 }
 
@@ -171,8 +171,8 @@ func uint32Pointer(value uint32) *uint32 {
 	if value == 0 {
 		return nil
 	}
-	copy := value
-	return &copy
+	cloned := value
+	return &cloned
 }
 
 func pepperPassword(password string, pepper []byte) string {
@@ -181,4 +181,4 @@ func pepperPassword(password string, pepper []byte) string {
 	return base64.StdEncoding.EncodeToString(mac.Sum(nil))
 }
 
-var _ port.Hasher = (*passwordHasher)(nil)
+var _ port.Hasher = (*PasswordHasher)(nil)

@@ -57,7 +57,7 @@ func benchAuth(b *testing.B, auditEnabled ...bool) *Auth {
 func benchRegister(b *testing.B, a *Auth, i int) string {
 	res, err := a.Register(context.Background(), RegisterInput{
 		Email:    fmt.Sprintf("bench%d@example.com", i),
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Bench",
 	})
 	if err != nil {
@@ -75,7 +75,7 @@ func BenchmarkRegister(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		if _, err := a.Register(ctx, RegisterInput{
 			Email:    fmt.Sprintf("reg%d@example.com", i),
-			Password: "V@lidPswd1",
+			Password: validTestPassword(),
 			Name:     "Bench",
 		}); err != nil {
 			b.Fatal(err)
@@ -98,7 +98,7 @@ func BenchmarkLogin(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			a := benchAuth(b, tc.auditEnabled)
 			ctx := context.Background()
-			const pwd = "V@lidPswd1"
+			pwd := validTestPassword()
 			if _, err := a.Register(ctx, RegisterInput{
 				Email: "login@example.com", Password: pwd, Name: "Bench",
 			}); err != nil {
@@ -138,7 +138,7 @@ func BenchmarkRefreshSession(b *testing.B) {
 	a := benchAuth(b)
 	ctx := context.Background()
 	res, err := a.Register(ctx, RegisterInput{
-		Email: "refresh@example.com", Password: "V@lidPswd1", Name: "Bench",
+		Email: "refresh@example.com", Password: validTestPassword(), Name: "Bench",
 	})
 	if err != nil {
 		b.Fatal(err)

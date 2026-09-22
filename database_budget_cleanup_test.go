@@ -3,7 +3,6 @@ package goauth
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,7 +37,7 @@ func TestDatabaseBudget_ConstructorFailureClosesOwnedDB(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer probe.Close()
+		defer func() { _ = probe.Close() }()
 		if _, err := probe.Exec("CREATE TABLE cleanup_marker (id INTEGER)"); err != nil {
 			t.Fatal(err)
 		}
@@ -53,7 +52,7 @@ func TestDatabaseBudget_ConstructorFailureClosesOwnedDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer probe.Close()
+	defer func() { _ = probe.Close() }()
 	var count int
 	if err := probe.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE name = 'cleanup_marker'").Scan(&count); err != nil {
 		t.Fatal(err)
@@ -84,7 +83,7 @@ func TestDatabaseBudget_CloseOwnedAndPreserveBorrowedOnFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	cfg.app.Database = DatabaseConfig{Driver: DriverSQLite, DB: db}
 	cfg.providers = append(cfg.providers, nil)
 	if a, err := New(cfg); err == nil {
@@ -108,11 +107,11 @@ func TestDatabaseBudget_PostgresURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	if pool != nil {
 		t.Fatal("URL path created a redundant pgx pool")
 	}
 	if got := db.Stats().MaxOpenConnections; got != 3 {
-		t.Fatal(fmt.Sprintf("max connections=%d", got))
+		t.Fatalf("max connections=%d", got)
 	}
 }

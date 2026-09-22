@@ -58,17 +58,19 @@ func (r *OutboxRepository) ClaimBatch(ctx context.Context, owner string, batchSi
 		var id string
 		var wasClaimed int
 		if err := rows.Scan(&id, &wasClaimed); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		candidateIDs = append(candidateIDs, id)
 		candidateStolen = append(candidateStolen, wasClaimed == 1)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return nil, err
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("outbox candidates close: %w", err)
+	}
 
 	claimTime := time.Now().UTC()
 	// Every ClaimBatch call gets a unique token. Re-reading by the token is
@@ -101,7 +103,7 @@ func (r *OutboxRepository) ClaimBatch(ctx context.Context, owner string, batchSi
 	if err != nil {
 		return nil, fmt.Errorf("outbox claimed rows: %w", err)
 	}
-	defer claimed.Close()
+	defer func() { _ = claimed.Close() }()
 
 	stolenByID := make(map[string]bool, len(won))
 	for i, id := range won {
@@ -171,16 +173,18 @@ func (r *OutboxRepository) PurgeOrphans(ctx context.Context, limit int) (int, er
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return 0, err
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
+		_ = rows.Close()
 		return 0, err
 	}
-	rows.Close()
+	if err := rows.Close(); err != nil {
+		return 0, fmt.Errorf("outbox orphan rows close: %w", err)
+	}
 
 	purged := 0
 	for _, id := range ids {
@@ -218,13 +222,13 @@ func (r *OutboxRepository) OldestPendingAge(ctx context.Context, now time.Time) 
 // boundary: slicing at a byte offset can split a multi-byte rune and write
 // invalid UTF-8, which Postgres rejects at the wire.
 func truncateErr(msg string) string {
-	const max = 512
-	if len(msg) <= max {
+	const maxErrorLength = 512
+	if len(msg) <= maxErrorLength {
 		return msg
 	}
 	// Walk back from the byte limit to the last rune start so the cut never
 	// lands mid-rune.
-	cut := max - 3
+	cut := maxErrorLength - 3
 	for cut > 0 && !utf8.RuneStart(msg[cut]) {
 		cut--
 	}
@@ -424,17 +428,24 @@ func (r *OutboxRepository) selectIDs(ctx context.Context, query string, limit in
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var ids []string
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		ids = append(ids, id)
 	}
-	return ids, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("outbox candidate IDs close: %w", err)
+	}
+	return ids, nil
 }
 
 // deleteIDs removes the given rows one by one, returning how many were

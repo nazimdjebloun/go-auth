@@ -37,5 +37,5 @@ func GenerateSchema(driver, outPath string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(outPath, []byte(sql), 0644)
+	return os.WriteFile(outPath, []byte(sql), 0600)
 }

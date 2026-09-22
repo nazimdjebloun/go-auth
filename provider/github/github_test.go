@@ -83,21 +83,25 @@ func TestExchange_Success_WithEmail(t *testing.T) {
 		switch r.URL.Path {
 		case "/login/oauth/access_token":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token":  "gh-access-token",
 				"token_type":    "bearer",
 				"refresh_token": "gh-refresh-token",
 				"expires_in":    28800,
-			})
+			}); err != nil {
+				t.Error(err)
+			}
 		case "/user":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			if err := json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":         12345,
 				"login":      "testuser",
 				"name":       "Test User",
 				"email":      "test@example.com",
 				"avatar_url": "https://avatars.githubusercontent.com/u/12345",
-			})
+			}); err != nil {
+				t.Error(err)
+			}
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -161,26 +165,26 @@ func TestExchange_Success_EmailFallback(t *testing.T) {
 		switch r.URL.Path {
 		case "/login/oauth/access_token":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			checkTestErrors(t).noError(json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"token_type":   "bearer",
 				"expires_in":   3600,
-			})
+			}))
 		case "/user":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			checkTestErrors(t).noError(json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":         67890,
 				"login":      "nemail-user",
 				"name":       "No Email User",
 				"email":      "",
 				"avatar_url": "https://avatars.githubusercontent.com/u/67890",
-			})
+			}))
 		case "/user/emails":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]interface{}{
+			checkTestErrors(t).noError(json.NewEncoder(w).Encode([]map[string]interface{}{
 				{"email": "primary@example.com", "primary": true, "verified": true},
 				{"email": "secondary@example.com", "primary": false, "verified": true},
-			})
+			}))
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -226,23 +230,23 @@ func TestExchange_NoVerifiedPrimaryEmail(t *testing.T) {
 		switch r.URL.Path {
 		case "/login/oauth/access_token":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			checkTestErrors(t).noError(json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"token_type":   "bearer",
 				"expires_in":   3600,
-			})
+			}))
 		case "/user":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			checkTestErrors(t).noError(json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":    12345,
 				"login": "no-verified",
 				"email": "",
-			})
+			}))
 		case "/user/emails":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode([]map[string]interface{}{
+			checkTestErrors(t).noError(json.NewEncoder(w).Encode([]map[string]interface{}{
 				{"email": "unverified@example.com", "primary": true, "verified": false},
-			})
+			}))
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
@@ -273,9 +277,9 @@ func TestExchange_NoVerifiedPrimaryEmail(t *testing.T) {
 }
 
 func TestExchange_TokenError(t *testing.T) {
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "bad_verification_code"})
+		checkTestErrors(t).noError(json.NewEncoder(w).Encode(map[string]string{"error": "bad_verification_code"}))
 	}))
 	defer ts.Close()
 
@@ -301,11 +305,11 @@ func TestExchange_TokenError(t *testing.T) {
 func TestExchange_APIError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/login/oauth/access_token" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			checkTestErrors(t).noError(json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"token_type":   "bearer",
 				"expires_in":   3600,
-			})
+			}))
 			return
 		}
 		w.WriteHeader(http.StatusUnauthorized)

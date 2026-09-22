@@ -216,7 +216,6 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	members := []domain.OrgMemberDetail{}
 	for rows.Next() {
@@ -226,12 +225,20 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 			&md.OrgID, &md.UserID, &md.Role, &md.JoinedAt,
 			&u.ID, &u.Email, &u.Name, &u.Role, &u.IsVerified, &u.IsBanned, &u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		md.User = u
 		members = append(members, md)
 	}
-	return members, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("organization members list close: %w", err)
+	}
+	return members, nil
 }
 
 func (r *OrgRepository) userOrgsWhere(userID string, search *string, role *domain.OrgRole) (string, []any) {
@@ -298,17 +305,24 @@ func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	orgs := []domain.Organization{}
 	for rows.Next() {
 		o, err := scanOrg(rows)
 		if err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		orgs = append(orgs, *o)
 	}
-	return orgs, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("user organizations list close: %w", err)
+	}
+	return orgs, nil
 }
 
 // List returns every organization matching filter — the platform-admin,
@@ -337,7 +351,6 @@ func (r *OrgRepository) buildListWhere(filter port.OrgFilter) (string, []any) {
 	if filter.CreatedBefore != nil {
 		where = append(where, fmt.Sprintf("o.created_at < $%d", argIdx))
 		args = append(args, *filter.CreatedBefore)
-		argIdx++
 	}
 	return strings.Join(where, " AND "), args
 }
@@ -381,17 +394,24 @@ func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]doma
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	orgs := []domain.Organization{}
 	for rows.Next() {
 		o, err := scanOrg(rows)
 		if err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		orgs = append(orgs, *o)
 	}
-	return orgs, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("organizations list close: %w", err)
+	}
+	return orgs, nil
 }
 
 func (r *OrgRepository) IncrementUserOrgOwnerCount(ctx context.Context, userID string, maxOrgs int) error {
@@ -462,18 +482,25 @@ func (r *OrgRepository) ListUserMemberships(ctx context.Context, userID string) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	var out []port.AccountOrgMembership
 	for rows.Next() {
 		var m port.AccountOrgMembership
 		var role string
 		if err := rows.Scan(&m.OrgID, &role); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		m.Role = domain.OrgRole(role)
 		out = append(out, m)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("user organization memberships close: %w", err)
+	}
+	return out, nil
 }
 
 func (r *OrgRepository) DecrementOwnerCountForOrgOwners(ctx context.Context, orgID string) error {
@@ -556,7 +583,6 @@ func (r *OrgInviteRepository) orgInvitesWhere(orgID string, filter port.OrgInvit
 		// desyncs args from the generated "?" count on those drivers.
 		where = append(where, fmt.Sprintf("email %s $%d", op, argIdx))
 		args = append(args, searchTerm)
-		argIdx++
 	}
 	return strings.Join(where, " AND "), args
 }
@@ -598,17 +624,24 @@ func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, fil
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	invites := []domain.OrgInvite{}
 	for rows.Next() {
 		i, err := scanOrgInvite(rows)
 		if err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		invites = append(invites, *i)
 	}
-	return invites, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("organization invite list close: %w", err)
+	}
+	return invites, nil
 }
 
 func (r *OrgInviteRepository) Update(ctx context.Context, invite *domain.OrgInvite) error {

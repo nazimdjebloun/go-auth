@@ -91,7 +91,9 @@ func TestCreateOrg_HappyPath(t *testing.T) {
 		t.Fatalf("expected 201, got %d", res.StatusCode)
 	}
 	var org domain.Organization
-	json.NewDecoder(res.Body).Decode(&org)
+	if err := json.NewDecoder(res.Body).Decode(&org); err != nil {
+		t.Fatal(err)
+	}
 	if org.Name != "NewOrg" || org.Slug != "new-org" {
 		t.Errorf("unexpected org: %+v", org)
 	}
@@ -144,7 +146,9 @@ func TestGetOrg_HappyPath(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 	var got domain.Organization
-	json.NewDecoder(res.Body).Decode(&got)
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
 	if got.ID != org.ID {
 		t.Errorf("expected id %s, got %s", org.ID, got.ID)
 	}
@@ -184,7 +188,9 @@ func TestUpdateOrg_HappyPath(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 	var got domain.Organization
-	json.NewDecoder(res.Body).Decode(&got)
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
 	if got.Name != "Updated" || got.Slug != "updated-org" {
 		t.Errorf("unexpected org: %+v", got)
 	}
@@ -263,7 +269,9 @@ func TestListUserOrgs_HappyPath(t *testing.T) {
 	var resp struct {
 		Orgs []domain.Organization `json:"orgs"`
 	}
-	json.NewDecoder(res.Body).Decode(&resp)
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
 	if len(resp.Orgs) != 1 || resp.Orgs[0].ID != org.ID {
 		t.Errorf("expected [%s], got %+v", org.ID, resp.Orgs)
 	}
@@ -403,7 +411,9 @@ func TestListUserOrgs_SearchParam(t *testing.T) {
 	var resp struct {
 		Orgs []domain.Organization `json:"orgs"`
 	}
-	json.NewDecoder(res.Body).Decode(&resp)
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
 	if len(resp.Orgs) != 0 {
 		t.Errorf("expected no orgs for non-matching search, got %+v", resp.Orgs)
 	}
@@ -438,7 +448,9 @@ func TestListUserOrgs_ExplicitZeroLimit(t *testing.T) {
 		Total int                   `json:"total"`
 		Limit int                   `json:"limit"`
 	}
-	json.NewDecoder(w.Result().Body).Decode(&defaultResp)
+	if err := json.NewDecoder(w.Result().Body).Decode(&defaultResp); err != nil {
+		t.Fatal(err)
+	}
 	if len(defaultResp.Orgs) != 20 || defaultResp.Limit != 20 {
 		t.Errorf("expected 20 orgs, limit=20, total=25 by default, got %d orgs, limit=%d, total=%d",
 			len(defaultResp.Orgs), defaultResp.Limit, defaultResp.Total)
@@ -454,7 +466,9 @@ func TestListUserOrgs_ExplicitZeroLimit(t *testing.T) {
 		Orgs  []domain.Organization `json:"orgs"`
 		Limit int                   `json:"limit"`
 	}
-	json.NewDecoder(w.Result().Body).Decode(&unlimitedResp)
+	if err := json.NewDecoder(w.Result().Body).Decode(&unlimitedResp); err != nil {
+		t.Fatal(err)
+	}
 	if len(unlimitedResp.Orgs) != 25 || unlimitedResp.Limit != 0 {
 		t.Errorf("expected all 25 orgs with limit=0 (unlimited), got %d orgs, limit=%d",
 			len(unlimitedResp.Orgs), unlimitedResp.Limit)
@@ -493,7 +507,9 @@ func TestListOrgMembers_HappyPath(t *testing.T) {
 		Members []domain.OrgMemberDetail `json:"members"`
 		Total   int                      `json:"total"`
 	}
-	json.NewDecoder(res.Body).Decode(&resp)
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
 	if len(resp.Members) != 1 {
 		t.Errorf("expected 1 member, got %d total, %d in list", resp.Total, len(resp.Members))
 	}
@@ -541,7 +557,9 @@ func TestListOrgMembers_RoleFilterParam(t *testing.T) {
 		Members []domain.OrgMemberDetail `json:"members"`
 		Total   int                      `json:"total"`
 	}
-	json.NewDecoder(res.Body).Decode(&resp)
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
 	if len(resp.Members) != 1 || resp.Members[0].UserID != owner.ID {
 		t.Errorf("expected only the owner, got %+v", resp.Members)
 	}
@@ -571,7 +589,9 @@ func TestListOrgMembers_ExplicitZeroLimit(t *testing.T) {
 		Total   int                      `json:"total"`
 		Limit   int                      `json:"limit"`
 	}
-	json.NewDecoder(w.Result().Body).Decode(&defaultResp)
+	if err := json.NewDecoder(w.Result().Body).Decode(&defaultResp); err != nil {
+		t.Fatal(err)
+	}
 	if len(defaultResp.Members) != 20 || defaultResp.Limit != 20 {
 		t.Errorf("expected 20 members, limit=20, total=25 by default, got %d members, limit=%d, total=%d",
 			len(defaultResp.Members), defaultResp.Limit, defaultResp.Total)
@@ -589,7 +609,9 @@ func TestListOrgMembers_ExplicitZeroLimit(t *testing.T) {
 		Total   int                      `json:"total"`
 		Limit   int                      `json:"limit"`
 	}
-	json.NewDecoder(w.Result().Body).Decode(&unlimitedResp)
+	if err := json.NewDecoder(w.Result().Body).Decode(&unlimitedResp); err != nil {
+		t.Fatal(err)
+	}
 	if len(unlimitedResp.Members) != 25 || unlimitedResp.Limit != 0 {
 		t.Errorf("expected all 25 members with limit=0 (unlimited), got %d members, limit=%d",
 			len(unlimitedResp.Members), unlimitedResp.Limit)
@@ -825,7 +847,9 @@ func TestCreateOrgInvite_HappyPath(t *testing.T) {
 		t.Fatalf("expected 201, got %d", res.StatusCode)
 	}
 	var invite domain.OrgInvite
-	json.NewDecoder(res.Body).Decode(&invite)
+	if err := json.NewDecoder(res.Body).Decode(&invite); err != nil {
+		t.Fatal(err)
+	}
 	if invite.Email != "invitee@test.com" || invite.RawCode == "" {
 		t.Errorf("unexpected invite: %+v", invite)
 	}
@@ -884,7 +908,9 @@ func TestListOrgInvites_HappyPath(t *testing.T) {
 		Limit   int                `json:"limit"`
 		Offset  int                `json:"offset"`
 	}
-	json.NewDecoder(res.Body).Decode(&resp)
+	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
 	if len(resp.Invites) != 1 || resp.Limit != 20 {
 		t.Errorf("expected 1 invite, total 1, limit 20 (default), got %d invites, total=%d, limit=%d",
 			len(resp.Invites), resp.Total, resp.Limit)
@@ -938,7 +964,9 @@ func TestListOrgInvites_ExplicitZeroLimit(t *testing.T) {
 		Invites []domain.OrgInvite `json:"invites"`
 		Limit   int                `json:"limit"`
 	}
-	json.NewDecoder(w.Result().Body).Decode(&resp)
+	if err := json.NewDecoder(w.Result().Body).Decode(&resp); err != nil {
+		t.Fatal(err)
+	}
 	if len(resp.Invites) != 25 || resp.Limit != 0 {
 		t.Errorf("expected all 25 invites with limit=0 (unlimited), got %d, limit=%d", len(resp.Invites), resp.Limit)
 	}

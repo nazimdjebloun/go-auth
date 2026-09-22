@@ -373,11 +373,11 @@ func (m *MockSessionRepo) UpdateRefreshToken(_ context.Context, input port.Updat
 	return nil, domain.ErrInvalidRefreshToken
 }
 
-func (m *MockSessionRepo) UpdateActiveOrgRoleForUser(_ context.Context, userID, orgID string, newRole domain.OrgRole) error {
+func (m *MockSessionRepo) UpdateActiveOrgRoleForUser(_ context.Context, _, _ string, _ domain.OrgRole) error {
 	return nil
 }
 
-func (m *MockSessionRepo) ClearActiveOrgForUser(_ context.Context, userID, orgID string) error {
+func (m *MockSessionRepo) ClearActiveOrgForUser(_ context.Context, _, _ string) error {
 	return nil
 }
 
@@ -388,10 +388,10 @@ func (m *MockSessionRepo) ClearActiveOrg(_ context.Context, sessionID string) er
 	return nil
 }
 
-func (m *MockSessionRepo) ClearActiveOrgForAllMembers(_ context.Context, orgID string) error {
+func (m *MockSessionRepo) ClearActiveOrgForAllMembers(_ context.Context, _ string) error {
 	return nil
 }
 
-func (m *MockSessionRepo) SetActiveOrg(_ context.Context, sessionID, orgID string, role domain.OrgRole) error {
+func (m *MockSessionRepo) SetActiveOrg(_ context.Context, _, _ string, _ domain.OrgRole) error {
 	return nil
 }

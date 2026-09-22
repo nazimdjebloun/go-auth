@@ -87,7 +87,7 @@ func claimable(id string, attempts int) OutboxRow {
 // rows and counts nothing as dropped.
 func TestDispatchOnce_SuccessDeletesObligation(t *testing.T) {
 	fake := &fakeOutbox{rows: []OutboxRow{claimable("a", 1), claimable("b", 1)}}
-	s := NewAuditService(AuditServiceConfig{}, txSaverDB{}, &mockRecordStore{}, fake, nil)
+	s := NewService(ServiceConfig{}, txSaverDB{}, &mockRecordStore{}, fake, nil)
 	s.AddSink(noopSink{})
 
 	s.dispatchOnce(context.Background(), "test-owner")
@@ -102,7 +102,7 @@ func TestDispatchOnce_SuccessDeletesObligation(t *testing.T) {
 // schedules the next attempt in the future with the exponential backoff.
 func TestDispatchOnce_BackoffSchedulesRetry(t *testing.T) {
 	fake := &fakeOutbox{rows: []OutboxRow{claimable("a", 1)}}
-	s := NewAuditService(AuditServiceConfig{MaxAttempts: 10}, txSaverDB{}, &mockRecordStore{}, fake, nil)
+	s := NewService(ServiceConfig{MaxAttempts: 10}, txSaverDB{}, &mockRecordStore{}, fake, nil)
 	s.AddSink(&failSink{err: errors.New("sink down")})
 
 	s.dispatchOnce(context.Background(), "test-owner")
@@ -120,7 +120,7 @@ func TestDispatchOnce_BackoffSchedulesRetry(t *testing.T) {
 // not deleted, so the evidence survives restarts.
 func TestDispatchOnce_DeadLettersAtMaxAttempts(t *testing.T) {
 	fake := &fakeOutbox{rows: []OutboxRow{claimable("a", 10)}}
-	s := NewAuditService(AuditServiceConfig{MaxAttempts: 10}, txSaverDB{}, &mockRecordStore{}, fake, nil)
+	s := NewService(ServiceConfig{MaxAttempts: 10}, txSaverDB{}, &mockRecordStore{}, fake, nil)
 	s.AddSink(&failSink{err: errors.New("sink down")})
 
 	s.dispatchOnce(context.Background(), "test-owner")
@@ -141,7 +141,7 @@ func TestDispatchOnce_StolenClaimCountsDuplicate(t *testing.T) {
 	stolen := claimable("a", 2)
 	stolen.Stolen = true
 	fake := &fakeOutbox{rows: []OutboxRow{stolen}}
-	s := NewAuditService(AuditServiceConfig{}, txSaverDB{}, &mockRecordStore{}, fake, nil)
+	s := NewService(ServiceConfig{}, txSaverDB{}, &mockRecordStore{}, fake, nil)
 	s.AddSink(noopSink{})
 
 	s.dispatchOnce(context.Background(), "test-owner")
@@ -154,7 +154,7 @@ func TestDispatchOnce_StolenClaimCountsDuplicate(t *testing.T) {
 // TestDeliveryStats_Gauges: the stats surface reports the store's gauges.
 func TestDeliveryStats_Gauges(t *testing.T) {
 	fake := &gaugeOutbox{pending: 7, age: 3 * time.Minute}
-	s := NewAuditService(AuditServiceConfig{}, txSaverDB{}, &mockRecordStore{}, fake, nil)
+	s := NewService(ServiceConfig{}, txSaverDB{}, &mockRecordStore{}, fake, nil)
 
 	st := s.DeliveryStats(context.Background())
 	if st.Pending != 7 || !st.HasPending || st.OldestPendingAge != 3*time.Minute {

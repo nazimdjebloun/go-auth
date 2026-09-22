@@ -302,9 +302,9 @@ func TestMemoryStore_ConcurrentAllow(t *testing.T) {
 	}
 }
 
-func TestMemoryStore_StoreResultImplements(t *testing.T) {
+func TestMemoryStore_StoreResultImplements(_ *testing.T) {
 	// Compile-time check: NewMemoryStore returns Store interface
-	var _ Store = NewMemoryStore()
+	var _ = NewMemoryStore()
 }
 
 type fakeStore struct{}
@@ -352,6 +352,6 @@ func TestMemoryStore_Close_SafeAfterClose(t *testing.T) {
 	}
 }
 
-func TestMemoryStore_ImplementsStoreCloser(t *testing.T) {
+func TestMemoryStore_ImplementsStoreCloser(_ *testing.T) {
 	var _ StoreCloser = NewMemoryStore().(*memoryStore)
 }

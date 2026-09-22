@@ -24,7 +24,7 @@ func TestSuccessPaths_ReturnTrueNilError(t *testing.T) {
 		users := testutil.NewMockUserRepo()
 		sessions := testutil.NewMockSessionRepo()
 		svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
-		users.Create(context.Background(), &domain.User{ID: "u1", Email: "a@example.com"})
+		checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u1", Email: "a@example.com"}))
 
 		if err := svc.BanUser(context.Background(), BanUserInput{UserID: "u1", ActorID: actorID}); err != nil {
 			t.Fatalf("err == nil check failed: got %v (%T)", err, err)
@@ -38,7 +38,7 @@ func TestSuccessPaths_ReturnTrueNilError(t *testing.T) {
 		svc := newTestPasswordService(users, tokens, hasher, nil)
 
 		hash, _ := hasher.Hash("OldPassw0rd!")
-		users.Create(context.Background(), &domain.User{ID: "u1", Email: "a@example.com", PasswordHash: &hash})
+		checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u1", Email: "a@example.com", PasswordHash: &hash}))
 
 		err := svc.ChangePassword(context.Background(), ChangePasswordInput{
 			UserID:      "u1",

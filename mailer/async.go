@@ -172,7 +172,8 @@ func (a *Async) deliver(ctx context.Context, to, subject, html, text string) err
 func (a *Async) worker() {
 	defer a.wg.Done()
 	for msg := range a.queue {
-		a.deliver(context.Background(), msg.to, msg.subject, msg.html, msg.text)
+		// deliver records permanent failures itself; a worker cannot return them.
+		_ = a.deliver(context.Background(), msg.to, msg.subject, msg.html, msg.text)
 	}
 }
 

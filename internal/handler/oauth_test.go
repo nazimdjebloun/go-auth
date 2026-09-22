@@ -33,7 +33,7 @@ func (m *mockOAuthProvider) AuthURL(state, challenge string) string {
 	return "https://provider.com/auth?state=" + state + "&challenge=" + challenge
 }
 
-func (m *mockOAuthProvider) Exchange(_ context.Context, code, verifier string) (*port.OAuthProfile, error) {
+func (m *mockOAuthProvider) Exchange(_ context.Context, _, _ string) (*port.OAuthProfile, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -112,7 +112,7 @@ type oauthTestHarness struct {
 	stateToken    string
 }
 
-func (th *oauthTestHarness) createStateToken(rawState string) string {
+func (th *oauthTestHarness) createStateToken(t testing.TB, rawState string) string {
 	stateHash := sha256.Sum256([]byte(rawState))
 	verifier := "test-code-verifier-value"
 	sid := "state-" + rawState
@@ -124,15 +124,14 @@ func (th *oauthTestHarness) createStateToken(rawState string) string {
 		ExpiresAt:    time.Now().UTC().Add(1 * time.Hour),
 		CodeVerifier: &verifier,
 	}
-
-	th.tokenRepo.Create(context.Background(), stateToken)
+	checkTestErrors(t).noError(th.tokenRepo.Create(context.Background(), stateToken))
 	return rawState
 }
 
 // createLinkStateToken mints a state token carrying userID, matching what
 // OAuthService.InitiateLink produces — this is what routes a callback into
 // Callback's link branch instead of its login/register branch.
-func (th *oauthTestHarness) createLinkStateToken(rawState, userID string) string {
+func (th *oauthTestHarness) createLinkStateToken(t testing.TB, rawState, userID string) string {
 	stateHash := sha256.Sum256([]byte(rawState))
 	verifier := "test-code-verifier-value"
 	sid := "link-state-" + rawState
@@ -145,12 +144,11 @@ func (th *oauthTestHarness) createLinkStateToken(rawState, userID string) string
 		ExpiresAt:    time.Now().UTC().Add(1 * time.Hour),
 		CodeVerifier: &verifier,
 	}
-
-	th.tokenRepo.Create(context.Background(), stateToken)
+	checkTestErrors(t).noError(th.tokenRepo.Create(context.Background(), stateToken))
 	return rawState
 }
 
-func newOAuthTestHarness() *oauthTestHarness {
+func newOAuthTestHarness(t testing.TB) *oauthTestHarness {
 	users := newMockUserRepo()
 	sessions := newMockSessionRepo()
 	tokens := newMockTokenRepo()
@@ -227,8 +225,7 @@ func newOAuthTestHarness() *oauthTestHarness {
 		ExpiresAt:    time.Now().UTC().Add(1 * time.Hour),
 		CodeVerifier: &verifier,
 	}
-
-	tokens.Create(context.Background(), stateToken)
+	checkTestErrors(t).noError(tokens.Create(context.Background(), stateToken))
 
 	return &oauthTestHarness{
 		oauthHandlers: oauthHandlers,
@@ -246,7 +243,7 @@ func newOAuthTestHarness() *oauthTestHarness {
 }
 
 func TestOAuthCallback_GET_Success(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	u := fmt.Sprintf("/auth/oauth/test/callback?code=auth-code&state=%s", th.stateToken)
 	req := httptest.NewRequest(http.MethodGet, u, nil)
@@ -256,7 +253,7 @@ func TestOAuthCallback_GET_Success(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
@@ -283,7 +280,7 @@ func TestOAuthCallback_GET_Success(t *testing.T) {
 }
 
 func TestOAuthCallback_GET_Success_SecurityHeaders(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	u := fmt.Sprintf("/auth/oauth/test/callback?code=auth-code&state=%s", th.stateToken)
 	req := httptest.NewRequest(http.MethodGet, u, nil)
@@ -293,7 +290,7 @@ func TestOAuthCallback_GET_Success_SecurityHeaders(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if got := res.Header.Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Errorf("expected X-Content-Type-Options: nosniff, got %q", got)
@@ -304,7 +301,7 @@ func TestOAuthCallback_GET_Success_SecurityHeaders(t *testing.T) {
 }
 
 func TestOAuthCallback_POST_Success(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	form := url.Values{"code": {"auth-code"}, "state": {th.stateToken}}
 	req := httptest.NewRequest(http.MethodPost, "/auth/oauth/test/callback", strings.NewReader(form.Encode()))
@@ -315,7 +312,7 @@ func TestOAuthCallback_POST_Success(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
@@ -342,10 +339,10 @@ func TestOAuthCallback_POST_Success(t *testing.T) {
 }
 
 func TestOAuthCallback_GETandPOST_SameBehavior(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
-	getState := th.createStateToken("get-state-for-same-behavior")
-	postState := th.createStateToken("post-state-for-same-behavior")
+	getState := th.createStateToken(t, "get-state-for-same-behavior")
+	postState := th.createStateToken(t, "post-state-for-same-behavior")
 
 	getURL := fmt.Sprintf("/auth/oauth/test/callback?code=auth-code&state=%s", getState)
 	getReq := httptest.NewRequest(http.MethodGet, getURL, nil)
@@ -361,8 +358,8 @@ func TestOAuthCallback_GETandPOST_SameBehavior(t *testing.T) {
 	th.oauthHandlers.Callback(postW, postReq)
 
 	getRes, postRes := getW.Result(), postW.Result()
-	defer getRes.Body.Close()
-	defer postRes.Body.Close()
+	defer func() { _ = getRes.Body.Close() }()
+	defer func() { _ = postRes.Body.Close() }()
 
 	if getRes.StatusCode != postRes.StatusCode {
 		t.Errorf("status mismatch: GET=%d POST=%d", getRes.StatusCode, postRes.StatusCode)
@@ -386,7 +383,7 @@ func TestOAuthCallback_GETandPOST_SameBehavior(t *testing.T) {
 }
 
 func TestOAuthCallback_AppleFormPost(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	form := url.Values{"code": {"apple-code"}, "state": {th.stateToken}}
 	req := httptest.NewRequest(http.MethodPost, "/auth/oauth/apple/callback", strings.NewReader(form.Encode()))
@@ -397,7 +394,7 @@ func TestOAuthCallback_AppleFormPost(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
@@ -410,7 +407,7 @@ func TestOAuthCallback_AppleFormPost(t *testing.T) {
 }
 
 func TestOAuthCallback_MissingCode(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/test/callback?state="+th.stateToken, nil)
 	req.SetPathValue("provider", "test")
@@ -418,7 +415,7 @@ func TestOAuthCallback_MissingCode(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302, got %d", res.StatusCode)
 	}
@@ -429,7 +426,7 @@ func TestOAuthCallback_MissingCode(t *testing.T) {
 }
 
 func TestOAuthCallback_MissingState(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/test/callback?code=auth-code", nil)
 	req.SetPathValue("provider", "test")
@@ -437,7 +434,7 @@ func TestOAuthCallback_MissingState(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302, got %d", res.StatusCode)
 	}
@@ -448,7 +445,7 @@ func TestOAuthCallback_MissingState(t *testing.T) {
 }
 
 func TestOAuthCallback_EmptyPostBody(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/oauth/test/callback", nil)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -457,7 +454,7 @@ func TestOAuthCallback_EmptyPostBody(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302, got %d", res.StatusCode)
 	}
@@ -468,7 +465,7 @@ func TestOAuthCallback_EmptyPostBody(t *testing.T) {
 }
 
 func TestOAuthCallback_POSTMissingBoth(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	form := url.Values{"foo": {"bar"}}
 	req := httptest.NewRequest(http.MethodPost, "/auth/oauth/test/callback", strings.NewReader(form.Encode()))
@@ -478,14 +475,14 @@ func TestOAuthCallback_POSTMissingBoth(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302, got %d", res.StatusCode)
 	}
 }
 
 func TestOAuthCallback_ProviderError(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 	th.mockProvider.err = fmt.Errorf("provider: exchange failed")
 
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/auth/oauth/test/callback?code=bad-code&state=%s", th.stateToken), nil)
@@ -494,7 +491,7 @@ func TestOAuthCallback_ProviderError(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302, got %d", res.StatusCode)
 	}
@@ -505,7 +502,7 @@ func TestOAuthCallback_ProviderError(t *testing.T) {
 }
 
 func TestOAuthCallback_InvalidProvider(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/nonexistent/callback?code=abc&state=xyz", nil)
 	req.SetPathValue("provider", "nonexistent")
@@ -513,7 +510,7 @@ func TestOAuthCallback_InvalidProvider(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302, got %d", res.StatusCode)
 	}
@@ -532,7 +529,7 @@ func TestOAuthCallback_Disabled(t *testing.T) {
 	h.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", res.StatusCode)
 	}
@@ -544,7 +541,7 @@ func TestOAuthCallback_Disabled(t *testing.T) {
 }
 
 func TestOAuthCallback_StateAlreadyUsed(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	now := time.Now().UTC()
 	th.tokenRepo.tokens[th.sid].UsedAt = &now
@@ -555,7 +552,7 @@ func TestOAuthCallback_StateAlreadyUsed(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302, got %d", res.StatusCode)
 	}
@@ -566,7 +563,7 @@ func TestOAuthCallback_StateAlreadyUsed(t *testing.T) {
 }
 
 func TestOAuthCallback_StateExpired(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	th.tokenRepo.tokens[th.sid].ExpiresAt = time.Now().UTC().Add(-1 * time.Hour)
 
@@ -576,7 +573,7 @@ func TestOAuthCallback_StateExpired(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302, got %d", res.StatusCode)
 	}
@@ -587,7 +584,7 @@ func TestOAuthCallback_StateExpired(t *testing.T) {
 }
 
 func TestOAuthCallback_GETWithPOSTBody(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	form := url.Values{"code": {"body-code"}, "state": {th.stateToken}}
 	body := form.Encode()
@@ -600,7 +597,7 @@ func TestOAuthCallback_GETWithPOSTBody(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302 (GET ignores body), got %d", res.StatusCode)
@@ -612,7 +609,7 @@ func TestOAuthCallback_GETWithPOSTBody(t *testing.T) {
 }
 
 func TestOAuthCallback_GoogleGET(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	u := fmt.Sprintf("/auth/oauth/google/callback?code=google-code&state=%s", th.stateToken)
 	req := httptest.NewRequest(http.MethodGet, u, nil)
@@ -622,14 +619,14 @@ func TestOAuthCallback_GoogleGET(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 }
 
 func TestOAuthCallback_GitHubGET(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	u := fmt.Sprintf("/auth/oauth/github/callback?code=github-code&state=%s", th.stateToken)
 	req := httptest.NewRequest(http.MethodGet, u, nil)
@@ -639,14 +636,14 @@ func TestOAuthCallback_GitHubGET(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 }
 
 func TestOAuthCallback_WithQueryAndFormParams(t *testing.T) {
-	th := newOAuthTestHarness()
+	th := newOAuthTestHarness(t)
 
 	form := url.Values{"code": {"form-code"}, "foo": {"bar"}}
 	queryURL := fmt.Sprintf("/auth/oauth/test/callback?state=%s&extra=value", th.stateToken)
@@ -658,7 +655,7 @@ func TestOAuthCallback_WithQueryAndFormParams(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
@@ -671,8 +668,8 @@ func TestOAuthCallback_WithQueryAndFormParams(t *testing.T) {
 
 func TestOAuthCallback_MethodNotAllowed(t *testing.T) {
 	for _, method := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions} {
-		th := newOAuthTestHarness()
-		state := th.createStateToken("method-" + method)
+		th := newOAuthTestHarness(t)
+		state := th.createStateToken(t, "method-"+method)
 
 		u := fmt.Sprintf("/auth/oauth/test/callback?code=auth-code&state=%s", state)
 		req := httptest.NewRequest(method, u, nil)
@@ -682,7 +679,7 @@ func TestOAuthCallback_MethodNotAllowed(t *testing.T) {
 		th.oauthHandlers.Callback(w, req)
 
 		res := w.Result()
-		res.Body.Close()
+		checkTestErrors(t).noError(res.Body.Close())
 
 		if res.StatusCode != http.StatusOK {
 			t.Errorf("%s: expected 200 through handler, got %d", method, res.StatusCode)
@@ -691,8 +688,8 @@ func TestOAuthCallback_MethodNotAllowed(t *testing.T) {
 }
 
 func TestOAuthCallback_RouterRegistersBothMethods(t *testing.T) {
-	getHarness := newOAuthTestHarness()
-	postHarness := newOAuthTestHarness()
+	getHarness := newOAuthTestHarness(t)
+	postHarness := newOAuthTestHarness(t)
 
 	getState := getHarness.stateToken
 	postState := postHarness.stateToken
@@ -732,10 +729,10 @@ func TestOAuthCallback_RouterRegistersBothMethods(t *testing.T) {
 // already has a live session and Callback issues no new tokens for a link —
 // falling through would blank the caller's real session cookie with "".
 func TestOAuthCallback_Link_DoesNotTouchSessionCookies(t *testing.T) {
-	th := newOAuthTestHarness()
-	th.userRepo.Create(context.Background(), &domain.User{ID: "user-1", Email: "user1@example.com"})
+	th := newOAuthTestHarness(t)
+	checkTestErrors(t).noError(th.userRepo.Create(context.Background(), &domain.User{ID: "user-1", Email: "user1@example.com"}))
 
-	state := th.createLinkStateToken("link-state-value", "user-1")
+	state := th.createLinkStateToken(t, "link-state-value", "user-1")
 
 	u := fmt.Sprintf("/auth/oauth/test/callback?code=auth-code&state=%s", state)
 	req := httptest.NewRequest(http.MethodGet, u, nil)
@@ -745,7 +742,7 @@ func TestOAuthCallback_Link_DoesNotTouchSessionCookies(t *testing.T) {
 	th.oauthHandlers.Callback(w, req)
 
 	res := w.Result()
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	if res.StatusCode != http.StatusFound {
 		t.Fatalf("expected 302, got %d", res.StatusCode)

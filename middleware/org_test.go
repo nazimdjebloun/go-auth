@@ -28,7 +28,7 @@ func TestRequireOrgMember_MissingOrgID(t *testing.T) {
 	orgs := testutil.NewMockOrgRepo()
 	userKeyFn := func(context.Context) string { return "user-1" }
 
-	handler := RequireOrgMember(orgs, userKeyFn)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequireOrgMember(orgs, userKeyFn)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -52,7 +52,7 @@ func TestRequireOrgMember_MissingUser(t *testing.T) {
 	orgs := testutil.NewMockOrgRepo()
 	userKeyFn := func(context.Context) string { return "" }
 
-	handler := RequireOrgMember(orgs, userKeyFn)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequireOrgMember(orgs, userKeyFn)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -74,7 +74,7 @@ func TestRequireOrgMember_NotAMember(t *testing.T) {
 	orgs := testutil.NewMockOrgRepo()
 	userKeyFn := func(context.Context) string { return "outsider" }
 
-	handler := RequireOrgMember(orgs, userKeyFn)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequireOrgMember(orgs, userKeyFn)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -101,9 +101,9 @@ func TestRequireOrgMember_NotAMember(t *testing.T) {
 
 func TestRequireOrgMember_Success(t *testing.T) {
 	orgs := testutil.NewMockOrgRepo()
-	orgs.AddMember(context.Background(), &domain.OrgMember{
+	checkTestErrors(t).noError(orgs.AddMember(context.Background(), &domain.OrgMember{
 		OrgID: "org-1", UserID: "user-1", Role: domain.OrgRoleMember,
-	})
+	}))
 	userKeyFn := func(context.Context) string { return "user-1" }
 
 	called := false
@@ -136,7 +136,7 @@ func TestRequireOrgMember_RepoError(t *testing.T) {
 	orgs.GetMembershipErr = errors.New("db down")
 	userKeyFn := func(context.Context) string { return "user-1" }
 
-	handler := RequireOrgMember(orgs, userKeyFn)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequireOrgMember(orgs, userKeyFn)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -160,7 +160,7 @@ func TestRequireOrgMember_RepoError(t *testing.T) {
 }
 
 func TestRequireOrgRole_InsufficientRole(t *testing.T) {
-	handler := RequireOrgRole(domain.OrgRoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequireOrgRole(domain.OrgRoleAdmin)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -183,7 +183,7 @@ func TestRequireOrgRole_InsufficientRole(t *testing.T) {
 
 func TestRequireOrgRole_SufficientRole(t *testing.T) {
 	called := false
-	handler := RequireOrgRole(domain.OrgRoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequireOrgRole(domain.OrgRoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -202,7 +202,7 @@ func TestRequireOrgRole_SufficientRole(t *testing.T) {
 }
 
 func TestRequireActiveOrg_NoSession(t *testing.T) {
-	handler := RequireActiveOrg(domain.OrgRoleMember)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequireActiveOrg(domain.OrgRoleMember)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -220,7 +220,7 @@ func TestRequireActiveOrg_NoSession(t *testing.T) {
 }
 
 func TestRequireActiveOrg_SessionWithoutActiveOrg(t *testing.T) {
-	handler := RequireActiveOrg(domain.OrgRoleMember)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequireActiveOrg(domain.OrgRoleMember)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 
@@ -239,7 +239,7 @@ func TestRequireActiveOrg_SessionWithoutActiveOrg(t *testing.T) {
 }
 
 func TestRequireActiveOrg_InsufficientRole(t *testing.T) {
-	handler := RequireActiveOrg(domain.OrgRoleAdmin)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := RequireActiveOrg(domain.OrgRoleAdmin)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
 	}))
 

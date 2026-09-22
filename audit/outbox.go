@@ -10,7 +10,7 @@ import (
 // whatever they consider privileged — event type, actor role, target org —
 // without the library inventing a taxonomy. Nil means every event is
 // fail-open (the default; see D1 in the audit durability design).
-type EnqueueFailureModeResolver func(event Event) AuditFailureMode
+type EnqueueFailureModeResolver func(event Event) FailureMode
 
 // OutboxRow is one claimed delivery obligation: the event rebuilt from its
 // audit_log record plus the attempt count so far. Stolen marks a row whose

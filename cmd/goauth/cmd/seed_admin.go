@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"os"
 	"strconv"
@@ -56,13 +57,13 @@ func init() {
 	seedAdminCmd.Flags().String("smtp-user", "", "SMTP username (or SMTP_USER)")
 	seedAdminCmd.Flags().String("smtp-pass", "", "SMTP password (or SMTP_PASS)")
 	seedAdminCmd.Flags().String("smtp-tls", "starttls", "SMTP TLS mode: none, starttls, or implicit (or SMTP_TLS)")
-	seedAdminCmd.MarkFlagRequired("driver")
-	seedAdminCmd.MarkFlagRequired("dsn")
-	seedAdminCmd.MarkFlagRequired("env")
+	mustMarkFlagRequired(seedAdminCmd, "driver")
+	mustMarkFlagRequired(seedAdminCmd, "dsn")
+	mustMarkFlagRequired(seedAdminCmd, "env")
 	rootCmd.AddCommand(seedAdminCmd)
 }
 
-func runSeedAdminCmd(cmd *cobra.Command, args []string) {
+func runSeedAdminCmd(cmd *cobra.Command, _ []string) {
 	driver, _ := cmd.Flags().GetString("driver")
 	dsn, _ := cmd.Flags().GetString("dsn")
 	envFlag, _ := cmd.Flags().GetString("env")
@@ -103,7 +104,11 @@ func runSeedAdminCmd(cmd *cobra.Command, args []string) {
 	if err != nil {
 		abort(fmt.Errorf("seed-admin: failed to connect: %w", err))
 	}
-	defer db.Close()
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("seed-admin: close database: %v", err)
+		}
+	}()
 	if err := db.Ping(); err != nil {
 		abort(fmt.Errorf("seed-admin: ping failed: %w", err))
 	}

@@ -89,7 +89,8 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 	state := r.FormValue("state")
 
 	if code == "" || state == "" {
-		http.Redirect(w, r, h.baseURL+"/auth/callback?error=invalid_request&provider="+provider, http.StatusFound)
+		redirectURL := h.baseURL + "/auth/callback?error=invalid_request&provider=" + url.QueryEscape(provider)
+		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
 
@@ -100,7 +101,8 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &authErr) {
 			errCode = authErr.Code
 		}
-		http.Redirect(w, r, h.baseURL+"/auth/callback?error="+url.QueryEscape(errCode)+"&provider="+url.QueryEscape(provider), http.StatusFound)
+		redirectURL := h.baseURL + "/auth/callback?error=" + url.QueryEscape(errCode) + "&provider=" + url.QueryEscape(provider)
+		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
 
@@ -116,7 +118,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.RequiresVerification {
-		redirectURL := h.baseURL + "/auth/callback?requiresVerification=true&provider=" + provider
+		redirectURL := h.baseURL + "/auth/callback?requiresVerification=true&provider=" + url.QueryEscape(provider)
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
@@ -136,13 +138,15 @@ func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, sessionToken,
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `<!DOCTYPE html><html><head><title>Redirecting...</title></head><body>
+	if _, err := fmt.Fprintf(w, `<!DOCTYPE html><html><head><title>Redirecting...</title></head><body>
 <script>window.location.replace(%q);</script>
 <noscript>JavaScript required. <a href=%q>Click here</a>.</noscript>
 </body></html>`,
 		redirectURL,
 		redirectURL,
-	)
+	); err != nil {
+		h.log.Warn("oauth redirect response write failed", "err", err)
+	}
 }
 
 // POST /auth/oauth/{provider}/unlink — requires auth

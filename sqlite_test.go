@@ -64,7 +64,11 @@ func TestOpenDatabase_SQLiteEveryConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	if !cfg.app.Database.opened {
 		t.Fatal("owned database not recorded")
 	}
@@ -76,12 +80,12 @@ func TestOpenDatabase_SQLiteEveryConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer first.Close()
+	defer func() { _ = first.Close() }()
 	second, err := db.Conn(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 	for i, conn := range []*sql.Conn{first, second} {
 		var enabled int
 		if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enabled); err != nil || enabled != 1 {
@@ -111,8 +115,12 @@ func TestOpenDatabase_SQLiteEveryConnection(t *testing.T) {
 		}
 	}
 	// Closing idle connections forces the next acquisition to initialize anew.
-	first.Close()
-	second.Close()
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
 	db.SetMaxIdleConns(0)
 	if err := requireSQLiteForeignKeys(ctx, db.DB); err != nil {
 		t.Fatalf("replacement connection: %v", err)

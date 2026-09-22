@@ -14,7 +14,7 @@ import (
 // isolation, so the cost-4 service benchmarks above can be read against the
 // hashing floor a real deployment pays per register/login.
 func BenchmarkHashCost12(b *testing.B) {
-	password := []byte("V@lidPswd1")
+	password := []byte(validTestPassword())
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -61,7 +61,7 @@ func BenchmarkLivePostgres_ValidateSession(b *testing.B) {
 	a := liveBenchAuth(b, DriverPostgres, "GOAUTH_POSTGRES_TEST_DSN")
 	res, err := a.Register(context.Background(), RegisterInput{
 		Email:    fmt.Sprintf("pgbench-v-%d@example.com", time.Now().UnixNano()),
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Bench",
 	})
 	if err != nil {
@@ -84,7 +84,7 @@ func BenchmarkLivePostgres_RefreshSession(b *testing.B) {
 	ctx := context.Background()
 	res, err := a.Register(ctx, RegisterInput{
 		Email:    fmt.Sprintf("pgbench-r-%d@example.com", time.Now().UnixNano()),
-		Password: "V@lidPswd1",
+		Password: validTestPassword(),
 		Name:     "Bench",
 	})
 	if err != nil {

@@ -20,9 +20,11 @@ func testCSRFConfig() *CSRFTokenConfig {
 }
 
 func okHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
+		if _, err := w.Write([]byte("ok")); err != nil {
+			panic(err)
+		}
 	})
 }
 
@@ -129,7 +131,7 @@ func TestCSRFToken_DoesNotOverwriteExistingCookieOnGet(t *testing.T) {
 
 	// Second GET — should NOT rotate the cookie.
 	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
-	req2.AddCookie(&http.Cookie{Name: "_csrf", Value: original})
+	req2.AddCookie(secureRequestCookie("_csrf", original))
 	w2 := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(w2, req2)
 
@@ -161,7 +163,7 @@ func TestCSRFToken_AcceptsMatchingToken(t *testing.T) {
 
 	// POST with matching cookie + header.
 	postReq := httptest.NewRequest(http.MethodPost, "/", nil)
-	postReq.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	postReq.AddCookie(secureRequestCookie("_csrf", token))
 	postReq.Header.Set("X-CSRF-Token", token)
 	postW := httptest.NewRecorder()
 
@@ -176,7 +178,7 @@ func TestCSRFToken_RejectsMismatchedToken(t *testing.T) {
 	mw := CSRFToken(testCSRFConfig())
 
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "_csrf", Value: "cookie-token"})
+	req.AddCookie(secureRequestCookie("_csrf", "cookie-token"))
 	req.Header.Set("X-CSRF-Token", "header-token")
 	w := httptest.NewRecorder()
 
@@ -191,7 +193,7 @@ func TestCSRFToken_RejectsMissingHeader(t *testing.T) {
 	mw := CSRFToken(testCSRFConfig())
 
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "_csrf", Value: "some-token"})
+	req.AddCookie(secureRequestCookie("_csrf", "some-token"))
 	w := httptest.NewRecorder()
 
 	mw(okHandler()).ServeHTTP(w, req)
@@ -233,7 +235,7 @@ func TestCSRFToken_DoesNotRotateTokenOnMutation(t *testing.T) {
 
 	// POST with matching token.
 	postReq := httptest.NewRequest(http.MethodPost, "/", nil)
-	postReq.AddCookie(&http.Cookie{Name: "_csrf", Value: original})
+	postReq.AddCookie(secureRequestCookie("_csrf", original))
 	postReq.Header.Set("X-CSRF-Token", original)
 	postW := httptest.NewRecorder()
 
@@ -281,7 +283,7 @@ func TestCSRFToken_CustomConfig(t *testing.T) {
 
 	// POST with custom header name.
 	postReq := httptest.NewRequest(http.MethodPost, "/", nil)
-	postReq.AddCookie(&http.Cookie{Name: "x-csrf", Value: token})
+	postReq.AddCookie(secureRequestCookie("x-csrf", token))
 	postReq.Header.Set("X-XSRF-TOKEN", token)
 	postW := httptest.NewRecorder()
 
@@ -371,7 +373,7 @@ func TestCSRFToken_ConstantTimeComparison(t *testing.T) {
 
 	// POST with correct token — must succeed.
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	req.AddCookie(secureRequestCookie("_csrf", token))
 	req.Header.Set("X-CSRF-Token", token)
 	w := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(w, req)
@@ -386,7 +388,7 @@ func TestCSRFToken_ConstantTimeComparison(t *testing.T) {
 		t.Skip("tampered token is identical; test is not useful")
 	}
 	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
-	req2.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	req2.AddCookie(secureRequestCookie("_csrf", token))
 	req2.Header.Set("X-CSRF-Token", tampered)
 	w2 := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(w2, req2)
@@ -396,7 +398,7 @@ func TestCSRFToken_ConstantTimeComparison(t *testing.T) {
 
 	// POST with completely different token — must be rejected.
 	req3 := httptest.NewRequest(http.MethodPost, "/", nil)
-	req3.AddCookie(&http.Cookie{Name: "_csrf", Value: "completely-different-token-value-aaaaaaaa"})
+	req3.AddCookie(secureRequestCookie("_csrf", "completely-different-token-value-aaaaaaaa"))
 	req3.Header.Set("X-CSRF-Token", "completely-different-token-value-bbbbbbbb")
 	w3 := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(w3, req3)
@@ -410,7 +412,7 @@ func TestCSRFToken_NilSafeComparison(t *testing.T) {
 
 	// Empty cookie value + empty header value — both must be non-empty before comparison.
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	req.AddCookie(&http.Cookie{Name: "_csrf", Value: ""})
+	req.AddCookie(secureRequestCookie("_csrf", ""))
 	req.Header.Set("X-CSRF-Token", "")
 	w := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(w, req)
@@ -420,7 +422,7 @@ func TestCSRFToken_NilSafeComparison(t *testing.T) {
 
 	// Cookie with value, empty header — should reject.
 	req2 := httptest.NewRequest(http.MethodPost, "/", nil)
-	req2.AddCookie(&http.Cookie{Name: "_csrf", Value: "some-token"})
+	req2.AddCookie(secureRequestCookie("_csrf", "some-token"))
 	req2.Header.Set("X-CSRF-Token", "")
 	w2 := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(w2, req2)
@@ -455,13 +457,13 @@ func TestRefreshToken_DoesNotRotateCSRF(t *testing.T) {
 	}
 
 	// Simulate a refresh handler that does NOT call RotateCSRFToken.
-	refreshHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	refreshHandler := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// Intentionally no RotateCSRFToken — refresh is session continuation.
 		w.WriteHeader(http.StatusOK)
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/refresh", nil)
-	req.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	req.AddCookie(secureRequestCookie("_csrf", token))
 	req.Header.Set("X-CSRF-Token", token)
 	w := httptest.NewRecorder()
 
@@ -490,7 +492,7 @@ func TestCSRFToken_RejectsForgedCookie(t *testing.T) {
 		forged := base64.RawURLEncoding.EncodeToString([]byte("attacker-controlled-nonce"))
 
 		req := httptest.NewRequest(http.MethodPost, "/", nil)
-		req.AddCookie(&http.Cookie{Name: "_csrf", Value: forged})
+		req.AddCookie(secureRequestCookie("_csrf", forged))
 		req.Header.Set("X-CSRF-Token", forged)
 		w := httptest.NewRecorder()
 
@@ -505,7 +507,7 @@ func TestCSRFToken_RejectsForgedCookie(t *testing.T) {
 		forged := "MTIzNDU2Nzg5MA.attacker-controlled-signature"
 
 		req := httptest.NewRequest(http.MethodPost, "/", nil)
-		req.AddCookie(&http.Cookie{Name: "_csrf", Value: forged})
+		req.AddCookie(secureRequestCookie("_csrf", forged))
 		req.Header.Set("X-CSRF-Token", forged)
 		w := httptest.NewRecorder()
 
@@ -539,7 +541,7 @@ func TestCSRFToken_RejectsTokenSignedWithDifferentSecret(t *testing.T) {
 	}
 
 	postReq := httptest.NewRequest(http.MethodPost, "/", nil)
-	postReq.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	postReq.AddCookie(secureRequestCookie("_csrf", token))
 	postReq.Header.Set("X-CSRF-Token", token)
 	w := httptest.NewRecorder()
 	validator(okHandler()).ServeHTTP(w, postReq)
@@ -593,7 +595,7 @@ func TestCSRFToken_FailsClosedWhenSecretMissing(t *testing.T) {
 
 	// State-changing method: cannot verify without a secret.
 	postReq := httptest.NewRequest(http.MethodPost, "/", nil)
-	postReq.AddCookie(&http.Cookie{Name: "_csrf", Value: "any.value"})
+	postReq.AddCookie(secureRequestCookie("_csrf", "any.value"))
 	postReq.Header.Set("X-CSRF-Token", "any.value")
 	postW := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(postW, postReq)
@@ -625,7 +627,7 @@ func TestCSRFToken_FailsClosedLogsStructured(t *testing.T) {
 
 	// Verify path: state-changing method with no secret.
 	postReq := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
-	postReq.AddCookie(&http.Cookie{Name: "_csrf", Value: "any.value"})
+	postReq.AddCookie(secureRequestCookie("_csrf", "any.value"))
 	postReq.Header.Set("X-CSRF-Token", "any.value")
 	postW := httptest.NewRecorder()
 	mw(okHandler()).ServeHTTP(postW, postReq)
@@ -648,7 +650,7 @@ func TestCSRFToken_FailsClosedLogsStructured(t *testing.T) {
 
 func TestCSRFToken_CookieDomainIsSetOnTheCookie(t *testing.T) {
 	cfg := &CSRFTokenConfig{Secret: []byte("test-secret-key"), CookieDomain: ".example.com"}
-	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	h := CSRFToken(cfg)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil))
@@ -672,7 +674,7 @@ func TestCSRFToken_CookieDomainIsSetOnTheCookie(t *testing.T) {
 
 func TestCSRFToken_NoCookieDomainStaysHostOnly(t *testing.T) {
 	cfg := &CSRFTokenConfig{Secret: []byte("test-secret-key")}
-	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	h := CSRFToken(cfg)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil))
@@ -687,7 +689,7 @@ func TestCSRFToken_NoCookieDomainStaysHostOnly(t *testing.T) {
 func TestCSRFToken_ContextCarriesFreshlyMintedToken(t *testing.T) {
 	cfg := &CSRFTokenConfig{Secret: []byte("test-secret-key")}
 	var seen string
-	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := CSRFToken(cfg)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		seen = CSRFTokenFromContext(r.Context())
 	}))
 
@@ -712,12 +714,12 @@ func TestCSRFToken_ContextCarriesExistingToken(t *testing.T) {
 	}
 
 	var seen string
-	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := CSRFToken(cfg)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		seen = CSRFTokenFromContext(r.Context())
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil)
-	req.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	req.AddCookie(secureRequestCookie("_csrf", token))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
@@ -739,12 +741,12 @@ func TestCSRFToken_NoContextTokenOnUnsafeMethod(t *testing.T) {
 	}
 
 	var seen = "sentinel"
-	h := CSRFToken(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := CSRFToken(cfg)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		seen = CSRFTokenFromContext(r.Context())
 	}))
 
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
-	req.AddCookie(&http.Cookie{Name: "_csrf", Value: token})
+	req.AddCookie(secureRequestCookie("_csrf", token))
 	req.Header.Set("X-CSRF-Token", token)
 	h.ServeHTTP(httptest.NewRecorder(), req)
 

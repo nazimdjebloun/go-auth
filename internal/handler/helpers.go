@@ -13,6 +13,33 @@ import (
 
 const maxBodySize = 1 << 16 // 64 KB
 
+type bindingCookieParams struct {
+	name     string
+	value    string
+	domain   string
+	path     string
+	secure   bool
+	sameSite http.SameSite
+	maxAge   int
+}
+
+func newBindingCookie(params bindingCookieParams) *http.Cookie {
+	cookie := &http.Cookie{
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	}
+	cookie.Name = params.name
+	cookie.Value = params.value
+	cookie.Domain = params.domain
+	cookie.Path = params.path
+	cookie.HttpOnly = true
+	cookie.Secure = params.secure
+	cookie.SameSite = params.sameSite
+	cookie.MaxAge = params.maxAge
+	return cookie
+}
+
 // setTwoFactorBindingCookie ties a 2FA challenge to this browser. It travels
 // exactly as far as the session cookie — same Domain/Path/Secure/SameSite —
 // so there's only one cookie-reach story to maintain, not two. No-op when
@@ -22,32 +49,29 @@ func (h *Handler) setTwoFactorBindingCookie(w http.ResponseWriter, token string)
 	if h.services.TwoFactor == nil || h.services.TwoFactor.BindingDisabled() || token == "" {
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     h.services.TwoFactor.CookieName(),
-		Value:    token,
-		Domain:   h.cookies.Domain,
-		Path:     h.cookies.Path,
-		HttpOnly: true,
-		Secure:   h.cookies.Secure,
-		SameSite: http.SameSite(h.cookies.SameSite),
-		MaxAge:   int(h.services.TwoFactor.CookieTTL().Seconds()),
-	})
+	http.SetCookie(w, newBindingCookie(bindingCookieParams{
+		name:     h.services.TwoFactor.CookieName(),
+		value:    token,
+		domain:   h.cookies.Domain,
+		path:     h.cookies.Path,
+		secure:   h.cookies.Secure,
+		sameSite: http.SameSite(h.cookies.SameSite),
+		maxAge:   int(h.services.TwoFactor.CookieTTL().Seconds()),
+	}))
 }
 
 func (h *Handler) clearTwoFactorBindingCookie(w http.ResponseWriter) {
 	if h.services.TwoFactor == nil {
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     h.services.TwoFactor.CookieName(),
-		Value:    "",
-		Domain:   h.cookies.Domain,
-		Path:     h.cookies.Path,
-		HttpOnly: true,
-		Secure:   h.cookies.Secure,
-		SameSite: http.SameSite(h.cookies.SameSite),
-		MaxAge:   -1,
-	})
+	http.SetCookie(w, newBindingCookie(bindingCookieParams{
+		name:     h.services.TwoFactor.CookieName(),
+		domain:   h.cookies.Domain,
+		path:     h.cookies.Path,
+		secure:   h.cookies.Secure,
+		sameSite: http.SameSite(h.cookies.SameSite),
+		maxAge:   -1,
+	}))
 }
 
 func (h *Handler) twoFactorBindingCookieValue(r *http.Request) string {

@@ -144,12 +144,12 @@ func (r *SessionRepository) ListAllByUserID(ctx context.Context, userID string) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	var sessions []domain.Session
 	for rows.Next() {
 		var s domain.Session
 		if err := scanSession(&s, rows); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		sessions = append(sessions, s)
@@ -157,7 +157,14 @@ func (r *SessionRepository) ListAllByUserID(ctx context.Context, userID string) 
 	if sessions == nil {
 		sessions = []domain.Session{}
 	}
-	return sessions, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("session list close: %w", err)
+	}
+	return sessions, nil
 }
 
 func (r *SessionRepository) ListByUserID(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
@@ -172,12 +179,12 @@ func (r *SessionRepository) ListByUserID(ctx context.Context, userID string, off
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
 
 	var sessions []domain.Session
 	for rows.Next() {
 		var s domain.Session
 		if err := scanSession(&s, rows); err != nil {
+			_ = rows.Close()
 			return nil, 0, err
 		}
 		sessions = append(sessions, s)
@@ -185,7 +192,14 @@ func (r *SessionRepository) ListByUserID(ctx context.Context, userID string, off
 	if sessions == nil {
 		sessions = []domain.Session{}
 	}
-	return sessions, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, 0, fmt.Errorf("paginated session list close: %w", err)
+	}
+	return sessions, total, nil
 }
 
 // sessionOrderByWhitelist maps a caller-supplied OrderBy to the actual
@@ -255,7 +269,6 @@ func (r *SessionRepository) buildAllWhere(filter port.SessionFilter, now time.Ti
 	if filter.LastActiveBefore != nil {
 		where = append(where, fmt.Sprintf("last_active_at <= $%d", argIdx))
 		args = append(args, *filter.LastActiveBefore)
-		argIdx++
 	}
 
 	return strings.Join(where, " AND "), args
@@ -297,17 +310,24 @@ func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilt
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 
 	sessions := []domain.Session{}
 	for rows.Next() {
 		var s domain.Session
 		if err := scanSession(&s, rows); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		sessions = append(sessions, s)
 	}
-	return sessions, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("all session list close: %w", err)
+	}
+	return sessions, nil
 }
 
 func (r *SessionRepository) Delete(ctx context.Context, tokenHash string) error {

@@ -42,7 +42,7 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
-	th.users.Create(context.Background(), user)
+	checkTestErrors(t).noError(th.users.Create(context.Background(), user))
 
 	code := "ABC123"
 	now := time.Now().UTC()
@@ -54,7 +54,7 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(15 * time.Minute),
 	}
-	th.tokens.Create(context.Background(), token)
+	checkTestErrors(t).noError(th.tokens.Create(context.Background(), token))
 
 	body := `{"code":"ABC123"}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/verify-email", strings.NewReader(body))
@@ -101,7 +101,7 @@ func TestVerifyEmail_ExpiredCode(t *testing.T) {
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
-	th.users.Create(context.Background(), user)
+	checkTestErrors(t).noError(th.users.Create(context.Background(), user))
 
 	code := "EXPIRED"
 	now := time.Now().UTC()
@@ -113,7 +113,7 @@ func TestVerifyEmail_ExpiredCode(t *testing.T) {
 		Type:      domain.TokenVerifyEmail,
 		ExpiresAt: now.Add(-1 * time.Hour),
 	}
-	th.tokens.Create(context.Background(), token)
+	checkTestErrors(t).noError(th.tokens.Create(context.Background(), token))
 
 	body := `{"code":"EXPIRED"}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/verify-email", strings.NewReader(body))
@@ -141,7 +141,7 @@ func TestResendVerification_HappyPath(t *testing.T) {
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
-	th.users.Create(context.Background(), user)
+	checkTestErrors(t).noError(th.users.Create(context.Background(), user))
 
 	body := `{}`
 	req := httptest.NewRequest(http.MethodPost, "/auth/resend-verification", strings.NewReader(body))

@@ -81,7 +81,7 @@ func TestAdminListSessions_ActorNotAdmin_Forbidden(t *testing.T) {
 	svc, _ := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
-	users.Create(context.Background(), nonAdmin)
+	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
 	_, err := svc.ListSessions(context.Background(), AdminListSessionsInput{ActorID: "not-admin"})
 	if err != domain.ErrForbidden {

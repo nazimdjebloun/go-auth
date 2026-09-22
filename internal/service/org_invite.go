@@ -90,7 +90,7 @@ func NewOrgInviteService(
 // requireRole verifies actorID is a member of orgID with at least min role.
 // See OrgService.requireRole for the rationale — the same defense-in-depth
 // applies here: HTTP middleware pre-checks this, this is the real authority.
-func (s *OrgInviteService) requireRole(ctx context.Context, orgID, actorID string, min domain.OrgRole) error {
+func (s *OrgInviteService) requireRole(ctx context.Context, orgID, actorID string, minimumRole domain.OrgRole) error {
 	if actorID == "" {
 		return domain.ErrForbidden
 	}
@@ -101,7 +101,7 @@ func (s *OrgInviteService) requireRole(ctx context.Context, orgID, actorID strin
 	if m == nil {
 		return domain.ErrOrgMemberNotFound
 	}
-	if m.Role.Weight() < min.Weight() {
+	if m.Role.Weight() < minimumRole.Weight() {
 		return domain.ErrOrgForbidden
 	}
 	return nil

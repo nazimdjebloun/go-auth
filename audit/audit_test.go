@@ -134,7 +134,7 @@ func loginEvent() Event {
 func TestRecord_WritesRecord_NoSinkNoOutbox(t *testing.T) {
 	rec := &mockRecordStore{}
 	out := &mockOutbox{}
-	s := NewAuditService(AuditServiceConfig{}, nil, rec, out, nil)
+	s := NewService(ServiceConfig{}, nil, rec, out, nil)
 
 	if err := s.Record(context.Background(), loginEvent()); err != nil {
 		t.Fatalf("Record: %v", err)
@@ -150,7 +150,7 @@ func TestRecord_WritesRecord_NoSinkNoOutbox(t *testing.T) {
 func TestRecord_SinkConfigured_WritesOutbox(t *testing.T) {
 	rec := &mockRecordStore{}
 	out := &mockOutbox{}
-	s := NewAuditService(AuditServiceConfig{}, nil, rec, out, nil)
+	s := NewService(ServiceConfig{}, nil, rec, out, nil)
 	s.AddSink(noopSink{})
 
 	if err := s.Record(context.Background(), loginEvent()); err != nil {
@@ -163,7 +163,7 @@ func TestRecord_SinkConfigured_WritesOutbox(t *testing.T) {
 
 func TestRecord_FailOpen_RecordLost_Counted(t *testing.T) {
 	rec := &mockRecordStore{failFor: map[EventType]error{EventLoginFailed: errors.New("disk full")}}
-	s := NewAuditService(AuditServiceConfig{}, nil, rec, &mockOutbox{}, nil)
+	s := NewService(ServiceConfig{}, nil, rec, &mockOutbox{}, nil)
 
 	// Fail-open: the operation proceeds, the loss is counted.
 	if err := s.Record(context.Background(), NewLoginFailedEvent("a@b.c", net.ParseIP("127.0.0.1"), "ua")); err != nil {
@@ -177,9 +177,9 @@ func TestRecord_FailOpen_RecordLost_Counted(t *testing.T) {
 
 func TestRecord_FailClosed_Blocks(t *testing.T) {
 	rec := &mockRecordStore{failFor: map[EventType]error{EventLoginFailed: errors.New("disk full")}}
-	s := NewAuditService(AuditServiceConfig{
-		EnqueueFailureMode: func(e Event) AuditFailureMode {
-			return AuditFailureClosed
+	s := NewService(ServiceConfig{
+		EnqueueFailureMode: func(_ Event) FailureMode {
+			return FailureClosed
 		},
 	}, txSaverDB{}, rec, &mockOutbox{}, nil)
 
@@ -200,8 +200,8 @@ func TestRecord_FailClosed_Blocks(t *testing.T) {
 // happened.
 func TestRecord_FailClosed_DegradesOutsideTx(t *testing.T) {
 	rec := &mockRecordStore{failFor: map[EventType]error{EventLoginFailed: errors.New("disk full")}}
-	s := NewAuditService(AuditServiceConfig{
-		EnqueueFailureMode: func(e Event) AuditFailureMode { return AuditFailureClosed },
+	s := NewService(ServiceConfig{
+		EnqueueFailureMode: func(_ Event) FailureMode { return FailureClosed },
 	}, nil, rec, &mockOutbox{}, nil) // nil db → noopSaverDB → InTx false
 
 	err := s.Record(context.Background(), NewLoginFailedEvent("a@b.c", nil, ""))
@@ -216,7 +216,7 @@ func TestRecord_FailClosed_DegradesOutsideTx(t *testing.T) {
 
 func TestRecord_NilResolver_DefaultsFailOpen(t *testing.T) {
 	rec := &mockRecordStore{failFor: map[EventType]error{EventLoginFailed: errors.New("disk full")}}
-	s := NewAuditService(AuditServiceConfig{}, nil, rec, &mockOutbox{}, nil)
+	s := NewService(ServiceConfig{}, nil, rec, &mockOutbox{}, nil)
 
 	if err := s.Record(context.Background(), NewLoginFailedEvent("a@b.c", nil, "")); err != nil {
 		t.Fatalf("nil resolver must default to fail-open, got %v", err)
@@ -229,7 +229,7 @@ func TestRecord_NilResolver_DefaultsFailOpen(t *testing.T) {
 func TestRecord_OutboxFailure_FailOpen_DeliveryMissed(t *testing.T) {
 	rec := &mockRecordStore{}
 	out := &mockOutbox{fail: true}
-	s := NewAuditService(AuditServiceConfig{}, nil, rec, out, nil)
+	s := NewService(ServiceConfig{}, nil, rec, out, nil)
 	s.AddSink(noopSink{})
 
 	if err := s.Record(context.Background(), loginEvent()); err != nil {
@@ -248,8 +248,8 @@ func TestRecord_OutboxFailure_FailOpen_DeliveryMissed(t *testing.T) {
 func TestRecord_OutboxFailure_FailClosed_Blocks(t *testing.T) {
 	rec := &mockRecordStore{}
 	out := &mockOutbox{fail: true}
-	s := NewAuditService(AuditServiceConfig{
-		EnqueueFailureMode: func(e Event) AuditFailureMode { return AuditFailureClosed },
+	s := NewService(ServiceConfig{
+		EnqueueFailureMode: func(_ Event) FailureMode { return FailureClosed },
 	}, txSaverDB{}, rec, out, nil)
 	s.AddSink(noopSink{})
 
@@ -260,7 +260,7 @@ func TestRecord_OutboxFailure_FailClosed_Blocks(t *testing.T) {
 
 func TestRecord_SinkConfiguredWithoutOutboxDoesNotPanic(t *testing.T) {
 	rec := &mockRecordStore{}
-	s := NewAuditService(AuditServiceConfig{}, nil, rec, nil, nil)
+	s := NewService(ServiceConfig{}, nil, rec, nil, nil)
 	s.AddSink(noopSink{})
 
 	if err := s.Record(context.Background(), loginEvent()); err != nil {
@@ -273,7 +273,7 @@ func TestRecord_SinkConfiguredWithoutOutboxDoesNotPanic(t *testing.T) {
 }
 
 func TestRecord_NoStorage_InlineOnly_NoPanic(t *testing.T) {
-	s := NewAuditService(AuditServiceConfig{}, nil, nil, nil, nil)
+	s := NewService(ServiceConfig{}, nil, nil, nil, nil)
 	if err := s.Record(context.Background(), loginEvent()); err != nil {
 		t.Fatalf("Record without storage: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestNextBackoff_Capped(t *testing.T) {
 }
 
 func TestDefaultConfig_OutboxClocks(t *testing.T) {
-	cfg := defaultConfig(AuditServiceConfig{})
+	cfg := defaultConfig(ServiceConfig{})
 	if cfg.MaxAttempts != 10 || cfg.ClaimLease != 10*time.Minute {
 		t.Errorf("defaults: maxAttempts=%d lease=%v", cfg.MaxAttempts, cfg.ClaimLease)
 	}
@@ -326,15 +326,15 @@ func TestDefaultConfig_OutboxClocks(t *testing.T) {
 func TestValidateConfig_ClaimLeaseFloor(t *testing.T) {
 	// A lease shorter than the floor turns routine delivery into a steal
 	// race; startup must reject it rather than let it run.
-	err := ValidateConfig(AuditServiceConfig{ClaimLease: time.Second})
+	err := ValidateConfig(ServiceConfig{ClaimLease: time.Second})
 	if err == nil {
 		t.Fatal("a 1s ClaimLease must be rejected")
 	}
-	if err := ValidateConfig(AuditServiceConfig{ClaimLease: time.Minute}); err != nil {
+	if err := ValidateConfig(ServiceConfig{ClaimLease: time.Minute}); err != nil {
 		t.Fatalf("a 1m ClaimLease should pass the floor: %v", err)
 	}
 	// Unset is defaulted, not rejected.
-	if err := ValidateConfig(AuditServiceConfig{}); err != nil {
+	if err := ValidateConfig(ServiceConfig{}); err != nil {
 		t.Fatalf("defaults must validate: %v", err)
 	}
 }
@@ -343,15 +343,15 @@ func TestValidateConfig_RetentionMustExceedOutboxLifetime(t *testing.T) {
 	// Retention shorter than the worst-case row lifetime would delete a
 	// record whose obligation still exists — the exact defect the clock
 	// analysis names.
-	err := ValidateConfig(AuditServiceConfig{RetentionDays: 1})
+	err := ValidateConfig(ServiceConfig{RetentionDays: 1})
 	if err == nil {
 		t.Fatal("RetentionDays=1 with 7d outbox clocks must be rejected")
 	}
-	if err := ValidateConfig(AuditServiceConfig{RetentionDays: 30}); err != nil {
+	if err := ValidateConfig(ServiceConfig{RetentionDays: 30}); err != nil {
 		t.Fatalf("RetentionDays=30 should comfortably exceed 7d+7d: %v", err)
 	}
 	// RetentionDays 0 (keep forever) has no conflict.
-	if err := ValidateConfig(AuditServiceConfig{RetentionDays: 0}); err != nil {
+	if err := ValidateConfig(ServiceConfig{RetentionDays: 0}); err != nil {
 		t.Fatalf("keep-forever retention must validate: %v", err)
 	}
 }
@@ -359,18 +359,18 @@ func TestValidateConfig_RetentionMustExceedOutboxLifetime(t *testing.T) {
 func TestValidateConfig_FiniteRetentionRejectsUnboundedOutboxClocks(t *testing.T) {
 	tests := []struct {
 		name string
-		cfg  AuditServiceConfig
+		cfg  ServiceConfig
 	}{
 		{
 			name: "unbounded pending lifetime",
-			cfg: AuditServiceConfig{
+			cfg: ServiceConfig{
 				RetentionDays: 30,
 				OutboxMaxAge:  -1,
 			},
 		},
 		{
 			name: "unbounded dead-letter lifetime",
-			cfg: AuditServiceConfig{
+			cfg: ServiceConfig{
 				RetentionDays: 30,
 				DeadLetterTTL: -1,
 			},
@@ -384,7 +384,7 @@ func TestValidateConfig_FiniteRetentionRejectsUnboundedOutboxClocks(t *testing.T
 		})
 	}
 
-	if err := ValidateConfig(AuditServiceConfig{OutboxMaxAge: -1, DeadLetterTTL: -1}); err != nil {
+	if err := ValidateConfig(ServiceConfig{OutboxMaxAge: -1, DeadLetterTTL: -1}); err != nil {
 		t.Fatalf("keep-forever audit retention may use unbounded outbox clocks: %v", err)
 	}
 }
@@ -398,26 +398,26 @@ func TestValidateConfig_ClaimLeaseExceedsSinkBatchTime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ValidateConfig(AuditServiceConfig{
+	if err := ValidateConfig(ServiceConfig{
 		BatchSize:  50,
 		ClaimLease: time.Minute,
 	}, sink); err == nil {
 		t.Fatal("1m claim lease must be rejected for a 100s webhook batch")
 	}
-	if err := ValidateConfig(AuditServiceConfig{
+	if err := ValidateConfig(ServiceConfig{
 		BatchSize:  50,
 		ClaimLease: 2 * time.Minute,
 	}, sink); err != nil {
 		t.Fatalf("2m claim lease should exceed a 100s webhook batch: %v", err)
 	}
-	if err := ValidateConfig(AuditServiceConfig{}, sink); err != nil {
+	if err := ValidateConfig(ServiceConfig{}, sink); err != nil {
 		t.Fatalf("defaults must cover the default webhook batch bound: %v", err)
 	}
 }
 
 func TestValidateConfig_ExternalSinkMustDeclareBound(t *testing.T) {
 	type unboundedSink struct{ EventSink }
-	if err := ValidateConfig(AuditServiceConfig{}, unboundedSink{}); err == nil {
+	if err := ValidateConfig(ServiceConfig{}, unboundedSink{}); err == nil {
 		t.Fatal("external sink without BatchDeliveryTimeBounder must be rejected")
 	}
 }
@@ -434,7 +434,7 @@ func TestStart_RejectsMissingOutboxPrerequisites(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewAuditService(AuditServiceConfig{}, tt.db, &mockRecordStore{}, tt.outbox, nil)
+			s := NewService(ServiceConfig{}, tt.db, &mockRecordStore{}, tt.outbox, nil)
 			s.AddSink(noopSink{})
 			if err := s.Start(context.Background()); err == nil {
 				t.Fatalf("Start must reject missing %s", tt.name)
@@ -445,7 +445,7 @@ func TestStart_RejectsMissingOutboxPrerequisites(t *testing.T) {
 
 func TestStart_PropagatesTableCheckError(t *testing.T) {
 	want := errors.New("database unavailable")
-	s := NewAuditService(AuditServiceConfig{}, tableSaverDB{tableErr: want}, &mockRecordStore{}, &mockOutbox{}, nil)
+	s := NewService(ServiceConfig{}, tableSaverDB{tableErr: want}, &mockRecordStore{}, &mockOutbox{}, nil)
 	s.AddSink(noopSink{})
 	if err := s.Start(context.Background()); !errors.Is(err, want) {
 		t.Fatalf("Start error = %v, want wrapped table check error", err)
@@ -466,7 +466,7 @@ func TestRetryWindowFor_CapDominated(t *testing.T) {
 }
 
 func TestValidateConfig_OutboxMaxRowsMustBeExplicit(t *testing.T) {
-	if err := ValidateConfig(AuditServiceConfig{OutboxMaxRows: -1}); err != nil {
+	if err := ValidateConfig(ServiceConfig{OutboxMaxRows: -1}); err != nil {
 		t.Fatalf("negative (explicitly unbounded) must be accepted: %v", err)
 	}
 }

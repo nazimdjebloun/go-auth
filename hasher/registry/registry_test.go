@@ -112,12 +112,12 @@ func TestHasherRegistry_BcryptFamilyPrefixesAllVerify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registry build: %v", err)
 	}
-	real, err := hasher.New(12).Hash("Passw0rd!")
+	realHash, err := hasher.New(12).Hash("Passw0rd!")
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, minor := range []string{"$2a$", "$2b$", "$2x$", "$2y$"} {
-		stored := minor + strings.TrimPrefix(real, "$2a$")
+		stored := minor + strings.TrimPrefix(realHash, "$2a$")
 		if err := reg.Compare("Passw0rd!", stored); err != nil {
 			t.Fatalf("%s hash should verify: %v", minor, err)
 		}

@@ -19,7 +19,11 @@ func newAdminGuardDB(t *testing.T) (*DB, *DB) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { raw.Close() })
+		t.Cleanup(func() {
+			if err := raw.Close(); err != nil {
+				t.Error(err)
+			}
+		})
 		return NewDB(raw, "sqlite")
 	}
 	a, b := open(), open()

@@ -95,9 +95,11 @@ func NewTwoFactorService(
 // CookieName, CookieTTL, and BindingDisabled expose just the pieces of Config
 // the HTTP layer needs to set/clear the challenge binding cookie, without
 // handing it the whole (unexported-field) Config.
-func (s *TwoFactorService) CookieName() string       { return s.config.TwoFactorChallengeCookieName }
+func (s *TwoFactorService) CookieName() string { return s.config.TwoFactorChallengeCookieName }
+
 func (s *TwoFactorService) CookieTTL() time.Duration { return s.config.TwoFactorCodeTTL }
-func (s *TwoFactorService) BindingDisabled() bool    { return s.config.DisableTwoFactorChallengeBinding }
+
+func (s *TwoFactorService) BindingDisabled() bool { return s.config.DisableTwoFactorChallengeBinding }
 
 // Enforce reports whether a user must clear a second factor to get a session.
 //

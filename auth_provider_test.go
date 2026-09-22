@@ -13,7 +13,7 @@ type mockProvider struct {
 }
 
 func (m *mockProvider) Name() string { return m.name }
-func (m *mockProvider) AuthURL(state string, codeChallenge string) string {
+func (m *mockProvider) AuthURL(state string, _ string) string {
 	return "https://auth.example.com/" + state
 }
 func (m *mockProvider) Exchange(_ context.Context, _ string, _ string) (*port.OAuthProfile, error) {

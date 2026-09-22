@@ -52,7 +52,7 @@ func ValidateMySQLDSN(dsn string) error {
 				"returns DATETIME/TIMESTAMP columns as []byte without it, which breaks " +
 				"every query that scans a time.Time field. Add \"?parseTime=true&loc=UTC\" " +
 				"to your DSN (loc=UTC is strongly recommended since go-auth computes all " +
-				"timestamps in UTC).",
+				"timestamps in UTC)",
 		)
 	}
 	return nil

@@ -20,6 +20,34 @@ type CookieSettings struct {
 	RefreshTTL  time.Duration // refresh cookie MaxAge
 }
 
+type responseCookieParams struct {
+	name     string
+	value    string
+	domain   string
+	path     string
+	httpOnly bool
+	secure   bool
+	sameSite http.SameSite
+	maxAge   int
+}
+
+func newResponseCookie(params responseCookieParams) *http.Cookie {
+	cookie := &http.Cookie{
+		Secure:   true,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	}
+	cookie.Name = params.name
+	cookie.Value = params.value
+	cookie.Domain = params.domain
+	cookie.Path = params.path
+	cookie.HttpOnly = params.httpOnly
+	cookie.Secure = params.secure
+	cookie.SameSite = params.sameSite
+	cookie.MaxAge = params.maxAge
+	return cookie
+}
+
 // SetSessionCookie writes the session cookie for a newly issued or rotated
 // session token, using the session cookie settings in cfg. A no-op when
 // token is empty, mirroring SetRefreshCookie — an empty token here almost
@@ -31,30 +59,29 @@ func SetSessionCookie(w http.ResponseWriter, cfg CookieSettings, token string) {
 	if token == "" {
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.Name,
-		Value:    token,
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
-		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: cfg.SameSite,
-		MaxAge:   int(cfg.TTL.Seconds()),
-	})
+	http.SetCookie(w, newResponseCookie(responseCookieParams{
+		name:     cfg.Name,
+		value:    token,
+		domain:   cfg.Domain,
+		path:     cfg.Path,
+		httpOnly: true,
+		secure:   cfg.Secure,
+		sameSite: cfg.SameSite,
+		maxAge:   int(cfg.TTL.Seconds()),
+	}))
 }
 
 // ClearSessionCookie expires the session cookie.
 func ClearSessionCookie(w http.ResponseWriter, cfg CookieSettings) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.Name,
-		Value:    "",
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
-		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: cfg.SameSite,
-		MaxAge:   -1,
-	})
+	http.SetCookie(w, newResponseCookie(responseCookieParams{
+		name:     cfg.Name,
+		domain:   cfg.Domain,
+		path:     cfg.Path,
+		httpOnly: true,
+		secure:   cfg.Secure,
+		sameSite: cfg.SameSite,
+		maxAge:   -1,
+	}))
 }
 
 // SetRefreshCookie writes the refresh cookie for a newly issued or rotated
@@ -64,30 +91,29 @@ func SetRefreshCookie(w http.ResponseWriter, cfg CookieSettings, token string) {
 	if token == "" {
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.RefreshName,
-		Value:    token,
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
-		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: cfg.SameSite,
-		MaxAge:   int(cfg.RefreshTTL.Seconds()),
-	})
+	http.SetCookie(w, newResponseCookie(responseCookieParams{
+		name:     cfg.RefreshName,
+		value:    token,
+		domain:   cfg.Domain,
+		path:     cfg.Path,
+		httpOnly: true,
+		secure:   cfg.Secure,
+		sameSite: cfg.SameSite,
+		maxAge:   int(cfg.RefreshTTL.Seconds()),
+	}))
 }
 
 // ClearRefreshCookie expires the refresh cookie.
 func ClearRefreshCookie(w http.ResponseWriter, cfg CookieSettings) {
-	http.SetCookie(w, &http.Cookie{
-		Name:     cfg.RefreshName,
-		Value:    "",
-		Domain:   cfg.Domain,
-		Path:     cfg.Path,
-		HttpOnly: true,
-		Secure:   cfg.Secure,
-		SameSite: cfg.SameSite,
-		MaxAge:   -1,
-	})
+	http.SetCookie(w, newResponseCookie(responseCookieParams{
+		name:     cfg.RefreshName,
+		domain:   cfg.Domain,
+		path:     cfg.Path,
+		httpOnly: true,
+		secure:   cfg.Secure,
+		sameSite: cfg.SameSite,
+		maxAge:   -1,
+	}))
 }
 
 // DefaultCookieSettings mirrors the service layer's built-in session
