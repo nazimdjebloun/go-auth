@@ -27,6 +27,27 @@ func TestCreateSession_ReturnsRefreshToken(t *testing.T) {
 	}
 }
 
+func TestSessionService_ClockControlsExpiry(t *testing.T) {
+	sessions := testutil.NewMockSessionRepo()
+	gen := &testutil.MockTokenGen{Length: 32}
+	svc := newTestSessionService(sessions, gen)
+	issuedAt := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return issuedAt }
+
+	result, err := svc.Create(context.Background(), "user-1", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Session.CreatedAt.Equal(issuedAt) {
+		t.Fatalf("CreatedAt = %s, want %s", result.Session.CreatedAt, issuedAt)
+	}
+
+	svc.now = func() time.Time { return result.Session.ExpiresAt.Add(time.Nanosecond) }
+	if _, err := svc.Validate(context.Background(), result.SessionToken); err != domain.ErrSessionExpired {
+		t.Fatalf("Validate after expiry = %v, want ErrSessionExpired", err)
+	}
+}
+
 func TestRefreshSession_HappyPath(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	gen := &testutil.MockTokenGen{Length: 32}

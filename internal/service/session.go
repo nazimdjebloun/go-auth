@@ -22,6 +22,7 @@ type SessionService struct {
 	log       *slog.Logger
 	audit     AuditPublisher
 	txManager port.TxManager
+	now       func() time.Time
 }
 
 type SessionConfig struct {
@@ -61,7 +62,7 @@ func NewSessionService(repo port.SessionRepository, tokenGen port.TokenGenerator
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &SessionService{repo: repo, tokenGen: tokenGen, config: config, log: logger, audit: config.Audit}
+	return &SessionService{repo: repo, tokenGen: tokenGen, config: config, log: logger, audit: config.Audit, now: time.Now}
 }
 
 // AttachTxManager wires the transaction manager used to commit session
@@ -102,7 +103,7 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 		return nil, fmt.Errorf("session create refresh: %w", err)
 	}
 
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	session := &domain.Session{
 		ID:                  uuid.New().String(),
 		UserID:              userID,
@@ -151,7 +152,7 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 		return nil, fmt.Errorf("refresh gen refresh: %w", err)
 	}
 
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	session, err := s.repo.UpdateRefreshToken(ctx, port.UpdateRefreshInput{
 		OldRefreshHash: hash,
 		NewTokenHash:   hashToken(newSessionToken),
@@ -199,7 +200,7 @@ func (s *SessionService) checkSession(session *domain.Session) error {
 	if session.IsRevoked {
 		return domain.ErrSessionExpired
 	}
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	if now.After(session.ExpiresAt) {
 		return domain.ErrSessionExpired
 	}

@@ -59,6 +59,7 @@ type TwoFactorService struct {
 	log        *slog.Logger
 	audit      AuditPublisher
 	sessionSvc *SessionService
+	now        func() time.Time
 }
 
 func NewTwoFactorService(
@@ -87,6 +88,7 @@ func NewTwoFactorService(
 		log:        logger,
 		audit:      config.Audit,
 		sessionSvc: sessionSvc,
+		now:        time.Now,
 	}
 }
 
@@ -138,7 +140,7 @@ func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*Chall
 	// mint (and mail) below.
 	if existing, err := s.tokens.GetLastByUserAndType(ctx, userID, domain.TokenTwoFactor); err == nil && existing != nil {
 		if existing.UsedAt == nil &&
-			time.Now().UTC().Before(existing.ExpiresAt) &&
+			s.now().UTC().Before(existing.ExpiresAt) &&
 			existing.Attempts < maxAttemptsPerChallenge &&
 			existing.ResendCount < maxCodeRefreshesPerChallenge &&
 			!stalePepper(existing.CreatedAt, s.config.PepperRotatedAt) {
@@ -162,7 +164,7 @@ func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*Chall
 // issue mints a fresh challenge row and mails the code.
 func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*ChallengeResult, error) {
 	if s.mailer == nil {
-		return nil, domain.NewError("email_not_configured", "Email sender is not configured")
+		return nil, domain.ErrEmailNotConfigured
 	}
 
 	raw, err := otp.GenerateNumeric(twoFactorCodeLength)
@@ -176,7 +178,7 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 		return nil, domain.ErrInternal
 	}
 
-	now := time.Now().UTC()
+	now := s.now().UTC()
 	token := &domain.VerificationToken{
 		ID:        generateID(),
 		UserID:    &user.ID,
@@ -226,7 +228,7 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 
 func (s *TwoFactorService) send(ctx context.Context, user *domain.User, code string) error {
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured")
+		return domain.ErrEmailNotConfigured
 	}
 	result, err := s.templates.Render(port.TwoFactorData{
 		AppName:   s.config.AppName,
@@ -306,7 +308,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 	if token.UsedAt != nil {
 		return nil, domain.ErrTwoFactorCodeAlreadyUsed
 	}
-	if time.Now().UTC().After(token.ExpiresAt) {
+	if s.now().UTC().After(token.ExpiresAt) {
 		return nil, domain.ErrTwoFactorCodeExpired
 	}
 
@@ -356,7 +358,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 		return nil, domain.ErrInternal
 	}
 
-	if err := s.users.UpdateLastLoginAt(ctx, user.ID, time.Now().UTC()); err != nil {
+	if err := s.users.UpdateLastLoginAt(ctx, user.ID, s.now().UTC()); err != nil {
 		s.log.Error("failed to update last login time", "err", err, "user_id", user.ID)
 	}
 
@@ -478,7 +480,7 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 		return nil, vague
 	}
 	if s.mailer == nil {
-		return nil, domain.NewError("email_not_configured", "Email sender is not configured")
+		return nil, domain.ErrEmailNotConfigured
 	}
 
 	raw, err := otp.GenerateNumeric(twoFactorCodeLength)
@@ -492,9 +494,9 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 		return nil, domain.ErrInternal
 	}
 
-	expiresAt := time.Now().UTC().Add(s.config.TwoFactorCodeTTL)
+	expiresAt := s.now().UTC().Add(s.config.TwoFactorCodeTTL)
 	ok, err := s.tokens.UpdateForResend(ctx, token.ID, hashOTP(raw, s.config.OTPPepper), expiresAt,
-		time.Now().UTC(), maxCodeRefreshesPerChallenge, maxAttemptsPerChallenge)
+		s.now().UTC(), maxCodeRefreshesPerChallenge, maxAttemptsPerChallenge)
 	if err != nil {
 		s.log.Error("failed to refresh 2fa token", "err", err, "token_id", token.ID)
 		return nil, domain.ErrInternal
@@ -545,7 +547,7 @@ func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, 
 		return nil
 	}
 
-	if err := s.users.SetTwoFactorEnabled(ctx, user.ID, true, time.Now().UTC()); err != nil {
+	if err := s.users.SetTwoFactorEnabled(ctx, user.ID, true, s.now().UTC()); err != nil {
 		s.log.Error("failed to enable 2fa", "err", err, "user_id", user.ID)
 		return domain.ErrInternal
 	}
@@ -580,7 +582,7 @@ func (s *TwoFactorService) Disable(ctx context.Context, userID, password string)
 		return nil
 	}
 
-	if err := s.users.SetTwoFactorEnabled(ctx, user.ID, false, time.Now().UTC()); err != nil {
+	if err := s.users.SetTwoFactorEnabled(ctx, user.ID, false, s.now().UTC()); err != nil {
 		s.log.Error("failed to disable 2fa", "err", err, "user_id", user.ID)
 		return domain.ErrInternal
 	}
