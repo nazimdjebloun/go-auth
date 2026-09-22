@@ -6,7 +6,7 @@ icon: "ShieldUser"
 
 # Admin
 
-Every route here needs an admin session. `middleware.RequireRole(domain.RoleAdmin, ...)` wraps the handlers: no session is `401 unauthorized`, a non-admin session is `403 forbidden`. See the [Admin guide](../guides/admin.mdx) for flows and examples.
+Every route here needs an admin session. `middleware.RequireRole(domain.RoleAdmin, ...)` wraps the handlers: no session is `401 unauthorized`, a non-admin session is `403 forbidden`. On every list route, an explicitly supplied unsupported or empty `orderBy` or `orderDirection` is `400 invalid_input`; omit either parameter to use its documented default. See the [Admin guide](../guides/admin.mdx) for flows and examples.
 
 ## Login
 
@@ -70,7 +70,7 @@ Paginated user list with filters. Invalid `role` values and unparsable dates are
 
 GET /admin/users/count
 
-Same filters as list; pagination and ordering are ignored.
+Same filters as list; pagination is ignored. Sorting is validated when supplied, then ignored.
 
 **Response** (`200 OK`):
 

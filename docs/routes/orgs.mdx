@@ -6,7 +6,7 @@ icon: "Building2"
 
 # Organizations
 
-Mounted only when organizations are enabled. Every route needs the session cookie. With the feature off, each route answers `404 {"error": "not_found", "message": "Organizations not enabled"}` instead. Roles are `owner`, `admin`, `member`; an invalid `role` query value is `400 invalid_input`. See the [Organizations guide](../guides/organizations.mdx) for flows and role rules.
+Mounted only when organizations are enabled. Every route needs the session cookie. With the feature off, each route answers `404 {"error": "not_found", "message": "Organizations not enabled"}` instead. Roles are `owner`, `admin`, `member`; an invalid `role` query value is `400 invalid_input`. On every list route, an explicitly supplied unsupported or empty `orderBy` or `orderDirection` is also `400 invalid_input`; omit either parameter to use its documented default. See the [Organizations guide](../guides/organizations.mdx) for flows and role rules.
 
 Orgs serialize camelCase:
 

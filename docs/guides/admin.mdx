@@ -184,8 +184,8 @@ setAdminUser(verified.user); // cookies are already set
 | `twoFactorEnabled` | bool | — | `true` or `false` — anything else is ignored, not applied as a filter |
 | `neverLoggedIn` | bool | — | `true` only — `last_login_at IS NULL`. Registered but never logged in since. |
 | `lastLoginBefore` | RFC3339 timestamp | — | `last_login_at < X`, excluding users who've never logged in (that's `neverLoggedIn`'s job) — "logged in before, gone dormant since." Composable with `neverLoggedIn` for two different questions in one dashboard. |
-| `orderBy` | string | `created_at` | Or `updated_at` — anything else falls back to the default |
-| `orderDirection` | string | `desc` | Or `asc` — anything else falls back to the default |
+| `orderBy` | string | `created_at` | Or `updated_at`; an explicitly supplied unsupported value is a **400** |
+| `orderDirection` | string | `desc` | Or `asc`; an explicitly supplied unsupported value is a **400** |
 
 **Response** (`200 OK`)
 
@@ -245,7 +245,7 @@ const { users } = await apiRequest(API_BASE, "GET", "/admin/users?limit=20&searc
 
 The matching total for [List users](#list-users--get-adminusers), split into its own call: `List` no longer runs a `COUNT(*)` on every page, so a paginated table fetches the count once per filter change instead of once per page.
 
-**Query params**: the filter params of [List users](#list-users--get-adminusers) (`email`, `search`, `role`, `isBanned`, `isVerified`, `twoFactorEnabled`, `neverLoggedIn`, `lastLoginBefore`). `offset`, `limit`, `orderBy`, `orderDirection` are accepted but ignored.
+**Query params**: the filter params of [List users](#list-users--get-adminusers) (`email`, `search`, `role`, `isBanned`, `isVerified`, `twoFactorEnabled`, `neverLoggedIn`, `lastLoginBefore`). `offset` and `limit` are ignored. `orderBy` and `orderDirection` are also ignored after validation: omitted values use the list defaults, and explicitly unsupported values return `400 invalid_input`.
 
 **Response** (`200 OK`): `{ "count": 150 }`
 
@@ -648,7 +648,7 @@ const { sessions } = await apiRequest(API_BASE, "GET", "/admin/sessions?ip=203.0
 
 ### Count sessions — `GET /admin/sessions/count`
 
-Total for the filter above, on its own call (same rationale as [Count users](#count-users--get-adminuserscount)). Takes every filter param of `GET /admin/sessions` except `offset`/`limit`/`orderBy`/`orderDirection`.
+Total for the filter above, on its own call (same rationale as [Count users](#count-users--get-adminuserscount)). Takes every filter param of `GET /admin/sessions`; `offset`/`limit` are ignored, and `orderBy`/`orderDirection` are validated then ignored.
 
 **Response**: `{ "count": 5 }`
 
@@ -897,7 +897,7 @@ const { orgs } = await apiRequest(API_BASE, "GET", "/admin/orgs?search=acme");
 
 ### Count organizations — `GET /admin/orgs/count`
 
-Total for [List organizations](#list-organizations--get-adminorgs), split out for the same reason as [Count users](#count-users--get-adminuserscount). Accepts `search`, `createdAfter`, `createdBefore`; ignores `offset`/`limit`/`orderBy`/`orderDirection`.
+Total for [List organizations](#list-organizations--get-adminorgs), split out for the same reason as [Count users](#count-users--get-adminuserscount). Accepts `search`, `createdAfter`, `createdBefore`; ignores `offset`/`limit`, and validates then ignores `orderBy`/`orderDirection`.
 
 **Response**: `{ "count": 42 }`
 
@@ -977,7 +977,7 @@ const { members } = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123/membe
 
 ### Count an organization's members — `GET /admin/orgs/{orgID}/members/count`
 
-Total for the list above. Accepts `role` and `search`; ignores pagination and ordering. Does **not** publish an audit event — it exposes only a number, not member data.
+Total for the list above. Accepts `role` and `search`; ignores pagination and validates then ignores ordering. Does **not** publish an audit event — it exposes only a number, not member data.
 
 **Response**: `{ "count": 12 }`
 
@@ -1038,7 +1038,7 @@ const { orgs } = await apiRequest(API_BASE, "GET", "/admin/users/user-123/orgs?r
 
 ### Count a user's organizations — `GET /admin/users/{id}/orgs/count`
 
-Total for the list above. Accepts `search` and `role`; ignores pagination and ordering.
+Total for the list above. Accepts `search` and `role`; ignores pagination and validates then ignores ordering.
 
 **Response**: `{ "count": 3 }`
 
