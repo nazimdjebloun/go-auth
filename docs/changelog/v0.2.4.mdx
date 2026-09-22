@@ -1,0 +1,37 @@
+---
+title: "v0.2.4"
+description: "Admin two-factor auth, account lockout, peer comparison, OAuth PKCE, configurable hasher, and password pepper rotation."
+date: "2026-09-15"
+---
+
+**Admin two-factor auth** — `POST /auth/admin/login` now unconditionally requires a second factor when email 2FA is available, even when `RequireEmail2FA` is false. Disable it with `TwoFactorConfig.DisableAdminTwoFactor` if you have another second factor in place. Admin 2FA is disabled outside development by default.
+
+**Account lockout** — Failed login attempts are now tracked per email address. After `MaxFailedLogins` (default 3) consecutive failures, the account is locked for `LockoutDuration` (default 15 minutes). The counter is shared across user and admin login routes. All settings are tunable under `SecurityConfig`.
+
+**Peer comparison** — `WithPeerComparison` checks new emails, usernames, and display names against existing accounts and rejects overlapping values. Similar-username lockout is a separate, opt-in variant under `WithSimilarUsernameLockout`.
+
+**OAuth PKCE** — All OAuth providers now generate and verify PKCE `code_verifier`/`code_challenge` pairs. The challenge is per-session and stored in `oauth_state`, so two in-flight OAuth logins on the same browser don't interfere. This closes the authorization-code interception gap without changing any public API.
+
+**Configurable hasher** — `WithPasswordHasher` lets you replace bcrypt with any implementation that satisfies a two-method `Hash`/`Compare` interface. The built-in Argon2id hasher ships at `hasher/argon2id` with RFC 9106 section 4 defaults (64 MiB, 3 iterations, parallelism 4). A new startup check rejects any hasher whose output cannot self-identify its algorithm.
+
+**Password pepper rotation** — `WithPepperRotatedAt` tells the library the exact UTC moment a new secret went live, so pre-rotation low-entropy codes (2FA, verification, set-password, delete-account) fail as expired instead of invalid.
+
+### Breaking changes
+
+- **PKCE required** — All OAuth providers now require PKCE. This is transparent to most callers, but a hand-rolled `port.Provider` returning a non-empty `AuthCodeURL` value must include a `code_challenge` query parameter.
+- **Argon2id memory** — The default increased from 32 MiB to 64 MiB per hash/comparison. Benchmark before deploying on memory-constrained hosts.
+- **Mailer errors return 200** — Signup, invite, password reset, password change, delete-request, delete-account, and verification emails that fail in transit still return `200 OK` with `code: mailer_error`. Only `POST /auth/mailer/test` exposes the actual SMTP status. `POST /auth/admin/delete-user` returns `500 Internal Server Error` on event-hook failure.
+
+### Other changes
+
+- Audit logs now store session `user_agent` and `ip_address` at creation time, and `GET /auth/sessions` includes `user_agent` and `ip_address` on every row.
+- `CSRFTokenConfig.ExposeCSRFTokenInBody` makes `GET /auth/csrf-token` return the token in the body instead of a bare `204`.
+- `CSRFTokenConfig` is now created by default when left `nil` — you only need to pass it when overriding individual fields.
+- `POST /auth/admin/delete-user` runs an event hook and never sends email; event-hook failure returns `500` instead of `200` with `mailer_error`.
+- `POST /auth/admin/create-user` now emails a verification link to the created user.
+- Admin login now returns `admin_user` alongside `session_token`, matching the shape of `GET /auth/admin/me`.
+- `GET /auth/admin/sessions` now returns `meta.total` alongside the session list.
+- Duplicate organization invites now return `409 Conflict` instead of silently reusing the existing token.
+- `Validate` rejects passwords over 72 bytes before hashing, regardless of `MinLength`, so a too-long password gets a clear `400 weak_password` instead of a generic `500`.
+- `POST /auth/2fa/resend` now enforces `VerificationResendInterval`.
+- `POST /auth/refresh` now returns `401` instead of `400` on invalid/expired tokens.
