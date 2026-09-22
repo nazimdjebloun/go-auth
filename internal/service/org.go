@@ -452,7 +452,7 @@ func (s *OrgService) addMemberTx(ctx context.Context, orgID, userID string, role
 
 func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error {
 	if !input.Role.IsValid() {
-		return domain.NewError("invalid_role", "Invalid organization role")
+		return domain.ErrInvalidOrgRole
 	}
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return err
@@ -687,7 +687,7 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 // apply to a platform admin acting via AdminUpdateMemberRole.
 func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRoleInput) error {
 	if !input.NewRole.IsValid() {
-		return domain.NewError("invalid_role", "Invalid organization role")
+		return domain.ErrInvalidOrgRole
 	}
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return err

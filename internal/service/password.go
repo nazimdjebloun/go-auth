@@ -67,7 +67,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswo
 	if s.mailer == nil {
 		// This check precedes the account lookup so a configuration failure has
 		// one response shape regardless of whether the submitted email exists.
-		return domain.NewError("email_not_configured", "Email sender is not configured")
+		return domain.ErrEmailNotConfigured
 	}
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
@@ -289,11 +289,11 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 	}
 
 	if user.HasPassword() {
-		return domain.NewError("already_set", "User already has a password")
+		return domain.ErrPasswordAlreadySet
 	}
 
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured")
+		return domain.ErrEmailNotConfigured
 	}
 
 	raw, err := otp.Generate(8)
@@ -371,15 +371,15 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 	}
 	token, err := s.tokens.GetLastByUserAndType(ctx, input.UserID, domain.TokenSetPass)
 	if err != nil || token == nil {
-		return domain.NewError("invalid_code", "Invalid set password code")
+		return domain.ErrInvalidSetPasswordCode
 	}
 
 	if token.Type != domain.TokenSetPass {
-		return domain.NewError("invalid_code", "Invalid set password code")
+		return domain.ErrInvalidSetPasswordCode
 	}
 
 	if token.UsedAt != nil {
-		return domain.NewError("code_used", "Set password code has already been used")
+		return domain.ErrSetPasswordCodeUsed
 	}
 
 	if time.Now().UTC().After(token.ExpiresAt) {
@@ -394,11 +394,11 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 	}
 
 	if !verifyOTP(input.Code, token.TokenHash, s.config.OTPPepper) {
-		return domain.NewError("invalid_code", "Invalid set password code")
+		return domain.ErrInvalidSetPasswordCode
 	}
 
 	if token.UserID == nil || *token.UserID != input.UserID {
-		return domain.NewError("invalid_code", "Invalid set password code")
+		return domain.ErrInvalidSetPasswordCode
 	}
 
 	hash, pepperVersion, err := hashPassword(s.hasher, input.NewPassword)
@@ -416,7 +416,7 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 		// Lost the race: a concurrent confirm consumed the same code
 		// between this request's pre-check and its claim. Same response as
 		// the pre-check above — the loser must request a fresh code.
-		return domain.NewError("code_used", "Set password code has already been used")
+		return domain.ErrSetPasswordCodeUsed
 	}
 
 	s.log.Info("password set via code", "user_id", input.UserID)

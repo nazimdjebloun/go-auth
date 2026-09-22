@@ -64,8 +64,9 @@ var byCode = map[string]int{
 	"two_factor_already_enforced":  http.StatusConflict,
 	"two_factor_password_required": http.StatusBadRequest,
 
-	// Ad hoc codes constructed inline at their one or few call sites in
-	// service/ and internal/handler/, rather than as domain.Err* sentinels.
+	// Message-specific or dynamic errors remain constructed inline in service/
+	// and internal/handler/ rather than being forced through an unrelated
+	// domain.Err* sentinel with a different response body.
 	"already_banned":       http.StatusBadRequest,
 	"last_admin":           http.StatusBadRequest,
 	"not_banned":           http.StatusBadRequest,

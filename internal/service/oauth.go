@@ -209,7 +209,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	}
 
 	if stateToken.UsedAt != nil {
-		return nil, domain.NewError("state_used", "OAuth state token already used")
+		return nil, domain.ErrOAuthStateUsed
 	}
 
 	if time.Now().UTC().After(stateToken.ExpiresAt) {
@@ -222,7 +222,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return nil, domain.ErrInternal
 	}
 	if !claimed {
-		return nil, domain.NewError("state_used", "OAuth state token already used")
+		return nil, domain.ErrOAuthStateUsed
 	}
 
 	codeVerifier := ""

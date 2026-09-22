@@ -303,7 +303,7 @@ type AdminAddMemberInput struct {
 // EventAdminOrgMemberAdded.
 func (s *OrgService) AdminAddMember(ctx context.Context, input AdminAddMemberInput) error {
 	if !input.Role.IsValid() {
-		return domain.NewError("invalid_role", "Invalid organization role")
+		return domain.ErrInvalidOrgRole
 	}
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
@@ -353,7 +353,7 @@ type AdminUpdateMemberRoleInput struct {
 // the org. Publishes EventAdminOrgMemberRoleChanged.
 func (s *OrgService) AdminUpdateMemberRole(ctx context.Context, input AdminUpdateMemberRoleInput) error {
 	if !input.NewRole.IsValid() {
-		return domain.NewError("invalid_role", "Invalid organization role")
+		return domain.ErrInvalidOrgRole
 	}
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err

@@ -65,19 +65,19 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	}
 	token, err := s.tokens.GetByHash(ctx, hashOTP(code, s.config.OTPPepper))
 	if err != nil || token == nil {
-		return nil, domain.NewError("code_invalid", "Invalid verification code")
+		return nil, domain.ErrVerificationCodeInvalid
 	}
 
 	if token.Type != domain.TokenVerifyEmail {
-		return nil, domain.NewError("code_invalid", "Invalid verification code")
+		return nil, domain.ErrVerificationCodeInvalid
 	}
 
 	if token.UsedAt != nil {
-		return nil, domain.NewError("code_already_used", "This code has already been used")
+		return nil, domain.ErrVerificationCodeUsed
 	}
 
 	if time.Now().UTC().After(token.ExpiresAt) {
-		return nil, domain.NewError("code_expired", "Verification code has expired")
+		return nil, domain.ErrVerificationCodeExpired
 	}
 
 	// A rotation-stale code predates the live pepper and can never verify —
@@ -86,15 +86,15 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	// it. code_expired vs code_invalid is the client's resend-vs-retype
 	// branch, so the two must stay distinct here.
 	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
-		return nil, domain.NewError("code_expired", "Verification code has expired")
+		return nil, domain.ErrVerificationCodeExpired
 	}
 
 	if !verifyOTP(code, token.TokenHash, s.config.OTPPepper) {
-		return nil, domain.NewError("code_invalid", "Invalid verification code")
+		return nil, domain.ErrVerificationCodeInvalid
 	}
 
 	if token.UserID == nil {
-		return nil, domain.NewError("code_invalid", "Invalid verification code")
+		return nil, domain.ErrVerificationCodeInvalid
 	}
 
 	// Not attempt-capped, and it cannot be with this lookup: VerifyEmail
@@ -126,14 +126,14 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 			return consumeErr
 		}
 		if !consumed {
-			return domain.NewError("code_already_used", "This code has already been used")
+			return domain.ErrVerificationCodeUsed
 		}
 		updated, updateErr := verifyUserEmail(txCtx, s.users, user, token.Email, now)
 		if updateErr != nil {
 			return updateErr
 		}
 		if !updated {
-			return domain.NewError("code_invalid", "Invalid verification code")
+			return domain.ErrVerificationCodeInvalid
 		}
 		// Inside the transaction: the record commits with the verification
 		// it describes (record-iff-commit). Recording after commit would
@@ -165,7 +165,7 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 // a nil error alone does not mean an email left the building.
 func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) (*VerificationResult, error) {
 	if s.mailer == nil {
-		return nil, domain.NewError("email_not_configured", "Email sender is not configured")
+		return nil, domain.ErrEmailNotConfigured
 	}
 
 	// One read answers both skip questions, the way TwoFactorService.Challenge
@@ -283,11 +283,11 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) (*VerificationResult, error) {
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil || user == nil {
-		return nil, domain.NewError("email_not_found", "If an account exists, a verification email has been sent")
+		return nil, domain.ErrVerificationEmailSent
 	}
 
 	if user.IsVerified {
-		return nil, domain.NewError("email_not_found", "If an account exists, a verification email has been sent")
+		return nil, domain.ErrVerificationEmailSent
 	}
 
 	return s.SendVerification(ctx, user)

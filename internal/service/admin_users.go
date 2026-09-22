@@ -287,7 +287,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 		return nil, err
 	}
 	if strings.TrimSpace(input.Name) == "" {
-		return nil, domain.NewError("name_required", "Name is required")
+		return nil, domain.ErrNameRequired
 	}
 	input.Name = strings.TrimSpace(input.Name)
 

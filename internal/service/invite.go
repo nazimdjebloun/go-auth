@@ -121,7 +121,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	}
 
 	if s.mailer == nil {
-		return nil, domain.NewError("email_not_configured", "Email sender is not configured")
+		return nil, domain.ErrEmailNotConfigured
 	}
 
 	raw, genErr := s.gen.Generate()
@@ -159,7 +159,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	}
 	if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send invite email", "err", err, "email", input.Email)
-		return nil, domain.NewError("email_failed", "Failed to send invite email")
+		return nil, domain.ErrInviteEmailFailed
 	}
 
 	invite.RawCode = ""
@@ -192,7 +192,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}
 
 	if strings.TrimSpace(input.Name) == "" {
-		return nil, domain.NewError("name_required", "Name is required")
+		return nil, domain.ErrNameRequired
 	}
 	input.Name = strings.TrimSpace(input.Name)
 
@@ -410,7 +410,7 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID
 	}
 
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured")
+		return domain.ErrEmailNotConfigured
 	}
 
 	raw, err := s.gen.Generate()
@@ -439,7 +439,7 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID
 	}
 	if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send invite email", "err", err, "invite_id", inviteID)
-		return domain.NewError("email_failed", "Failed to send invite email")
+		return domain.ErrInviteEmailFailed
 	}
 
 	if s.audit != nil {
@@ -509,7 +509,7 @@ func inviteFailure(id, email string, err error) BulkInviteFailure {
 
 func validateBulkIDs(ids []string) error {
 	if len(ids) == 0 {
-		return domain.NewError("invalid_input", "inviteIds must not be empty")
+		return domain.ErrInviteIDsRequired
 	}
 	if len(ids) > maxBulkInviteIDs {
 		return domain.NewError("invalid_input", fmt.Sprintf("at most %d inviteIds per bulk request", maxBulkInviteIDs))
@@ -620,7 +620,7 @@ func (s *InviteService) BulkResendInvites(ctx context.Context, input BulkInviteI
 		return nil, err
 	}
 	if len(input.InviteIDs) == 0 {
-		return nil, domain.NewError("invalid_input", "inviteIds must not be empty")
+		return nil, domain.ErrInviteIDsRequired
 	}
 	if len(input.InviteIDs) > maxBulkInviteEmails {
 		return nil, domain.NewError("invalid_input", fmt.Sprintf("at most %d inviteIds per bulk resend", maxBulkInviteEmails))
