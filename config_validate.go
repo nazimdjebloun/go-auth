@@ -280,7 +280,7 @@ func (c *Config) validatePasswordHasher() []error {
 	var errs []error
 	// WithPasswordHasher is more specific and makes WithBcryptCost inert,
 	// regardless of option order.
-	if c.PasswordHasher == nil && c.bcryptCost > bcrypt.MaxCost {
+	if c.passwordHasher == nil && c.bcryptCost > bcrypt.MaxCost {
 		errs = append(errs, fmt.Errorf("bcrypt_cost %d exceeds bcrypt.MaxCost (%d)", c.bcryptCost, bcrypt.MaxCost))
 	}
 	if err := c.validatePasswordPepper(); err != nil {

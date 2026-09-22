@@ -55,7 +55,7 @@ func WithTemplates(p port.TemplateProvider) Option {
 // verifiable after this is changed. See rehash-on-login below.
 func WithPasswordHasher(h port.Hasher) Option {
 	return func(c *Config) {
-		c.PasswordHasher = h
+		c.passwordHasher = h
 	}
 }
 

@@ -122,7 +122,7 @@ func New(in *Config) (*Auth, error) {
 	// using a caller's WithBcryptCost value here would only make the startup
 	// probe needlessly expensive when a custom current hasher is active.
 	const defaultBcryptCost = 12
-	currentHasher := cfg.PasswordHasher
+	currentHasher := cfg.passwordHasher
 	if currentHasher == nil {
 		cost := defaultBcryptCost
 		if cfg.bcryptCost > 0 {
@@ -141,11 +141,11 @@ func New(in *Config) (*Auth, error) {
 	for version, secret := range cfg.passwordPepper.Keys {
 		passwordPepperKeys[version] = keyring.DerivePasswordPepper([]byte(secret))
 	}
-	PasswordHasher, err := service.NewPasswordHasher(passwordRegistry, cfg.passwordPepper.CurrentVersion, passwordPepperKeys)
+	passwordHasher, err := service.NewPasswordHasher(passwordRegistry, cfg.passwordPepper.CurrentVersion, passwordPepperKeys)
 	if err != nil {
 		return nil, fmt.Errorf("goauth: building password hasher: %w", err)
 	}
-	var hasherImpl port.Hasher = PasswordHasher
+	var hasherImpl port.Hasher = passwordHasher
 
 	if err := requireDriverSupport(&cfg); err != nil {
 		return nil, err
@@ -179,7 +179,7 @@ func New(in *Config) (*Auth, error) {
 		if err != nil {
 			return nil, fmt.Errorf("goauth: validating stored password pepper versions: %w", err)
 		}
-		if err := PasswordHasher.ValidateStoredVersions(storedPepperVersions); err != nil {
+		if err := passwordHasher.ValidateStoredVersions(storedPepperVersions); err != nil {
 			return nil, fmt.Errorf("goauth: invalid password pepper configuration: %w", err)
 		}
 	}

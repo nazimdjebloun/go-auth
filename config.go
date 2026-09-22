@@ -41,7 +41,7 @@ type Config struct {
 	auditSinks     []audit.EventSink
 	logger         *slog.Logger
 	rateLimit      *ratelimit.Config
-	PasswordHasher port.Hasher // WithPasswordHasher; nil = bcrypt
+	passwordHasher port.Hasher // WithPasswordHasher; nil = bcrypt
 	bcryptCost     int         // WithBcryptCost; 0 = default 12
 
 	resolved resolved
