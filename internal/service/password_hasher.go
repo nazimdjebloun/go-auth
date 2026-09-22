@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/nazimdjebloun/go-auth/hasher/registry"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -18,7 +19,7 @@ var errUnsupportedPepperVersion = errors.New("service: unsupported password pepp
 // non-nil versions select exactly one key. Verification never searches the
 // keyring, which keeps work bounded and prevents ambiguous migrations.
 type passwordHasher struct {
-	registry       *hasherRegistry
+	registry       *registry.Registry
 	currentVersion uint32
 	keys           map[uint32][]byte
 }
@@ -27,7 +28,7 @@ type passwordHasher struct {
 // currentVersion zero leaves new hashes unpeppered while still allowing
 // preloaded keys to verify rows written by newer nodes during a rolling
 // deployment.
-func NewPasswordHasher(registry *hasherRegistry, currentVersion uint32, keys map[uint32][]byte) (*passwordHasher, error) {
+func NewPasswordHasher(registry *registry.Registry, currentVersion uint32, keys map[uint32][]byte) (*passwordHasher, error) {
 	if registry == nil {
 		return nil, errors.New("password hasher: registry is nil")
 	}
@@ -113,7 +114,7 @@ func (h *passwordHasher) compareVersioned(password, stored string, version *uint
 	}
 	key, ok := h.keys[*version]
 	if !ok || *version == 0 {
-		h.registry.burnDummy(stored)
+		h.registry.BurnDummy(stored)
 		return fmt.Errorf("%w: %d", errUnsupportedPepperVersion, *version)
 	}
 	return h.registry.Compare(pepperPassword(password, key), stored)
@@ -129,11 +130,11 @@ func (h *passwordHasher) needsRehash(stored string, storedVersion *uint32) bool 
 		// newer node because its key was preloaded. It must never downgrade it.
 		return false
 	}
-	return version < h.currentVersion || h.registry.needsRehash(stored)
+	return version < h.currentVersion || h.registry.NeedsRehash(stored)
 }
 
 func (h *passwordHasher) dummyHash() string {
-	return h.registry.dummyHash()
+	return h.registry.DummyHash()
 }
 
 type versionedPasswordPipeline interface {

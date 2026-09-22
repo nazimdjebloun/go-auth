@@ -1,4 +1,4 @@
-package service
+package registry
 
 import (
 	"errors"
@@ -11,9 +11,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var errUnsupportedHashFormat = errors.New("service: unsupported password hash format")
+var errUnsupportedHashFormat = errors.New("hasher registry: unsupported password hash format")
 
-// HasherRegistry implements port.Hasher by dispatching Compare on the stored
+// ErrUnsupportedHashFormat reports a stored hash with no registered verifier.
+var ErrUnsupportedHashFormat = errUnsupportedHashFormat
+
+// Registry implements port.Hasher by dispatching Compare on the stored
 // hash's own identifying prefix — never on whichever hasher is currently
 // configured. The prefix is the algorithm identity baked into the stored
 // string itself: MCF-style hashes carry it up front ("$2a$" bcrypt,
@@ -33,7 +36,7 @@ var errUnsupportedHashFormat = errors.New("service: unsupported password hash fo
 //
 // Build it through goauth.New (WithPasswordHasher / WithBcryptCost); the
 // constructor is exported for direct service wiring and tests.
-type hasherRegistry struct {
+type Registry struct {
 	current   port.Hasher
 	forVerify map[string]port.Hasher
 
@@ -99,6 +102,11 @@ func hashFormatPrefix(hash string) string {
 	return hash[:start+next+1]
 }
 
+// HashFormatPrefix returns the identifying prefix used for verifier dispatch.
+func HashFormatPrefix(hash string) string {
+	return hashFormatPrefix(hash)
+}
+
 // hashParameterFingerprint returns the algorithm-and-parameters portion of
 // a self-describing hash while dropping its salt and digest. This covers the
 // common MCF/PHC shapes used by Argon2id and scrypt as well as Django-style
@@ -112,7 +120,7 @@ func hashParameterFingerprint(hash string) string {
 	return strings.Join(parts[:len(parts)-2], "$")
 }
 
-// NewHasherRegistry builds the dispatch table. current is used for all new
+// New builds the dispatch table. current is used for all new
 // hashes and registered for verification under its own prefix, extracted by
 // hashing a fixed probe value once — a live hasher object cannot be asked
 // its algorithm (port.Hasher is two methods by design), but its output always
@@ -133,7 +141,7 @@ func hashParameterFingerprint(hash string) string {
 // identifying prefix (a hash format the registry itself cannot recognize
 // cannot be dispatched even against the hasher that produced it), or that
 // claims a bcrypt prefix with unparseable cost parameters.
-func NewHasherRegistry(current port.Hasher, legacyForVerify ...port.Hasher) (*hasherRegistry, error) {
+func New(current port.Hasher, legacyForVerify ...port.Hasher) (*Registry, error) {
 	if isNilHasher(current) {
 		return nil, fmt.Errorf("hasher registry: current hasher is nil")
 	}
@@ -154,7 +162,7 @@ func NewHasherRegistry(current port.Hasher, legacyForVerify ...port.Hasher) (*ha
 		)
 	}
 
-	r := &hasherRegistry{
+	r := &Registry{
 		current: current,
 		// Argon2id is a built-in legacy verifier even when bcrypt remains
 		// current. Unlike a generic legacy hasher, its standard prefix is
@@ -247,7 +255,7 @@ func isNilHasher(h port.Hasher) bool {
 // Hash always uses current — new and re-hashed passwords are written under
 // the configured algorithm, never under whatever produced the row being
 // replaced.
-func (r *hasherRegistry) Hash(password string) (string, error) {
+func (r *Registry) Hash(password string) (string, error) {
 	return r.current.Hash(password)
 }
 
@@ -257,7 +265,7 @@ func (r *hasherRegistry) Hash(password string) (string, error) {
 // to current, no panic, no guessing. This is the fail-closed contract: a
 // hash this deployment cannot recognize cannot be safely verified by
 // anything.
-func (r *hasherRegistry) Compare(password, stored string) error {
+func (r *Registry) Compare(password, stored string) error {
 	h, ok := r.forVerify[hashFormatPrefix(stored)]
 	if !ok || h == nil {
 		return errUnsupportedHashFormat
@@ -265,20 +273,20 @@ func (r *hasherRegistry) Compare(password, stored string) error {
 	return h.Compare(password, stored)
 }
 
-// dummyHash returns a hash in current's exact format for the user-not-found
+// DummyHash returns a hash in current's exact format for the user-not-found
 // path's timing-equalizing comparison — see authenticate. It is a real hash
 // of a fixed probe plaintext, so comparing against it runs the same
 // algorithm and cost as comparing a real password, and its result is always
 // discarded.
-func (r *hasherRegistry) dummyHash() string {
+func (r *Registry) DummyHash() string {
 	return r.probe
 }
 
-// burnDummy performs real password-KDF work for a row that cannot be checked
+// BurnDummy performs real password-KDF work for a row that cannot be checked
 // because its pepper version is unavailable. A well-formed known hash runs
 // with its own embedded parameters. If the format is unknown or malformed,
 // the current probe guarantees one full comparison at the current cost.
-func (r *hasherRegistry) burnDummy(stored string) {
+func (r *Registry) BurnDummy(stored string) {
 	const candidate = "goauth-unsupported-pepper-version-dummy"
 	err := r.Compare(candidate, stored)
 	if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) || errors.Is(err, argon2id.ErrPasswordMismatch) {
@@ -287,7 +295,7 @@ func (r *hasherRegistry) burnDummy(stored string) {
 	_ = r.Compare(candidate, r.probe)
 }
 
-// needsRehash reports whether a just-verified stored hash is due for an
+// NeedsRehash reports whether a just-verified stored hash is due for an
 // upgrade to current: a different algorithm than current, or the same
 // bcrypt-family algorithm at a different cost. It inspects only the stored
 // string and the probe facts — no hashing runs — so it is cheap enough to
@@ -299,7 +307,7 @@ func (r *hasherRegistry) burnDummy(stored string) {
 // forced reset. Minor-version differences within the bcrypt family ("$2b$"
 // stored, current writes "$2a$") deliberately do not trigger a rehash: the
 // family verifies interchangeably, so re-hashing would buy nothing.
-func (r *hasherRegistry) needsRehash(stored string) bool {
+func (r *Registry) NeedsRehash(stored string) bool {
 	storedPrefix := hashFormatPrefix(stored)
 	if _, ok := r.forVerify[storedPrefix]; !ok {
 		// Unverifiable format — Compare fails before this matters. Report

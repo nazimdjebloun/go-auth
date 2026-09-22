@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/hasher/registry"
 	"github.com/nazimdjebloun/go-auth/internal/otp"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -219,7 +220,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		return nil, err
 	}
 	if strings.TrimSpace(input.Name) == "" {
-		return nil, domain.NewError("name_required", "Name is required")
+		return nil, domain.ErrNameRequired
 	}
 	input.Name = strings.TrimSpace(input.Name)
 
@@ -355,9 +356,9 @@ func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*doma
 		// still gets the same invalid_credentials response as every other
 		// failed comparison. Returning a distinct status here would turn a
 		// damaged row into an account-enumeration signal.
-		if errors.Is(err, errUnsupportedHashFormat) {
+		if errors.Is(err, registry.ErrUnsupportedHashFormat) {
 			s.log.Error("login refused: stored password hash format unrecognized",
-				"user_id", user.ID, "hash_prefix", hashFormatPrefix(*user.PasswordHash))
+				"user_id", user.ID, "hash_prefix", registry.HashFormatPrefix(*user.PasswordHash))
 		} else if errors.Is(err, errUnsupportedPepperVersion) {
 			s.log.Error("login refused: stored password pepper version unavailable",
 				"user_id", user.ID, "pepper_version", *user.PasswordPepperVersion)
@@ -395,7 +396,7 @@ func (s *AuthService) rehashIfNeeded(ctx context.Context, user *domain.User, pas
 	if pipeline, ok := s.hasher.(versionedPasswordPipeline); ok {
 		needsRehash = pipeline.needsRehash(*user.PasswordHash, user.PasswordPepperVersion)
 	} else if registry, ok := s.hasher.(rehashRegistry); ok {
-		needsRehash = registry.needsRehash(*user.PasswordHash)
+		needsRehash = registry.NeedsRehash(*user.PasswordHash)
 	}
 	if !needsRehash {
 		return
@@ -433,7 +434,7 @@ func (s *AuthService) burnDummyPasswordVerification(password string) {
 // unit tests) get a bcrypt-shaped constant as before.
 func (s *AuthService) dummyHashForTiming() string {
 	if registry, ok := s.hasher.(rehashRegistry); ok {
-		if h := registry.dummyHash(); h != "" {
+		if h := registry.DummyHash(); h != "" {
 			return h
 		}
 	}
@@ -442,7 +443,7 @@ func (s *AuthService) dummyHashForTiming() string {
 	return "$2a$12$....................................................................................................."
 }
 
-// rehashRegistry is the facet hasherRegistry implements beyond port.Hasher:
+// rehashRegistry is the facet registry.Registry implements beyond port.Hasher:
 // the needsRehash decision and a current-format dummy for timing work.
 // AuthService holds port.Hasher (services must be constructible with any
 // hasher), so the upgrade path is an interface assertion rather than a field
@@ -450,8 +451,8 @@ func (s *AuthService) dummyHashForTiming() string {
 type rehashRegistry interface {
 	Hash(password string) (string, error)
 	Compare(password, hash string) error
-	needsRehash(stored string) bool
-	dummyHash() string
+	NeedsRehash(stored string) bool
+	DummyHash() string
 }
 
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, error) {
@@ -692,7 +693,7 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 	}
 
 	if s.mailer == nil {
-		return domain.NewError("email_not_configured", "Email sender is not configured")
+		return domain.ErrEmailNotConfigured
 	}
 
 	hasValid, err := s.tokens.HasValidByUserAndType(ctx, userID, domain.TokenDeleteAccount)

@@ -9,12 +9,13 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher"
+	"github.com/nazimdjebloun/go-auth/hasher/registry"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
 // rehashLoginService is the full wiring rehash-on-login tests need: an
-// AuthService built with a hasherRegistry as its hasher — the same shape
+// AuthService built with a registry.Registry as its hasher — the same shape
 // goauth.New produces — plus the mock repos the constructor requires.
 type rehashLoginService struct {
 	*AuthService
@@ -32,7 +33,7 @@ func newRehashLoginService(t *testing.T, current, legacy rehashHasher) *rehashLo
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	reg, err := NewHasherRegistry(current, legacy)
+	reg, err := registry.New(current, legacy)
 	if err != nil {
 		t.Fatalf("registry build: %v", err)
 	}
@@ -300,7 +301,7 @@ func TestRehashOnLogin_DoesNotOverwriteConcurrentPasswordChange(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	tokens := testutil.NewMockTokenRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
-	reg, err := NewHasherRegistry(argonFakeHasher{}, hasher.New(12))
+	reg, err := registry.New(argonFakeHasher{}, hasher.New(12))
 	if err != nil {
 		t.Fatal(err)
 	}

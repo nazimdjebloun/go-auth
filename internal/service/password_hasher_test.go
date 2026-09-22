@@ -9,6 +9,7 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher"
+	"github.com/nazimdjebloun/go-auth/hasher/registry"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
 
@@ -30,10 +31,10 @@ func (h *recordingPasswordHasher) Compare(password, stored string) error {
 	return nil
 }
 
-func newRecordingPasswordHasher(t *testing.T, currentVersion uint32, keys map[uint32][]byte) (*passwordHasher, *hasherRegistry, *recordingPasswordHasher) {
+func newRecordingPasswordHasher(t *testing.T, currentVersion uint32, keys map[uint32][]byte) (*passwordHasher, *registry.Registry, *recordingPasswordHasher) {
 	t.Helper()
 	current := &recordingPasswordHasher{}
-	registry, err := NewHasherRegistry(current, hasher.New(4))
+	registry, err := registry.New(current, hasher.New(4))
 	if err != nil {
 		t.Fatalf("registry build: %v", err)
 	}
@@ -209,7 +210,7 @@ func TestPasswordPepper_UnpepperedLoginUpgradesOnce(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	tokens := testutil.NewMockTokenRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
-	registry, err := NewHasherRegistry(current, hasher.New(4))
+	registry, err := registry.New(current, hasher.New(4))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"strings"
 	"testing"
+
+	"github.com/nazimdjebloun/go-auth/hasher/registry"
 )
 
 func FuzzHashToken(f *testing.F) {
@@ -80,7 +82,7 @@ func FuzzHashFormatPrefix(f *testing.F) {
 	f.Add("$")
 	f.Add("$$")
 	f.Fuzz(func(t *testing.T, hash string) {
-		prefix := hashFormatPrefix(hash)
+		prefix := registry.HashFormatPrefix(hash)
 		if prefix == "" && hash != "" {
 			// Empty prefix is only valid for empty input.
 			return
