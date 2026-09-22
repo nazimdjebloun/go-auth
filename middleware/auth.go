@@ -5,9 +5,9 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/service"
 )
 
 type ctxKey string
@@ -35,9 +35,21 @@ func ContextWithSession(ctx context.Context, session *domain.Session) context.Co
 	return context.WithValue(ctx, ctxSession, session)
 }
 
-func AuthMiddleware(sessionSvc *service.SessionService, cookies CookieSettings, userRepo interface {
+// SessionAuthenticator supplies the session operations authentication needs.
+// Implementations must preserve the same refresh and liveness semantics as
+// the library's SessionService.
+type SessionAuthenticator interface {
+	ValidateWithUser(ctx context.Context, token string) (*domain.Session, *domain.User, error)
+	RefreshSession(ctx context.Context, rawRefreshToken string) (*domain.SessionResult, error)
+	Touch(ctx context.Context, token string, lastActiveAt time.Time) error
+}
+
+// UserLookup resolves the session owner after a successful token refresh.
+type UserLookup interface {
 	GetByID(ctx context.Context, id string) (*domain.User, error)
-}, logger *slog.Logger) func(http.Handler) http.Handler {
+}
+
+func AuthMiddleware(sessionSvc SessionAuthenticator, cookies CookieSettings, userRepo UserLookup, logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -62,9 +74,7 @@ func AuthMiddleware(sessionSvc *service.SessionService, cookies CookieSettings, 
 // Rejections are logged at a level reflecting how actionable they are: routine
 // cases (missing cookie, expired session) at Debug/Info, and rejections of an
 // otherwise-valid session (banned or deleted user) at Warn.
-func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc *service.SessionService, cookies CookieSettings, userRepo interface {
-	GetByID(ctx context.Context, id string) (*domain.User, error)
-}, logger *slog.Logger) (*domain.Session, *domain.User, string) {
+func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc SessionAuthenticator, cookies CookieSettings, userRepo UserLookup, logger *slog.Logger) (*domain.Session, *domain.User, string) {
 	cookie, err := r.Cookie(cookies.Name)
 	if err != nil {
 		// Debug: fires on every unauthenticated request, deliberately below default log level to avoid flooding — raise handler level to Debug to see these.

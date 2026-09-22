@@ -81,16 +81,9 @@ func (s *SessionService) withTx(ctx context.Context, fn func(context.Context) er
 	return s.txManager.WithTx(ctx, fn)
 }
 
-// SessionResult bundles a session with the raw tokens issued alongside it.
-// Only the hashes are ever persisted, so Create and RefreshSession are the
-// only places the raw SessionToken/RefreshToken values exist — this is how
-// they reach the caller (an HTTP handler that cookies them, or a
-// programmatic caller that stores them directly).
-type SessionResult struct {
-	Session      *domain.Session
-	SessionToken string
-	RefreshToken string
-}
+// SessionResult remains available to service callers while its public shape
+// lives in domain, where middleware can name it without importing service.
+type SessionResult = domain.SessionResult
 
 func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*SessionResult, error) {
 	sessionToken, err := s.tokenGen.Generate()

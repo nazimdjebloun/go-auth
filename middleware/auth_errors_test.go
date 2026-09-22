@@ -25,6 +25,8 @@ type infrastructureSessionRepo struct {
 	refreshCalls            int
 }
 
+var _ SessionAuthenticator = (*service.SessionService)(nil)
+
 func (s *infrastructureSessionRepo) GetByTokenHashWithUser(context.Context, string) (*domain.Session, *domain.User, error) {
 	return nil, nil, s.validateErr
 }
