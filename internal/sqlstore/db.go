@@ -36,6 +36,15 @@ func (d *DB) Rebind(query string) string {
 	return query
 }
 
+// UsesPositionalParams reports whether this database takes positional "?"
+// placeholders (MySQL and the SQLite drivers) rather than PostgreSQL's
+// numbered "$N". The same driver classification drives DB.Rebind above; the
+// repositories additionally consult it for the dialect-specific LIKE operator
+// (PostgreSQL's ILIKE vs MySQL/SQLite's LIKE with an adjusted search term).
+func (d *DB) UsesPositionalParams() bool {
+	return positionalParamDrivers[d.driver]
+}
+
 func rebindQuery(query string) string {
 	var b strings.Builder
 	b.Grow(len(query))

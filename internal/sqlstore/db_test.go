@@ -110,6 +110,44 @@ func TestDriver_MysqlDriversMap(t *testing.T) {
 	}
 }
 
+func TestDB_UsesPositionalParams(t *testing.T) {
+	tests := []struct {
+		name   string
+		driver string
+		want   bool
+	}{
+		{
+			name:   "mysql",
+			driver: "mysql",
+			want:   true,
+		},
+		{
+			name:   "sqlite",
+			driver: "sqlite",
+			want:   true,
+		},
+		{
+			name:   "sqlite3",
+			driver: "sqlite3",
+			want:   true,
+		},
+		{
+			name:   "postgres",
+			driver: "postgres",
+			want:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := NewDB(nil, tt.driver)
+			if got := db.UsesPositionalParams(); got != tt.want {
+				t.Errorf("UsesPositionalParams() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 // ---------------------------------------------------------------------------
 // WithTx: regression tests for actual transactional atomicity.
 //

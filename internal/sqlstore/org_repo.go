@@ -166,7 +166,7 @@ func (r *OrgRepository) membersWhere(orgID string, filter port.OrgMemberFilter) 
 	if filter.Search != nil && *filter.Search != "" {
 		searchTerm := "%" + *filter.Search + "%"
 		op := "ILIKE"
-		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+		if r.db.UsesPositionalParams() {
 			op = "LIKE"
 		}
 		where = append(where, fmt.Sprintf("(u.name %s $%d OR u.email %s $%d)", op, argIdx, op, argIdx+1))
@@ -248,7 +248,7 @@ func (r *OrgRepository) userOrgsWhere(userID string, search *string, role *domai
 	if search != nil && *search != "" {
 		searchTerm := "%" + *search + "%"
 		op := "ILIKE"
-		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+		if r.db.UsesPositionalParams() {
 			op = "LIKE"
 		}
 		where = append(where, fmt.Sprintf("(o.name %s $%d OR o.slug %s $%d)", op, argIdx, op, argIdx+1))
@@ -322,7 +322,7 @@ func (r *OrgRepository) buildListWhere(filter port.OrgFilter) (string, []any) {
 	if filter.Search != nil && *filter.Search != "" {
 		searchTerm := "%" + *filter.Search + "%"
 		op := "ILIKE"
-		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+		if r.db.UsesPositionalParams() {
 			op = "LIKE"
 		}
 		where = append(where, fmt.Sprintf("(o.name %s $%d OR o.slug %s $%d)", op, argIdx, op, argIdx+1))
@@ -545,7 +545,7 @@ func (r *OrgInviteRepository) orgInvitesWhere(orgID string, filter port.OrgInvit
 	if filter.Search != nil && *filter.Search != "" {
 		searchTerm := "%" + *filter.Search + "%"
 		op := "ILIKE"
-		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+		if r.db.UsesPositionalParams() {
 			op = "LIKE"
 		}
 		// Single column (email) — no reused-placeholder risk here. If a

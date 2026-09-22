@@ -279,7 +279,7 @@ func (r *UserRepository) buildWhere(filter port.UserFilter) (string, []any) {
 		// email is the common admin lookup anyway.
 		searchTerm := "%" + *filter.Search + "%"
 		op := "ILIKE"
-		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+		if r.db.UsesPositionalParams() {
 			op = "LIKE"
 			searchTerm = *filter.Search + "%"
 		}

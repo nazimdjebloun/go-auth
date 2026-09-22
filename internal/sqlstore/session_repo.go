@@ -218,7 +218,7 @@ func (r *SessionRepository) buildAllWhere(filter port.SessionFilter, now time.Ti
 	if filter.Search != nil && *filter.Search != "" {
 		searchTerm := "%" + *filter.Search + "%"
 		op := "ILIKE"
-		if r.db.Driver() == "mysql" || r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+		if r.db.UsesPositionalParams() {
 			op = "LIKE"
 		}
 		// Two placeholders, not one reused twice — see UserRepository.buildWhere
