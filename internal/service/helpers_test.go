@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -72,4 +74,30 @@ func newTestSessionServiceNoGrace(repo port.SessionRepository, gen port.TokenGen
 	cfg := DefaultSessionConfig()
 	cfg.GraceWindow = 0
 	return NewSessionService(repo, gen, cfg)
+}
+
+// newTestAdminService also seeds and returns an admin actor's ID — every
+// AdminService method requires one now, so tests use this as the caller.
+func newTestAdminService(users *testutil.MockUserRepo, sessions *testutil.MockSessionRepo, hasher *testutil.MockHasher) (*AdminService, string) {
+	svc, actorID, _ := newTestAdminServiceWithAudit(users, sessions, testutil.NewMockAuditLogRepo(), hasher)
+	return svc, actorID
+}
+
+// newTestAdminServiceWithAudit is newTestAdminService plus an explicit,
+// caller-supplied audit log mock — for GetStats/GetRegistrationTrend/
+// GetLoginActivity tests that need to seed audit rows into the exact
+// instance the service under test reads from.
+func newTestAdminServiceWithAudit(users *testutil.MockUserRepo, sessions *testutil.MockSessionRepo, auditLogs *testutil.MockAuditLogRepo, hasher *testutil.MockHasher) (*AdminService, string, *testutil.MockAuditLogRepo) {
+	gen := &testutil.MockTokenGen{Length: 32}
+	sessSvc := newTestSessionService(sessions, gen)
+	cfg := defaultTestConfig()
+	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
+	providers := testutil.NewMockProviderAccountRepo()
+	actor := &domain.User{ID: "actor-admin", Email: "actor-admin@example.com", Role: domain.RoleAdmin}
+	users.Create(context.Background(), actor)
+	svc := NewAdminService(users, sessions, providers, auditLogs, hasher, cfg, sessSvc)
+	// Production wiring always attaches the coordinator; do the same here
+	// so DeleteUser exercises the real transactional path.
+	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
+	return svc, actor.ID, auditLogs
 }
