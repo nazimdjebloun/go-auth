@@ -68,11 +68,12 @@ No `Origin` header needed — this is a `GET` with no state-changing effect, so 
 #### Programmatic (Go)
 
 ```go
-url, err := auth.Services.OAuth.Initiate(ctx, "google")
+flow, err := auth.Services.OAuth.Initiate(ctx, "google")
 if err != nil {
     // wraps a *domain.AuthError — provider_not_found if the name is wrong
 }
-// redirect the browser to url
+// Bind flow.State to the initiating browser as the HTTP handler does,
+// then redirect the browser to flow.URL.
 ```
 
 ---

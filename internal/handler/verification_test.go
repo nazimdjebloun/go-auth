@@ -66,6 +66,11 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
+	for _, cookie := range res.Cookies() {
+		if cookie.Name == "goauth_session" || cookie.Name == "goauth_refresh" {
+			t.Fatalf("email verification issued %s cookie", cookie.Name)
+		}
+	}
 
 	updated, _ := th.users.GetByID(context.Background(), uid)
 	if !updated.IsVerified {

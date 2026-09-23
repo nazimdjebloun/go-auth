@@ -867,24 +867,15 @@ func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...po
 	return a
 }
 
-func oauthStateFromURL(t *testing.T, url string) string {
-	t.Helper()
-	parts := strings.SplitN(url, "state=", 2)
-	if len(parts) != 2 || parts[1] == "" {
-		t.Fatalf("AuthURL carries no state: %q", url)
-	}
-	return parts[1]
-}
-
 // oauthRegister drives a full OAuth registration through the public service
 // surface and returns the new user's ID.
 func oauthRegister(ctx context.Context, t *testing.T, a *goauth.Auth, provider string) string {
 	t.Helper()
-	authURL, err := a.Services.OAuth.Initiate(ctx, provider)
+	flow, err := a.Services.OAuth.Initiate(ctx, provider)
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := a.Services.OAuth.Callback(ctx, provider, "code", oauthStateFromURL(t, authURL), "127.0.0.1", "test-agent")
+	res, err := a.Services.OAuth.Callback(ctx, provider, "code", flow.State, flow.State, "", "127.0.0.1", "test-agent")
 	if err != nil {
 		t.Fatalf("OAuth callback failed: %v", err)
 	}
@@ -900,11 +891,15 @@ func oauthRegister(ctx context.Context, t *testing.T, a *goauth.Auth, provider s
 
 func oauthLink(ctx context.Context, t *testing.T, a *goauth.Auth, provider, userID string) {
 	t.Helper()
-	authURL, err := a.Services.OAuth.InitiateLink(ctx, provider, userID)
+	session, err := a.Services.Session.Create(ctx, userID, "127.0.0.1", "test-agent")
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := a.Services.OAuth.Callback(ctx, provider, "code", oauthStateFromURL(t, authURL), "127.0.0.1", "test-agent")
+	flow, err := a.Services.OAuth.InitiateLink(ctx, provider, userID, session.Session.TokenHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := a.Services.OAuth.Callback(ctx, provider, "code", flow.State, flow.State, session.SessionToken, "127.0.0.1", "test-agent")
 	if err != nil {
 		t.Fatalf("OAuth link failed: %v", err)
 	}
@@ -967,11 +962,11 @@ func TestUnlink_ConcurrentLastProvider(t *testing.T) {
 	}
 
 	// The surviving login method still works — no lockout.
-	authURL, err := a.Services.OAuth.Initiate(ctx, remaining[0].Provider)
+	flow, err := a.Services.OAuth.Initiate(ctx, remaining[0].Provider)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Services.OAuth.Callback(ctx, remaining[0].Provider, "code", oauthStateFromURL(t, authURL), "127.0.0.1", "test-agent"); err != nil {
+	if _, err := a.Services.OAuth.Callback(ctx, remaining[0].Provider, "code", flow.State, flow.State, "", "127.0.0.1", "test-agent"); err != nil {
 		t.Fatalf("login via the surviving provider failed: %v", err)
 	}
 }
@@ -992,11 +987,11 @@ func TestOAuth_ConcurrentSameEmail_OneWins(t *testing.T) {
 
 	states := map[string]string{}
 	for _, provider := range []string{"stubA", "stubB"} {
-		authURL, err := a.Services.OAuth.Initiate(ctx, provider)
+		flow, err := a.Services.OAuth.Initiate(ctx, provider)
 		if err != nil {
 			t.Fatal(err)
 		}
-		states[provider] = oauthStateFromURL(t, authURL)
+		states[provider] = flow.State
 	}
 
 	var wg sync.WaitGroup
@@ -1006,7 +1001,7 @@ func TestOAuth_ConcurrentSameEmail_OneWins(t *testing.T) {
 		go func(provider, state string) {
 			defer wg.Done()
 			err := doWithBusyRetry(func() error {
-				_, err := a.Services.OAuth.Callback(ctx, provider, "code", state, "127.0.0.1", "test-agent")
+				_, err := a.Services.OAuth.Callback(ctx, provider, "code", state, state, "", "127.0.0.1", "test-agent")
 				return err
 			})
 			switch authCode(err) {

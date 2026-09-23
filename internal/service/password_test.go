@@ -502,6 +502,11 @@ func TestChangePassword_HappyPath(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}))
+	uid := "user-1"
+	checkTestErrors(t).noError(tokens.Create(context.Background(), &domain.VerificationToken{
+		ID: "pending-2fa", UserID: &uid, Type: domain.TokenTwoFactor,
+		ExpiresAt: time.Now().UTC().Add(time.Minute),
+	}))
 
 	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
 		UserID:      "user-1",
@@ -510,6 +515,10 @@ func TestChangePassword_HappyPath(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	challenge, err := tokens.GetByID(context.Background(), "pending-2fa")
+	if err != nil || challenge != nil {
+		t.Fatalf("password change left pending 2FA challenge: challenge=%+v err=%v", challenge, err)
 	}
 }
 

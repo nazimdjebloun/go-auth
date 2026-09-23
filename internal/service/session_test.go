@@ -48,6 +48,25 @@ func TestSessionService_ClockControlsExpiry(t *testing.T) {
 	}
 }
 
+func TestSessionService_MaxLifetimeBoundsAccessToken(t *testing.T) {
+	sessions := testutil.NewMockSessionRepo()
+	gen := &testutil.MockTokenGen{Length: 32}
+	cfg := DefaultSessionConfig()
+	cfg.Duration = 24 * time.Hour
+	cfg.MaxLifetime = 2 * time.Hour
+	svc := NewSessionService(sessions, gen, cfg)
+	issuedAt := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return issuedAt }
+	created, err := svc.Create(context.Background(), "user-1", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc.now = func() time.Time { return issuedAt.Add(cfg.MaxLifetime) }
+	if _, err := svc.Validate(context.Background(), created.SessionToken); err != domain.ErrMaxLifetimeExceeded {
+		t.Fatalf("Validate at maximum lifetime = %v, want ErrMaxLifetimeExceeded", err)
+	}
+}
+
 func TestRefreshSession_HappyPath(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	gen := &testutil.MockTokenGen{Length: 32}

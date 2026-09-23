@@ -197,7 +197,7 @@ Which fields you actually get:
 | `revokedAt` | Never on this endpoint; see `isRevoked` above. |
 
 <Callout type="info" title="One session shape, everywhere">
-  `session` is `domain.Session` verbatim, minus the three `json:"-"` token hashes. It is the same object `POST /auth/login`, `POST /auth/register`, `POST /auth/invite/register`, `POST /auth/2fa/verify`, `POST /auth/verify-email` and `POST /auth/refresh` all return under that key. Read the fields you need and ignore the rest: a field added to the struct appears on every one of them at once.
+  `session` is `domain.Session` verbatim, minus the three `json:"-"` token hashes. It is the same object `POST /auth/login`, `POST /auth/register`, `POST /auth/invite/register`, `POST /auth/2fa/verify` and `POST /auth/refresh` all return under that key. Read the fields you need and ignore the rest: a field added to the struct appears on every one of them at once.
 </Callout>
 
 | Code | Status | Cause |

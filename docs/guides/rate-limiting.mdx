@@ -132,6 +132,10 @@ Every route below has a limit unless you override it; anything not listed falls 
 | `POST /auth/2fa/resend` | 3/min |
 | `POST /auth/2fa/enable` | 5/min |
 | `POST /auth/2fa/disable` | 5/min |
+| `GET /auth/oauth/*` | 10/min |
+| `POST /auth/oauth/*/link` | 10/min |
+| `GET /auth/oauth/*/callback` | 10/min |
+| `POST /auth/oauth/*/callback` | 10/min |
 | `POST /auth/orgs` | 5/hour |
 | `GET /auth/orgs/*` | 60/min |
 | `PUT /auth/orgs/*` | 10/min |

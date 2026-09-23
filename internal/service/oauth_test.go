@@ -39,6 +39,7 @@ func newTestOAuthService(
 	tokens *testutil.MockTokenRepo,
 ) (*OAuthService, *testutil.MockSessionRepo) {
 	sessions := testutil.NewMockSessionRepo()
+	sessions.Users = users
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 	verifySvc := NewVerificationService(users, tokens, gen, nil, &testutil.MockTxManager{}, defaultTestConfig())
@@ -91,7 +92,7 @@ func TestOAuthCallback_RegistersUserAndLinksProvider(t *testing.T) {
 	)
 	seedOAuthState(t, tokens, "state-1", "raw-state-1")
 
-	res, err := svc.Callback(context.Background(), "test", "code", "raw-state-1", "127.0.0.1", "test-agent")
+	res, err := svc.Callback(context.Background(), "test", "code", "raw-state-1", "raw-state-1", "", "127.0.0.1", "test-agent")
 	if err != nil {
 		t.Fatalf("Callback failed: %v", err)
 	}
@@ -106,6 +107,59 @@ func TestOAuthCallback_RegistersUserAndLinksProvider(t *testing.T) {
 	accounts, _ := providerRepo.ListByUserID(context.Background(), user.ID)
 	if len(accounts) != 1 || accounts[0].ProviderUserID != "pu-1" {
 		t.Fatalf("expected one linked provider account, got %+v", accounts)
+	}
+}
+
+func TestOAuthCallback_RejectsStateWithoutBrowserBinding(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	svc, _ := newTestOAuthService(map[string]port.OAuthProvider{
+		"test": &stubOAuthProvider{name: "test", profile: oauthTestProfile("test", "pu-1", "oauth@example.com")},
+	}, testutil.NewMockProviderAccountRepo(), users, tokens)
+	seedOAuthState(t, tokens, "state-1", "raw-state-1")
+
+	if _, err := svc.Callback(context.Background(), "test", "code", "raw-state-1", "", "", "", ""); authErrCode(err) != "invalid_state" {
+		t.Fatalf("missing browser binding: %v", err)
+	}
+	state, err := tokens.GetByID(context.Background(), "state-1")
+	if err != nil || state.UsedAt != nil {
+		t.Fatalf("rejected callback consumed state: state=%+v err=%v", state, err)
+	}
+}
+
+func TestOAuthCallback_LinkRequiresOriginatingLiveSession(t *testing.T) {
+	ctx := context.Background()
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	user := &domain.User{ID: "user-1", Email: "user@example.com"}
+	if err := users.Create(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	svc, _ := newTestOAuthService(map[string]port.OAuthProvider{
+		"test": &stubOAuthProvider{name: "test", profile: oauthTestProfile("test", "pu-1", user.Email)},
+	}, testutil.NewMockProviderAccountRepo(), users, tokens)
+	origin, err := svc.sessionSvc.Create(ctx, user.ID, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := svc.sessionSvc.Create(ctx, user.ID, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flow, err := svc.InitiateLink(ctx, "test", user.ID, origin.Session.TokenHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{"", other.SessionToken} {
+		if _, err := svc.Callback(ctx, "test", "code", flow.State, flow.State, token, "", ""); authErrCode(err) != "unauthorized" {
+			t.Fatalf("link accepted wrong session: %v", err)
+		}
+	}
+	if err := svc.sessionSvc.Revoke(ctx, origin.SessionToken); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Callback(ctx, "test", "code", flow.State, flow.State, origin.SessionToken, "", ""); authErrCode(err) != "unauthorized" {
+		t.Fatalf("link accepted revoked initiating session: %v", err)
 	}
 }
 
@@ -124,7 +178,7 @@ func TestOAuthCallback_ProviderLinkFailureSurfaces(t *testing.T) {
 	)
 	seedOAuthState(t, tokens, "state-1", "raw-state-1")
 
-	if _, err := svc.Callback(context.Background(), "test", "code", "raw-state-1", "127.0.0.1", "test-agent"); err == nil {
+	if _, err := svc.Callback(context.Background(), "test", "code", "raw-state-1", "raw-state-1", "", "127.0.0.1", "test-agent"); err == nil {
 		t.Fatal("expected the provider failure to surface, got nil")
 	}
 }
@@ -153,7 +207,7 @@ func TestOAuthUnlink_LastProviderRefusedThenAllowed(t *testing.T) {
 	ctx := context.Background()
 
 	seedOAuthState(t, tokens, "state-1", "raw-state-1")
-	if _, err := svc.Callback(ctx, "test", "code", "raw-state-1", "127.0.0.1", "test-agent"); err != nil {
+	if _, err := svc.Callback(ctx, "test", "code", "raw-state-1", "raw-state-1", "", "127.0.0.1", "test-agent"); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
 	user, _ := users.GetByEmail(ctx, "oauth@example.com")
@@ -161,7 +215,16 @@ func TestOAuthUnlink_LastProviderRefusedThenAllowed(t *testing.T) {
 	// Link the second provider through the link flow: a state token carrying
 	// the user ID routes Callback into its link branch.
 	seedLinkOAuthState(t, tokens, "link-1", "raw-link-1", user.ID)
-	if _, err := svc.Callback(ctx, "github", "code", "raw-link-1", "127.0.0.1", "test-agent"); err != nil {
+	linkSession, err := svc.sessionSvc.Create(ctx, user.ID, "127.0.0.1", "test-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkState, err := tokens.GetByID(ctx, "link-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkState.Email = linkSession.Session.TokenHash
+	if _, err := svc.Callback(ctx, "github", "code", "raw-link-1", "raw-link-1", linkSession.SessionToken, "127.0.0.1", "test-agent"); err != nil {
 		t.Fatalf("link failed: %v", err)
 	}
 
@@ -191,7 +254,7 @@ func TestOAuthUnlink_PasswordHolderMayUnlinkLast(t *testing.T) {
 	ctx := context.Background()
 
 	seedOAuthState(t, tokens, "state-1", "raw-state-1")
-	if _, err := svc.Callback(ctx, "test", "code", "raw-state-1", "127.0.0.1", "test-agent"); err != nil {
+	if _, err := svc.Callback(ctx, "test", "code", "raw-state-1", "raw-state-1", "", "127.0.0.1", "test-agent"); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
 	user, _ := users.GetByEmail(ctx, "oauth@example.com")

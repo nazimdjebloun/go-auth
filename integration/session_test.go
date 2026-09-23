@@ -54,6 +54,69 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 	}
 }
 
+func TestSession_RefreshCannotReviveIdleSession(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	a := openAuth(t, db, &testMailer{})
+	defer a.Close()
+	ctx := context.Background()
+	registered, err := a.Register(ctx, goauth.RegisterInput{Email: "idle-refresh@example.com", Password: "Passw0rd!", Name: "Idle"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE sessions SET last_active_at = ? WHERE id = ?", time.Now().UTC().Add(-2*time.Hour), registered.Session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Services.Session.RefreshSession(ctx, registered.RefreshToken); !errors.Is(err, domain.ErrSessionExpired) {
+		t.Fatalf("refresh after idle timeout = %v, want ErrSessionExpired", err)
+	}
+	var storedHash string
+	if err := db.QueryRow("SELECT refresh_token_hash FROM sessions WHERE id = ?", registered.Session.ID).Scan(&storedHash); err != nil {
+		t.Fatal(err)
+	}
+	if storedHash != sha256Hex(registered.RefreshToken) {
+		t.Fatal("rejected refresh rotated the token")
+	}
+}
+
+func TestSession_RefreshAuditFailureKeepsOldToken(t *testing.T) {
+	db, closeDB := newSQLiteDB(t)
+	defer closeDB()
+	migrateDB(t, db, "sqlite")
+	a, err := newTestAuth(db, &testMailer{}, goauth.AuditConfig{
+		Enabled: true,
+		EnqueueFailureMode: func(event audit.Event) audit.FailureMode {
+			if event.Type == audit.EventSessionRefreshed {
+				return audit.FailureClosed
+			}
+			return audit.FailureOpen
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	ctx := context.Background()
+	registered, err := a.Register(ctx, goauth.RegisterInput{Email: "audit-refresh@example.com", Password: "Passw0rd!", Name: "Audit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`CREATE TRIGGER block_refresh_audit BEFORE INSERT ON audit_log
+		WHEN NEW.event_type = 'session.refreshed'
+		BEGIN SELECT RAISE(FAIL, 'blocked refresh audit'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Services.Session.RefreshSession(ctx, registered.RefreshToken); !errors.Is(err, audit.ErrRecordBlocked) {
+		t.Fatalf("refresh with failed audit = %v, want ErrRecordBlocked", err)
+	}
+	if _, err := db.Exec("DROP TRIGGER block_refresh_audit"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Services.Session.RefreshSession(ctx, registered.RefreshToken); err != nil {
+		t.Fatalf("old refresh token was stranded after rollback: %v", err)
+	}
+}
+
 func TestSession_RefreshReuseDetection_RevocationFailurePropagates(t *testing.T) {
 	db, closeDB := newSQLiteDB(t)
 	defer closeDB()

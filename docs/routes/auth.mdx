@@ -301,7 +301,7 @@ Consumes the set-password code. `Auth:` Public.
 
 POST /auth/verify-email
 
-Verifies the email with the code from the registration or resend email, then logs the user in (cookies set). Only the code is used. `Auth:` Public.
+Verifies the email with the code from the registration or resend email. This does not create a session; the user must sign in afterward. Only the code is used. `Auth:` Public.
 
 **Request body:**
 
@@ -313,8 +313,7 @@ Verifies the email with the code from the registration or resend email, then log
 
 ```json
 {
-  "user": { "...": "full user object" },
-  "session": { "...": "full session object" }
+  "user": { "...": "full user object" }
 }
 ```
 

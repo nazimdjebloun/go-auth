@@ -18,7 +18,7 @@ The **Client** examples below call the same `apiRequest(baseUrl, method, path, b
 
 ### Start a link — `POST /auth/oauth/{provider}/link`
 
-Auth required. Returns the provider's authorization URL, same shape as the login-initiate endpoint — redirect the browser to it. The difference is entirely server-side: the state token stores the *current user's ID*, so when the callback fires, `OAuthService.Callback` links to that user instead of creating or logging into a different account.
+Auth required. Returns the provider's authorization URL, same shape as the login-initiate endpoint, and sets a browser state cookie. Redirect that same browser to the URL. The state token stores the current user's ID and initiating session token hash; the callback links only if that exact session is still live.
 
 **Response** (`200 OK`): `{ "url": "https://github.com/login/oauth/authorize?..." }`
 
@@ -44,11 +44,12 @@ The response is JSON, not a redirect — your frontend reads `url` and navigates
 #### Programmatic (Go)
 
 ```go
-url, err := auth.Services.OAuth.InitiateLink(ctx, "github", userID)
+flow, err := auth.Services.OAuth.InitiateLink(ctx, "github", userID, session.TokenHash)
 if err != nil {
     // wraps a *domain.AuthError — provider_not_found if the name is wrong
 }
-// redirect the browser to url
+// Bind flow.State to the initiating browser as the HTTP handler does,
+// then redirect the browser to flow.URL.
 ```
 
 ---

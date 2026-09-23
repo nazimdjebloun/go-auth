@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -112,12 +113,18 @@ func (s *OAuthService) getProvider(name string) (port.OAuthProvider, error) {
 	return p, nil
 }
 
+// OAuthInitiation gives the HTTP layer the authorization URL and the state to
+// bind to the initiating browser in an HttpOnly cookie.
+type OAuthInitiation struct {
+	URL   string
+	State string
+}
+
 // Initiate starts an OAuth login flow.
-// Returns the provider's authorize URL for frontend redirect.
-func (s *OAuthService) Initiate(ctx context.Context, providerName string) (string, error) {
+func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*OAuthInitiation, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	stateRaw := generateStateToken()
@@ -126,7 +133,7 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (strin
 	codeVerifier, verifierErr := generateCodeVerifier()
 	if verifierErr != nil {
 		s.log.Error("failed to generate PKCE verifier", "err", verifierErr)
-		return "", domain.ErrInternal
+		return nil, domain.ErrInternal
 	}
 
 	stateToken := &domain.VerificationToken{
@@ -139,19 +146,24 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (strin
 
 	if err := s.tokenRepo.Create(ctx, stateToken); err != nil {
 		s.log.Error("failed to store state token", "err", err, "provider", providerName)
-		return "", domain.ErrInternal
+		return nil, domain.ErrInternal
 	}
 
 	codeChallenge := codeChallengeS256(codeVerifier)
-	return p.AuthURL(stateRaw, codeChallenge), nil
+	return &OAuthInitiation{URL: p.AuthURL(stateRaw, codeChallenge), State: stateRaw}, nil
 }
 
 // InitiateLink starts an OAuth link flow for an authenticated user.
-// Stores the userID in the state token to distinguish from login flow.
-func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID string) (string, error) {
+// The state stores the initiating session's token hash in its otherwise unused
+// Email field, so callback must present that same live session. OAuth state
+// rows never represent an email address.
+func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID, sessionTokenHash string) (*OAuthInitiation, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	if userID == "" || sessionTokenHash == "" {
+		return nil, domain.NewError("unauthorized", "Authentication required")
 	}
 
 	stateRaw := generateStateToken()
@@ -160,12 +172,13 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 	codeVerifier, verifierErr := generateCodeVerifier()
 	if verifierErr != nil {
 		s.log.Error("failed to generate PKCE verifier", "err", verifierErr)
-		return "", domain.ErrInternal
+		return nil, domain.ErrInternal
 	}
 
 	stateToken := &domain.VerificationToken{
 		ID:           uuid.New().String(),
 		UserID:       &userID,
+		Email:        sessionTokenHash,
 		TokenHash:    hashToken(stateRaw),
 		Type:         domain.TokenOAuthState,
 		ExpiresAt:    now.Add(10 * time.Minute),
@@ -174,11 +187,11 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 
 	if err := s.tokenRepo.Create(ctx, stateToken); err != nil {
 		s.log.Error("failed to store state token", "err", err, "provider", providerName, "user_id", userID)
-		return "", domain.ErrInternal
+		return nil, domain.ErrInternal
 	}
 
 	codeChallenge := codeChallengeS256(codeVerifier)
-	return p.AuthURL(stateRaw, codeChallenge), nil
+	return &OAuthInitiation{URL: p.AuthURL(stateRaw, codeChallenge), State: stateRaw}, nil
 }
 
 // OAuthCallbackResult contains the session or link result of an OAuth callback.
@@ -200,10 +213,13 @@ type OAuthCallbackResult struct {
 }
 
 // Callback completes an OAuth login or account link.
-func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, ip, userAgent string) (*OAuthCallbackResult, error) {
+func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, browserState, rawSessionToken, ip, userAgent string) (*OAuthCallbackResult, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
 		return nil, err
+	}
+	if rawState == "" || subtle.ConstantTimeCompare([]byte(rawState), []byte(browserState)) != 1 {
+		return nil, domain.NewError("invalid_state", "Invalid or expired OAuth state")
 	}
 
 	stateHash := hashToken(rawState)
@@ -218,6 +234,18 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 
 	if time.Now().UTC().After(stateToken.ExpiresAt) {
 		return nil, domain.NewError("state_expired", "OAuth state token has expired")
+	}
+	if stateToken.UserID != nil {
+		if rawSessionToken == "" || stateToken.Email == "" || subtle.ConstantTimeCompare([]byte(hashToken(rawSessionToken)), []byte(stateToken.Email)) != 1 {
+			return nil, domain.NewError("unauthorized", "Authentication required")
+		}
+		session, user, validateErr := s.sessionSvc.ValidateWithUser(ctx, rawSessionToken)
+		if validateErr != nil || session == nil || user == nil || user.ID != *stateToken.UserID {
+			return nil, domain.NewError("unauthorized", "Authentication required")
+		}
+		if user.IsBanned {
+			return nil, domain.ErrUserBanned
+		}
 	}
 
 	claimed, markErr := s.tokenRepo.MarkUsedIfUnused(ctx, stateToken.ID)

@@ -448,37 +448,43 @@ func (r *SessionRepository) UpdateRefreshToken(ctx context.Context, input port.U
 	} else {
 		maxLifetimeCut = time.Unix(0, 0)
 	}
-
-	if r.db.Driver() == "mysql" {
-		return r.updateRefreshTokenNoReturning(ctx, input, now, maxLifetimeCut)
+	var idleCut time.Time
+	if input.IdleTTL > 0 {
+		idleCut = now.Add(-input.IdleTTL)
+	} else {
+		idleCut = time.Unix(0, 0)
 	}
 
-	return r.updateRefreshTokenReturning(ctx, input, now, maxLifetimeCut)
+	if r.db.Driver() == "mysql" {
+		return r.updateRefreshTokenNoReturning(ctx, input, now, maxLifetimeCut, idleCut)
+	}
+
+	return r.updateRefreshTokenReturning(ctx, input, now, maxLifetimeCut, idleCut)
 }
 
 // updateRefreshTokenReturning uses a single atomic UPDATE...RETURNING
 // (PostgreSQL, SQLite).
-func (r *SessionRepository) updateRefreshTokenReturning(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut time.Time) (*domain.Session, error) {
+func (r *SessionRepository) updateRefreshTokenReturning(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut, idleCut time.Time) (*domain.Session, error) {
 	session := &domain.Session{}
 	err := scanSession(session, r.db.QueryRowContext(ctx, sessionRotateRefreshQuery,
 		input.NewTokenHash, input.NewRefreshHash, now, input.NewExpiresAt,
-		input.OldRefreshHash, now, maxLifetimeCut))
+		input.OldRefreshHash, now, maxLifetimeCut, idleCut))
 	if err == nil {
 		return session, nil
 	}
 	if err != sql.ErrNoRows {
 		return nil, err
 	}
-	return r.classifyRefreshFailure(ctx, input, now, maxLifetimeCut)
+	return r.classifyRefreshFailure(ctx, input, now, maxLifetimeCut, idleCut)
 }
 
 // updateRefreshTokenNoReturning uses ExecContext + RowsAffected (MySQL).
-func (r *SessionRepository) updateRefreshTokenNoReturning(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut time.Time) (*domain.Session, error) {
+func (r *SessionRepository) updateRefreshTokenNoReturning(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut, idleCut time.Time) (*domain.Session, error) {
 	query := r.db.Rebind(sessionRotateRefreshNoReturningQuery)
 
 	result, err := r.db.ExecContext(ctx, query,
 		input.NewTokenHash, input.NewRefreshHash, now, input.NewExpiresAt,
-		input.OldRefreshHash, now, maxLifetimeCut)
+		input.OldRefreshHash, now, maxLifetimeCut, idleCut)
 	if err != nil {
 		return nil, err
 	}
@@ -486,10 +492,10 @@ func (r *SessionRepository) updateRefreshTokenNoReturning(ctx context.Context, i
 	if rows == 1 {
 		return r.GetByRefreshHash(ctx, input.NewRefreshHash)
 	}
-	return r.classifyRefreshFailure(ctx, input, now, maxLifetimeCut)
+	return r.classifyRefreshFailure(ctx, input, now, maxLifetimeCut, idleCut)
 }
 
-func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input port.UpdateRefreshInput, now time.Time, maxLifetimeCut time.Time) (*domain.Session, error) {
+func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut, idleCut time.Time) (*domain.Session, error) {
 	session, err := r.GetByRefreshHash(ctx, input.OldRefreshHash)
 	if err != nil {
 		return nil, err
@@ -499,11 +505,14 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 		if session.IsRevoked {
 			return nil, domain.ErrSessionRevoked
 		}
-		if now.After(session.RefreshExpiresAt) {
+		if !now.Before(session.RefreshExpiresAt) {
 			return nil, domain.ErrRefreshExpired
 		}
-		if input.MaxLifetime > 0 && now.After(session.CreatedAt.Add(input.MaxLifetime)) {
+		if input.MaxLifetime > 0 && !now.Before(session.CreatedAt.Add(input.MaxLifetime)) {
 			return nil, domain.ErrMaxLifetimeExceeded
+		}
+		if input.IdleTTL > 0 && !session.LastActiveAt.After(idleCut) {
+			return nil, domain.ErrSessionExpired
 		}
 
 		// INVARIANT VIOLATION: old hash is still current, no WHERE
@@ -516,6 +525,7 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 			"created_at", session.CreatedAt,
 			"now", now,
 			"max_lifetime_cut", maxLifetimeCut,
+			"idle_cut", idleCut,
 		)
 		return nil, domain.NewError("internal_error", "Session rotation failed due to internal state conflict")
 	}

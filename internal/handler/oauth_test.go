@@ -99,17 +99,32 @@ func (m *mockProviderAccountRepo) LockByUserID(_ context.Context, _ string) erro
 }
 
 type oauthTestHarness struct {
-	oauthHandlers *OAuthHandlers
-	sessionSvc    *service.SessionService
-	oauthSvc      *service.OAuthService
-	mockProvider  *mockOAuthProvider
-	providerRepo  *mockProviderAccountRepo
-	userRepo      *mockUserRepo
-	tokenRepo     *mockTokenRepo
-	sessionRepo   *mockSessionRepo
-	baseURL       string
-	sid           string
-	stateToken    string
+	oauthHandlers    *OAuthHandlers
+	sessionSvc       *service.SessionService
+	oauthSvc         *service.OAuthService
+	mockProvider     *mockOAuthProvider
+	providerRepo     *mockProviderAccountRepo
+	userRepo         *mockUserRepo
+	tokenRepo        *mockTokenRepo
+	sessionRepo      *mockSessionRepo
+	baseURL          string
+	sid              string
+	stateToken       string
+	linkSessionToken string
+}
+
+func (th *oauthTestHarness) callback(w http.ResponseWriter, r *http.Request) {
+	state := r.FormValue("state")
+	if state != "" {
+		r.AddCookie(th.oauthHandlers.oauthStateCookie(state, 600))
+	}
+	if th.linkSessionToken != "" {
+		r.AddCookie(&http.Cookie{
+			Name: th.oauthHandlers.cookies.Name, Value: th.linkSessionToken,
+			Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+		})
+	}
+	th.oauthHandlers.Callback(w, r)
 }
 
 func (th *oauthTestHarness) createStateToken(t testing.TB, rawState string) string {
@@ -132,6 +147,9 @@ func (th *oauthTestHarness) createStateToken(t testing.TB, rawState string) stri
 // OAuthService.InitiateLink produces — this is what routes a callback into
 // Callback's link branch instead of its login/register branch.
 func (th *oauthTestHarness) createLinkStateToken(t testing.TB, rawState, userID string) string {
+	sess, err := th.sessionSvc.Create(context.Background(), userID, "127.0.0.1", "test-agent")
+	checkTestErrors(t).noError(err)
+	th.linkSessionToken = sess.SessionToken
 	stateHash := sha256.Sum256([]byte(rawState))
 	verifier := "test-code-verifier-value"
 	sid := "link-state-" + rawState
@@ -139,6 +157,7 @@ func (th *oauthTestHarness) createLinkStateToken(t testing.TB, rawState, userID 
 	stateToken := &domain.VerificationToken{
 		ID:           sid,
 		UserID:       &userID,
+		Email:        sess.Session.TokenHash,
 		TokenHash:    hex.EncodeToString(stateHash[:]),
 		Type:         domain.TokenOAuthState,
 		ExpiresAt:    time.Now().UTC().Add(1 * time.Hour),
@@ -151,6 +170,7 @@ func (th *oauthTestHarness) createLinkStateToken(t testing.TB, rawState, userID 
 func newOAuthTestHarness(t testing.TB) *oauthTestHarness {
 	users := newMockUserRepo()
 	sessions := newMockSessionRepo()
+	sessions.users = users
 	tokens := newMockTokenRepo()
 	hasher := &mockHasher{}
 	gen := &mockTokenGen{}
@@ -250,7 +270,7 @@ func TestOAuthCallback_GET_Success(t *testing.T) {
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
 
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -279,6 +299,52 @@ func TestOAuthCallback_GET_Success(t *testing.T) {
 	}
 }
 
+func TestOAuthInitiate_SetsBrowserStateCookie(t *testing.T) {
+	th := newOAuthTestHarness(t)
+	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/test", nil)
+	req.SetPathValue("provider", "test")
+	w := httptest.NewRecorder()
+	th.oauthHandlers.Initiate(w, req)
+	res := w.Result()
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("initiate status = %d", res.StatusCode)
+	}
+	var body struct {
+		URL string `json:"url"`
+	}
+	mustDecodeJSON(res.Body, &body)
+	parsed, err := url.Parse(body.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := parsed.Query().Get("state")
+	if state == "" {
+		t.Fatal("authorization URL has no state")
+	}
+	cookies := res.Cookies()
+	if len(cookies) != 1 || cookies[0].Value != state || !strings.HasPrefix(cookies[0].Name, "__Host-") ||
+		!cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteNoneMode ||
+		cookies[0].Domain != "" || cookies[0].Path != "/" || cookies[0].MaxAge != 600 {
+		t.Fatalf("browser state cookie misconfigured: %+v", cookies)
+	}
+}
+
+func TestOAuthCallback_WithoutBrowserCookieRejectsState(t *testing.T) {
+	th := newOAuthTestHarness(t)
+	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/test/callback?code=auth-code&state="+th.stateToken, nil)
+	req.SetPathValue("provider", "test")
+	w := httptest.NewRecorder()
+	th.oauthHandlers.Callback(w, req)
+	if w.Code != http.StatusFound || !strings.Contains(w.Header().Get("Location"), "error=invalid_state") {
+		t.Fatalf("unbound callback: status=%d location=%q", w.Code, w.Header().Get("Location"))
+	}
+	state, err := th.tokenRepo.GetByID(context.Background(), th.sid)
+	if err != nil || state.UsedAt != nil {
+		t.Fatalf("unbound callback consumed state: state=%+v err=%v", state, err)
+	}
+}
+
 func TestOAuthCallback_GET_Success_SecurityHeaders(t *testing.T) {
 	th := newOAuthTestHarness(t)
 
@@ -287,7 +353,7 @@ func TestOAuthCallback_GET_Success_SecurityHeaders(t *testing.T) {
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
 
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -309,7 +375,7 @@ func TestOAuthCallback_POST_Success(t *testing.T) {
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
 
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -348,14 +414,14 @@ func TestOAuthCallback_GETandPOST_SameBehavior(t *testing.T) {
 	getReq := httptest.NewRequest(http.MethodGet, getURL, nil)
 	getReq.SetPathValue("provider", "test")
 	getW := httptest.NewRecorder()
-	th.oauthHandlers.Callback(getW, getReq)
+	th.callback(getW, getReq)
 
 	postForm := url.Values{"code": {"auth-code"}, "state": {postState}}
 	postReq := httptest.NewRequest(http.MethodPost, "/auth/oauth/test/callback", strings.NewReader(postForm.Encode()))
 	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	postReq.SetPathValue("provider", "test")
 	postW := httptest.NewRecorder()
-	th.oauthHandlers.Callback(postW, postReq)
+	th.callback(postW, postReq)
 
 	getRes, postRes := getW.Result(), postW.Result()
 	defer func() { _ = getRes.Body.Close() }()
@@ -374,11 +440,11 @@ func TestOAuthCallback_GETandPOST_SameBehavior(t *testing.T) {
 		t.Errorf("cookie count mismatch: GET=%d POST=%d", len(getCookies), len(postCookies))
 	}
 
-	if len(getCookies) != 2 {
-		t.Errorf("expected 2 cookies (session+refresh), got %d (GET)", len(getCookies))
+	if len(getCookies) != 3 {
+		t.Errorf("expected 3 cookies (state clear, session, refresh), got %d (GET)", len(getCookies))
 	}
-	if len(postCookies) != 2 {
-		t.Errorf("expected 2 cookies (session+refresh), got %d (POST)", len(postCookies))
+	if len(postCookies) != 3 {
+		t.Errorf("expected 3 cookies (state clear, session, refresh), got %d (POST)", len(postCookies))
 	}
 }
 
@@ -391,7 +457,7 @@ func TestOAuthCallback_AppleFormPost(t *testing.T) {
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
 
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -412,7 +478,7 @@ func TestOAuthCallback_MissingCode(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/test/callback?state="+th.stateToken, nil)
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -431,7 +497,7 @@ func TestOAuthCallback_MissingState(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/test/callback?code=auth-code", nil)
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -451,7 +517,7 @@ func TestOAuthCallback_EmptyPostBody(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -472,7 +538,7 @@ func TestOAuthCallback_POSTMissingBoth(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -488,7 +554,7 @@ func TestOAuthCallback_ProviderError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/auth/oauth/test/callback?code=bad-code&state=%s", th.stateToken), nil)
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -507,7 +573,7 @@ func TestOAuthCallback_InvalidProvider(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/nonexistent/callback?code=abc&state=xyz", nil)
 	req.SetPathValue("provider", "nonexistent")
 	w := httptest.NewRecorder()
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -549,7 +615,7 @@ func TestOAuthCallback_StateAlreadyUsed(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/auth/oauth/test/callback?code=abc&state=%s", th.stateToken), nil)
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -570,7 +636,7 @@ func TestOAuthCallback_StateExpired(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, fmt.Sprintf("/auth/oauth/test/callback?code=abc&state=%s", th.stateToken), nil)
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -594,7 +660,7 @@ func TestOAuthCallback_GETWithPOSTBody(t *testing.T) {
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
 
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -616,7 +682,7 @@ func TestOAuthCallback_GoogleGET(t *testing.T) {
 	req.SetPathValue("provider", "google")
 	w := httptest.NewRecorder()
 
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -633,7 +699,7 @@ func TestOAuthCallback_GitHubGET(t *testing.T) {
 	req.SetPathValue("provider", "github")
 	w := httptest.NewRecorder()
 
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -652,7 +718,7 @@ func TestOAuthCallback_WithQueryAndFormParams(t *testing.T) {
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
 
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()
@@ -676,7 +742,7 @@ func TestOAuthCallback_MethodNotAllowed(t *testing.T) {
 		req.SetPathValue("provider", "test")
 		w := httptest.NewRecorder()
 
-		th.oauthHandlers.Callback(w, req)
+		th.callback(w, req)
 
 		res := w.Result()
 		checkTestErrors(t).noError(res.Body.Close())
@@ -700,12 +766,14 @@ func TestOAuthCallback_RouterRegistersBothMethods(t *testing.T) {
 
 	getURL := fmt.Sprintf("/auth/oauth/test/callback?code=abc&state=%s", getState)
 	getReq := httptest.NewRequest(http.MethodGet, getURL, nil)
+	getReq.AddCookie(getHarness.oauthHandlers.oauthStateCookie(getState, 600))
 	getW := httptest.NewRecorder()
 	mux.ServeHTTP(getW, getReq)
 
 	postForm := url.Values{"code": {"abc"}, "state": {postState}}
 	postReq := httptest.NewRequest(http.MethodPost, "/auth/oauth/test/callback", strings.NewReader(postForm.Encode()))
 	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postReq.AddCookie(postHarness.oauthHandlers.oauthStateCookie(postState, 600))
 	postW := httptest.NewRecorder()
 	mux.ServeHTTP(postW, postReq)
 
@@ -739,7 +807,7 @@ func TestOAuthCallback_Link_DoesNotTouchSessionCookies(t *testing.T) {
 	req.SetPathValue("provider", "test")
 	w := httptest.NewRecorder()
 
-	th.oauthHandlers.Callback(w, req)
+	th.callback(w, req)
 
 	res := w.Result()
 	defer func() { _ = res.Body.Close() }()

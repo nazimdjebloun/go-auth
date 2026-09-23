@@ -230,6 +230,9 @@ type LoginResult = service.LoginResult
 // OAuthCallbackResult is an alias for service.OAuthCallbackResult.
 type OAuthCallbackResult = service.OAuthCallbackResult
 
+// OAuthInitiation is an alias for service.OAuthInitiation.
+type OAuthInitiation = service.OAuthInitiation
+
 // RegisterInput is an alias for service.RegisterInput.
 type RegisterInput = service.RegisterInput
 

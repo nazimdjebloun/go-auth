@@ -40,7 +40,7 @@ func TestOAuthCallback_VerificationMutation(t *testing.T) {
 				svc.userRepo = failingEmailVerifier{UserRepository: users}
 			}
 			seedOAuthState(t, tokens, "state", "raw-state")
-			result, err := svc.Callback(ctx, "test", "code", "raw-state", "127.0.0.1", "test")
+			result, err := svc.Callback(ctx, "test", "code", "raw-state", "raw-state", "", "127.0.0.1", "test")
 			if scenario == "write failure" {
 				if result != nil || !errors.Is(err, domain.ErrInternal) {
 					t.Fatalf("result=%v err=%v", result, err)

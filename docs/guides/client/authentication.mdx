@@ -266,7 +266,7 @@ export function VerifyEmailForm({ email }: { email: string }) {
 
     try {
       await authApi.verifyEmail(code);
-      window.location.href = "/dashboard";
+      window.location.href = "/login";
     } catch (err: any) {
       setError(getErrorMessage(err));
     } finally {

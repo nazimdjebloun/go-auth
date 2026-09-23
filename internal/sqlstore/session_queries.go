@@ -46,6 +46,7 @@ var (
 		  AND is_revoked = false
 		  AND refresh_expires_at > $6
 		  AND created_at > $7
+		  AND last_active_at > $8
 		RETURNING ` + sessionCols
 
 	// MySQL evaluates single-table UPDATE assignments left-to-right: save the
@@ -59,7 +60,8 @@ var (
 		WHERE refresh_token_hash = $5
 		  AND is_revoked = false
 		  AND refresh_expires_at > $6
-		  AND created_at > $7`
+		  AND created_at > $7
+		  AND last_active_at > $8`
 
 	sessionUpdateActiveOrgRoleQuery = `UPDATE sessions SET active_org_role = $1 WHERE user_id = $2 AND active_org_id = $3 AND is_revoked = false`
 

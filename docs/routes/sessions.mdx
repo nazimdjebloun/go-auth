@@ -28,7 +28,7 @@ Token rotation and session management for the caller. All routes need the sessio
 
 POST /auth/refresh
 
-Rotates both tokens using the refresh cookie and sets the new cookies. No body: the refresh token is read from the cookie, not the JSON. A failed refresh clears both cookies. `Auth:` refresh cookie.
+Rotates both tokens using the refresh cookie and sets the new cookies only while the session is within its idle timeout and optional maximum lifetime. No body: the refresh token is read from the cookie, not the JSON. A failed refresh clears both cookies. `Auth:` refresh cookie.
 
 **Response `200 OK`:**
 

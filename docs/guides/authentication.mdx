@@ -208,12 +208,11 @@ Only relevant when `RequireEmailVerification: true`. Two ways in: a link with a 
   Email verification requires `WithMailer` or `WithEmail`. Admin login also requires a mailer while its default 2FA challenge is enabled. In `EnvironmentDev`, a required but unconfigured mailer defaults to log-only delivery. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off).
 </Callout>
 
-**`POST /auth/verify-email`** — body `{ "code": "..." }`. On success, the handler verifies the user **and** immediately creates a session in the same request — this is the only place verification and login happen in one step.
+**`POST /auth/verify-email`** — body `{ "code": "..." }`. On success, the handler marks the email verified. It does not issue session cookies; ask the user to sign in with their password afterward.
 
 ```json
 {
-  "user": { "...": "isVerified is now true" },
-  "session": { "...": "same shape as register" }
+  "user": { "...": "isVerified is now true" }
 }
 ```
 
@@ -259,7 +258,7 @@ result, err := auth.Services.Session.Create(ctx, user.ID, r.RemoteAddr, r.UserAg
 
 ```ts
 const result = await apiRequest(API_BASE, "POST", "/auth/verify-email", { code });
-// result.user.isVerified is now true, session cookies are set
+// result.user.isVerified is now true; show the sign-in form
 ```
 
 For a complete email verification form with resend, see [Client → Email verification](./client/authentication.mdx#email-verification).

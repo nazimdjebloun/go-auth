@@ -112,6 +112,11 @@ func DefaultRateLimitConfig() *Config {
 			routes.Glob(routes.TwoFactorResend):  {Requests: 3, Window: time.Minute},
 			routes.Glob(routes.TwoFactorEnable):  {Requests: 5, Window: time.Minute},
 			routes.Glob(routes.TwoFactorDisable): {Requests: 5, Window: time.Minute},
+			// OAuth initiation writes state; callbacks exchange codes with a provider.
+			routes.Glob(routes.OAuthInitiate):     {Requests: 10, Window: time.Minute},
+			routes.Glob(routes.OAuthLink):         {Requests: 10, Window: time.Minute},
+			routes.Glob(routes.OAuthCallbackGet):  {Requests: 10, Window: time.Minute},
+			routes.Glob(routes.OAuthCallbackPost): {Requests: 10, Window: time.Minute},
 			// Organizations — one entry per actual route, not a subtree catch-all
 			routes.Glob(routes.CreateOrg):           {Requests: 5, Window: time.Hour},
 			routes.Glob(routes.GetOrg):              {Requests: 60, Window: time.Minute},

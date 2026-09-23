@@ -20,7 +20,7 @@ func TestSessionRotateRefreshMySQLAssignmentOrder(t *testing.T) {
 	// Rebind converts numbered placeholders to positional question marks;
 	// changing their order without changing the caller's arguments is unsafe.
 	got := regexp.MustCompile(`\$[0-9]+`).FindAllString(query, -1)
-	want := []string{"$1", "$2", "$3", "$4", "$5", "$6", "$7"}
+	want := []string{"$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("placeholder order = %v, want %v", got, want)
 	}

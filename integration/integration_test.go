@@ -93,7 +93,11 @@ func newSQLiteDB(t *testing.T) (*sql.DB, func()) {
 // intermediate goauth.Config — the config type is unexported (NewConfig is
 // the only supported way to build one), so external packages can't name it
 // as a variable/return type.
-func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
+func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditConfig) (*goauth.Auth, error) {
+	auditCfg := goauth.AuditConfig{Enabled: true}
+	if len(auditOptions) > 0 {
+		auditCfg = auditOptions[0]
+	}
 	cfg, err := goauth.NewConfig(
 		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
@@ -128,7 +132,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
-		goauth.WithAudit(goauth.AuditConfig{Enabled: true}),
+		goauth.WithAudit(auditCfg),
 	)
 	if err != nil {
 		return nil, err
@@ -510,11 +514,12 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 
 	// Register with an admin email so Login skips the email-verified check.
 	var aerr error
-	if _, aerr = a.Register(ctx, goauth.RegisterInput{
+	registered, aerr := a.Register(ctx, goauth.RegisterInput{
 		Email:    "admin@test.com",
 		Password: validTestPassword(),
 		Name:     "Admin",
-	}); aerr != nil {
+	})
+	if aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -542,6 +547,10 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 	if tokHash != sha256Hex(resetToken) {
 		t.Error("reset token hash does not match SHA256(raw token)")
 	}
+	if _, err := db.Exec("INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+		"pending-reset-2fa", registered.User.ID, registered.User.Email, "pending-reset-2fa-hash", domain.TokenTwoFactor, time.Now().UTC().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 
 	// Reset password
 	if aerr := a.Services.Password.ResetPassword(ctx, service.ResetPasswordInput{
@@ -558,6 +567,13 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 	}
 	if usedCount != 1 {
 		t.Error("reset token not marked as used")
+	}
+	var pending2FA int
+	if err := db.QueryRow("SELECT COUNT(*) FROM verification_tokens WHERE id = ?", "pending-reset-2fa").Scan(&pending2FA); err != nil {
+		t.Fatal(err)
+	}
+	if pending2FA != 0 {
+		t.Fatal("password reset left a pending 2FA challenge")
 	}
 
 	// Login with new password succeeds

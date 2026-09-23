@@ -260,6 +260,9 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 		if err := s.sessions.DeleteAllForUser(txCtx, user.ID); err != nil {
 			return fmt.Errorf("revoking sessions after password reset: %w", err)
 		}
+		if err := s.tokens.DeleteUnusedByUserAndType(txCtx, user.ID, domain.TokenTwoFactor); err != nil {
+			return fmt.Errorf("revoking pending two-factor challenges after password reset: %w", err)
+		}
 		if s.audit != nil {
 			if err := s.audit.Record(txCtx, audit.NewPasswordResetCompletedEvent(user.ID, nil, "")); err != nil {
 				return err
@@ -468,6 +471,9 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswo
 			}
 		} else if err := s.sessions.DeleteAllForUser(txCtx, input.UserID); err != nil {
 			return fmt.Errorf("revoking sessions after password change: %w", err)
+		}
+		if err := s.tokens.DeleteUnusedByUserAndType(txCtx, input.UserID, domain.TokenTwoFactor); err != nil {
+			return fmt.Errorf("revoking pending two-factor challenges after password change: %w", err)
 		}
 		// Inside the transaction: the record commits with the password
 		// change it describes, so a crash cannot leave a rotated credential

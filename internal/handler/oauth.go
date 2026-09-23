@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/service"
@@ -52,12 +55,13 @@ func (h *OAuthHandlers) Initiate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	provider := r.PathValue("provider")
-	url, err := h.oauth.Initiate(r.Context(), provider)
+	flow, err := h.oauth.Initiate(r.Context(), provider)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
+	h.setOAuthStateCookie(w, flow.State, 600)
+	h.writeJSON(w, http.StatusOK, map[string]string{"url": flow.URL})
 }
 
 // InitiateLink starts linking an OAuth provider.
@@ -68,18 +72,44 @@ func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := middleware.GetUserFromContext(r.Context())
-	if user == nil {
+	session := middleware.GetSessionFromContext(r.Context())
+	if user == nil || session == nil {
 		h.writeError(w, domain.NewError("unauthorized", "Authentication required"))
 		return
 	}
 
 	provider := r.PathValue("provider")
-	url, err := h.oauth.InitiateLink(r.Context(), provider, user.ID)
+	flow, err := h.oauth.InitiateLink(r.Context(), provider, user.ID, session.TokenHash)
 	if err != nil {
 		h.writeError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
+	h.setOAuthStateCookie(w, flow.State, 600)
+	h.writeJSON(w, http.StatusOK, map[string]string{"url": flow.URL})
+}
+
+func (h *OAuthHandlers) oauthStateCookie(state string, maxAge int) *http.Cookie {
+	hash := sha256.Sum256([]byte(state))
+	name := "goauth_oauth_" + hex.EncodeToString(hash[:8])
+	sameSite := http.SameSiteLaxMode
+	if h.cookies.Secure {
+		name = "__Host-" + name
+		// Some providers deliver callbacks through cross-site form POST.
+		sameSite = http.SameSiteNoneMode
+	}
+	cookie := &http.Cookie{Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode}
+	cookie.Name = name
+	cookie.Value = state
+	cookie.Path = "/"
+	cookie.MaxAge = maxAge
+	cookie.Expires = time.Now().Add(time.Duration(maxAge) * time.Second)
+	cookie.Secure = h.cookies.Secure
+	cookie.SameSite = sameSite
+	return cookie
+}
+
+func (h *OAuthHandlers) setOAuthStateCookie(w http.ResponseWriter, state string, maxAge int) {
+	http.SetCookie(w, h.oauthStateCookie(state, maxAge))
 }
 
 // Callback completes an OAuth login or provider link.
@@ -98,8 +128,18 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
+	stateCookie, cookieErr := r.Cookie(h.oauthStateCookie(state, 0).Name)
+	browserState := ""
+	if cookieErr == nil {
+		browserState = stateCookie.Value
+		h.setOAuthStateCookie(w, state, -1)
+	}
+	sessionToken := ""
+	if sessionCookie, err := r.Cookie(h.cookies.Name); err == nil {
+		sessionToken = sessionCookie.Value
+	}
 
-	result, err := h.oauth.Callback(r.Context(), provider, code, state, middleware.ClientIP(r, h.clientIP), r.UserAgent())
+	result, err := h.oauth.Callback(r.Context(), provider, code, state, browserState, sessionToken, middleware.ClientIP(r, h.clientIP), r.UserAgent())
 	if err != nil {
 		errCode := "internal_error"
 		var authErr *domain.AuthError

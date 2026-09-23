@@ -12,7 +12,7 @@ Mounted only when `EnableOAuth` is true and at least one provider is registered 
 
 GET /auth/oauth/\{provider\}
 
-Starts a login. Returns the provider authorization URL as JSON; the frontend navigates there itself. `Auth:` Public.
+Starts a login. Returns the provider authorization URL as JSON and sets a short-lived, host-only `HttpOnly` state cookie. The frontend must use the same browser and cookie jar for the callback. `Auth:` Public.
 
 **Path params:**
 
@@ -32,7 +32,9 @@ Starts a login. Returns the provider authorization URL as JSON; the frontend nav
 
 GET /auth/oauth/\{provider\}/callback, POST /auth/oauth/\{provider\}/callback
 
-Provider redirect target (redirect URI ends here). Reads `code` and `state` from the form values, so both methods work. No JSON responses: every outcome is a redirect or an HTML page. `Auth:` Public.
+Provider redirect target (redirect URI ends here). Reads `code` and `state` from the form values, so both methods work. The callback requires the matching browser state cookie and clears it. A provider-link callback also requires the same live session that started the link. No JSON responses: every outcome is a redirect or an HTML page. `Auth:` Public, with the extra session requirement for links.
+
+The state cookie uses `SameSite=None; Secure` when secure cookies are enabled so cross-site form POST callbacks can return it. When secure cookies are disabled for local HTTP development, it uses `SameSite=Lax`, which supports top-level GET callbacks; use HTTPS to test a cross-site POST callback.
 
 **Path params:**
 
@@ -52,7 +54,7 @@ Provider redirect target (redirect URI ends here). Reads `code` and `state` from
 
 POST /auth/oauth/\{provider\}/link
 
-Starts linking a provider to the logged-in account. Returns the authorization URL as JSON. `Auth:` Session.
+Starts linking a provider to the logged-in account. Returns the authorization URL as JSON and sets the browser state cookie. The callback must carry this cookie and the same live session. `Auth:` Session.
 
 **Path params:**
 

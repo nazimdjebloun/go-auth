@@ -120,7 +120,7 @@ type UserRepository interface {
 
 // UpdateRefreshInput rotates a session's tokens on refresh. The
 // implementation must find the session by OldRefreshHash, reject it if
-// MaxLifetime (0 = no limit) has elapsed since creation, and otherwise
+// MaxLifetime (0 = no limit) or IdleTTL has elapsed, and otherwise
 // atomically: move the current refresh hash to PreviousRefreshHash, set the
 // new token/refresh hashes and NewExpiresAt, and stamp RotatedAt.
 // GraceWindow is how long OldRefreshHash — now the previous hash — is still
@@ -136,6 +136,7 @@ type UpdateRefreshInput struct {
 	NewExpiresAt   time.Time
 	RotatedAt      time.Time
 	MaxLifetime    time.Duration // 0 = disabled
+	IdleTTL        time.Duration // 0 = disabled
 	GraceWindow    time.Duration
 }
 

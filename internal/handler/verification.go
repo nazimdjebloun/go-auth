@@ -23,20 +23,8 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessResult, sessionErr := h.services.Session.Create(r.Context(), user.ID, h.ip(r), r.UserAgent())
-	if sessionErr != nil {
-		h.log.Error("failed to create session after verification", "err", sessionErr, "user_id", user.ID)
-		h.writeError(w, domain.ErrInternal)
-		return
-	}
-
-	middleware.SetSessionCookie(w, h.cookies, sessResult.SessionToken)
-	middleware.SetRefreshCookie(w, h.cookies, sessResult.RefreshToken)
-	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
-
 	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user":    user,
-		"session": sessResult.Session,
+		"user": user,
 	})
 }
 

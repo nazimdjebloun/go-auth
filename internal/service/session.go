@@ -152,40 +152,49 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 	}
 
 	now := s.now().UTC()
-	session, err := s.repo.UpdateRefreshToken(ctx, port.UpdateRefreshInput{
-		OldRefreshHash: hash,
-		NewTokenHash:   hashToken(newSessionToken),
-		NewRefreshHash: hashToken(newRefreshToken),
-		NewExpiresAt:   now.Add(s.config.Duration),
-		RotatedAt:      now,
-		MaxLifetime:    s.config.MaxLifetime,
-		GraceWindow:    s.config.GraceWindow,
+	var session *domain.Session
+	var reused *port.ErrRefreshTokenReused
+	err = s.withTx(ctx, func(txCtx context.Context) error {
+		rotated, rotateErr := s.repo.UpdateRefreshToken(txCtx, port.UpdateRefreshInput{
+			OldRefreshHash: hash,
+			NewTokenHash:   hashToken(newSessionToken),
+			NewRefreshHash: hashToken(newRefreshToken),
+			NewExpiresAt:   now.Add(s.config.Duration),
+			RotatedAt:      now,
+			MaxLifetime:    s.config.MaxLifetime,
+			IdleTTL:        s.config.IdleTTL,
+			GraceWindow:    s.config.GraceWindow,
+		})
+		if errors.As(rotateErr, &reused) {
+			// Reuse detection deletes the session. Commit that deletion even
+			// though the caller must receive a revoked-session error.
+			return nil
+		}
+		if rotateErr != nil {
+			return rotateErr
+		}
+		if s.audit != nil {
+			if recordErr := s.audit.Record(txCtx, audit.NewSessionEvent(audit.EventSessionRefreshed, rotated.UserID, rotated.ID, nil, "")); recordErr != nil {
+				return recordErr
+			}
+		}
+		session = rotated
+		return nil
 	})
 	if err != nil {
-		// A reused refresh token is theft-shaped, not just a rejected request
-		// — the repository has already revoked the compromised session by the
-		// time this returns. Publish the signal, then normalize to the same
-		// domain.ErrSessionRevoked a client would see for any other revoked
-		// session, so this doesn't change the public API's error contract.
-		var reused *port.ErrRefreshTokenReused
-		if errors.As(err, &reused) {
-			s.log.Warn("refresh token reuse detected", "user_id", reused.UserID, "session_id", reused.SessionID)
-			if s.audit != nil {
-				if err := s.audit.Record(ctx, audit.NewSessionReuseDetectedEvent(reused.UserID, reused.SessionID)); err != nil {
-					return nil, err
-				}
-			}
-			return nil, domain.ErrSessionRevoked
-		}
 		return nil, err
+	}
+	if reused != nil {
+		s.log.Warn("refresh token reuse detected", "user_id", reused.UserID, "session_id", reused.SessionID)
+		if s.audit != nil {
+			if recordErr := s.audit.Record(ctx, audit.NewSessionReuseDetectedEvent(reused.UserID, reused.SessionID)); recordErr != nil {
+				return nil, recordErr
+			}
+		}
+		return nil, domain.ErrSessionRevoked
 	}
 
 	s.log.Info("refresh token rotated", "user_id", session.UserID, "session_id", session.ID)
-	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewSessionEvent(audit.EventSessionRefreshed, session.UserID, session.ID, nil, "")); err != nil {
-			return nil, err
-		}
-	}
 	return &SessionResult{Session: session, SessionToken: newSessionToken, RefreshToken: newRefreshToken}, nil
 }
 
@@ -203,8 +212,11 @@ func (s *SessionService) checkSession(session *domain.Session) error {
 	if now.After(session.ExpiresAt) {
 		return domain.ErrSessionExpired
 	}
-	if s.config.IdleTTL > 0 && now.After(session.LastActiveAt.Add(s.config.IdleTTL)) {
+	if s.config.IdleTTL > 0 && !now.Before(session.LastActiveAt.Add(s.config.IdleTTL)) {
 		return domain.ErrSessionExpired
+	}
+	if s.config.MaxLifetime > 0 && !now.Before(session.CreatedAt.Add(s.config.MaxLifetime)) {
+		return domain.ErrMaxLifetimeExceeded
 	}
 	return nil
 }
