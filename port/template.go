@@ -5,6 +5,7 @@ import "time"
 // EmailTemplateType identifies the kind of email being rendered.
 type EmailTemplateType string
 
+// TemplatePasswordReset and the following values identify built-in email templates.
 const (
 	TemplatePasswordReset EmailTemplateType = "password_reset"
 	TemplateSetPassword   EmailTemplateType = "set_password"
@@ -59,44 +60,57 @@ type TemplateProvider interface {
 
 // ─── Per-template data types ────────────────────────────────
 
+// PasswordResetData supplies values for a password-reset email.
 type PasswordResetData struct {
 	AppName   string
 	ResetURL  string
 	ExpiresIn time.Duration
 }
 
+// Template selects the password-reset email template.
 func (d PasswordResetData) Template() EmailTemplateType { return TemplatePasswordReset }
+
+// ValidateURLs validates the password-reset link.
 func (d PasswordResetData) ValidateURLs(v *URLValidator) error {
 	return v.Validate(d.ResetURL, "ResetURL")
 }
 
+// SetPasswordData supplies values for a set-password email.
 type SetPasswordData struct {
 	AppName   string
 	Code      string
 	ExpiresIn time.Duration
 }
 
+// Template selects the set-password email template.
 func (d SetPasswordData) Template() EmailTemplateType { return TemplateSetPassword }
 
+// VerificationData supplies values for an email-verification message.
 type VerificationData struct {
 	AppName   string
 	Code      string
 	ExpiresIn time.Duration
 }
 
+// Template selects the verification email template.
 func (d VerificationData) Template() EmailTemplateType { return TemplateVerification }
 
+// InviteData supplies values for a platform invitation email.
 type InviteData struct {
 	AppName   string
 	InviteURL string
 	ExpiresIn time.Duration
 }
 
+// Template selects the platform invitation email template.
 func (d InviteData) Template() EmailTemplateType { return TemplateInvite }
+
+// ValidateURLs validates the platform invitation link.
 func (d InviteData) ValidateURLs(v *URLValidator) error {
 	return v.Validate(d.InviteURL, "InviteURL")
 }
 
+// OrgInviteData supplies values for an organization invitation email.
 type OrgInviteData struct {
 	AppName   string
 	OrgName   string
@@ -104,34 +118,45 @@ type OrgInviteData struct {
 	ExpiresIn time.Duration
 }
 
+// Template selects the organization invitation email template.
 func (d OrgInviteData) Template() EmailTemplateType { return TemplateOrgInvite }
+
+// ValidateURLs validates the organization invitation link.
 func (d OrgInviteData) ValidateURLs(v *URLValidator) error {
 	return v.Validate(d.InviteURL, "InviteURL")
 }
 
+// DeleteAccountData supplies values for an account-deletion email.
 type DeleteAccountData struct {
 	AppName   string
 	Code      string
 	ExpiresIn time.Duration
 }
 
+// Template selects the account-deletion email template.
 func (d DeleteAccountData) Template() EmailTemplateType { return TemplateDeleteAccount }
 
+// TwoFactorData supplies values for a two-factor code email.
 type TwoFactorData struct {
 	AppName   string
 	Code      string
 	ExpiresIn time.Duration
 }
 
+// Template selects the two-factor code email template.
 func (d TwoFactorData) Template() EmailTemplateType { return TemplateTwoFactor }
 
+// TwoFactorSuspiciousData supplies values for a suspicious-attempt warning.
 type TwoFactorSuspiciousData struct {
 	AppName          string
 	AttemptCount     int
 	ResetPasswordURL string
 }
 
+// Template selects the suspicious-attempt email template.
 func (d TwoFactorSuspiciousData) Template() EmailTemplateType { return TemplateTwoFactorSuspicious }
+
+// ValidateURLs validates the password-reset link.
 func (d TwoFactorSuspiciousData) ValidateURLs(v *URLValidator) error {
 	return v.Validate(d.ResetPasswordURL, "ResetPasswordURL")
 }

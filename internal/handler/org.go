@@ -9,6 +9,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// CreateOrg creates an organization.
 func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -40,6 +41,7 @@ func (h *Handler) CreateOrg(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, org)
 }
 
+// GetOrg returns an organization.
 func (h *Handler) GetOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -59,6 +61,7 @@ func (h *Handler) GetOrg(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, org)
 }
 
+// UpdateOrg changes an organization.
 func (h *Handler) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -92,6 +95,7 @@ func (h *Handler) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, org)
 }
 
+// DeleteOrg deletes an organization.
 func (h *Handler) DeleteOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -110,6 +114,7 @@ func (h *Handler) DeleteOrg(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Organization deleted"})
 }
 
+// ListUserOrgs returns the authenticated user's organizations.
 func (h *Handler) ListUserOrgs(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -190,6 +195,7 @@ func (h *Handler) CountUserOrgs(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 }
 
+// ListOrgMembers returns an organization's members.
 func (h *Handler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -271,6 +277,7 @@ func (h *Handler) CountOrgMembers(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 }
 
+// RemoveMember removes a user from an organization.
 func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -290,6 +297,7 @@ func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Member removed"})
 }
 
+// UpdateMemberRole changes an organization member's role.
 func (h *Handler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -322,6 +330,7 @@ func (h *Handler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
 }
 
+// LeaveOrg removes the authenticated user from an organization.
 func (h *Handler) LeaveOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -340,6 +349,7 @@ func (h *Handler) LeaveOrg(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Left organization"})
 }
 
+// SetActiveOrg selects the active organization for the current session.
 func (h *Handler) SetActiveOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -366,6 +376,7 @@ func (h *Handler) SetActiveOrg(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Active org updated"})
 }
 
+// ClearActiveOrg clears the active organization from the current session.
 func (h *Handler) ClearActiveOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -383,6 +394,7 @@ func (h *Handler) ClearActiveOrg(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Active org cleared"})
 }
 
+// CreateOrgInvite creates an organization invitation.
 func (h *Handler) CreateOrgInvite(w http.ResponseWriter, r *http.Request) {
 	if h.services.OrgInvite == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -416,6 +428,7 @@ func (h *Handler) CreateOrgInvite(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, invite)
 }
 
+// AcceptOrgInvite accepts an organization invitation.
 func (h *Handler) AcceptOrgInvite(w http.ResponseWriter, r *http.Request) {
 	if h.services.OrgInvite == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -448,6 +461,7 @@ func (h *Handler) AcceptOrgInvite(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Invite accepted"})
 }
 
+// ListOrgInvites returns an organization's invitations.
 func (h *Handler) ListOrgInvites(w http.ResponseWriter, r *http.Request) {
 	if h.services.OrgInvite == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -541,6 +555,7 @@ func (h *Handler) CountOrgInvites(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 }
 
+// ResendOrgInvite sends an organization invitation again.
 func (h *Handler) ResendOrgInvite(w http.ResponseWriter, r *http.Request) {
 	if h.services.OrgInvite == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -560,6 +575,7 @@ func (h *Handler) ResendOrgInvite(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Invite email resent"})
 }
 
+// DeleteOrgInvite deletes an organization invitation.
 func (h *Handler) DeleteOrgInvite(w http.ResponseWriter, r *http.Request) {
 	if h.services.OrgInvite == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})

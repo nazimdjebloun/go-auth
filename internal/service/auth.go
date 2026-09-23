@@ -19,6 +19,7 @@ import (
 
 const deleteAccountCodeTTL = 10 * time.Minute
 
+// AuthService provides registration and authentication operations.
 type AuthService struct {
 	users     port.UserRepository
 	sessions  port.SessionRevoker // only DeleteAllForUser (account deletion)
@@ -67,6 +68,7 @@ func (s *AuthService) AttachAccountDeletion(d *AccountDeletion) {
 	s.deletion = d
 }
 
+// Config configures AuthService.
 type Config struct {
 	CommonConfig
 
@@ -122,6 +124,7 @@ type Config struct {
 	PepperRotatedAt time.Time
 }
 
+// AuditPublisher records audit events.
 type AuditPublisher interface {
 	// Record writes the event durably: the audit record joins the caller's
 	// transaction (record-iff-commit) and, when external delivery sinks are
@@ -131,6 +134,7 @@ type AuditPublisher interface {
 	Record(ctx context.Context, event audit.Event) error
 }
 
+// NewAuthService returns an authentication service.
 func NewAuthService(
 	users port.UserRepository,
 	sessions port.SessionRevoker,
@@ -204,6 +208,7 @@ func (s *AuthService) createAuditedLoginSession(
 	return result, nil
 }
 
+// Register creates a user account.
 func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*RegisterResult, error) {
 	if !s.config.EnableEmailPassword {
 		return nil, domain.ErrMethodDisabled
@@ -455,6 +460,7 @@ type rehashRegistry interface {
 	DummyHash() string
 }
 
+// Login authenticates a user.
 func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, error) {
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
@@ -592,6 +598,7 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 	}, nil
 }
 
+// ValidateSession validates a session token and returns its user and session.
 func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*domain.User, *domain.Session, error) {
 	session, err := s.sessionSvc.Validate(ctx, tokenRaw)
 	if err != nil {
@@ -609,6 +616,7 @@ func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*do
 	return user, session, nil
 }
 
+// Logout ends a session.
 func (s *AuthService) Logout(ctx context.Context, sessionID string) error {
 	err := s.withTx(ctx, func(txCtx context.Context) error {
 		if err := s.sessionSvc.RevokeByID(txCtx, sessionID); err != nil {
@@ -626,6 +634,7 @@ func (s *AuthService) Logout(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+// ChangeName changes a user's display name.
 func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
@@ -647,6 +656,7 @@ func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) er
 	return nil
 }
 
+// DeleteAccount deletes a user's account after password verification.
 func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
@@ -682,6 +692,7 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 	return nil
 }
 
+// RequestDeleteAccount sends an account-deletion code.
 func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
@@ -757,6 +768,7 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 	return nil
 }
 
+// ConfirmDeleteAccount deletes an account using a valid code.
 func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDeleteAccountInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {

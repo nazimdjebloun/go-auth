@@ -1,3 +1,4 @@
+// Package google implements Google OAuth authentication.
 package google
 
 import (
@@ -12,6 +13,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// Config configures the Google OAuth provider.
 type Config struct {
 	ClientID     string
 	ClientSecret string
@@ -19,10 +21,12 @@ type Config struct {
 	Scopes       []string
 }
 
+// Google exchanges OAuth credentials for Google profiles.
 type Google struct {
 	cfg *oauth2.Config
 }
 
+// New returns a Google OAuth provider.
 func New(cfg Config) *Google {
 	scopes := cfg.Scopes
 	if len(scopes) == 0 {
@@ -42,12 +46,14 @@ func New(cfg Config) *Google {
 	}
 }
 
+// Name returns the provider name.
 func (g *Google) Name() string { return "google" }
 
 // OAuth2Config returns the underlying OAuth2 configuration, exposing
 // ClientID and ClientSecret for startup validation.
 func (g *Google) OAuth2Config() *oauth2.Config { return g.cfg }
 
+// AuthURL returns the Google authorization URL with PKCE.
 func (g *Google) AuthURL(state string, codeChallenge string) string {
 	return g.cfg.AuthCodeURL(state,
 		oauth2.AccessTypeOnline,
@@ -57,6 +63,7 @@ func (g *Google) AuthURL(state string, codeChallenge string) string {
 	)
 }
 
+// Exchange exchanges an authorization code for a Google profile.
 func (g *Google) Exchange(ctx context.Context, code string, codeVerifier string) (*port.OAuthProfile, error) {
 	token, err := g.cfg.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("code_verifier", codeVerifier),

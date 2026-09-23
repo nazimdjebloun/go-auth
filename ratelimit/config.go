@@ -1,3 +1,4 @@
+// Package ratelimit defines request-rate policies and counter stores.
 package ratelimit
 
 import (
@@ -56,6 +57,7 @@ type Store interface {
 	Allow(ctx context.Context, key string, rate Rate) (Result, error)
 }
 
+// Config controls rate limiting by route and client address.
 type Config struct {
 	Enabled         bool
 	Default         Rate
@@ -68,6 +70,7 @@ type Config struct {
 	Logger          *slog.Logger // structured logger for rate limit store errors; defaults to slog.Default()
 }
 
+// Rate sets a request count for a fixed time window.
 type Rate struct {
 	Requests int
 	Window   time.Duration

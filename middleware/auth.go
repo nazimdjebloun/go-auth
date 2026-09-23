@@ -17,20 +17,24 @@ const (
 	ctxUser    ctxKey = "user"
 )
 
+// GetSessionFromContext returns the session stored in the context.
 func GetSessionFromContext(ctx context.Context) *domain.Session {
 	v, _ := ctx.Value(ctxSession).(*domain.Session)
 	return v
 }
 
+// GetUserFromContext returns the user stored in the context.
 func GetUserFromContext(ctx context.Context) *domain.User {
 	v, _ := ctx.Value(ctxUser).(*domain.User)
 	return v
 }
 
+// ContextWithUser stores a user in the context.
 func ContextWithUser(ctx context.Context, user *domain.User) context.Context {
 	return context.WithValue(ctx, ctxUser, user)
 }
 
+// ContextWithSession stores a session in the context.
 func ContextWithSession(ctx context.Context, session *domain.Session) context.Context {
 	return context.WithValue(ctx, ctxSession, session)
 }
@@ -49,6 +53,7 @@ type UserLookup interface {
 	GetByID(ctx context.Context, id string) (*domain.User, error)
 }
 
+// AuthMiddleware authenticates requests using session cookies.
 func AuthMiddleware(sessionSvc SessionAuthenticator, cookies CookieSettings, userRepo UserLookup, logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()
@@ -207,6 +212,7 @@ func writeAuthBackendError(w http.ResponseWriter, r *http.Request, logger *slog.
 	writeJSON(w, http.StatusInternalServerError, domain.ErrInternal, logger)
 }
 
+// RequireRole permits only users with the given application role.
 func RequireRole(role domain.Role, logger *slog.Logger) func(http.Handler) http.Handler {
 	if logger == nil {
 		logger = slog.Default()

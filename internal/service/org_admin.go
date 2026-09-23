@@ -28,6 +28,7 @@ import (
 // so "the owner deleted their org" and "a platform admin force-deleted it"
 // never look identical in the audit log.
 
+// AdminListOrgsInput contains administrator organization filters.
 type AdminListOrgsInput struct {
 	ActorID        string
 	Search         *string
@@ -39,6 +40,7 @@ type AdminListOrgsInput struct {
 	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
 }
 
+// AdminListOrgsResult contains organizations and the matching total.
 type AdminListOrgsResult struct {
 	Orgs   []domain.Organization `json:"orgs"`
 	Limit  int                   `json:"limit"`
@@ -108,6 +110,7 @@ func (s *OrgService) CountUserOrgs(ctx context.Context, input ListUserOrgsInput)
 	return s.orgs.CountUserOrgs(ctx, input.UserID, port.UserOrgFilter{Search: input.Search, Role: input.Role})
 }
 
+// AdminListUserOrgsInput contains filters for a user's organizations.
 type AdminListUserOrgsInput struct {
 	ActorID        string
 	UserID         string
@@ -119,6 +122,7 @@ type AdminListUserOrgsInput struct {
 	Limit          *int
 }
 
+// AdminListUserOrgs returns a user's organizations to an administrator.
 func (s *OrgService) AdminListUserOrgs(ctx context.Context, input AdminListUserOrgsInput) (*ListUserOrgsResult, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
@@ -155,6 +159,7 @@ func (s *OrgService) AdminListUserOrgs(ctx context.Context, input AdminListUserO
 	return &ListUserOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
 }
 
+// AdminCountUserOrgs returns a user's organization count to an administrator.
 func (s *OrgService) AdminCountUserOrgs(ctx context.Context, input AdminListUserOrgsInput) (int, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return 0, err
@@ -165,6 +170,7 @@ func (s *OrgService) AdminCountUserOrgs(ctx context.Context, input AdminListUser
 	return s.orgs.CountUserOrgs(ctx, input.UserID, port.UserOrgFilter{Search: input.Search, Role: input.Role})
 }
 
+// AdminGetOrgInput identifies an organization to return to an administrator.
 type AdminGetOrgInput struct {
 	OrgID   string
 	ActorID string
@@ -196,6 +202,7 @@ func (s *OrgService) AdminGetOrg(ctx context.Context, input AdminGetOrgInput) (*
 	return org, nil
 }
 
+// AdminListOrgMembersInput contains administrator member filters.
 type AdminListOrgMembersInput struct {
 	OrgID          string
 	ActorID        string
@@ -263,6 +270,7 @@ func (s *OrgService) AdminCountOrgMembers(ctx context.Context, input AdminListOr
 	})
 }
 
+// AdminOrgActionInput identifies an organization and administrator.
 type AdminOrgActionInput struct {
 	OrgID   string
 	ActorID string
@@ -288,6 +296,7 @@ func (s *OrgService) AdminDeleteOrg(ctx context.Context, input AdminOrgActionInp
 	return err
 }
 
+// AdminAddMemberInput identifies the member and role an administrator adds.
 type AdminAddMemberInput struct {
 	OrgID   string
 	UserID  string
@@ -316,6 +325,7 @@ func (s *OrgService) AdminAddMember(ctx context.Context, input AdminAddMemberInp
 	})
 }
 
+// AdminRemoveMemberInput identifies the member an administrator removes.
 type AdminRemoveMemberInput struct {
 	OrgID   string
 	UserID  string
@@ -338,6 +348,7 @@ func (s *OrgService) AdminRemoveMember(ctx context.Context, input AdminRemoveMem
 	return err
 }
 
+// AdminUpdateMemberRoleInput identifies the role change an administrator makes.
 type AdminUpdateMemberRoleInput struct {
 	OrgID   string
 	UserID  string

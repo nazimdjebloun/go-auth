@@ -90,6 +90,7 @@ var bestEffortTypes = map[EventType]bool{
 	EventTwoFactorSuspicious: true,
 }
 
+// PriorityFor returns the delivery priority for an event type.
 func PriorityFor(t EventType) int {
 	if bestEffortTypes[t] {
 		return PriorityBestEffort

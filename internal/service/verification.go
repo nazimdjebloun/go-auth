@@ -12,6 +12,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// VerificationService manages email verification.
 type VerificationService struct {
 	users     port.UserRepository
 	tokens    port.TokenRepository
@@ -24,6 +25,7 @@ type VerificationService struct {
 	audit     AuditPublisher
 }
 
+// NewVerificationService returns an email verification service.
 func NewVerificationService(
 	users port.UserRepository,
 	tokens port.TokenRepository,
@@ -49,6 +51,7 @@ func NewVerificationService(
 	}
 }
 
+// VerifyEmail verifies an email address with a code.
 func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*domain.User, error) {
 	// The verification code is an 8-char OTP (~40 bits): low-entropy, so the
 	// stored value is HMAC-SHA256(OTPPepper, code), not raw SHA-256. This
@@ -263,6 +266,7 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	return &VerificationResult{Sent: true, ExpiresAt: token.ExpiresAt}, nil
 }
 
+// ResendVerification sends a user's verification code again.
 func (s *VerificationService) ResendVerification(ctx context.Context, userID string) (*VerificationResult, error) {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {

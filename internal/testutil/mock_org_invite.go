@@ -11,15 +11,18 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// MockOrgInviteRepo is an in-memory organization invitation repository for tests.
 type MockOrgInviteRepo struct {
 	mu      sync.Mutex
 	invites map[string]*domain.OrgInvite
 }
 
+// NewMockOrgInviteRepo returns an in-memory organization invitation repository.
 func NewMockOrgInviteRepo() *MockOrgInviteRepo {
 	return &MockOrgInviteRepo{invites: make(map[string]*domain.OrgInvite)}
 }
 
+// Create stores an organization invitation.
 func (m *MockOrgInviteRepo) Create(_ context.Context, invite *domain.OrgInvite) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -28,6 +31,7 @@ func (m *MockOrgInviteRepo) Create(_ context.Context, invite *domain.OrgInvite) 
 	return nil
 }
 
+// GetByID returns an organization invitation by ID.
 func (m *MockOrgInviteRepo) GetByID(_ context.Context, id string) (*domain.OrgInvite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -38,6 +42,7 @@ func (m *MockOrgInviteRepo) GetByID(_ context.Context, id string) (*domain.OrgIn
 	return inv, nil
 }
 
+// GetByCodeHash returns an organization invitation by code hash.
 func (m *MockOrgInviteRepo) GetByCodeHash(_ context.Context, codeHash string) (*domain.OrgInvite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -48,6 +53,7 @@ func (m *MockOrgInviteRepo) GetByCodeHash(_ context.Context, codeHash string) (*
 	return inv, nil
 }
 
+// CountByOrgID returns an organization's invitation count.
 func (m *MockOrgInviteRepo) CountByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) (int, error) {
 	f := filter
 	f.Limit, f.Offset = 0, 0
@@ -55,6 +61,7 @@ func (m *MockOrgInviteRepo) CountByOrgID(ctx context.Context, orgID string, filt
 	return len(items), err
 }
 
+// ListByOrgID returns an organization's invitations.
 func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, error) {
 	m.mu.Lock()
 	var all []domain.OrgInvite
@@ -138,6 +145,7 @@ func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter 
 	return page, nil
 }
 
+// Update replaces an organization invitation.
 func (m *MockOrgInviteRepo) Update(_ context.Context, invite *domain.OrgInvite) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -150,6 +158,7 @@ func (m *MockOrgInviteRepo) Update(_ context.Context, invite *domain.OrgInvite) 
 	return nil
 }
 
+// Delete removes an organization invitation.
 func (m *MockOrgInviteRepo) Delete(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -160,6 +169,7 @@ func (m *MockOrgInviteRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// ClaimInvite consumes a matching organization invitation.
 func (m *MockOrgInviteRepo) ClaimInvite(_ context.Context, id, codeHash string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

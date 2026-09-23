@@ -19,6 +19,7 @@ import (
 // mounted when Org is non-nil (Mount only registers them inside
 // `if a.orgService != nil`).
 
+// AdminListOrgs returns organizations visible to administrators.
 func (h *Handler) AdminListOrgs(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -90,6 +91,7 @@ func (h *Handler) AdminListOrgs(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
+// AdminGetOrg returns one organization to an administrator.
 func (h *Handler) AdminGetOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -109,6 +111,7 @@ func (h *Handler) AdminGetOrg(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, org)
 }
 
+// AdminListOrgMembers returns an organization's members to an administrator.
 func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -168,6 +171,7 @@ func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
+// AdminAddOrgMember adds a user to an organization as an administrator.
 func (h *Handler) AdminAddOrgMember(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -200,6 +204,7 @@ func (h *Handler) AdminAddOrgMember(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, map[string]string{"message": "Member added"})
 }
 
+// AdminDeleteOrg deletes an organization as an administrator.
 func (h *Handler) AdminDeleteOrg(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -218,6 +223,7 @@ func (h *Handler) AdminDeleteOrg(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Organization deleted"})
 }
 
+// AdminRemoveOrgMember removes an organization member as an administrator.
 func (h *Handler) AdminRemoveOrgMember(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -237,6 +243,7 @@ func (h *Handler) AdminRemoveOrgMember(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Member removed"})
 }
 
+// AdminUpdateOrgMemberRole changes an organization member's role as an administrator.
 func (h *Handler) AdminUpdateOrgMemberRole(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})
@@ -269,6 +276,7 @@ func (h *Handler) AdminUpdateOrgMemberRole(w http.ResponseWriter, r *http.Reques
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
 }
 
+// AdminListUserOrgs returns a user's organizations to an administrator.
 func (h *Handler) AdminListUserOrgs(w http.ResponseWriter, r *http.Request) {
 	if h.services.Org == nil {
 		h.writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found", "message": "Organizations not enabled"})

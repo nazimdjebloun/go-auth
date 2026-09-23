@@ -8,6 +8,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// Register creates a user account.
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email    string `json:"email"`
@@ -51,6 +52,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, result)
 }
 
+// Login authenticates a user.
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email    string `json:"email"`
@@ -92,6 +94,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
+// AdminLogin authenticates an administrator.
 func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email    string `json:"email"`
@@ -124,6 +127,7 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
+// Logout ends the current session.
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSessionFromContext(r.Context())
 	if session == nil {
@@ -141,6 +145,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
 }
 
+// GetMe returns the authenticated user.
 func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -188,6 +193,8 @@ func (h *Handler) GetCSRFToken(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	h.writeJSON(w, http.StatusOK, map[string]string{"token": token})
 }
+
+// ChangeName updates the authenticated user's name.
 func (h *Handler) ChangeName(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {

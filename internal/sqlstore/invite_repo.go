@@ -11,10 +11,12 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// InviteRepository stores account invitations.
 type InviteRepository struct {
 	db *DB
 }
 
+// NewInviteRepository returns an invite repository.
 func NewInviteRepository(db *DB) *InviteRepository {
 	return &InviteRepository{db: db}
 }
@@ -26,6 +28,7 @@ var inviteOrderByWhitelist = map[string]string{
 	"status":     "status",
 }
 
+// Create stores an invitation.
 func (r *InviteRepository) Create(ctx context.Context, invite *domain.Invite) error {
 	_, err := r.db.ExecContext(ctx, inviteCreateQuery,
 		invite.ID, invite.Email, invite.Code, invite.CreatedBy, invite.Status,
@@ -33,6 +36,7 @@ func (r *InviteRepository) Create(ctx context.Context, invite *domain.Invite) er
 	return err
 }
 
+// GetByID returns an invitation by ID or nil when absent.
 func (r *InviteRepository) GetByID(ctx context.Context, id string) (*domain.Invite, error) {
 	invite := &domain.Invite{}
 	var acceptedAt sql.NullTime
@@ -51,6 +55,7 @@ func (r *InviteRepository) GetByID(ctx context.Context, id string) (*domain.Invi
 	return invite, nil
 }
 
+// GetByCode returns an invitation by code or nil when absent.
 func (r *InviteRepository) GetByCode(ctx context.Context, code string) (*domain.Invite, error) {
 	invite := &domain.Invite{}
 	var acceptedAt sql.NullTime
@@ -69,6 +74,7 @@ func (r *InviteRepository) GetByCode(ctx context.Context, code string) (*domain.
 	return invite, nil
 }
 
+// GetByEmail returns an invitation by email or nil when absent.
 func (r *InviteRepository) GetByEmail(ctx context.Context, email string) (*domain.Invite, error) {
 	invite := &domain.Invite{}
 	var acceptedAt sql.NullTime
@@ -163,6 +169,7 @@ func (r *InviteRepository) Count(ctx context.Context, filter port.InviteFilter) 
 	return total, nil
 }
 
+// List returns invitations matching the filter.
 func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) ([]domain.Invite, error) {
 	now := time.Now().UTC()
 	where, args := r.buildInviteWhere(filter, now)
@@ -219,6 +226,7 @@ func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) (
 	return invites, nil
 }
 
+// Update replaces an invitation's stored values.
 func (r *InviteRepository) Update(ctx context.Context, invite *domain.Invite) error {
 	_, err := r.db.ExecContext(ctx, inviteUpdateQuery,
 		invite.Email, invite.Code, invite.CreatedBy, invite.Status,
@@ -226,11 +234,13 @@ func (r *InviteRepository) Update(ctx context.Context, invite *domain.Invite) er
 	return err
 }
 
+// Delete removes an invitation by ID.
 func (r *InviteRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, inviteDeleteQuery, id)
 	return err
 }
 
+// ClaimInvite marks a valid invitation accepted.
 func (r *InviteRepository) ClaimInvite(ctx context.Context, code string, acceptedAt time.Time) (bool, error) {
 	result, err := r.db.ExecContext(ctx, inviteClaimQuery, acceptedAt, code, acceptedAt)
 	if err != nil {

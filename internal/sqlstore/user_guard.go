@@ -103,6 +103,7 @@ func (r *UserRepository) adminReductionAllowed(ctx context.Context, userID strin
 	return !targetUsable || otherUsable, nil
 }
 
+// DeleteWithAdminGuard deletes a user without removing the last active admin.
 func (r *UserRepository) DeleteWithAdminGuard(ctx context.Context, userID string) (bool, error) {
 	var changed bool
 	err := r.WithAdminGuard(ctx, func(ctx context.Context) error {
@@ -116,6 +117,7 @@ func (r *UserRepository) DeleteWithAdminGuard(ctx context.Context, userID string
 	return changed && err == nil, err
 }
 
+// BanWithAdminGuard bans a user without banning the last active admin.
 func (r *UserRepository) BanWithAdminGuard(ctx context.Context, userID string, banned bool, bannedAt *time.Time, updatedAt time.Time) (bool, error) {
 	var changed bool
 	err := r.WithAdminGuard(ctx, func(ctx context.Context) error {
@@ -133,6 +135,7 @@ func (r *UserRepository) BanWithAdminGuard(ctx context.Context, userID string, b
 	return changed && err == nil, err
 }
 
+// DemoteWithAdminGuard changes an admin's role without demoting the last active admin.
 func (r *UserRepository) DemoteWithAdminGuard(ctx context.Context, userID string, role domain.Role, updatedAt time.Time) (bool, error) {
 	var changed bool
 	err := r.WithAdminGuard(ctx, func(ctx context.Context) error {

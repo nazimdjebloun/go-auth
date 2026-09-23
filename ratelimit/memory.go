@@ -136,6 +136,7 @@ type bucket struct {
 	resetAt time.Time
 }
 
+// NewMemoryStore returns a bounded in-memory fixed-window store.
 func NewMemoryStore(opts ...MemoryStoreOption) Store {
 	o := memoryOptions{maxEntries: defaultMaxEntries}
 	for _, opt := range opts {

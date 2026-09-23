@@ -5,6 +5,7 @@ import (
 	"sync"
 )
 
+// MockMailer records email sends and can override delivery behavior.
 type MockMailer struct {
 	// mu guards Calls: the bulk invite send fans out across a worker pool, so
 	// Send is called concurrently.
@@ -13,6 +14,7 @@ type MockMailer struct {
 	Calls  []struct{ To, Subject, HTML, Text string }
 }
 
+// Send records the message before calling SendFn, when set.
 func (m *MockMailer) Send(ctx context.Context, to, subject, html, text string) error {
 	m.mu.Lock()
 	m.Calls = append(m.Calls, struct{ To, Subject, HTML, Text string }{to, subject, html, text})

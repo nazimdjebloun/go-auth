@@ -1,3 +1,4 @@
+// Package registry selects password hashers from encoded hash prefixes.
 package registry
 
 import (

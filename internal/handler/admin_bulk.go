@@ -13,6 +13,7 @@ type bulkUserIDsBody struct {
 	UserIDs []string `json:"userIds"`
 }
 
+// BulkBanUsers bans multiple users.
 func (h *Handler) BulkBanUsers(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -31,6 +32,7 @@ func (h *Handler) BulkBanUsers(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
+// BulkUnbanUsers unbans multiple users.
 func (h *Handler) BulkUnbanUsers(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -49,6 +51,7 @@ func (h *Handler) BulkUnbanUsers(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
+// BulkDeleteUsers deletes multiple users.
 func (h *Handler) BulkDeleteUsers(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -67,6 +70,7 @@ func (h *Handler) BulkDeleteUsers(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
+// BulkRevokeUserSessions revokes sessions for multiple users.
 func (h *Handler) BulkRevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {

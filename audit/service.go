@@ -11,13 +11,18 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/id"
 )
 
+// FailureMode controls whether a sink delivery failure stops fan-out to
+// subsequent sinks in a dispatch batch. It does not affect the operation
+// that produced the audit event.
 type FailureMode int
 
+// FailureOpen and FailureClosed define audit failure behavior.
 const (
 	FailureOpen FailureMode = iota
 	FailureClosed
 )
 
+// ServiceConfig configures audit recording and delivery.
 type ServiceConfig struct {
 	FailureMode FailureMode
 	// Deprecated: the in-memory queue is gone — the outbox is the queue.

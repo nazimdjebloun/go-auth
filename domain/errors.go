@@ -1,5 +1,6 @@
 package domain
 
+// AuthError carries a stable error code and a client-facing message.
 type AuthError struct {
 	Code    string `json:"error"`
 	Message string `json:"message"`
@@ -22,10 +23,12 @@ func (e *AuthError) Is(target error) bool {
 	return e.Code == t.Code
 }
 
+// NewError returns an AuthError with the given code and message.
 func NewError(code string, msg string) *AuthError {
 	return &AuthError{Code: code, Message: msg}
 }
 
+// ErrInternal and the following values are reusable API errors.
 var (
 	ErrInternal                 = NewError("internal_error", "Internal server error")
 	ErrEmailAlreadyExists       = NewError("email_already_exists", "An account with this email already exists")
@@ -104,7 +107,7 @@ var (
 	ErrTwoFactorCodeExpired     = NewError("two_factor_code_expired", "Two-factor code has expired")
 	ErrTwoFactorCodeAlreadyUsed = NewError("two_factor_code_already_used", "This two-factor code has already been used")
 	ErrTwoFactorAlreadyEnforced = NewError("two_factor_already_enforced", "Two-factor authentication is required and cannot be changed")
-	// Deliberately not ErrPasswordRequired: that one's message is specific to
+	// ErrTwoFactorPasswordRequired is distinct because ErrPasswordRequired is specific to
 	// account deletion, and generalizing it would change that response body.
 	// The code must differ too, not just the variable — "password_required" is
 	// ErrPasswordRequired's code, and a shared code means a client matching on

@@ -11,14 +11,17 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// AuditLogRepository reads stored audit events.
 type AuditLogRepository struct {
 	db *DB
 }
 
+// NewAuditLogRepository returns an audit log repository.
 func NewAuditLogRepository(db *DB) *AuditLogRepository {
 	return &AuditLogRepository{db: db}
 }
 
+// List returns audit events matching the filter.
 func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, error) {
 	where, args := r.buildWhere(filter)
 
@@ -151,6 +154,7 @@ func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLo
 	return counts, nil
 }
 
+// GetByID returns an audit event by ID or nil when absent.
 func (r *AuditLogRepository) GetByID(ctx context.Context, id string) (*port.AuditLogEntry, error) {
 	var e port.AuditLogEntry
 	var parsedUA, metadata sql.NullString

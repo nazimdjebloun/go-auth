@@ -6,6 +6,7 @@ import (
 	ua "github.com/mileusna/useragent"
 )
 
+// UserAgentInfo contains browser, operating system, and device details.
 type UserAgentInfo struct {
 	BrowserName    string `json:"browser"`
 	BrowserVersion string `json:"browserVersion,omitempty"`
@@ -14,6 +15,7 @@ type UserAgentInfo struct {
 	DeviceType     string `json:"deviceType"`
 }
 
+// ParseUserAgent parses a user-agent string into normalized device details.
 func ParseUserAgent(raw string) *UserAgentInfo {
 	parsed := ua.Parse(raw)
 	info := &UserAgentInfo{
@@ -35,6 +37,7 @@ func ParseUserAgent(raw string) *UserAgentInfo {
 	return info
 }
 
+// Session records an authenticated login and its token lifecycle.
 type Session struct {
 	ID                  string         `json:"id"`
 	UserID              string         `json:"userId"`

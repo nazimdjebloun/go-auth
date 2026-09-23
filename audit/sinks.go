@@ -6,10 +6,12 @@ import (
 	"time"
 )
 
+// LoggerSink writes audit events to a structured logger.
 type LoggerSink struct {
 	log *slog.Logger
 }
 
+// NewLoggerSink returns an audit sink backed by a logger.
 func NewLoggerSink(log *slog.Logger) *LoggerSink {
 	if log == nil {
 		log = slog.Default()
@@ -17,6 +19,7 @@ func NewLoggerSink(log *slog.Logger) *LoggerSink {
 	return &LoggerSink{log: log}
 }
 
+// Handle logs one audit event.
 func (s *LoggerSink) Handle(ctx context.Context, event Event) error {
 	attrs := []any{
 		"event_id", event.ID,
@@ -57,6 +60,7 @@ func (s *LoggerSink) Handle(ctx context.Context, event Event) error {
 	return nil
 }
 
+// HandleBatch logs each audit event in order.
 func (s *LoggerSink) HandleBatch(ctx context.Context, events []Event) error {
 	for _, e := range events {
 		if err := s.Handle(ctx, e); err != nil {

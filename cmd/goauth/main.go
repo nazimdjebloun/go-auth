@@ -1,3 +1,4 @@
+// Package main runs the goauth CLI.
 package main
 
 import "github.com/nazimdjebloun/go-auth/cmd/goauth/cmd"

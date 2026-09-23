@@ -91,6 +91,7 @@ func parseListUsersInput(r *http.Request, actorID string) (service.AdminListUser
 	}, nil
 }
 
+// ListUsers returns users matching the request filters.
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -130,6 +131,7 @@ func (h *Handler) CountUsers(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 }
 
+// BanUser bans a user.
 func (h *Handler) BanUser(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -144,6 +146,7 @@ func (h *Handler) BanUser(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "User banned successfully"})
 }
 
+// UnbanUser unbans a user.
 func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -158,6 +161,7 @@ func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "User unbanned successfully"})
 }
 
+// UpdateUserRole changes a user's role.
 func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -178,6 +182,7 @@ func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Role updated"})
 }
 
+// DeleteUser deletes a user.
 func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -192,6 +197,7 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "User deleted successfully"})
 }
 
+// RevokeUserSessions revokes every session for a user.
 func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -206,6 +212,7 @@ func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Sessions revoked"})
 }
 
+// AdminCreateUser creates a user as an administrator.
 func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -236,6 +243,7 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, result)
 }
 
+// AdminListUserSessions returns a user's sessions to an administrator.
 func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -264,6 +272,7 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 	h.writeJSON(w, http.StatusOK, map[string]any{"sessions": sessions, "total": total})
 }
 
+// GetUserDetail returns one user's administrative details.
 func (h *Handler) GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -280,6 +289,7 @@ func (h *Handler) GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, detail)
 }
 
+// AdminRevokeUserSession revokes one user session as an administrator.
 func (h *Handler) AdminRevokeUserSession(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {

@@ -20,6 +20,7 @@ import (
 // TLSMode selects the transport security an SMTP connection negotiates.
 type TLSMode int
 
+// TLSStart and the following values select supported SMTP security modes.
 const (
 	TLSStart    TLSMode = iota // STARTTLS, typically port 587 — the zero value, so an unset TLSMode is never plaintext
 	TLSImplicit                // implicit TLS, typically port 465
@@ -53,6 +54,7 @@ func NewSMTP(cfg Config) (*SMTP, error) {
 	return &SMTP{cfg: cfg}, nil
 }
 
+// Send delivers an HTML email with a plain-text alternative.
 func (m *SMTP) Send(ctx context.Context, to, subject, html, text string) error {
 	msg := mail.NewMsg()
 	if err := msg.From(m.cfg.From); err != nil {
@@ -110,6 +112,7 @@ func NewLog(logger *slog.Logger) *Log {
 	return &Log{log: logger}
 }
 
+// Send logs an email without delivering it.
 func (m *Log) Send(_ context.Context, to, subject, _, text string) error {
 	m.log.Info("mail (log driver — not delivered)", "to", to, "subject", subject, "text", text)
 	return nil

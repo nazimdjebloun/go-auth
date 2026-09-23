@@ -1,3 +1,4 @@
+// Package audit records and delivers authentication audit events.
 package audit
 
 import (
@@ -7,10 +8,12 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
+// EventType identifies an audited operation.
 type EventType string
 
+// EventLoginSuccess and the following constants identify audit event types.
 const (
-	// Authentication
+	// EventLoginSuccess and the following values identify authentication events.
 	EventLoginSuccess      EventType = "login.success"
 	EventLoginFailed       EventType = "login.failed"
 	EventLoginLocked       EventType = "login.locked"
@@ -18,10 +21,11 @@ const (
 	EventAdminLoginSuccess EventType = "admin.login.success"
 	EventAdminLoginFailed  EventType = "admin.login.failed"
 
-	// Registration
+	// EventUserRegistered identifies a user registration.
 	EventUserRegistered EventType = "user.registered"
 
-	// Account (self-service). user.name_changed fires from the profile
+	// EventNameChanged and EventAccountDeleted identify self-service account changes.
+	// user.name_changed fires from the profile
 	// name change; user.account_deleted fires after a self-service account
 	// deletion (password or emailed-code path) has fully succeeded. Both
 	// are distinct from the admin.user.* family: the actor is the user,
@@ -29,11 +33,11 @@ const (
 	EventNameChanged    EventType = "user.name_changed"
 	EventAccountDeleted EventType = "user.account_deleted"
 
-	// Email
+	// EventEmailVerificationSent and EventEmailVerified identify email verification events.
 	EventEmailVerificationSent EventType = "email.verification.sent"
 	EventEmailVerified         EventType = "email.verified"
 
-	// Two-factor
+	// EventTwoFactorCodeSent and the following values identify two-factor events.
 	EventTwoFactorCodeSent   EventType = "2fa.code.sent"
 	EventTwoFactorVerified   EventType = "2fa.verified"
 	EventTwoFactorFailed     EventType = "2fa.failed"
@@ -41,12 +45,12 @@ const (
 	EventTwoFactorDisabled   EventType = "2fa.disabled"
 	EventTwoFactorSuspicious EventType = "2fa.suspicious"
 
-	// Password
+	// EventPasswordChanged and the following values identify password events.
 	EventPasswordChanged      EventType = "password.changed"
 	EventPasswordResetRequest EventType = "password.reset.requested"
 	EventPasswordResetDone    EventType = "password.reset.completed"
 
-	// Sessions
+	// EventSessionCreated and the following values identify session events.
 	EventSessionCreated    EventType = "session.created"
 	EventSessionRefreshed  EventType = "session.refreshed"
 	EventSessionRevoked    EventType = "session.revoked"
@@ -57,36 +61,38 @@ const (
 	// revoked as a theft-response measure by the time this publishes.
 	EventSessionRefreshReuseDetected EventType = "session.refresh_reuse_detected"
 
-	// OAuth
+	// EventOAuthLogin and the following values identify OAuth events.
 	EventOAuthLogin    EventType = "oauth.login"
 	EventOAuthLinked   EventType = "oauth.linked"
 	EventOAuthUnlinked EventType = "oauth.unlinked"
 
-	// Admin
+	// EventAdminUserCreated and the following values identify administrator user events.
 	EventAdminUserCreated  EventType = "admin.user.created"
 	EventAdminUserUpdated  EventType = "admin.user.updated"
 	EventAdminUserDeleted  EventType = "admin.user.deleted"
 	EventAdminUserBanned   EventType = "admin.user.banned"
 	EventAdminUserUnbanned EventType = "admin.user.unbanned"
 
-	// Admin — invites. The target is an invite, not a user, so the invite id
+	// EventAdminInviteCreated and the following values identify administrator invite events.
+	// The target is an invite, not a user, so the invite id
 	// and address ride in Metadata rather than TargetUserID.
 	EventAdminInviteCreated EventType = "admin.invite.created"
 	EventAdminInviteResent  EventType = "admin.invite.resent"
 	EventAdminInviteRevoked EventType = "admin.invite.revoked"
 	EventAdminInviteDeleted EventType = "admin.invite.deleted"
 
-	// Roles
+	// EventRoleChanged identifies a role change.
 	EventRoleChanged EventType = "role.changed"
 
-	// Organizations
+	// EventOrgCreated and the following values identify organization events.
 	EventOrgCreated           EventType = "organization.created"
 	EventOrgDeleted           EventType = "organization.deleted"
 	EventOrgMemberInvited     EventType = "organization.member.invited"
 	EventOrgMemberRemoved     EventType = "organization.member.removed"
 	EventOrgMemberRoleChanged EventType = "organization.member.role_changed"
 
-	// Admin — organizations. Distinct from the EventOrg* family above so a
+	// EventAdminOrgDeleted and the following values identify administrator organization events.
+	// They are distinct from the EventOrg family so a
 	// platform-admin override is never indistinguishable, in the audit log,
 	// from the org's own owner/admin doing the same thing.
 	EventAdminOrgDeleted           EventType = "admin.org.deleted"
@@ -96,8 +102,10 @@ const (
 	EventAdminOrgViewed            EventType = "admin.org.viewed"
 )
 
+// Severity classifies an audit event's importance.
 type Severity string
 
+// SeverityInfo and the following values are audit severity levels.
 const (
 	SeverityInfo     Severity = "info"
 	SeverityWarning  Severity = "warning"
@@ -105,6 +113,7 @@ const (
 	SeverityCritical Severity = "critical"
 )
 
+// Event describes one audited operation.
 type Event struct {
 	ID            string                `json:"id"`
 	Type          EventType             `json:"type"`

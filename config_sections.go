@@ -11,8 +11,10 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// Driver identifies a supported database driver.
 type Driver string
 
+// DriverPostgres and the following values identify supported database drivers.
 const (
 	DriverPostgres Driver = "postgres"
 	DriverSQLite   Driver = "sqlite3"
@@ -116,8 +118,10 @@ type AuditConfig struct {
 	OutboxMaxRows int           // emergency backlog valve (default 100000)
 }
 
+// Environment identifies the deployment environment.
 type Environment string
 
+// EnvironmentDev and the following values identify deployment environments.
 const (
 	EnvironmentDev     Environment = "dev"
 	EnvironmentStaging Environment = "staging"

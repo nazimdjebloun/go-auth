@@ -10,6 +10,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// MockOrgRepo is an in-memory organization repository for tests.
 type MockOrgRepo struct {
 	mu      sync.Mutex
 	orgs    map[string]*domain.Organization
@@ -24,6 +25,7 @@ type MockOrgRepo struct {
 	GetMembershipErr error
 }
 
+// NewMockOrgRepo returns an in-memory organization repository.
 func NewMockOrgRepo() *MockOrgRepo {
 	return &MockOrgRepo{
 		orgs:    make(map[string]*domain.Organization),
@@ -38,6 +40,7 @@ func (m *MockOrgRepo) SetUsers(users port.UserRepository) {
 	m.users = users
 }
 
+// Create stores an organization.
 func (m *MockOrgRepo) Create(_ context.Context, org *domain.Organization) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -46,6 +49,7 @@ func (m *MockOrgRepo) Create(_ context.Context, org *domain.Organization) error 
 	return nil
 }
 
+// GetByID returns an organization by ID.
 func (m *MockOrgRepo) GetByID(_ context.Context, id string) (*domain.Organization, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -56,6 +60,7 @@ func (m *MockOrgRepo) GetByID(_ context.Context, id string) (*domain.Organizatio
 	return org, nil
 }
 
+// GetBySlug returns an organization by slug.
 func (m *MockOrgRepo) GetBySlug(_ context.Context, slug string) (*domain.Organization, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -66,6 +71,7 @@ func (m *MockOrgRepo) GetBySlug(_ context.Context, slug string) (*domain.Organiz
 	return org, nil
 }
 
+// Update replaces an organization.
 func (m *MockOrgRepo) Update(_ context.Context, org *domain.Organization) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -73,6 +79,7 @@ func (m *MockOrgRepo) Update(_ context.Context, org *domain.Organization) error 
 	return nil
 }
 
+// Delete removes an organization.
 func (m *MockOrgRepo) Delete(_ context.Context, id string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -83,6 +90,7 @@ func (m *MockOrgRepo) Delete(_ context.Context, id string) (bool, error) {
 	return true, nil
 }
 
+// AddMember stores an organization membership.
 func (m *MockOrgRepo) AddMember(_ context.Context, member *domain.OrgMember) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -97,6 +105,7 @@ func (m *MockOrgRepo) AddMember(_ context.Context, member *domain.OrgMember) err
 	return nil
 }
 
+// RemoveMember removes a matching organization membership.
 func (m *MockOrgRepo) RemoveMember(_ context.Context, orgID, userID string, expectRole domain.OrgRole) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -109,6 +118,7 @@ func (m *MockOrgRepo) RemoveMember(_ context.Context, orgID, userID string, expe
 	return true, nil
 }
 
+// UpdateMemberRole changes a matching membership role.
 func (m *MockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, expectRole, newRole domain.OrgRole) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -121,6 +131,7 @@ func (m *MockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, 
 	return true, nil
 }
 
+// GetMembership returns an organization membership.
 func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*domain.OrgMember, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -139,6 +150,7 @@ func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*d
 	return &cp, nil
 }
 
+// CountMembers returns the number of matching organization members.
 func (m *MockOrgRepo) CountMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) (int, error) {
 	f := filter
 	f.Limit, f.Offset = 0, 0
@@ -146,6 +158,7 @@ func (m *MockOrgRepo) CountMembers(ctx context.Context, orgID string, filter por
 	return len(items), err
 }
 
+// ListMembers returns matching organization members.
 func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, error) {
 	m.mu.Lock()
 	var all []domain.OrgMemberDetail
@@ -237,6 +250,7 @@ func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port
 	return page, nil
 }
 
+// CountUserOrgs returns the number of matching organizations for a user.
 func (m *MockOrgRepo) CountUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) (int, error) {
 	f := filter
 	f.Limit, f.Offset = 0, 0
@@ -244,6 +258,7 @@ func (m *MockOrgRepo) CountUserOrgs(ctx context.Context, userID string, filter p
 	return len(items), err
 }
 
+// ListUserOrgs returns matching organizations for a user.
 func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, error) {
 	m.mu.Lock()
 	var all []domain.Organization
@@ -306,6 +321,7 @@ func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port
 	return page, nil
 }
 
+// Count returns the number of matching organizations.
 func (m *MockOrgRepo) Count(ctx context.Context, filter port.OrgFilter) (int, error) {
 	f := filter
 	f.Limit, f.Offset = 0, 0
@@ -313,6 +329,7 @@ func (m *MockOrgRepo) Count(ctx context.Context, filter port.OrgFilter) (int, er
 	return len(items), err
 }
 
+// List returns matching organizations.
 func (m *MockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.Organization, error) {
 	m.mu.Lock()
 	seen := make(map[string]bool)
@@ -395,6 +412,7 @@ func (m *MockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.O
 	return page, nil
 }
 
+// IncrementUserOrgOwnerCount increments a user's owned organization count within the limit.
 func (m *MockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID string, maxOrgs int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -410,18 +428,22 @@ func (m *MockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID strin
 	return nil
 }
 
+// DecrementUserOrgOwnerCount decrements a user's owned organization count.
 func (m *MockOrgRepo) DecrementUserOrgOwnerCount(_ context.Context, _ string) error {
 	return nil
 }
 
+// IncrementOrgMemberCount increments an organization's member count.
 func (m *MockOrgRepo) IncrementOrgMemberCount(_ context.Context, _ string, _ int) error {
 	return nil
 }
 
+// DecrementOrgMemberCount decrements an organization's member count.
 func (m *MockOrgRepo) DecrementOrgMemberCount(_ context.Context, _ string) error {
 	return nil
 }
 
+// TryDecrementOrgOwnerCount decrements an organization's owner count unless it is the last owner.
 func (m *MockOrgRepo) TryDecrementOrgOwnerCount(_ context.Context, orgID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -443,10 +465,12 @@ func (m *MockOrgRepo) TryDecrementOrgOwnerCount(_ context.Context, orgID string)
 	return nil
 }
 
+// IncrementOrgOwnerCount increments an organization's owner count.
 func (m *MockOrgRepo) IncrementOrgOwnerCount(_ context.Context, _ string) error {
 	return nil
 }
 
+// DecrementOwnerCountForOrgOwners decrements the owned count for an organization's owners.
 func (m *MockOrgRepo) DecrementOwnerCountForOrgOwners(_ context.Context, _ string) error {
 	return nil
 }

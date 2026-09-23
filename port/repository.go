@@ -28,6 +28,7 @@ import (
 // domain.ErrOrgSlugExists, domain.ErrProviderAccountExists, ...).
 var ErrDuplicateKey = errors.New("port: duplicate key")
 
+// UserFilter narrows and orders user queries.
 type UserFilter struct {
 	// IDs matches any of the listed user IDs ("IN (...)") — a batch lookup,
 	// not a per-admin-question filter like the fields below it. Used to
@@ -74,6 +75,7 @@ type PasswordHashUpdater interface {
 	UpdatePasswordHash(ctx context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error)
 }
 
+// UserRepository stores user accounts and credentials.
 type UserRepository interface {
 	PasswordHashUpdater
 	AdminGuardStore
@@ -153,6 +155,7 @@ func (e *ErrRefreshTokenReused) Error() string {
 	return "port: refresh token reused past grace window (session " + e.SessionID + " revoked)"
 }
 
+// SessionFilter narrows and orders session queries.
 type SessionFilter struct {
 	UserID *string
 	// IP matches sessions.ip_address exactly.
@@ -261,6 +264,7 @@ type ConsumeTokenInput struct {
 	UsedAt    time.Time
 }
 
+// TokenRepository stores workflow verification tokens.
 type TokenRepository interface {
 	Create(ctx context.Context, t *domain.VerificationToken) error
 	GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error)
@@ -292,6 +296,7 @@ type TokenRepository interface {
 	UpdateForResend(ctx context.Context, id string, newHash string, newExpiresAt time.Time, newCreatedAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error)
 }
 
+// InviteFilter narrows and orders platform invite queries.
 type InviteFilter struct {
 	Search         *string
 	Status         *string
@@ -301,6 +306,7 @@ type InviteFilter struct {
 	Limit          int
 }
 
+// InviteRepository stores platform invitations.
 type InviteRepository interface {
 	Create(ctx context.Context, invite *domain.Invite) error
 	GetByID(ctx context.Context, id string) (*domain.Invite, error)
@@ -317,6 +323,7 @@ type InviteRepository interface {
 	ClaimInvite(ctx context.Context, code string, acceptedAt time.Time) (bool, error)
 }
 
+// ProviderAccountRepository stores OAuth account links.
 type ProviderAccountRepository interface {
 	Create(ctx context.Context, pa *domain.ProviderAccount) error
 	GetByProvider(ctx context.Context, provider, providerUserID string) (*domain.ProviderAccount, error)
@@ -442,6 +449,7 @@ type OrgInviteFilter struct {
 	Limit          int // 0 means unlimited
 }
 
+// OrgInviteRepository stores invitations to join organizations.
 type OrgInviteRepository interface {
 	Create(ctx context.Context, invite *domain.OrgInvite) error
 	GetByID(ctx context.Context, id string) (*domain.OrgInvite, error)
@@ -461,6 +469,7 @@ type OrgInviteRepository interface {
 	ClaimInvite(ctx context.Context, id, codeHash string) (bool, error)
 }
 
+// AuditLogFilter narrows audit-log queries.
 type AuditLogFilter struct {
 	// Types matches any of the listed event types ("IN (...)"); nil/empty
 	// means no filter. A single-element slice is the old single-Type filter.
@@ -508,6 +517,7 @@ type AuditLogEntry struct {
 	CreatedAt     time.Time       `json:"createdAt"`
 }
 
+// AuditLogRepository reads persisted audit events.
 type AuditLogRepository interface {
 	// List returns a page of audit entries; use Count for the total.
 	List(ctx context.Context, filter AuditLogFilter) ([]AuditLogEntry, error)

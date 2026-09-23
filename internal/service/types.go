@@ -34,6 +34,7 @@ type VerificationResult struct {
 	ExpiresAt time.Time
 }
 
+// RegisterInput contains values used to register a user.
 type RegisterInput struct {
 	Email     string
 	Password  string
@@ -69,6 +70,7 @@ type RegisterResult struct {
 // cookie. Not serialized — see the field comment.
 func (r *RegisterResult) BindingToken() string { return r.bindingToken }
 
+// LoginInput contains user login credentials.
 type LoginInput struct {
 	Email     string
 	Password  string
@@ -96,6 +98,7 @@ type LoginResult struct {
 // cookie. Not serialized — see RegisterResult.bindingToken.
 func (r *LoginResult) BindingToken() string { return r.bindingToken }
 
+// CompleteInviteInput contains values used to register from an invitation.
 type CompleteInviteInput struct {
 	Code            string
 	Name            string
@@ -105,6 +108,7 @@ type CompleteInviteInput struct {
 	UserAgent       string
 }
 
+// CompleteInviteResult contains the registered user and session.
 type CompleteInviteResult struct {
 	User         *domain.User    `json:"user"`
 	Session      *domain.Session `json:"session,omitempty"`
@@ -123,15 +127,18 @@ type CompleteInviteResult struct {
 // cookie. Not serialized — see RegisterResult.bindingToken.
 func (r *CompleteInviteResult) BindingToken() string { return r.bindingToken }
 
+// ForgotPasswordInput identifies the account requesting a password reset.
 type ForgotPasswordInput struct {
 	Email string
 }
 
+// ResetPasswordInput contains a reset code and new password.
 type ResetPasswordInput struct {
 	Code        string
 	NewPassword string
 }
 
+// ChangePasswordInput contains a user's current and new passwords.
 type ChangePasswordInput struct {
 	UserID          string
 	OldPassword     string
@@ -139,16 +146,19 @@ type ChangePasswordInput struct {
 	ExceptSessionID string
 }
 
+// ConfirmSetPasswordInput contains a setup code and new password.
 type ConfirmSetPasswordInput struct {
 	UserID      string
 	Code        string
 	NewPassword string
 }
 
+// ListSessionsResult contains sessions and the matching total.
 type ListSessionsResult struct {
 	Sessions []domain.Session
 }
 
+// AdminListUsersInput contains administrator user filters.
 type AdminListUsersInput struct {
 	ActorID          string // the admin performing this call
 	Offset           int
@@ -167,12 +177,14 @@ type AdminListUsersInput struct {
 	OrderDirection  port.SortDirection
 }
 
+// AdminListUsersResult contains users and the matching total.
 type AdminListUsersResult struct {
 	Users  []domain.User `json:"users"`
 	Limit  int           `json:"limit,omitempty"`
 	Offset int           `json:"offset,omitempty"`
 }
 
+// ListInvitesInput contains account invitation filters.
 type ListInvitesInput struct {
 	ActorID        string
 	Offset         int
@@ -183,11 +195,13 @@ type ListInvitesInput struct {
 	OrderDirection port.SortDirection
 }
 
+// CreateInviteInput contains values used to create an account invitation.
 type CreateInviteInput struct {
 	Email   string
 	AdminID string
 }
 
+// EmailData contains values used to render an email.
 type EmailData struct {
 	To      string
 	Subject string
@@ -195,6 +209,7 @@ type EmailData struct {
 	Text    string
 }
 
+// CreateUserInput contains values used to create a user.
 type CreateUserInput struct {
 	ActorID  string // the admin performing this call
 	Email    string
@@ -203,6 +218,7 @@ type CreateUserInput struct {
 	Role     string
 }
 
+// AdminListUserSessionsInput contains pagination for a user's sessions.
 type AdminListUserSessionsInput struct {
 	ActorID string // the admin performing this call
 	UserID  string
@@ -210,6 +226,7 @@ type AdminListUserSessionsInput struct {
 	Limit   int
 }
 
+// ConfirmDeleteAccountInput contains an account-deletion code.
 type ConfirmDeleteAccountInput struct {
 	UserID string
 	Code   string

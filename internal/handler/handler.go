@@ -1,3 +1,4 @@
+// Package handler implements the go-auth HTTP endpoints.
 package handler
 
 import (
@@ -26,6 +27,7 @@ type Deps struct {
 	AuditLog  port.AuditLogRepository
 }
 
+// Handler serves the go-auth HTTP endpoints.
 type Handler struct {
 	services     Deps
 	log          *slog.Logger
@@ -40,10 +42,12 @@ type Handler struct {
 	clientIP middleware.ClientIPConfig
 }
 
+// New returns a handler with default HTTP settings.
 func New(s Deps) *Handler {
 	return &Handler{services: s, log: slog.Default(), cookies: middleware.DefaultCookieSettings()}
 }
 
+// NewWithLogger returns a handler with the given HTTP settings.
 func NewWithLogger(s Deps, logger *slog.Logger, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig, cookies middleware.CookieSettings) *Handler {
 	if logger == nil {
 		logger = slog.Default()

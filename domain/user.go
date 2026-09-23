@@ -2,13 +2,16 @@ package domain
 
 import "time"
 
+// Role identifies an account's application-wide permission level.
 type Role string
 
+// RoleUser and RoleAdmin are the supported account roles.
 const (
 	RoleUser  Role = "user"
 	RoleAdmin Role = "admin"
 )
 
+// User holds account identity, status, and authentication metadata.
 type User struct {
 	ID                    string     `json:"id"`
 	Email                 string     `json:"email"`
@@ -27,12 +30,15 @@ type User struct {
 	UpdatedAt             time.Time  `json:"updatedAt"`
 }
 
+// HasPassword reports whether the user has a password login method.
 func (u *User) HasPassword() bool {
 	return u.PasswordHash != nil
 }
 
+// TokenType identifies the workflow that issued a verification token.
 type TokenType string
 
+// TokenVerifyEmail and the following values are supported token types.
 const (
 	TokenVerifyEmail   TokenType = "verify_email"
 	TokenResetPass     TokenType = "reset_password"
@@ -43,6 +49,7 @@ const (
 	TokenTwoFactor     TokenType = "2fa_login"
 )
 
+// VerificationToken records a hashed, expiring workflow token.
 type VerificationToken struct {
 	ID           string     `json:"id"`
 	UserID       *string    `json:"userId,omitempty"` // nil for invite verify codes
@@ -61,8 +68,10 @@ type VerificationToken struct {
 	ResendCount int `json:"-"`
 }
 
+// InviteStatus identifies the lifecycle state of a platform invite.
 type InviteStatus string
 
+// InvitePending and the following values are valid invite states.
 const (
 	InvitePending  InviteStatus = "pending"
 	InviteAccepted InviteStatus = "accepted"
@@ -70,6 +79,7 @@ const (
 	InviteExpired  InviteStatus = "expired"
 )
 
+// Invite records an invitation to create an account.
 type Invite struct {
 	ID         string       `json:"id"`
 	Email      string       `json:"email"`

@@ -1,3 +1,4 @@
+// Package github implements GitHub OAuth authentication.
 package github
 
 import (
@@ -17,6 +18,7 @@ var githubEndpoint = oauth2.Endpoint{
 	TokenURL: "https://github.com/login/oauth/access_" + "token",
 }
 
+// Config configures the GitHub OAuth provider.
 type Config struct {
 	ClientID     string
 	ClientSecret string
@@ -24,10 +26,12 @@ type Config struct {
 	Scopes       []string
 }
 
+// GitHub exchanges OAuth credentials for GitHub profiles.
 type GitHub struct {
 	cfg *oauth2.Config
 }
 
+// New returns a GitHub OAuth provider.
 func New(cfg Config) *GitHub {
 	scopes := cfg.Scopes
 	if len(scopes) == 0 {
@@ -44,12 +48,14 @@ func New(cfg Config) *GitHub {
 	}
 }
 
+// Name returns the provider name.
 func (g *GitHub) Name() string { return "github" }
 
 // OAuth2Config returns the underlying OAuth2 configuration, exposing
 // ClientID and ClientSecret for startup validation.
 func (g *GitHub) OAuth2Config() *oauth2.Config { return g.cfg }
 
+// AuthURL returns the GitHub authorization URL with PKCE.
 func (g *GitHub) AuthURL(state string, codeChallenge string) string {
 	return g.cfg.AuthCodeURL(state, oauth2.AccessTypeOnline,
 		oauth2.SetAuthURLParam("code_challenge", codeChallenge),
@@ -57,6 +63,7 @@ func (g *GitHub) AuthURL(state string, codeChallenge string) string {
 	)
 }
 
+// Exchange exchanges an authorization code for a GitHub profile.
 func (g *GitHub) Exchange(ctx context.Context, code string, codeVerifier string) (*port.OAuthProfile, error) {
 	token, err := g.cfg.Exchange(ctx, code,
 		oauth2.SetAuthURLParam("code_verifier", codeVerifier),

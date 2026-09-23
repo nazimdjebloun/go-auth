@@ -1,3 +1,4 @@
+// Package service implements authentication business logic.
 package service
 
 import (
@@ -45,6 +46,7 @@ type AccountDeletion struct {
 	users    deletionUsers
 }
 
+// NewAccountDeletion returns an account deletion coordinator.
 func NewAccountDeletion(tx port.TxManager, orgs deletionOrgs, sessions deletionSessions, users deletionUsers) *AccountDeletion {
 	return &AccountDeletion{tx: tx, orgs: orgs, sessions: sessions, users: users}
 }

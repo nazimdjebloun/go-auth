@@ -22,10 +22,12 @@ type MockAuditPublisher struct {
 	Events []audit.Event
 }
 
+// NewMockAuditPublisher returns an audit publisher for tests.
 func NewMockAuditPublisher() *MockAuditPublisher {
 	return &MockAuditPublisher{}
 }
 
+// Record appends an event to the mock publisher.
 func (m *MockAuditPublisher) Record(_ context.Context, event audit.Event) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -35,11 +37,13 @@ func (m *MockAuditPublisher) Record(_ context.Context, event audit.Event) error 
 
 // ─── mockAuditLogRepo ──────────────────────────────────────────────
 
+// MockAuditLogRepo is an in-memory audit log repository for tests.
 type MockAuditLogRepo struct {
 	mu      sync.Mutex
 	entries []port.AuditLogEntry
 }
 
+// NewMockAuditLogRepo returns an in-memory audit log repository.
 func NewMockAuditLogRepo() *MockAuditLogRepo {
 	return &MockAuditLogRepo{}
 }
@@ -52,6 +56,7 @@ func (m *MockAuditLogRepo) AddEntry(e port.AuditLogEntry) {
 	m.entries = append(m.entries, e)
 }
 
+// List returns matching audit entries.
 func (m *MockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -78,6 +83,7 @@ func (m *MockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) (
 	return matched[start:end], nil
 }
 
+// Count returns the number of matching audit entries.
 func (m *MockAuditLogRepo) Count(_ context.Context, filter port.AuditLogFilter) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -90,6 +96,7 @@ func (m *MockAuditLogRepo) Count(_ context.Context, filter port.AuditLogFilter) 
 	return n, nil
 }
 
+// GetByID returns an audit entry by ID.
 func (m *MockAuditLogRepo) GetByID(_ context.Context, id string) (*port.AuditLogEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

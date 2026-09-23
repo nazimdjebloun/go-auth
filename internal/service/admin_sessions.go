@@ -8,11 +8,13 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// RevokeUserSessionsInput identifies the user whose sessions to revoke.
 type RevokeUserSessionsInput struct {
 	UserID  string
 	ActorID string
 }
 
+// RevokeUserSessions revokes every session for a user.
 func (s *AdminService) RevokeUserSessions(ctx context.Context, input RevokeUserSessionsInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
@@ -50,6 +52,7 @@ type AdminListSessionsInput struct {
 	Limit            int
 }
 
+// AdminListSessionsResult contains sessions and the matching total.
 type AdminListSessionsResult struct {
 	Sessions []domain.Session `json:"sessions"`
 	Limit    int              `json:"limit"`
@@ -113,6 +116,7 @@ func (s *AdminService) CountSessions(ctx context.Context, input AdminListSession
 	return n, nil
 }
 
+// ListUserSessions returns a page of sessions for a user.
 func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUserSessionsInput) ([]domain.Session, int, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, 0, err
@@ -131,12 +135,14 @@ func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUser
 	return sessions, total, nil
 }
 
+// RevokeUserSessionInput identifies one user session to revoke.
 type RevokeUserSessionInput struct {
 	UserID    string
 	SessionID string
 	ActorID   string
 }
 
+// RevokeUserSession revokes one session for a user.
 func (s *AdminService) RevokeUserSession(ctx context.Context, input RevokeUserSessionInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err

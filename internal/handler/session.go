@@ -8,6 +8,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// RefreshToken rotates the current session tokens.
 // POST /auth/refresh
 func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	cookie, err := r.Cookie(h.cookies.RefreshName)
@@ -35,6 +36,7 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"session": refreshResult.Session})
 }
 
+// ListSessions returns a page of the authenticated user's sessions.
 func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -70,6 +72,7 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// GetAllSessions responds with all active sessions for the authenticated user.
 func (h *Handler) GetAllSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -94,6 +97,7 @@ func (h *Handler) GetAllSessions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// RevokeSession revokes one session for the authenticated user.
 func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -115,6 +119,7 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Session revoked"})
 }
 
+// RevokeManySessions revokes multiple sessions for the authenticated user.
 func (h *Handler) RevokeManySessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -146,6 +151,7 @@ func (h *Handler) RevokeManySessions(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"revoked": revoked})
 }
 
+// RevokeAllSessions revokes all other sessions for the authenticated user.
 func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {

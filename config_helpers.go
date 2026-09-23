@@ -26,6 +26,7 @@ func boolPtr(v bool) *bool { return &v }
 // the cookie over plaintext connections.
 func SecureAlways() *bool { return boolPtr(true) }
 
+// SecureNever disables secure cookies for local HTTP development.
 func SecureNever() *bool { return boolPtr(false) }
 
 // AllowPlaintextEmailLinks and RequireHTTPSEmailLinks are readable spellings
@@ -34,4 +35,5 @@ func SecureNever() *bool { return boolPtr(false) }
 // https:// even inside one.
 func AllowPlaintextEmailLinks() *bool { return boolPtr(true) }
 
+// RequireHTTPSEmailLinks requires HTTPS URLs in emails.
 func RequireHTTPSEmailLinks() *bool { return boolPtr(false) }

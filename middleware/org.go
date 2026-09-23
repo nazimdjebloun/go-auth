@@ -14,11 +14,13 @@ const (
 	orgRoleKey ctxKey = "org_role"
 )
 
+// GetOrgID returns the organization ID stored in the context.
 func GetOrgID(ctx context.Context) string {
 	v, _ := ctx.Value(orgIDKey).(string)
 	return v
 }
 
+// GetOrgRole returns the organization role stored in the context.
 func GetOrgRole(ctx context.Context) domain.OrgRole {
 	v, _ := ctx.Value(orgRoleKey).(domain.OrgRole)
 	return v
@@ -38,6 +40,7 @@ func writeAuthError(w http.ResponseWriter, err *domain.AuthError) {
 	}, nil)
 }
 
+// RequireOrgMember permits only members of the requested organization.
 func RequireOrgMember(orgs port.OrgRepository, userKeyFn func(context.Context) string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,6 +78,7 @@ func RequireOrgMember(orgs port.OrgRepository, userKeyFn func(context.Context) s
 	}
 }
 
+// RequireOrgRole permits organization members with at least the given role.
 func RequireOrgRole(minRole domain.OrgRole) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

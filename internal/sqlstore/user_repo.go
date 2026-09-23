@@ -11,10 +11,12 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// UserRepository stores user accounts.
 type UserRepository struct {
 	db *DB
 }
 
+// NewUserRepository returns a user repository.
 func NewUserRepository(db *DB) *UserRepository {
 	return &UserRepository{db: db}
 }
@@ -72,6 +74,7 @@ func scanRow(s scanner) (*domain.User, error) {
 	return u, nil
 }
 
+// Create stores a user.
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, userCreateQuery,
 		user.ID, user.Email, user.PasswordHash, user.PasswordPepperVersion, user.Name, user.Role,
@@ -80,6 +83,7 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	return wrapCreateErr(r.db.Driver(), err)
 }
 
+// GetByID returns a user by ID or nil when absent.
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
 	user, err := scanRow(r.db.QueryRowContext(ctx, userByIDQuery, id))
 	if err == sql.ErrNoRows {
@@ -91,6 +95,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, 
 	return user, nil
 }
 
+// GetByEmail returns a user by email or nil when absent.
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
 	user, err := scanRow(r.db.QueryRowContext(ctx, userByEmailQuery, email))
 	if err == sql.ErrNoRows {
@@ -102,6 +107,7 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 	return user, nil
 }
 
+// Update changes a user's profile and verification fields.
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, userUpdateQuery,
 		user.Email, user.Name, user.IsVerified, user.VerifiedAt,
@@ -109,17 +115,20 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 	return err
 }
 
+// SetBanStatus changes a user's ban status.
 func (r *UserRepository) SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error {
 	_, err := r.db.ExecContext(ctx, userBanQuery,
 		isBanned, bannedAt, updatedAt, userID)
 	return err
 }
 
+// SetTwoFactorEnabled changes a user's two-factor status.
 func (r *UserRepository) SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error {
 	_, err := r.db.ExecContext(ctx, userSetTwoFactorQuery, enabled, updatedAt, userID)
 	return err
 }
 
+// SetPasswordAndVerify consumes a token, sets the password, and verifies the user.
 func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -148,6 +157,7 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string
 	return true, tx.Commit()
 }
 
+// UpdatePasswordHash replaces a matching password hash and pepper version.
 func (r *UserRepository) UpdatePasswordHash(ctx context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {
 	oldPepperVersionValue := int64(0)
 	if oldPepperVersion != nil {
@@ -178,6 +188,7 @@ func (r *UserRepository) UpdatePasswordHash(ctx context.Context, userID, oldHash
 	return rows == 1, nil
 }
 
+// ListPasswordPepperVersions returns the distinct stored pepper versions.
 func (r *UserRepository) ListPasswordPepperVersions(ctx context.Context) ([]uint32, error) {
 	rows, err := r.db.QueryContext(ctx, userPasswordPepperVersionsQuery)
 	if err != nil {
@@ -207,11 +218,13 @@ func (r *UserRepository) ListPasswordPepperVersions(ctx context.Context) ([]uint
 	return versions, nil
 }
 
+// Delete removes a user by ID.
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, userDeleteQuery, id)
 	return err
 }
 
+// UpdateLastLoginAt records a user's last login time.
 func (r *UserRepository) UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error {
 	_, err := r.db.ExecContext(ctx, userUpdateLastLoginQuery, t, t, userID)
 	return err
@@ -299,6 +312,7 @@ func (r *UserRepository) buildWhere(filter port.UserFilter) (string, []any) {
 	return strings.Join(where, " AND "), args
 }
 
+// List returns users matching the filter.
 func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]domain.User, error) {
 	whereClause, args := r.buildWhere(filter)
 	argIdx := len(args) + 1

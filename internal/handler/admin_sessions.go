@@ -10,6 +10,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// AdminListSessions returns sessions visible to administrators.
 // ListSessions returns active sessions across every user — the admin-wide
 // incident-response view. Supports the same offset/limit as ListUsers plus
 // userId/ip/search/date-range filters and an orderBy/orderDirection sort.

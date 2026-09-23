@@ -12,6 +12,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// MockUserRepo is an in-memory user repository for tests.
 type MockUserRepo struct {
 	mu    sync.Mutex
 	users map[string]*domain.User
@@ -21,10 +22,12 @@ type MockUserRepo struct {
 	claimedSetPassTokens map[string]bool
 }
 
+// NewMockUserRepo returns an in-memory user repository.
 func NewMockUserRepo() *MockUserRepo {
 	return &MockUserRepo{users: make(map[string]*domain.User)}
 }
 
+// Create stores a user.
 func (m *MockUserRepo) Create(_ context.Context, user *domain.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -42,6 +45,7 @@ func (m *MockUserRepo) Create(_ context.Context, user *domain.User) error {
 	return nil
 }
 
+// GetByID returns a user by ID.
 func (m *MockUserRepo) GetByID(_ context.Context, id string) (*domain.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -52,6 +56,7 @@ func (m *MockUserRepo) GetByID(_ context.Context, id string) (*domain.User, erro
 	return u, nil
 }
 
+// GetByEmail returns a user by email.
 func (m *MockUserRepo) GetByEmail(_ context.Context, email string) (*domain.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -62,6 +67,7 @@ func (m *MockUserRepo) GetByEmail(_ context.Context, email string) (*domain.User
 	return u, nil
 }
 
+// Update replaces a user.
 func (m *MockUserRepo) Update(_ context.Context, user *domain.User) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -70,6 +76,7 @@ func (m *MockUserRepo) Update(_ context.Context, user *domain.User) error {
 	return nil
 }
 
+// Delete removes a user.
 func (m *MockUserRepo) Delete(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -81,6 +88,7 @@ func (m *MockUserRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// List returns matching users.
 func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain.User, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -125,6 +133,7 @@ func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 	return matched[start:end], nil
 }
 
+// Count returns the number of matching users.
 func (m *MockUserRepo) Count(_ context.Context, filter port.UserFilter) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -211,6 +220,7 @@ func userMatchesFilter(u *domain.User, filter port.UserFilter) bool {
 	return true
 }
 
+// SetBanStatus changes a user's ban status.
 func (m *MockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned bool, bannedAt *time.Time, _ time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -223,6 +233,7 @@ func (m *MockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned b
 	return nil
 }
 
+// SetTwoFactorEnabled changes a user's two-factor status.
 func (m *MockUserRepo) SetTwoFactorEnabled(_ context.Context, userID string, enabled bool, updatedAt time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -235,6 +246,7 @@ func (m *MockUserRepo) SetTwoFactorEnabled(_ context.Context, userID string, ena
 	return nil
 }
 
+// UpdateLastLoginAt records a user's last login time.
 func (m *MockUserRepo) UpdateLastLoginAt(_ context.Context, userID string, t time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -246,6 +258,7 @@ func (m *MockUserRepo) UpdateLastLoginAt(_ context.Context, userID string, t tim
 	return nil
 }
 
+// UpdatePasswordHash replaces a matching password hash.
 func (m *MockUserRepo) UpdatePasswordHash(_ context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -358,6 +371,7 @@ func (m *MockUserRepo) DemoteWithAdminGuard(_ context.Context, userID string, ro
 	return true, nil
 }
 
+// SetPasswordAndVerify consumes a token, sets a password, and verifies a user.
 func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -381,6 +395,7 @@ func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 	return true, nil
 }
 
+// ListPasswordPepperVersions returns stored password pepper versions.
 func (m *MockUserRepo) ListPasswordPepperVersions(_ context.Context) ([]uint32, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

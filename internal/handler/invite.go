@@ -10,6 +10,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// GetInviteInfo returns public invitation details.
 func (h *Handler) GetInviteInfo(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" {
@@ -26,6 +27,7 @@ func (h *Handler) GetInviteInfo(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"email": invite.Email})
 }
 
+// InviteRegister registers a user from an invitation.
 func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Code            string `json:"code"`
@@ -62,6 +64,7 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, result)
 }
 
+// CreateInvite creates an account invitation.
 func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -87,6 +90,7 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusCreated, result)
 }
 
+// ListInvites returns invitations matching the request filters.
 func (h *Handler) ListInvites(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -142,6 +146,7 @@ func (h *Handler) CountInvites(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{"count": n})
 }
 
+// HardDeleteInvite permanently deletes an invitation.
 func (h *Handler) HardDeleteInvite(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -156,6 +161,7 @@ func (h *Handler) HardDeleteInvite(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Invite deleted"})
 }
 
+// RevokeInvite revokes an invitation.
 func (h *Handler) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -170,6 +176,7 @@ func (h *Handler) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Invite revoked"})
 }
 
+// ResendInvite sends an invitation again.
 func (h *Handler) ResendInvite(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -190,6 +197,7 @@ type bulkInviteIDsBody struct {
 	InviteIDs []string `json:"inviteIds"`
 }
 
+// BulkSendInvites sends invitations to multiple email addresses.
 func (h *Handler) BulkSendInvites(w http.ResponseWriter, r *http.Request) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -212,14 +220,17 @@ func (h *Handler) BulkSendInvites(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
+// BulkResendInvites resends multiple invitations.
 func (h *Handler) BulkResendInvites(w http.ResponseWriter, r *http.Request) {
 	h.bulkInviteAction(w, r, h.services.Invite.BulkResendInvites)
 }
 
+// BulkRevokeInvites revokes multiple invitations.
 func (h *Handler) BulkRevokeInvites(w http.ResponseWriter, r *http.Request) {
 	h.bulkInviteAction(w, r, h.services.Invite.BulkRevokeInvites)
 }
 
+// BulkDeleteInvites deletes multiple invitations.
 func (h *Handler) BulkDeleteInvites(w http.ResponseWriter, r *http.Request) {
 	h.bulkInviteAction(w, r, h.services.Invite.BulkDeleteInvites)
 }

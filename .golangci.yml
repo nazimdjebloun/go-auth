@@ -15,20 +15,4 @@ linters:
     - staticcheck
   settings:
     revive:
-      # Any revive settings block replaces the whole default rule set, so
-      # without this the `rules` entries below would leave revive running
-      # zero rules instead of "defaults minus the two disabled here".
       enable-default-rules: true
-      rules:
-        # `exported` requires a doc comment on every exported declaration,
-        # `package-comments` one on every package. This repository documents
-        # intent by hand: in README and docs/, and in comments where the code
-        # is non-obvious, so satisfying these rules mechanically would only
-        # add comments that restate the identifier or package name.
-        # Disabling `exported` turns off its naming half too; the names it
-        # flagged (audit.AuditService et al.) were already renamed, and the
-        # rest of revive stays enabled.
-        - name: exported
-          disabled: true
-        - name: package-comments
-          disabled: true

@@ -12,6 +12,7 @@ import (
 	"golang.org/x/crypto/hkdf"
 )
 
+// Keys contains purpose-specific keys derived from the application secret.
 type Keys struct {
 	CSRF      []byte
 	OAuthEnc  []byte

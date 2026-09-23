@@ -7,6 +7,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// ForgotPassword starts a password reset.
 func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email string `json:"email"`
@@ -24,6 +25,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ResetPassword completes a password reset.
 func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Code        string `json:"code"`
@@ -44,6 +46,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Password reset successfully"})
 }
 
+// ChangePassword changes the authenticated user's password.
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -77,6 +80,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
 }
 
+// SetPasswordRequest starts password setup for the authenticated user.
 func (h *Handler) SetPasswordRequest(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -91,6 +95,7 @@ func (h *Handler) SetPasswordRequest(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "If the email exists, a set password link has been sent."})
 }
 
+// SetPasswordConfirm completes password setup.
 func (h *Handler) SetPasswordConfirm(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		UserID      string `json:"userId"`
@@ -113,6 +118,7 @@ func (h *Handler) SetPasswordConfirm(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Password set successfully"})
 }
 
+// DeleteAccount deletes the authenticated user's account with a password.
 func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -137,6 +143,7 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }
 
+// RequestDeleteAccount starts email confirmation for account deletion.
 func (h *Handler) RequestDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -152,6 +159,7 @@ func (h *Handler) RequestDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Deletion code sent to your email"})
 }
 
+// ConfirmDeleteAccount completes account deletion.
 func (h *Handler) ConfirmDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {

@@ -9,14 +9,17 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// TokenRepository stores one-time verification tokens.
 type TokenRepository struct {
 	db *DB
 }
 
+// NewTokenRepository returns a token repository.
 func NewTokenRepository(db *DB) *TokenRepository {
 	return &TokenRepository{db: db}
 }
 
+// Create stores a verification token.
 func (r *TokenRepository) Create(ctx context.Context, t *domain.VerificationToken) error {
 	// Callers construct tokens without a CreatedAt; fill it here rather than
 	// relying on the column default, so GetLastByUserAndType's ORDER BY sees a
@@ -60,27 +63,33 @@ func scanToken(s scanner) (*domain.VerificationToken, error) {
 	return t, nil
 }
 
+// GetByHash returns a token by hash or nil when absent.
 func (r *TokenRepository) GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error) {
 	return scanToken(r.db.QueryRowContext(ctx, tokenByHashQuery, hash))
 }
 
+// GetByID returns a token by ID or nil when absent.
 func (r *TokenRepository) GetByID(ctx context.Context, id string) (*domain.VerificationToken, error) {
 	return scanToken(r.db.QueryRowContext(ctx, tokenByIDQuery, id))
 }
 
+// GetLastByUserAndType returns the newest token of a type for a user.
 func (r *TokenRepository) GetLastByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error) {
 	return scanToken(r.db.QueryRowContext(ctx, tokenGetLastByUserAndTypeQuery, userID, tokenType))
 }
 
+// MarkUsed records when a token was used.
 func (r *TokenRepository) MarkUsed(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, tokenMarkUsedQuery, time.Now().UTC(), id)
 	return err
 }
 
+// MarkUsedIfUnused marks a token used only when it is still unused.
 func (r *TokenRepository) MarkUsedIfUnused(ctx context.Context, id string) (bool, error) {
 	return affected(r.db.ExecContext(ctx, tokenMarkUsedIfUnusedQuery, time.Now().UTC(), id))
 }
 
+// ConsumeIfValid marks a matching unexpired token used.
 func (r *TokenRepository) ConsumeIfValid(ctx context.Context, input port.ConsumeTokenInput) (bool, error) {
 	return affected(r.db.ExecContext(
 		ctx,
@@ -94,6 +103,7 @@ func (r *TokenRepository) ConsumeIfValid(ctx context.Context, input port.Consume
 	))
 }
 
+// HasValidByUserAndType reports whether a user has a valid token of the type.
 func (r *TokenRepository) HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error) {
 	var exists bool
 	err := r.db.QueryRowContext(ctx, tokenHasValidByUserAndTypeQuery, userID, tokenType, time.Now().UTC()).Scan(&exists)
@@ -103,11 +113,13 @@ func (r *TokenRepository) HasValidByUserAndType(ctx context.Context, userID stri
 	return exists, nil
 }
 
+// DeleteExpired removes expired tokens.
 func (r *TokenRepository) DeleteExpired(ctx context.Context) error {
 	_, err := r.db.ExecContext(ctx, tokenDeleteExpiredQuery, time.Now().UTC())
 	return err
 }
 
+// DeleteUnusedByUserAndType removes unused tokens of a type for a user.
 func (r *TokenRepository) DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error {
 	_, err := r.db.ExecContext(ctx, tokenDeleteUnusedByUserAndTypeQuery, userID, tokenType)
 	return err
@@ -127,14 +139,17 @@ func affected(res sql.Result, err error) (bool, error) {
 	return n > 0, nil
 }
 
+// IncrementAttempts adds one failed attempt to a token.
 func (r *TokenRepository) IncrementAttempts(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
 	return affected(r.db.ExecContext(ctx, tokenIncrementAttemptsQuery, id, maxAttemptsPerChallenge))
 }
 
+// MarkUsedIfUnderCap marks a token used when its attempt count is below the cap.
 func (r *TokenRepository) MarkUsedIfUnderCap(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
 	return affected(r.db.ExecContext(ctx, tokenMarkUsedIfUnderCapQuery, time.Now().UTC(), id, maxAttemptsPerChallenge))
 }
 
+// UpdateForResend replaces a token's hash and expiry for resending.
 func (r *TokenRepository) UpdateForResend(ctx context.Context, id string, newHash string, newExpiresAt time.Time, newCreatedAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
 	return affected(r.db.ExecContext(ctx, tokenUpdateForResendQuery,
 		newHash, newExpiresAt, newCreatedAt, id, maxRefreshesPerChallenge, maxAttemptsPerChallenge))

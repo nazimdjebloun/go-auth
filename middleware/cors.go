@@ -2,6 +2,7 @@ package middleware
 
 import "net/http"
 
+// CORS adds cross-origin response headers for allowed origins.
 func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 	allowAll := false
 	origins := make(map[string]bool)

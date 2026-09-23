@@ -6,6 +6,7 @@ import (
 	"unicode"
 )
 
+// PasswordPolicy defines the checks applied to new passwords.
 type PasswordPolicy struct {
 	MinLength        int
 	RequireUppercase bool

@@ -1,3 +1,4 @@
+// Package cmd implements the goauth command-line interface.
 package cmd
 
 import (
@@ -11,6 +12,7 @@ var rootCmd = &cobra.Command{
 	Short: "Go-Auth CLI — schema generation and migration tooling",
 }
 
+// Execute runs the goauth command-line interface.
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {

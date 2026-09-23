@@ -17,6 +17,7 @@ type adminSessionStore interface {
 	port.SessionRevoker
 }
 
+// AdminService provides administrator operations.
 type AdminService struct {
 	users      port.UserRepository
 	sessions   adminSessionStore
@@ -41,6 +42,7 @@ func (s *AdminService) AttachAccountDeletion(d *AccountDeletion) {
 	s.deletion = d
 }
 
+// NewAdminService returns an administrator service.
 func NewAdminService(
 	users port.UserRepository,
 	sessions adminSessionStore,

@@ -7,15 +7,18 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
+// MockProviderAccountRepo stores OAuth account links in memory for tests.
 type MockProviderAccountRepo struct {
 	mu       sync.Mutex
 	accounts map[string]*domain.ProviderAccount
 }
 
+// NewMockProviderAccountRepo returns an empty provider-account repository.
 func NewMockProviderAccountRepo() *MockProviderAccountRepo {
 	return &MockProviderAccountRepo{accounts: make(map[string]*domain.ProviderAccount)}
 }
 
+// Create stores a provider account.
 func (m *MockProviderAccountRepo) Create(_ context.Context, pa *domain.ProviderAccount) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -23,6 +26,7 @@ func (m *MockProviderAccountRepo) Create(_ context.Context, pa *domain.ProviderA
 	return nil
 }
 
+// GetByProvider returns a matching provider account.
 func (m *MockProviderAccountRepo) GetByProvider(_ context.Context, provider, providerUserID string) (*domain.ProviderAccount, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -34,6 +38,7 @@ func (m *MockProviderAccountRepo) GetByProvider(_ context.Context, provider, pro
 	return nil, nil
 }
 
+// ListByUserID returns a user's provider accounts.
 func (m *MockProviderAccountRepo) ListByUserID(_ context.Context, userID string) ([]domain.ProviderAccount, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -46,6 +51,7 @@ func (m *MockProviderAccountRepo) ListByUserID(_ context.Context, userID string)
 	return res, nil
 }
 
+// Delete removes a user's provider account.
 func (m *MockProviderAccountRepo) Delete(_ context.Context, userID, provider string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

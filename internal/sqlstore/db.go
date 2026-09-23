@@ -1,3 +1,4 @@
+// Package sqlstore implements go-auth repositories with database/sql.
 package sqlstore
 
 import (
@@ -10,11 +11,13 @@ import (
 
 var _ port.TxManager = (*DB)(nil)
 
+// DB wraps sql.DB with driver-aware queries and transactions.
 type DB struct {
 	*sql.DB
 	driver string
 }
 
+// NewDB returns a DB for the given driver.
 func NewDB(db *sql.DB, driver string) *DB {
 	return &DB{DB: db, driver: driver}
 }
@@ -25,10 +28,12 @@ var positionalParamDrivers = map[string]bool{
 	"sqlite":  true,
 }
 
+// Driver returns the configured driver name.
 func (d *DB) Driver() string {
 	return d.driver
 }
 
+// Rebind converts numbered placeholders for the configured driver.
 func (d *DB) Rebind(query string) string {
 	if positionalParamDrivers[d.driver] {
 		return rebindQuery(query)
@@ -96,6 +101,7 @@ func txFromContext(ctx context.Context) (*sql.Tx, bool) {
 	return tx, ok
 }
 
+// ExecContext executes on the active transaction or connection pool.
 func (d *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	query = d.Rebind(query)
 	if tx, ok := txFromContext(ctx); ok {
@@ -104,6 +110,7 @@ func (d *DB) ExecContext(ctx context.Context, query string, args ...any) (sql.Re
 	return d.DB.ExecContext(ctx, query, args...)
 }
 
+// QueryContext queries the active transaction or connection pool.
 func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	query = d.Rebind(query)
 	if tx, ok := txFromContext(ctx); ok {
@@ -112,6 +119,7 @@ func (d *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.
 	return d.DB.QueryContext(ctx, query, args...)
 }
 
+// QueryRowContext queries one row from the active transaction or connection pool.
 func (d *DB) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	query = d.Rebind(query)
 	if tx, ok := txFromContext(ctx); ok {

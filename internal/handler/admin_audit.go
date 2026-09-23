@@ -10,10 +10,12 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// AdminListAuditLogs returns audit events visible to administrators.
 func (h *Handler) AdminListAuditLogs(w http.ResponseWriter, r *http.Request) {
 	h.listAuditLogs(w, r, nil)
 }
 
+// AdminListUserAuditLogs returns audit events for one user.
 func (h *Handler) AdminListUserAuditLogs(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("id")
 	h.listAuditLogs(w, r, &userID)

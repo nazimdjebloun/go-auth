@@ -22,6 +22,7 @@ func emailMetadata(email string) map[string]any {
 
 // ─── Generic Builder ────────────────────────────────────────
 
+// NewEvent returns an audit event of the given type.
 func NewEvent(typ EventType, opts ...EventOption) Event {
 	e := Event{
 		ID:        generateID(),
@@ -34,40 +35,50 @@ func NewEvent(typ EventType, opts ...EventOption) Event {
 	return e
 }
 
+// EventOption changes an event built by NewEvent.
 type EventOption func(*Event)
 
+// WithActor sets the event actor.
 func WithActor(userID string) EventOption {
 	return func(e *Event) { e.ActorID = strPtr(userID) }
 }
 
+// WithTarget sets the event target user.
 func WithTarget(userID string) EventOption {
 	return func(e *Event) { e.TargetUserID = strPtr(userID) }
 }
 
+// WithSession sets the event session.
 func WithSession(sessionID string) EventOption {
 	return func(e *Event) { e.SessionID = strPtr(sessionID) }
 }
 
+// WithOrg sets the event organization.
 func WithOrg(orgID string) EventOption {
 	return func(e *Event) { e.OrgID = strPtr(orgID) }
 }
 
+// WithIP sets the event IP address.
 func WithIP(ip net.IP) EventOption {
 	return func(e *Event) { e.IP = ip }
 }
 
+// WithUserAgent sets the event user agent.
 func WithUserAgent(ua string) EventOption {
 	return func(e *Event) { e.UserAgent = ua }
 }
 
+// WithRequestID sets the event request ID.
 func WithRequestID(id string) EventOption {
 	return func(e *Event) { e.RequestID = id }
 }
 
+// WithCorrelationID sets the event correlation ID.
 func WithCorrelationID(id string) EventOption {
 	return func(e *Event) { e.CorrelationID = id }
 }
 
+// WithMetadata adds one metadata value to the event.
 func WithMetadata(key string, value any) EventOption {
 	return func(e *Event) {
 		if e.Metadata == nil {
@@ -77,16 +88,19 @@ func WithMetadata(key string, value any) EventOption {
 	}
 }
 
+// WithSuccess sets whether the audited operation succeeded.
 func WithSuccess(success bool) EventOption {
 	return func(e *Event) { e.Success = success }
 }
 
+// WithSeverity sets the event severity.
 func WithSeverity(severity Severity) EventOption {
 	return func(e *Event) { e.Severity = severity }
 }
 
 // ─── Typed Builders (internal) ──────────────────────────────
 
+// NewLoginEvent returns a user login audit event.
 func NewLoginEvent(actorID, sessionID string, ip net.IP, ua string, success bool) Event {
 	return Event{
 		ID:        generateID(),
@@ -101,6 +115,7 @@ func NewLoginEvent(actorID, sessionID string, ip net.IP, ua string, success bool
 	}
 }
 
+// NewLoginFailedEvent returns a failed user login audit event.
 func NewLoginFailedEvent(email string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -114,6 +129,7 @@ func NewLoginFailedEvent(email string, ip net.IP, ua string) Event {
 	}
 }
 
+// NewLoginLockedEvent returns a locked-login audit event.
 func NewLoginLockedEvent(email string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -158,6 +174,7 @@ func NewAccountDeletedEvent(userID string) Event {
 // The 2FA builders key on userID as ActorID. Unresolved email addresses belong
 // in metadata because PostgreSQL stores actor_id as UUID.
 
+// NewTwoFactorCodeSentEvent returns a code-sent audit event.
 func NewTwoFactorCodeSentEvent(userID string) Event {
 	return Event{
 		ID:        generateID(),
@@ -169,6 +186,7 @@ func NewTwoFactorCodeSentEvent(userID string) Event {
 	}
 }
 
+// NewTwoFactorVerifiedEvent returns a successful two-factor audit event.
 func NewTwoFactorVerifiedEvent(userID, sessionID string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -183,6 +201,7 @@ func NewTwoFactorVerifiedEvent(userID, sessionID string, ip net.IP, ua string) E
 	}
 }
 
+// NewTwoFactorFailedEvent returns a failed two-factor audit event.
 func NewTwoFactorFailedEvent(userID string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -196,6 +215,7 @@ func NewTwoFactorFailedEvent(userID string, ip net.IP, ua string) Event {
 	}
 }
 
+// NewTwoFactorEnabledEvent returns a two-factor-enabled audit event.
 func NewTwoFactorEnabledEvent(userID string) Event {
 	return Event{
 		ID:        generateID(),
@@ -207,6 +227,7 @@ func NewTwoFactorEnabledEvent(userID string) Event {
 	}
 }
 
+// NewTwoFactorDisabledEvent returns a two-factor-disabled audit event.
 func NewTwoFactorDisabledEvent(userID string) Event {
 	return Event{
 		ID:        generateID(),
@@ -233,6 +254,7 @@ func NewTwoFactorSuspiciousEvent(userID string, ip net.IP, ua string) Event {
 	}
 }
 
+// NewAdminLoginSuccessEvent returns a successful administrator login audit event.
 func NewAdminLoginSuccessEvent(actorID, sessionID string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -247,6 +269,7 @@ func NewAdminLoginSuccessEvent(actorID, sessionID string, ip net.IP, ua string) 
 	}
 }
 
+// NewAdminLoginFailedEvent returns a failed administrator login audit event.
 func NewAdminLoginFailedEvent(email string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -260,6 +283,7 @@ func NewAdminLoginFailedEvent(email string, ip net.IP, ua string) Event {
 	}
 }
 
+// NewLogoutEvent returns a logout audit event.
 func NewLogoutEvent(actorID, sessionID string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -274,6 +298,7 @@ func NewLogoutEvent(actorID, sessionID string, ip net.IP, ua string) Event {
 	}
 }
 
+// NewUserRegisteredEvent returns a user-registration audit event.
 func NewUserRegisteredEvent(actorID string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -287,6 +312,7 @@ func NewUserRegisteredEvent(actorID string, ip net.IP, ua string) Event {
 	}
 }
 
+// NewEmailVerifiedEvent returns an email-verified audit event.
 func NewEmailVerifiedEvent(actorID string) Event {
 	return Event{
 		ID:        generateID(),
@@ -298,6 +324,7 @@ func NewEmailVerifiedEvent(actorID string) Event {
 	}
 }
 
+// NewEmailVerificationSentEvent returns a verification-email-sent audit event.
 func NewEmailVerificationSentEvent(email string) Event {
 	return Event{
 		ID:        generateID(),
@@ -309,6 +336,7 @@ func NewEmailVerificationSentEvent(email string) Event {
 	}
 }
 
+// NewPasswordChangedEvent returns a password-changed audit event.
 func NewPasswordChangedEvent(actorID string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -322,6 +350,7 @@ func NewPasswordChangedEvent(actorID string, ip net.IP, ua string) Event {
 	}
 }
 
+// NewPasswordResetRequestedEvent returns a password-reset-requested audit event.
 func NewPasswordResetRequestedEvent(email string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -335,6 +364,7 @@ func NewPasswordResetRequestedEvent(email string, ip net.IP, ua string) Event {
 	}
 }
 
+// NewPasswordResetCompletedEvent returns a password-reset-completed audit event.
 func NewPasswordResetCompletedEvent(actorID string, ip net.IP, ua string) Event {
 	return Event{
 		ID:        generateID(),
@@ -348,6 +378,7 @@ func NewPasswordResetCompletedEvent(actorID string, ip net.IP, ua string) Event 
 	}
 }
 
+// NewSessionEvent returns an audit event for a session action.
 func NewSessionEvent(typ EventType, actorID, sessionID string, ip net.IP, ua string) Event {
 	if typ != EventSessionCreated && typ != EventSessionRefreshed &&
 		typ != EventSessionRevoked && typ != EventSessionRevokedAll {
@@ -390,6 +421,7 @@ func NewSessionReuseDetectedEvent(userID, sessionID string) Event {
 	}
 }
 
+// NewOAuthEvent returns an audit event for an OAuth action.
 func NewOAuthEvent(typ EventType, actorID, provider string, ip net.IP, ua string) Event {
 	if typ != EventOAuthLogin && typ != EventOAuthLinked && typ != EventOAuthUnlinked {
 		return Event{
@@ -414,6 +446,7 @@ func NewOAuthEvent(typ EventType, actorID, provider string, ip net.IP, ua string
 	}
 }
 
+// NewAdminEvent returns an audit event for an administrator action.
 func NewAdminEvent(typ EventType, actorID, targetID string) Event {
 	if typ != EventAdminUserCreated && typ != EventAdminUserUpdated &&
 		typ != EventAdminUserDeleted && typ != EventAdminUserBanned &&
@@ -481,6 +514,7 @@ func NewInviteEvent(typ EventType, actorID, inviteID, email string) Event {
 	}
 }
 
+// NewOrgEvent returns an audit event for an organization action.
 func NewOrgEvent(typ EventType, actorID, orgID string, targetID *string) Event {
 	switch typ {
 	case EventOrgCreated, EventOrgDeleted, EventOrgMemberInvited, EventOrgMemberRemoved,
@@ -513,6 +547,7 @@ func NewOrgEvent(typ EventType, actorID, orgID string, targetID *string) Event {
 	}
 }
 
+// NewRoleChangedEvent returns a role-changed audit event.
 func NewRoleChangedEvent(actorID, targetID string, oldRole, newRole string) Event {
 	return Event{
 		ID:           generateID(),

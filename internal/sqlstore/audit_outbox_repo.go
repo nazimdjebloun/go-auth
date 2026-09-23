@@ -23,6 +23,7 @@ type OutboxRepository struct {
 	db *DB
 }
 
+// NewOutboxRepository returns an audit outbox repository.
 func NewOutboxRepository(db *DB) *OutboxRepository {
 	return &OutboxRepository{db: db}
 }
@@ -197,12 +198,14 @@ func (r *OutboxRepository) PurgeOrphans(ctx context.Context, limit int) (int, er
 	return purged, nil
 }
 
+// CountPending returns the number of pending delivery obligations.
 func (r *OutboxRepository) CountPending(ctx context.Context) (int, error) {
 	var n int
 	err := r.db.QueryRowContext(ctx, outboxPendingCount).Scan(&n)
 	return n, err
 }
 
+// OldestPendingAge returns the age of the oldest pending obligation.
 func (r *OutboxRepository) OldestPendingAge(ctx context.Context, now time.Time) (time.Duration, bool, error) {
 	var oldest sql.NullTime
 	if err := r.db.QueryRowContext(ctx, outboxOldestPending).Scan(&oldest); err != nil {
@@ -545,6 +548,7 @@ type RecordRepository struct {
 	db *DB
 }
 
+// NewRecordRepository returns an audit record repository.
 func NewRecordRepository(db *DB) *RecordRepository {
 	return &RecordRepository{db: db}
 }

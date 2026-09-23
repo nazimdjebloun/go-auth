@@ -175,6 +175,7 @@ type AdminAuditLogEntry struct {
 	TargetEmail *string `json:"targetEmail,omitempty"`
 }
 
+// AdminListAuditLogsResult contains audit entries and the matching total.
 type AdminListAuditLogsResult struct {
 	Events []AdminAuditLogEntry `json:"events"`
 	Limit  int                  `json:"limit"`

@@ -12,6 +12,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// ListUsers returns users matching the input filters.
 func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput) (*AdminListUsersResult, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
@@ -90,11 +91,13 @@ type AdminStats struct {
 	ActiveSessions        int `json:"activeSessions"`
 }
 
+// BanUserInput identifies the user to ban.
 type BanUserInput struct {
 	UserID  string
 	ActorID string
 }
 
+// BanUser bans a user.
 func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
@@ -142,11 +145,13 @@ func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 	return nil
 }
 
+// UnbanUserInput identifies the user to unban.
 type UnbanUserInput struct {
 	UserID  string
 	ActorID string
 }
 
+// UnbanUser unbans a user.
 func (s *AdminService) UnbanUser(ctx context.Context, input UnbanUserInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
@@ -177,12 +182,14 @@ func (s *AdminService) UnbanUser(ctx context.Context, input UnbanUserInput) erro
 	return nil
 }
 
+// UpdateUserRoleInput identifies a user and their new role.
 type UpdateUserRoleInput struct {
 	UserID  string
 	Role    string
 	ActorID string
 }
 
+// UpdateUserRole changes a user's role.
 func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
@@ -231,11 +238,13 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 	return nil
 }
 
+// DeleteUserInput identifies the user to delete.
 type DeleteUserInput struct {
 	UserID  string
 	ActorID string
 }
 
+// DeleteUser deletes a user account.
 func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
@@ -275,6 +284,7 @@ func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) er
 	return nil
 }
 
+// CreateUser creates a user.
 func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*domain.User, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
@@ -335,6 +345,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	return user, nil
 }
 
+// AdminUserDetail contains a user and related administrator data.
 type AdminUserDetail struct {
 	User               domain.User `json:"user"`
 	ActiveSessionCount int         `json:"activeSessionCount"`
@@ -345,11 +356,13 @@ type AdminUserDetail struct {
 	Providers   []domain.ProviderAccount `json:"providers"`
 }
 
+// GetUserDetailInput identifies the user to return.
 type GetUserDetailInput struct {
 	UserID  string
 	ActorID string
 }
 
+// GetUserDetail returns a user's administrative details.
 func (s *AdminService) GetUserDetail(ctx context.Context, input GetUserDetailInput) (*AdminUserDetail, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err

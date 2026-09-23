@@ -7,6 +7,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// VerifyEmail confirms a user's email address.
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email string `json:"email"`
@@ -39,6 +40,7 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ResendVerification sends verification email to the authenticated user.
 func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	user := middleware.GetUserFromContext(r.Context())
 	if user == nil {
@@ -65,6 +67,7 @@ func (h *Handler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ResendVerificationPublic sends verification email by address.
 func (h *Handler) ResendVerificationPublic(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Email string `json:"email"`

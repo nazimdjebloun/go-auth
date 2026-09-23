@@ -2,14 +2,17 @@ package domain
 
 import "time"
 
+// OrgRole identifies a member's permissions in an organization.
 type OrgRole string
 
+// OrgRoleOwner and the following values are valid organization roles.
 const (
 	OrgRoleOwner  OrgRole = "owner"
 	OrgRoleAdmin  OrgRole = "admin"
 	OrgRoleMember OrgRole = "member"
 )
 
+// IsValid reports whether r is a supported organization role.
 func (r OrgRole) IsValid() bool {
 	switch r {
 	case OrgRoleOwner, OrgRoleAdmin, OrgRoleMember:
@@ -19,6 +22,7 @@ func (r OrgRole) IsValid() bool {
 	}
 }
 
+// Weight returns the role's permission rank, or zero for an unknown role.
 func (r OrgRole) Weight() int {
 	switch r {
 	case OrgRoleOwner:
@@ -32,6 +36,7 @@ func (r OrgRole) Weight() int {
 	}
 }
 
+// Organization holds an organization's identity, counts, and metadata.
 type Organization struct {
 	ID          string                 `json:"id"`
 	Name        string                 `json:"name"`
@@ -44,6 +49,7 @@ type Organization struct {
 	UpdatedAt   time.Time              `json:"updatedAt"`
 }
 
+// OrgMember records a user's role in an organization.
 type OrgMember struct {
 	OrgID    string    `json:"orgId"`
 	UserID   string    `json:"userId"`
@@ -51,11 +57,13 @@ type OrgMember struct {
 	JoinedAt time.Time `json:"joinedAt"`
 }
 
+// OrgMemberDetail combines a membership with its user.
 type OrgMemberDetail struct {
 	OrgMember
 	User *User `json:"user"`
 }
 
+// OrgInvite records an invitation to join an organization.
 type OrgInvite struct {
 	ID        string    `json:"id"`
 	OrgID     string    `json:"orgId"`
@@ -68,6 +76,7 @@ type OrgInvite struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// ReservedOrgSlugs lists slugs unavailable for organization creation.
 var ReservedOrgSlugs = map[string]bool{
 	"api": true, "admin": true, "auth": true, "www": true, "app": true,
 	"static": true, "assets": true, "public": true, "cdn": true, "status": true,

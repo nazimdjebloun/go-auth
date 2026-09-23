@@ -9,19 +9,23 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
+// ProviderAccountRepository stores external provider accounts.
 type ProviderAccountRepository struct {
 	db           *DB
 	decryptToken func(string) (string, error)
 }
 
+// NewProviderAccountRepository returns a provider account repository.
 func NewProviderAccountRepository(db *DB) *ProviderAccountRepository {
 	return &ProviderAccountRepository{db: db}
 }
 
+// WithDecryptor sets the provider token decryptor.
 func (r *ProviderAccountRepository) WithDecryptor(decrypt func(string) (string, error)) {
 	r.decryptToken = decrypt
 }
 
+// Create stores a provider account.
 func (r *ProviderAccountRepository) Create(ctx context.Context, pa *domain.ProviderAccount) error {
 	var expiresAt *time.Time
 	if pa.TokenExpiresAt != nil {
@@ -33,6 +37,7 @@ func (r *ProviderAccountRepository) Create(ctx context.Context, pa *domain.Provi
 	return wrapCreateErr(r.db.Driver(), err)
 }
 
+// GetByProvider returns an account by provider identity or nil when absent.
 func (r *ProviderAccountRepository) GetByProvider(ctx context.Context, provider, providerUserID string) (*domain.ProviderAccount, error) {
 	pa := &domain.ProviderAccount{}
 	var accessToken, refreshToken sql.NullString
@@ -58,6 +63,7 @@ func (r *ProviderAccountRepository) GetByProvider(ctx context.Context, provider,
 	return pa, nil
 }
 
+// ListByUserID returns the provider accounts linked to a user.
 func (r *ProviderAccountRepository) ListByUserID(ctx context.Context, userID string) ([]domain.ProviderAccount, error) {
 	rows, err := r.db.QueryContext(ctx, providerAccountListByUserQuery, userID)
 	if err != nil {
@@ -110,11 +116,13 @@ func (r *ProviderAccountRepository) decrypt(s string) string {
 	return dec
 }
 
+// Delete removes a provider account link.
 func (r *ProviderAccountRepository) Delete(ctx context.Context, userID, provider string) error {
 	_, err := r.db.ExecContext(ctx, providerAccountDeleteQuery, userID, provider)
 	return err
 }
 
+// LockByUserID locks and returns a user's provider accounts.
 func (r *ProviderAccountRepository) LockByUserID(ctx context.Context, userID string) error {
 	_, err := r.db.ExecContext(ctx, providerAccountLockByUserQuery, userID)
 	return err

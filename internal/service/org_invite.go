@@ -16,6 +16,7 @@ import (
 
 type defaultTokenGen struct{}
 
+// Generate returns a random organization invitation token.
 func (g *defaultTokenGen) Generate() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -24,6 +25,7 @@ func (g *defaultTokenGen) Generate() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
+// OrgInviteService manages organization invitations.
 type OrgInviteService struct {
 	orgInvites port.OrgInviteRepository
 	orgs       port.OrgRepository
@@ -40,6 +42,7 @@ type OrgInviteService struct {
 	audit      AuditPublisher
 }
 
+// OrgInviteServiceConfig configures organization invitations.
 type OrgInviteServiceConfig struct {
 	MaxOrgsPerUser   int
 	InviteTTL        time.Duration
@@ -51,6 +54,7 @@ type OrgInviteServiceConfig struct {
 	Audit            AuditPublisher
 }
 
+// NewOrgInviteService returns an organization invitation service.
 func NewOrgInviteService(
 	orgInvites port.OrgInviteRepository,
 	orgs port.OrgRepository,
@@ -109,6 +113,7 @@ func (s *OrgInviteService) requireRole(ctx context.Context, orgID, actorID strin
 
 // ─── Input types ────────────────────────────────────────────────────
 
+// CreateOrgInviteInput contains values used to invite an organization member.
 type CreateOrgInviteInput struct {
 	OrgID     string
 	Email     string
@@ -116,6 +121,7 @@ type CreateOrgInviteInput struct {
 	InvitedBy string
 }
 
+// AcceptInviteInput contains values used to accept an organization invitation.
 type AcceptInviteInput struct {
 	UserID  string
 	RawCode string
@@ -123,6 +129,7 @@ type AcceptInviteInput struct {
 
 // ─── CreateOrgInvite ────────────────────────────────────────────────
 
+// CreateOrgInvite creates an organization invitation.
 func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgInviteInput) (*domain.OrgInvite, error) {
 	if !input.Role.IsValid() {
 		return nil, domain.ErrInvalidOrgRole
@@ -188,6 +195,7 @@ func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgI
 
 // ─── AcceptInvite ───────────────────────────────────────────────────
 
+// AcceptInvite accepts an organization invitation.
 func (s *OrgInviteService) AcceptInvite(ctx context.Context, input AcceptInviteInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
@@ -255,6 +263,7 @@ func (s *OrgInviteService) AcceptInvite(ctx context.Context, input AcceptInviteI
 
 // ─── ListOrgInvites ─────────────────────────────────────────────────
 
+// ListOrgInvitesInput contains filters for an organization's invitations.
 type ListOrgInvitesInput struct {
 	OrgID          string
 	ActorID        string
@@ -267,6 +276,7 @@ type ListOrgInvitesInput struct {
 	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
 }
 
+// ListOrgInvitesResult contains invitations and the matching total.
 type ListOrgInvitesResult struct {
 	Invites []domain.OrgInvite `json:"invites"`
 	Limit   int                `json:"limit"`
@@ -287,6 +297,7 @@ func orgInviteFilterFromInput(input ListOrgInvitesInput, limit int) port.OrgInvi
 	}
 }
 
+// ListOrgInvites returns an organization's invitations.
 func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input ListOrgInvitesInput) (*ListOrgInvitesResult, error) {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return nil, err

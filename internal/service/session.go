@@ -15,6 +15,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// SessionService manages user sessions.
 type SessionService struct {
 	repo      port.SessionRepository
 	tokenGen  port.TokenGenerator
@@ -25,6 +26,7 @@ type SessionService struct {
 	now       func() time.Time
 }
 
+// SessionConfig configures session lifetimes and token rotation.
 type SessionConfig struct {
 	CookieName        string
 	RefreshCookieName string
@@ -42,6 +44,7 @@ type SessionConfig struct {
 	Audit             AuditPublisher
 }
 
+// DefaultSessionConfig returns the default session settings.
 func DefaultSessionConfig() SessionConfig {
 	return SessionConfig{
 		CookieName:        "goauth_session",
@@ -57,6 +60,7 @@ func DefaultSessionConfig() SessionConfig {
 	}
 }
 
+// NewSessionService returns a session service.
 func NewSessionService(repo port.SessionRepository, tokenGen port.TokenGenerator, config SessionConfig) *SessionService {
 	logger := config.Logger
 	if logger == nil {
@@ -85,6 +89,7 @@ func (s *SessionService) withTx(ctx context.Context, fn func(context.Context) er
 // lives in domain, where middleware can name it without importing service.
 type SessionResult = domain.SessionResult
 
+// Create creates a user session.
 func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*SessionResult, error) {
 	sessionToken, err := s.tokenGen.Generate()
 	if err != nil {
@@ -132,6 +137,7 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 	return &SessionResult{Session: session, SessionToken: sessionToken, RefreshToken: refreshToken}, nil
 }
 
+// RefreshSession rotates a session using its refresh token.
 func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken string) (*SessionResult, error) {
 	hash := hashToken(rawRefreshToken)
 
@@ -203,6 +209,7 @@ func (s *SessionService) checkSession(session *domain.Session) error {
 	return nil
 }
 
+// Validate validates an access token and returns its session.
 func (s *SessionService) Validate(ctx context.Context, token string) (*domain.Session, error) {
 	session, err := s.repo.GetByTokenHash(ctx, hashToken(token))
 	if err != nil {
@@ -233,6 +240,7 @@ func (s *SessionService) ValidateWithUser(ctx context.Context, token string) (*d
 	return session, user, nil
 }
 
+// Touch updates a session's activity time when needed.
 func (s *SessionService) Touch(ctx context.Context, token string, lastActiveAt time.Time) error {
 	if s.config.TouchDebounce > 0 && time.Since(lastActiveAt) < s.config.TouchDebounce {
 		return nil
@@ -240,6 +248,7 @@ func (s *SessionService) Touch(ctx context.Context, token string, lastActiveAt t
 	return s.repo.UpdateLastActiveAt(ctx, hashToken(token))
 }
 
+// Revoke revokes a session by access token.
 func (s *SessionService) Revoke(ctx context.Context, token string) error {
 	if err := s.repo.Delete(ctx, hashToken(token)); err != nil {
 		return fmt.Errorf("session revoke: %w", err)
@@ -247,6 +256,7 @@ func (s *SessionService) Revoke(ctx context.Context, token string) error {
 	return nil
 }
 
+// RevokeByID revokes a session by ID.
 func (s *SessionService) RevokeByID(ctx context.Context, id string) error {
 	if err := s.repo.DeleteByID(ctx, id); err != nil {
 		return fmt.Errorf("session revoke by id: %w", err)
@@ -254,6 +264,7 @@ func (s *SessionService) RevokeByID(ctx context.Context, id string) error {
 	return nil
 }
 
+// RevokeByIDForUser revokes one of a user's sessions by ID.
 func (s *SessionService) RevokeByIDForUser(ctx context.Context, id, userID string) (bool, error) {
 	var revoked bool
 	err := s.withTx(ctx, func(txCtx context.Context) error {
@@ -276,6 +287,7 @@ func (s *SessionService) RevokeByIDForUser(ctx context.Context, id, userID strin
 	return revoked, nil
 }
 
+// RevokeManyForUser revokes multiple sessions for a user.
 func (s *SessionService) RevokeManyForUser(ctx context.Context, ids []string, userID string) (int, error) {
 	var revoked int
 	err := s.withTx(ctx, func(txCtx context.Context) error {
@@ -299,6 +311,7 @@ func (s *SessionService) RevokeManyForUser(ctx context.Context, ids []string, us
 	return revoked, nil
 }
 
+// RevokeAll revokes every session for a user.
 func (s *SessionService) RevokeAll(ctx context.Context, userID string) error {
 	return s.withTx(ctx, func(txCtx context.Context) error {
 		if err := s.repo.DeleteAllForUser(txCtx, userID); err != nil {
@@ -313,6 +326,7 @@ func (s *SessionService) RevokeAll(ctx context.Context, userID string) error {
 	})
 }
 
+// RevokeAllExcept revokes every user session except one.
 func (s *SessionService) RevokeAllExcept(ctx context.Context, userID string, exceptSessionID string) error {
 	if err := s.repo.DeleteAllForUserExcept(ctx, userID, exceptSessionID); err != nil {
 		return fmt.Errorf("session revoke all except: %w", err)
@@ -320,14 +334,17 @@ func (s *SessionService) RevokeAllExcept(ctx context.Context, userID string, exc
 	return nil
 }
 
+// List returns a page of sessions for a user.
 func (s *SessionService) List(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
 	return s.repo.ListByUserID(ctx, userID, offset, limit)
 }
 
+// ListAll returns all active sessions for a user.
 func (s *SessionService) ListAll(ctx context.Context, userID string) ([]domain.Session, error) {
 	return s.repo.ListAllByUserID(ctx, userID)
 }
 
+// IsSessionError reports whether an error is a session lookup failure.
 func IsSessionError(err error) bool {
 	return errors.Is(err, domain.ErrSessionNotFound) || errors.Is(err, domain.ErrSessionExpired)
 }

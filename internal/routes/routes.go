@@ -7,6 +7,7 @@ package routes
 
 import "strings"
 
+// Register and the following constants define the routes mounted by go-auth.
 const (
 	Register       = "POST /auth/register"
 	Login          = "POST /auth/login"
@@ -46,7 +47,7 @@ const (
 	TwoFactorEnable  = "POST /auth/2fa/enable"
 	TwoFactorDisable = "POST /auth/2fa/disable"
 
-	// Admin — users
+	// ListUsers and the following constants define administrator user routes.
 	ListUsers              = "GET /admin/users"
 	AdminCountUsers        = "GET /admin/users/count"
 	GetUserDetail          = "GET /admin/users/{id}"
@@ -59,7 +60,7 @@ const (
 	AdminRevokeUserSession = "DELETE /admin/users/{id}/sessions/{sessionId}"
 	RevokeUserSessions     = "DELETE /admin/users/{id}/sessions"
 
-	// Admin — sessions across every user, and bulk user actions
+	// AdminListSessions and the following constants define administrator session and bulk-user routes.
 	AdminListSessions      = "GET /admin/sessions"
 	AdminCountSessions     = "GET /admin/sessions/count"
 	BulkBanUsers           = "POST /admin/users/bulk/ban"
@@ -67,18 +68,18 @@ const (
 	BulkDeleteUsers        = "POST /admin/users/bulk/delete"
 	BulkRevokeUserSessions = "POST /admin/users/bulk/revoke-sessions"
 
-	// Admin — audit logs
+	// AdminListAuditLogs and the following constants define administrator audit-log routes.
 	AdminListAuditLogs      = "GET /admin/audit-logs"
 	AdminCountAuditLogs     = "GET /admin/audit-logs/count"
 	AdminListUserAuditLogs  = "GET /admin/users/{id}/audit-logs"
 	AdminCountUserAuditLogs = "GET /admin/users/{id}/audit-logs/count"
 
-	// Admin — stats and activity
+	// AdminStats and the following constants define administrator statistics routes.
 	AdminStats             = "GET /admin/stats"
 	AdminRegistrationTrend = "GET /admin/stats/registrations"
 	AdminLoginActivity     = "GET /admin/stats/logins"
 
-	// Admin — organizations
+	// AdminListOrgs and the following constants define administrator organization routes.
 	AdminListOrgs            = "GET /admin/orgs"
 	AdminCountOrgs           = "GET /admin/orgs/count"
 	AdminGetOrg              = "GET /admin/orgs/{orgID}"
@@ -91,7 +92,7 @@ const (
 	AdminListUserOrgs        = "GET /admin/users/{id}/orgs"
 	AdminCountUserOrgs       = "GET /admin/users/{id}/orgs/count"
 
-	// Admin — invites (EnableInvite)
+	// CreateInvite and the following constants define administrator invite routes.
 	CreateInvite      = "POST /admin/invites"
 	ListInvites       = "GET /admin/invites"
 	AdminCountInvites = "GET /admin/invites/count"
@@ -99,13 +100,13 @@ const (
 	ResendInvite      = "POST /admin/invites/{id}/resend"
 	HardDeleteInvite  = "DELETE /admin/invites/{id}/hard"
 
-	// Admin — bulk invite actions
+	// BulkSendInvites and the following constants define bulk invite routes.
 	BulkSendInvites   = "POST /admin/invites/bulk/send"
 	BulkResendInvites = "POST /admin/invites/bulk/resend"
 	BulkRevokeInvites = "POST /admin/invites/bulk/revoke"
 	BulkDeleteInvites = "POST /admin/invites/bulk/delete"
 
-	// OAuth (EnableOAuth)
+	// OAuthInitiate and the following constants define OAuth routes.
 	OAuthInitiate     = "GET /auth/oauth/{provider}"
 	OAuthCallbackGet  = "GET /auth/oauth/{provider}/callback"
 	OAuthCallbackPost = "POST /auth/oauth/{provider}/callback"
@@ -113,7 +114,7 @@ const (
 	OAuthUnlink       = "POST /auth/oauth/{provider}/unlink"
 	OAuthProviders    = "GET /auth/oauth/providers"
 
-	// Organizations
+	// CreateOrg and the following constants define organization routes.
 	CreateOrg           = "POST /auth/orgs"
 	ListUserOrgs        = "GET /auth/orgs"
 	CountUserOrgs       = "GET /auth/orgs/count"

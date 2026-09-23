@@ -1,3 +1,4 @@
+// Package otp generates cryptographically random one-time codes.
 package otp
 
 import (
@@ -6,8 +7,10 @@ import (
 	"math/big"
 )
 
+// Alphabet contains the unambiguous characters used by Generate.
 const Alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
+// Generate returns a random code of the requested length using Alphabet.
 func Generate(length int) (string, error) {
 	return generate(length, Alphabet)
 }

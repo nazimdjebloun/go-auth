@@ -19,6 +19,7 @@ const setPasswordCodeTTL = 10 * time.Minute
 var errResetTokenStateChanged = errors.New("service: reset token state changed")
 var errForgotPasswordDummyRollback = errors.New("service: roll back forgot-password dummy write")
 
+// PasswordService manages password setup, reset, and changes.
 type PasswordService struct {
 	users     port.UserRepository
 	tokens    port.TokenRepository
@@ -33,6 +34,7 @@ type PasswordService struct {
 	audit     AuditPublisher
 }
 
+// NewPasswordService returns a password service.
 func NewPasswordService(
 	users port.UserRepository,
 	tokens port.TokenRepository,
@@ -62,6 +64,7 @@ func NewPasswordService(
 	}
 }
 
+// ForgotPassword sends a password-reset code when the account permits it.
 func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswordInput) error {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	if s.mailer == nil {
@@ -187,6 +190,7 @@ func (s *PasswordService) writePasswordResetToken(
 	return nil
 }
 
+// ResetPassword changes a password using a valid reset code.
 func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPasswordInput) error {
 	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
 		return err
@@ -282,6 +286,7 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPassword
 	return nil
 }
 
+// RequestSetPassword sends a password-setup code.
 func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
@@ -345,6 +350,7 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 	return nil
 }
 
+// ConfirmSetPassword sets a password using a valid code.
 func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmSetPasswordInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
@@ -423,6 +429,7 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 	return nil
 }
 
+// ChangePassword changes a user's password.
 func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswordInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {

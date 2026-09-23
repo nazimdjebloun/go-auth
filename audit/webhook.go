@@ -91,6 +91,7 @@ func NewWebhookSink(cfg WebhookConfig) (*WebhookSink, error) {
 // SignatureHeader is the header carrying the HMAC-SHA256 body signature.
 const SignatureHeader = "X-Signature"
 
+// Handle sends one audit event to the webhook.
 func (s *WebhookSink) Handle(ctx context.Context, event Event) error {
 	return s.HandleBatch(ctx, []Event{event})
 }

@@ -10,15 +10,18 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// MockInviteRepo stores platform invites in memory for tests.
 type MockInviteRepo struct {
 	mu      sync.Mutex
 	invites map[string]*domain.Invite
 }
 
+// NewMockInviteRepo returns an empty invite repository.
 func NewMockInviteRepo() *MockInviteRepo {
 	return &MockInviteRepo{invites: make(map[string]*domain.Invite)}
 }
 
+// Create stores an invite under its ID, code, and email.
 func (m *MockInviteRepo) Create(_ context.Context, invite *domain.Invite) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -28,6 +31,7 @@ func (m *MockInviteRepo) Create(_ context.Context, invite *domain.Invite) error 
 	return nil
 }
 
+// GetByID returns the invite with the given ID.
 func (m *MockInviteRepo) GetByID(_ context.Context, id string) (*domain.Invite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -38,6 +42,7 @@ func (m *MockInviteRepo) GetByID(_ context.Context, id string) (*domain.Invite, 
 	return inv, nil
 }
 
+// GetByCode returns the invite with the given code.
 func (m *MockInviteRepo) GetByCode(_ context.Context, code string) (*domain.Invite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -48,6 +53,7 @@ func (m *MockInviteRepo) GetByCode(_ context.Context, code string) (*domain.Invi
 	return inv, nil
 }
 
+// GetByEmail returns the invite sent to the given email.
 func (m *MockInviteRepo) GetByEmail(_ context.Context, email string) (*domain.Invite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -71,6 +77,7 @@ func (m *MockInviteRepo) inviteMatches(inv *domain.Invite, filter port.InviteFil
 	return true
 }
 
+// List returns invites matching filter.
 func (m *MockInviteRepo) List(_ context.Context, filter port.InviteFilter) ([]domain.Invite, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -83,6 +90,7 @@ func (m *MockInviteRepo) List(_ context.Context, filter port.InviteFilter) ([]do
 	return result, nil
 }
 
+// Count returns the number of invites matching filter.
 func (m *MockInviteRepo) Count(_ context.Context, filter port.InviteFilter) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -95,6 +103,7 @@ func (m *MockInviteRepo) Count(_ context.Context, filter port.InviteFilter) (int
 	return n, nil
 }
 
+// Update replaces the stored invite.
 func (m *MockInviteRepo) Update(_ context.Context, invite *domain.Invite) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -104,6 +113,7 @@ func (m *MockInviteRepo) Update(_ context.Context, invite *domain.Invite) error 
 	return nil
 }
 
+// Delete removes the invite with the given ID.
 func (m *MockInviteRepo) Delete(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -115,6 +125,7 @@ func (m *MockInviteRepo) Delete(_ context.Context, id string) error {
 	return nil
 }
 
+// ClaimInvite accepts a pending, unexpired invite.
 func (m *MockInviteRepo) ClaimInvite(_ context.Context, code string, acceptedAt time.Time) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

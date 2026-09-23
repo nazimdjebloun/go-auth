@@ -1,3 +1,4 @@
+// Package goauth provides authentication services and HTTP handlers.
 package goauth
 
 import (
@@ -22,6 +23,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/token"
 )
 
+// Auth is a configured go-auth instance.
 type Auth struct {
 	cfg      Config
 	pool     *pgxpool.Pool
@@ -58,6 +60,7 @@ type Auth struct {
 	maintenance    *maintenanceRunner
 }
 
+// Services exposes the configured authentication services.
 type Services struct {
 	Auth      *AuthService
 	Password  *PasswordService
@@ -72,6 +75,8 @@ type Services struct {
 	AuditLog  port.AuditLogRepository
 }
 
+const startupDatabaseTimeout = 10 * time.Second
+
 // New builds the Auth instance from a config produced by NewConfig(opts...)
 // — the only supported way to configure go-auth. NewConfig is what runs
 // validate() (required fields, secret length, origin policy, rate-limit
@@ -80,8 +85,6 @@ type Services struct {
 // The validated check below is belt-and-suspenders defense in depth against
 // silently proceeding with unvalidated — and in the case of an empty
 // secret, cryptographically unsafe — settings.
-const startupDatabaseTimeout = 10 * time.Second
-
 func New(in *Config) (*Auth, error) {
 	if in == nil {
 		return nil, fmt.Errorf("goauth: nil config — build one with goauth.NewConfig(goauth.WithApp(...), ...)")
@@ -584,6 +587,7 @@ func (a *Auth) AuditDeliveryStats(ctx context.Context) *audit.DeliveryStats {
 	return &stats
 }
 
+// Close stops background work and closes owned resources.
 func (a *Auth) Close() {
 	if a.maintenance != nil {
 		a.maintenance.stop()

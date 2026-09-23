@@ -12,6 +12,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
+// OAuthHandlers serves OAuth endpoints.
 type OAuthHandlers struct {
 	oauth        *service.OAuthService
 	baseURL      string
@@ -24,6 +25,7 @@ type OAuthHandlers struct {
 	log      *slog.Logger
 }
 
+// NewOAuthHandlers returns OAuth HTTP handlers.
 func NewOAuthHandlers(oauth *service.OAuthService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig, cookies middleware.CookieSettings, logger *slog.Logger) *OAuthHandlers {
 	if logger == nil {
 		logger = slog.Default()
@@ -42,6 +44,7 @@ func (h *OAuthHandlers) disabled() bool {
 	return h.oauth == nil
 }
 
+// Initiate starts an OAuth login.
 // GET /auth/oauth/{provider}
 func (h *OAuthHandlers) Initiate(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
@@ -57,6 +60,7 @@ func (h *OAuthHandlers) Initiate(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
+// InitiateLink starts linking an OAuth provider.
 // POST /auth/oauth/{provider}/link — requires auth
 func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
@@ -78,6 +82,7 @@ func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"url": url})
 }
 
+// Callback completes an OAuth login or provider link.
 // GET /auth/oauth/{provider}/callback, POST /auth/oauth/{provider}/callback
 func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
@@ -149,6 +154,7 @@ func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, sessionToken,
 	}
 }
 
+// Unlink removes an OAuth provider from the authenticated user.
 // POST /auth/oauth/{provider}/unlink — requires auth
 func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {
@@ -169,6 +175,7 @@ func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Provider unlinked"})
 }
 
+// ListConnected returns the authenticated user's linked providers.
 // GET /auth/oauth/providers — requires auth
 func (h *OAuthHandlers) ListConnected(w http.ResponseWriter, r *http.Request) {
 	if h.disabled() {

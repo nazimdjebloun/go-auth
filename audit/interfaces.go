@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// EventSink receives individual or batched audit events.
 type EventSink interface {
 	Handle(ctx context.Context, event Event) error
 	HandleBatch(ctx context.Context, events []Event) error
@@ -18,6 +19,7 @@ type BatchDeliveryTimeBounder interface {
 	MaxBatchDeliveryTime(batchSize int) (time.Duration, bool)
 }
 
+// Cleaner removes audit records outside the retention window.
 type Cleaner interface {
 	Cleanup(ctx context.Context, retentionDays int) (int, error)
 }

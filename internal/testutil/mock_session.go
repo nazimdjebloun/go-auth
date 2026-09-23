@@ -11,6 +11,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// MockSessionRepo is an in-memory session repository for tests.
 type MockSessionRepo struct {
 	mu            sync.Mutex
 	sessions      map[string]*domain.Session
@@ -26,6 +27,7 @@ type MockSessionRepo struct {
 	Users *MockUserRepo
 }
 
+// NewMockSessionRepo returns an in-memory session repository.
 func NewMockSessionRepo() *MockSessionRepo {
 	return &MockSessionRepo{
 		sessions:      make(map[string]*domain.Session),
@@ -34,6 +36,7 @@ func NewMockSessionRepo() *MockSessionRepo {
 	}
 }
 
+// Create stores a session.
 func (m *MockSessionRepo) Create(_ context.Context, s *domain.Session) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -45,6 +48,7 @@ func (m *MockSessionRepo) Create(_ context.Context, s *domain.Session) error {
 	return nil
 }
 
+// GetByTokenHash returns a session by access-token hash.
 func (m *MockSessionRepo) GetByTokenHash(_ context.Context, hash string) (*domain.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -72,6 +76,7 @@ func (m *MockSessionRepo) GetByTokenHashWithUser(ctx context.Context, hash strin
 	return s, u, nil
 }
 
+// GetByRefreshHash returns a session by refresh-token hash.
 func (m *MockSessionRepo) GetByRefreshHash(_ context.Context, hash string) (*domain.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -82,6 +87,7 @@ func (m *MockSessionRepo) GetByRefreshHash(_ context.Context, hash string) (*dom
 	return s, nil
 }
 
+// GetByPreviousRefreshHash returns a session by its previous refresh-token hash.
 func (m *MockSessionRepo) GetByPreviousRefreshHash(_ context.Context, hash string) (*domain.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -93,10 +99,12 @@ func (m *MockSessionRepo) GetByPreviousRefreshHash(_ context.Context, hash strin
 	return nil, nil
 }
 
+// LockAndGetByRefreshHash returns a session by refresh-token hash.
 func (m *MockSessionRepo) LockAndGetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error) {
 	return m.GetByRefreshHash(ctx, hash)
 }
 
+// ListByUserID returns a page of sessions for a user.
 func (m *MockSessionRepo) ListByUserID(_ context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -118,6 +126,7 @@ func (m *MockSessionRepo) ListByUserID(_ context.Context, userID string, offset,
 	return res, total, nil
 }
 
+// ListAllByUserID returns all sessions for a user.
 func (m *MockSessionRepo) ListAllByUserID(_ context.Context, userID string) ([]domain.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -130,6 +139,7 @@ func (m *MockSessionRepo) ListAllByUserID(_ context.Context, userID string) ([]d
 	return res, nil
 }
 
+// CountAll returns the number of matching sessions.
 func (m *MockSessionRepo) CountAll(_ context.Context, filter port.SessionFilter) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -142,6 +152,7 @@ func (m *MockSessionRepo) CountAll(_ context.Context, filter port.SessionFilter)
 	return n, nil
 }
 
+// ListAll returns matching sessions.
 func (m *MockSessionRepo) ListAll(_ context.Context, filter port.SessionFilter) ([]domain.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -214,6 +225,7 @@ func sessionMatchesFilter(s *domain.Session, filter port.SessionFilter) bool {
 	return true
 }
 
+// Delete removes a session by access-token hash.
 func (m *MockSessionRepo) Delete(_ context.Context, tokenHash string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -228,6 +240,7 @@ func (m *MockSessionRepo) Delete(_ context.Context, tokenHash string) error {
 	return nil
 }
 
+// DeleteByID removes a session by ID.
 func (m *MockSessionRepo) DeleteByID(_ context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -242,6 +255,7 @@ func (m *MockSessionRepo) DeleteByID(_ context.Context, id string) error {
 	return nil
 }
 
+// RevokeByIDForUser removes one of a user's sessions.
 func (m *MockSessionRepo) RevokeByIDForUser(_ context.Context, id, userID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -257,6 +271,7 @@ func (m *MockSessionRepo) RevokeByIDForUser(_ context.Context, id, userID string
 	return false, nil
 }
 
+// RevokeManyForUser removes multiple sessions for a user.
 func (m *MockSessionRepo) RevokeManyForUser(_ context.Context, ids []string, userID string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -275,6 +290,7 @@ func (m *MockSessionRepo) RevokeManyForUser(_ context.Context, ids []string, use
 	return revoked, nil
 }
 
+// DeleteAllForUser removes every session for a user.
 func (m *MockSessionRepo) DeleteAllForUser(_ context.Context, userID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -290,6 +306,7 @@ func (m *MockSessionRepo) DeleteAllForUser(_ context.Context, userID string) err
 	return nil
 }
 
+// DeleteAllForUserExcept removes every user session except one.
 func (m *MockSessionRepo) DeleteAllForUserExcept(_ context.Context, userID string, exceptSessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -305,10 +322,12 @@ func (m *MockSessionRepo) DeleteAllForUserExcept(_ context.Context, userID strin
 	return nil
 }
 
+// DeleteExpired removes expired sessions.
 func (m *MockSessionRepo) DeleteExpired(_ context.Context) error {
 	return nil
 }
 
+// UpdateLastActiveAt records activity for a session.
 func (m *MockSessionRepo) UpdateLastActiveAt(_ context.Context, tokenHash string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -318,6 +337,7 @@ func (m *MockSessionRepo) UpdateLastActiveAt(_ context.Context, tokenHash string
 	return nil
 }
 
+// UpdateRefreshToken rotates a session's tokens.
 func (m *MockSessionRepo) UpdateRefreshToken(_ context.Context, input port.UpdateRefreshInput) (*domain.Session, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -373,14 +393,17 @@ func (m *MockSessionRepo) UpdateRefreshToken(_ context.Context, input port.Updat
 	return nil, domain.ErrInvalidRefreshToken
 }
 
+// UpdateActiveOrgRoleForUser changes the active organization role in matching sessions.
 func (m *MockSessionRepo) UpdateActiveOrgRoleForUser(_ context.Context, _, _ string, _ domain.OrgRole) error {
 	return nil
 }
 
+// ClearActiveOrgForUser clears an organization from a user's sessions.
 func (m *MockSessionRepo) ClearActiveOrgForUser(_ context.Context, _, _ string) error {
 	return nil
 }
 
+// ClearActiveOrg clears the active organization from a session.
 func (m *MockSessionRepo) ClearActiveOrg(_ context.Context, sessionID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -388,10 +411,12 @@ func (m *MockSessionRepo) ClearActiveOrg(_ context.Context, sessionID string) er
 	return nil
 }
 
+// ClearActiveOrgForAllMembers clears an organization from every session.
 func (m *MockSessionRepo) ClearActiveOrgForAllMembers(_ context.Context, _ string) error {
 	return nil
 }
 
+// SetActiveOrg sets a session's active organization.
 func (m *MockSessionRepo) SetActiveOrg(_ context.Context, _, _ string, _ domain.OrgRole) error {
 	return nil
 }

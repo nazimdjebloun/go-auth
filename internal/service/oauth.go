@@ -18,6 +18,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// OAuthService manages OAuth login and account linking.
 type OAuthService struct {
 	providers    map[string]port.OAuthProvider
 	providerRepo port.ProviderAccountRepository
@@ -46,6 +47,7 @@ type OAuthServiceConfig struct {
 	Encryptor                *crypto.Encryptor
 }
 
+// NewOAuthService returns an OAuth service.
 func NewOAuthService(
 	providers map[string]port.OAuthProvider,
 	providerRepo port.ProviderAccountRepository,
@@ -179,6 +181,7 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID st
 	return p.AuthURL(stateRaw, codeChallenge), nil
 }
 
+// OAuthCallbackResult contains the session or link result of an OAuth callback.
 // Callback handles the OAuth callback for both login and link flows.
 // OAuthCallbackResult is Callback's outcome. SessionToken/RefreshToken are
 // set on a successful login or registration; RequiresVerification and
@@ -196,6 +199,7 @@ type OAuthCallbackResult struct {
 	IsLink               bool
 }
 
+// Callback completes an OAuth login or account link.
 func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, ip, userAgent string) (*OAuthCallbackResult, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
@@ -385,6 +389,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 	return &OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken, IsNewUser: true}, nil
 }
 
+// Unlink removes a linked OAuth provider.
 func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) error {
 	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		// Serialize concurrent unlinks on this user's provider rows before
@@ -433,6 +438,7 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 	return nil
 }
 
+// ListConnected returns a user's linked OAuth providers.
 func (s *OAuthService) ListConnected(ctx context.Context, userID string) ([]domain.ProviderAccount, error) {
 	accounts, err := s.providerRepo.ListByUserID(ctx, userID)
 	if err != nil {

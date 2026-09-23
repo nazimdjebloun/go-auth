@@ -15,15 +15,18 @@ import (
 
 var _ port.SessionRepository = (*SessionRepository)(nil)
 
+// SessionRepository stores user sessions.
 type SessionRepository struct {
 	db  *DB
 	log *slog.Logger
 }
 
+// NewSessionRepository returns a session repository.
 func NewSessionRepository(db *DB) *SessionRepository {
 	return &SessionRepository{db: db, log: slog.Default()}
 }
 
+// WithLogger sets the logger used for refresh-token events.
 func (r *SessionRepository) WithLogger(logger *slog.Logger) *SessionRepository {
 	r.log = logger
 	return r
@@ -88,6 +91,7 @@ func (r *SessionRepository) GetByTokenHashWithUser(ctx context.Context, hash str
 	return s, u, nil
 }
 
+// Create stores a session.
 func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error {
 	_, err := r.db.ExecContext(ctx, sessionCreateQuery,
 		s.ID, s.UserID, s.TokenHash, s.RefreshTokenHash, s.PreviousRefreshHash,
@@ -97,6 +101,7 @@ func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error
 	return err
 }
 
+// GetByTokenHash returns a session by access-token hash or nil when absent.
 func (r *SessionRepository) GetByTokenHash(ctx context.Context, hash string) (*domain.Session, error) {
 	s := &domain.Session{}
 	err := scanSession(s, r.db.QueryRowContext(ctx, sessionByTokenHashQuery, hash))
@@ -106,6 +111,7 @@ func (r *SessionRepository) GetByTokenHash(ctx context.Context, hash string) (*d
 	return s, err
 }
 
+// GetByRefreshHash returns a session by refresh-token hash or nil when absent.
 func (r *SessionRepository) GetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error) {
 	s := &domain.Session{}
 	err := scanSession(s, r.db.QueryRowContext(ctx, sessionByRefreshHashQuery, hash))
@@ -115,6 +121,7 @@ func (r *SessionRepository) GetByRefreshHash(ctx context.Context, hash string) (
 	return s, err
 }
 
+// GetByPreviousRefreshHash returns a session by its previous refresh-token hash.
 func (r *SessionRepository) GetByPreviousRefreshHash(ctx context.Context, hash string) (*domain.Session, error) {
 	s := &domain.Session{}
 	err := scanSession(s, r.db.QueryRowContext(ctx, sessionByPreviousRefreshHashQuery, hash))
@@ -124,6 +131,7 @@ func (r *SessionRepository) GetByPreviousRefreshHash(ctx context.Context, hash s
 	return s, err
 }
 
+// LockAndGetByRefreshHash locks and returns a session by refresh-token hash.
 func (r *SessionRepository) LockAndGetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error) {
 	query := sessionByRefreshHashQuery
 	if r.db.Driver() == "postgres" {
@@ -137,6 +145,7 @@ func (r *SessionRepository) LockAndGetByRefreshHash(ctx context.Context, hash st
 	return s, err
 }
 
+// ListAllByUserID returns all active sessions for a user.
 func (r *SessionRepository) ListAllByUserID(ctx context.Context, userID string) ([]domain.Session, error) {
 	now := time.Now().UTC()
 
@@ -167,6 +176,7 @@ func (r *SessionRepository) ListAllByUserID(ctx context.Context, userID string) 
 	return sessions, nil
 }
 
+// ListByUserID returns a page of active sessions for a user and the total count.
 func (r *SessionRepository) ListByUserID(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
 	now := time.Now().UTC()
 
@@ -285,6 +295,7 @@ func (r *SessionRepository) CountAll(ctx context.Context, filter port.SessionFil
 	return total, nil
 }
 
+// ListAll returns sessions matching the filter.
 func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilter) ([]domain.Session, error) {
 	now := time.Now().UTC()
 	whereClause, args := r.buildAllWhere(filter, now)
@@ -330,16 +341,19 @@ func (r *SessionRepository) ListAll(ctx context.Context, filter port.SessionFilt
 	return sessions, nil
 }
 
+// Delete removes a session by access-token hash.
 func (r *SessionRepository) Delete(ctx context.Context, tokenHash string) error {
 	_, err := r.db.ExecContext(ctx, sessionDeleteByTokenHashQuery, tokenHash)
 	return err
 }
 
+// DeleteByID removes a session by ID.
 func (r *SessionRepository) DeleteByID(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, sessionDeleteByIDQuery, id)
 	return err
 }
 
+// RevokeByIDForUser removes one of a user's sessions by ID.
 func (r *SessionRepository) RevokeByIDForUser(ctx context.Context, id, userID string) (bool, error) {
 	if _, err := uuid.Parse(id); err != nil {
 		return false, nil
@@ -355,6 +369,7 @@ func (r *SessionRepository) RevokeByIDForUser(ctx context.Context, id, userID st
 	return n > 0, nil
 }
 
+// RevokeManyForUser removes the valid session IDs owned by a user.
 func (r *SessionRepository) RevokeManyForUser(ctx context.Context, ids []string, userID string) (int, error) {
 	valid := make([]string, 0, len(ids))
 	for _, id := range ids {
@@ -384,21 +399,25 @@ func (r *SessionRepository) RevokeManyForUser(ctx context.Context, ids []string,
 	return int(n), nil
 }
 
+// DeleteAllForUser removes every session for a user.
 func (r *SessionRepository) DeleteAllForUser(ctx context.Context, userID string) error {
 	_, err := r.db.ExecContext(ctx, sessionDeleteByUserQuery, userID)
 	return err
 }
 
+// DeleteAllForUserExcept removes every user session except the given session.
 func (r *SessionRepository) DeleteAllForUserExcept(ctx context.Context, userID string, exceptSessionID string) error {
 	_, err := r.db.ExecContext(ctx, sessionDeleteByUserExceptQuery, userID, exceptSessionID)
 	return err
 }
 
+// DeleteExpired removes expired sessions.
 func (r *SessionRepository) DeleteExpired(ctx context.Context) error {
 	_, err := r.db.ExecContext(ctx, sessionDeleteExpiredQuery, time.Now().UTC())
 	return err
 }
 
+// UpdateLastActiveAt records activity for a session.
 func (r *SessionRepository) UpdateLastActiveAt(ctx context.Context, tokenHash string) error {
 	_, err := r.db.ExecContext(ctx, sessionUpdateLastActiveQuery, time.Now().UTC(), tokenHash)
 	return err
@@ -408,6 +427,7 @@ func (r *SessionRepository) UpdateLastActiveAt(ctx context.Context, tokenHash st
 // Refresh token rotation
 // ---------------------------------------------------------------------------
 
+// UpdateRefreshToken rotates a session's access and refresh tokens.
 func (r *SessionRepository) UpdateRefreshToken(ctx context.Context, input port.UpdateRefreshInput) (*domain.Session, error) {
 	now := input.RotatedAt
 
@@ -528,26 +548,31 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 	return nil, domain.ErrInvalidRefreshToken
 }
 
+// UpdateActiveOrgRoleForUser updates the active organization role in matching sessions.
 func (r *SessionRepository) UpdateActiveOrgRoleForUser(ctx context.Context, userID, orgID string, newRole domain.OrgRole) error {
 	_, err := r.db.ExecContext(ctx, sessionUpdateActiveOrgRoleQuery, string(newRole), userID, orgID)
 	return err
 }
 
+// ClearActiveOrgForUser clears an organization from a user's active sessions.
 func (r *SessionRepository) ClearActiveOrgForUser(ctx context.Context, userID, orgID string) error {
 	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgForUserQuery, userID, orgID)
 	return err
 }
 
+// ClearActiveOrg clears the active organization from a session.
 func (r *SessionRepository) ClearActiveOrg(ctx context.Context, sessionID string) error {
 	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgQuery, sessionID)
 	return err
 }
 
+// ClearActiveOrgForAllMembers clears an organization from every active session.
 func (r *SessionRepository) ClearActiveOrgForAllMembers(ctx context.Context, orgID string) error {
 	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgForAllMembersQuery, orgID)
 	return err
 }
 
+// SetActiveOrg sets the active organization and role for a session.
 func (r *SessionRepository) SetActiveOrg(ctx context.Context, sessionID, orgID string, role domain.OrgRole) error {
 	_, err := r.db.ExecContext(ctx, sessionSetActiveOrgQuery, orgID, string(role), sessionID)
 	return err

@@ -44,10 +44,12 @@ var orgInviteOrderByWhitelist = map[string]string{
 	"role":       "role",
 }
 
+// OrgRepository stores organizations and their memberships.
 type OrgRepository struct {
 	db *DB
 }
 
+// NewOrgRepository returns an organization repository.
 func NewOrgRepository(db *DB) *OrgRepository {
 	return &OrgRepository{db: db}
 }
@@ -85,6 +87,7 @@ func parseJSONMap(s string) map[string]interface{} {
 	return m
 }
 
+// Create stores an organization.
 func (r *OrgRepository) Create(ctx context.Context, org *domain.Organization) error {
 	_, err := r.db.ExecContext(ctx, orgCreateQuery,
 		org.ID, org.Name, org.Slug, org.CreatedBy, org.OwnerCount, org.MemberCount,
@@ -92,6 +95,7 @@ func (r *OrgRepository) Create(ctx context.Context, org *domain.Organization) er
 	return wrapCreateErr(r.db.Driver(), err)
 }
 
+// GetByID returns an organization by ID or nil when absent.
 func (r *OrgRepository) GetByID(ctx context.Context, id string) (*domain.Organization, error) {
 	o, err := scanOrg(r.db.QueryRowContext(ctx, orgByIDQuery, id))
 	if err == sql.ErrNoRows {
@@ -100,6 +104,7 @@ func (r *OrgRepository) GetByID(ctx context.Context, id string) (*domain.Organiz
 	return o, err
 }
 
+// GetBySlug returns an organization by slug or nil when absent.
 func (r *OrgRepository) GetBySlug(ctx context.Context, slug string) (*domain.Organization, error) {
 	o, err := scanOrg(r.db.QueryRowContext(ctx, orgBySlugQuery, slug))
 	if err == sql.ErrNoRows {
@@ -108,6 +113,7 @@ func (r *OrgRepository) GetBySlug(ctx context.Context, slug string) (*domain.Org
 	return o, err
 }
 
+// Update changes an organization's stored values.
 func (r *OrgRepository) Update(ctx context.Context, org *domain.Organization) error {
 	metadata := "{}"
 	if org.Metadata != nil {
@@ -121,24 +127,29 @@ func (r *OrgRepository) Update(ctx context.Context, org *domain.Organization) er
 	return err
 }
 
+// Delete removes an organization by ID.
 func (r *OrgRepository) Delete(ctx context.Context, id string) (bool, error) {
 	return affected(r.db.ExecContext(ctx, orgDeleteQuery, id))
 }
 
+// AddMember adds a user to an organization.
 func (r *OrgRepository) AddMember(ctx context.Context, member *domain.OrgMember) error {
 	_, err := r.db.ExecContext(ctx, orgAddMemberQuery,
 		member.OrgID, member.UserID, string(member.Role), member.JoinedAt)
 	return wrapCreateErr(r.db.Driver(), err)
 }
 
+// RemoveMember removes a member when the current role matches.
 func (r *OrgRepository) RemoveMember(ctx context.Context, orgID, userID string, expectRole domain.OrgRole) (bool, error) {
 	return affected(r.db.ExecContext(ctx, orgRemoveMemberQuery, orgID, userID, string(expectRole)))
 }
 
+// UpdateMemberRole changes a member's role when the current role matches.
 func (r *OrgRepository) UpdateMemberRole(ctx context.Context, orgID, userID string, expectRole, newRole domain.OrgRole) (bool, error) {
 	return affected(r.db.ExecContext(ctx, orgUpdateMemberRoleQuery, string(newRole), orgID, userID, string(expectRole)))
 }
 
+// GetMembership returns a user's organization membership or nil when absent.
 func (r *OrgRepository) GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
 	m := &domain.OrgMember{}
 	err := r.db.QueryRowContext(ctx, orgGetMembershipQuery, orgID, userID).Scan(
@@ -187,6 +198,7 @@ func (r *OrgRepository) CountMembers(ctx context.Context, orgID string, filter p
 	return total, nil
 }
 
+// ListMembers returns organization members matching the filter.
 func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, error) {
 	whereClause, args := r.membersWhere(orgID, filter)
 	argIdx := len(args) + 1
@@ -276,6 +288,7 @@ func (r *OrgRepository) CountUserOrgs(ctx context.Context, userID string, filter
 	return total, nil
 }
 
+// ListUserOrgs returns a user's organizations matching the filter.
 func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, error) {
 	whereClause, args := r.userOrgsWhere(userID, filter.Search, filter.Role)
 	argIdx := len(args) + 1
@@ -366,6 +379,7 @@ func (r *OrgRepository) Count(ctx context.Context, filter port.OrgFilter) (int, 
 	return total, nil
 }
 
+// List returns organizations matching the filter.
 func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]domain.Organization, error) {
 	whereClause, args := r.buildListWhere(filter)
 	argIdx := len(args) + 1
@@ -414,6 +428,7 @@ func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]doma
 	return orgs, nil
 }
 
+// IncrementUserOrgOwnerCount increments a user's owned organization count within the limit.
 func (r *OrgRepository) IncrementUserOrgOwnerCount(ctx context.Context, userID string, maxOrgs int) error {
 	res, err := r.db.ExecContext(ctx, orgIncrementOwnerCountQuery, userID, maxOrgs)
 	if err != nil {
@@ -429,11 +444,13 @@ func (r *OrgRepository) IncrementUserOrgOwnerCount(ctx context.Context, userID s
 	return nil
 }
 
+// DecrementUserOrgOwnerCount decrements a user's owned organization count.
 func (r *OrgRepository) DecrementUserOrgOwnerCount(ctx context.Context, userID string) error {
 	_, err := r.db.ExecContext(ctx, orgDecrementUserOwnerCountQuery, userID)
 	return err
 }
 
+// IncrementOrgMemberCount increments an organization's member count within the limit.
 func (r *OrgRepository) IncrementOrgMemberCount(ctx context.Context, orgID string, maxMembers int) error {
 	res, err := r.db.ExecContext(ctx, orgIncrementOrgMemberCountQuery, orgID, maxMembers)
 	if err != nil {
@@ -449,11 +466,13 @@ func (r *OrgRepository) IncrementOrgMemberCount(ctx context.Context, orgID strin
 	return nil
 }
 
+// DecrementOrgMemberCount decrements an organization's member count.
 func (r *OrgRepository) DecrementOrgMemberCount(ctx context.Context, orgID string) error {
 	_, err := r.db.ExecContext(ctx, orgDecrementOrgMemberCountQuery, orgID)
 	return err
 }
 
+// TryDecrementOrgOwnerCount decrements the owner count unless it would remove the last owner.
 func (r *OrgRepository) TryDecrementOrgOwnerCount(ctx context.Context, orgID string) error {
 	res, err := r.db.ExecContext(ctx, orgTryDecrementOwnerCountQuery, orgID)
 	if err != nil {
@@ -469,6 +488,7 @@ func (r *OrgRepository) TryDecrementOrgOwnerCount(ctx context.Context, orgID str
 	return nil
 }
 
+// IncrementOrgOwnerCount increments an organization's owner count.
 func (r *OrgRepository) IncrementOrgOwnerCount(ctx context.Context, orgID string) error {
 	_, err := r.db.ExecContext(ctx, orgIncrementOrgOwnerCountQuery, orgID)
 	return err
@@ -503,15 +523,18 @@ func (r *OrgRepository) ListUserMemberships(ctx context.Context, userID string) 
 	return out, nil
 }
 
+// DecrementOwnerCountForOrgOwners decrements the owner count for each owner of an organization.
 func (r *OrgRepository) DecrementOwnerCountForOrgOwners(ctx context.Context, orgID string) error {
 	_, err := r.db.ExecContext(ctx, orgDecrementOwnerCountForOrgOwnersQuery, orgID)
 	return err
 }
 
+// OrgInviteRepository stores organization invitations.
 type OrgInviteRepository struct {
 	db *DB
 }
 
+// NewOrgInviteRepository returns an organization invite repository.
 func NewOrgInviteRepository(db *DB) *OrgInviteRepository {
 	return &OrgInviteRepository{db: db}
 }
@@ -524,6 +547,7 @@ func scanOrgInvite(sc interface{ Scan(dest ...any) error }) (*domain.OrgInvite, 
 	return i, nil
 }
 
+// Create stores an organization invitation.
 func (r *OrgInviteRepository) Create(ctx context.Context, invite *domain.OrgInvite) error {
 	_, err := r.db.ExecContext(ctx, orgInviteCreateQuery,
 		invite.ID, invite.OrgID, invite.Email, string(invite.Role), invite.CodeHash,
@@ -531,6 +555,7 @@ func (r *OrgInviteRepository) Create(ctx context.Context, invite *domain.OrgInvi
 	return err
 }
 
+// GetByID returns an organization invitation by ID or nil when absent.
 func (r *OrgInviteRepository) GetByID(ctx context.Context, id string) (*domain.OrgInvite, error) {
 	i, err := scanOrgInvite(r.db.QueryRowContext(ctx, orgInviteByIDQuery, id))
 	if err == sql.ErrNoRows {
@@ -539,6 +564,7 @@ func (r *OrgInviteRepository) GetByID(ctx context.Context, id string) (*domain.O
 	return i, err
 }
 
+// GetByCodeHash returns an organization invitation by code hash or nil when absent.
 func (r *OrgInviteRepository) GetByCodeHash(ctx context.Context, codeHash string) (*domain.OrgInvite, error) {
 	i, err := scanOrgInvite(r.db.QueryRowContext(ctx, orgInviteByCodeHashQuery, codeHash))
 	if err == sql.ErrNoRows {
@@ -599,6 +625,7 @@ func (r *OrgInviteRepository) CountByOrgID(ctx context.Context, orgID string, fi
 	return total, nil
 }
 
+// ListByOrgID returns an organization's invitations matching the filter.
 func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, error) {
 	whereClause, args := r.orgInvitesWhere(orgID, filter)
 	argIdx := len(args) + 1
@@ -644,17 +671,20 @@ func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, fil
 	return invites, nil
 }
 
+// Update changes an organization invitation's code hash and expiry.
 func (r *OrgInviteRepository) Update(ctx context.Context, invite *domain.OrgInvite) error {
 	_, err := r.db.ExecContext(ctx, orgInviteUpdateQuery,
 		invite.CodeHash, invite.ExpiresAt, invite.ID)
 	return err
 }
 
+// Delete removes an organization invitation by ID.
 func (r *OrgInviteRepository) Delete(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, orgInviteDeleteQuery, id)
 	return err
 }
 
+// ClaimInvite consumes a matching unexpired organization invitation.
 func (r *OrgInviteRepository) ClaimInvite(ctx context.Context, id, codeHash string) (bool, error) {
 	res, err := r.db.ExecContext(ctx, orgInviteClaimQuery, id, codeHash, time.Now().UTC())
 	if err != nil {

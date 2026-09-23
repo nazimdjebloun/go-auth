@@ -62,6 +62,7 @@ type TwoFactorService struct {
 	now        func() time.Time
 }
 
+// NewTwoFactorService returns a two-factor service.
 func NewTwoFactorService(
 	users port.UserRepository,
 	sessions port.SessionRevoker,
@@ -92,13 +93,16 @@ func NewTwoFactorService(
 	}
 }
 
+// CookieName returns the two-factor challenge cookie name.
 // CookieName, CookieTTL, and BindingDisabled expose just the pieces of Config
 // the HTTP layer needs to set/clear the challenge binding cookie, without
 // handing it the whole (unexported-field) Config.
 func (s *TwoFactorService) CookieName() string { return s.config.TwoFactorChallengeCookieName }
 
+// CookieTTL returns the two-factor challenge lifetime.
 func (s *TwoFactorService) CookieTTL() time.Duration { return s.config.TwoFactorCodeTTL }
 
+// BindingDisabled reports whether challenge binding is disabled.
 func (s *TwoFactorService) BindingDisabled() bool { return s.config.DisableTwoFactorChallengeBinding }
 
 // Enforce reports whether a user must clear a second factor to get a session.

@@ -14,6 +14,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
+// InviteService manages account invitations.
 type InviteService struct {
 	users        port.UserRepository
 	sessions     port.SessionRepository
@@ -30,6 +31,7 @@ type InviteService struct {
 	audit        AuditPublisher
 }
 
+// NewInviteService returns an account invitation service.
 func NewInviteService(
 	users port.UserRepository,
 	sessions port.SessionRepository,
@@ -62,6 +64,7 @@ func NewInviteService(
 	}
 }
 
+// GetInviteByToken returns a valid account invitation by token.
 func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (*domain.Invite, error) {
 	invite, err := s.invites.GetByCode(ctx, hashToken(rawToken))
 	if err != nil || invite == nil {
@@ -89,6 +92,7 @@ func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (
 	return invite, nil
 }
 
+// CreateInvite creates an account invitation.
 func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInput) (*domain.Invite, error) {
 	if err := requireAdminRole(ctx, s.users, input.AdminID); err != nil {
 		return nil, err
@@ -176,6 +180,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 	return invite, nil
 }
 
+// CompleteInviteRegistration registers a user from an invitation.
 func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, error) {
 	if !s.config.EnableInvite {
 		return nil, domain.ErrMethodDisabled
@@ -327,6 +332,7 @@ func inviteFilterFromInput(input ListInvitesInput) port.InviteFilter {
 	}
 }
 
+// ListInvites returns account invitations.
 func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput) ([]domain.Invite, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
@@ -353,6 +359,7 @@ func (s *InviteService) CountInvites(ctx context.Context, input ListInvitesInput
 	return n, nil
 }
 
+// HardDeleteInvite permanently deletes an account invitation.
 func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID, actorID string) error {
 	if err := requireAdminRole(ctx, s.users, actorID); err != nil {
 		return err
@@ -378,6 +385,7 @@ func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID, actorID 
 	return nil
 }
 
+// RevokeInvite revokes an account invitation.
 func (s *InviteService) RevokeInvite(ctx context.Context, inviteID, actorID string) error {
 	if err := requireAdminRole(ctx, s.users, actorID); err != nil {
 		return err
@@ -402,6 +410,7 @@ func (s *InviteService) RevokeInvite(ctx context.Context, inviteID, actorID stri
 	return nil
 }
 
+// ResendInviteEmail sends an account invitation again.
 func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID string) error {
 	if err := requireAdminRole(ctx, s.users, actorID); err != nil {
 		return err
