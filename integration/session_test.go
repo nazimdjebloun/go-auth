@@ -25,14 +25,14 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 	}
 	oldRefreshToken := loginResult.RefreshToken
 
-	if _, err := a.Services.Session.RefreshSession(ctx, oldRefreshToken); err != nil {
+	if _, err := a.Services().Session.RefreshSession(ctx, oldRefreshToken); err != nil {
 		t.Fatal(err)
 	}
 
 	// Presenting the now-rotated-away token again is reuse — the session
 	// underneath gets revoked, and RefreshSession must report it exactly
 	// like any other revoked session (no client-facing behavior change).
-	_, err = a.Services.Session.RefreshSession(ctx, oldRefreshToken)
+	_, err = a.Services().Session.RefreshSession(ctx, oldRefreshToken)
 	if err == nil {
 		t.Fatal("expected an error for reused refresh token")
 	}
@@ -42,7 +42,7 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	reuseType := string(audit.EventSessionRefreshReuseDetected)
-	events, err := a.Services.AuditLog.List(ctx, port.AuditLogFilter{Types: []string{reuseType}, Limit: 10})
+	events, err := a.Services().AuditLog.List(ctx, port.AuditLogFilter{Types: []string{reuseType}, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestSession_RefreshCannotReviveIdleSession(t *testing.T) {
 	if _, err := db.Exec("UPDATE sessions SET last_active_at = ? WHERE id = ?", time.Now().UTC().Add(-2*time.Hour), registered.Session.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Services.Session.RefreshSession(ctx, registered.RefreshToken); !errors.Is(err, domain.ErrSessionExpired) {
+	if _, err := a.Services().Session.RefreshSession(ctx, registered.RefreshToken); !errors.Is(err, domain.ErrSessionExpired) {
 		t.Fatalf("refresh after idle timeout = %v, want ErrSessionExpired", err)
 	}
 	var storedHash string
@@ -106,13 +106,13 @@ func TestSession_RefreshAuditFailureKeepsOldToken(t *testing.T) {
 		BEGIN SELECT RAISE(FAIL, 'blocked refresh audit'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Services.Session.RefreshSession(ctx, registered.RefreshToken); !errors.Is(err, audit.ErrRecordBlocked) {
+	if _, err := a.Services().Session.RefreshSession(ctx, registered.RefreshToken); !errors.Is(err, audit.ErrRecordBlocked) {
 		t.Fatalf("refresh with failed audit = %v, want ErrRecordBlocked", err)
 	}
 	if _, err := db.Exec("DROP TRIGGER block_refresh_audit"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Services.Session.RefreshSession(ctx, registered.RefreshToken); err != nil {
+	if _, err := a.Services().Session.RefreshSession(ctx, registered.RefreshToken); err != nil {
 		t.Fatalf("old refresh token was stranded after rollback: %v", err)
 	}
 }
@@ -131,7 +131,7 @@ func TestSession_RefreshReuseDetection_RevocationFailurePropagates(t *testing.T)
 		t.Fatal(err)
 	}
 	oldRefreshToken := registered.RefreshToken
-	rotated, err := a.Services.Session.RefreshSession(ctx, oldRefreshToken)
+	rotated, err := a.Services().Session.RefreshSession(ctx, oldRefreshToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestSession_RefreshReuseDetection_RevocationFailurePropagates(t *testing.T)
 		BEGIN SELECT RAISE(FAIL, 'blocked reuse revocation'); END`); err != nil {
 		t.Fatal(err)
 	}
-	_, err = a.Services.Session.RefreshSession(ctx, oldRefreshToken)
+	_, err = a.Services().Session.RefreshSession(ctx, oldRefreshToken)
 	if err == nil {
 		t.Fatal("expected revocation failure to propagate")
 	}
@@ -151,7 +151,7 @@ func TestSession_RefreshReuseDetection_RevocationFailurePropagates(t *testing.T)
 	if _, err := db.Exec("DROP TRIGGER block_reuse_revoke"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Services.Session.RefreshSession(ctx, rotated.RefreshToken); err != nil {
+	if _, err := a.Services().Session.RefreshSession(ctx, rotated.RefreshToken); err != nil {
 		t.Fatalf("current refresh token should remain usable because deletion did not occur: %v", err)
 	}
 }

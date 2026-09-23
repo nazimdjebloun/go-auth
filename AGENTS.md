@@ -44,8 +44,9 @@ module; `go build ./...` and `go test ./...` verify both together.
 The usual request path is:
 
 ```text
-internal/routes → auth.go/mount.go → internal/handler → internal/service
-                → port interfaces → internal/sqlstore
+internal/routes (patterns) → internal/httproutes ← wire_http.go (middleware)
+Auth.Mount/Handler → internal/httproutes → internal/handler
+                   → internal/service → port interfaces → internal/sqlstore
 ```
 
 Start with the analogous existing feature and follow that path end to end. Do

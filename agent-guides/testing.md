@@ -19,16 +19,7 @@ go test ./integration -count=1
 go test -run TestName ./internal/service -count=1
 ```
 
-## CLI module
-
-From the repository root:
-
-```sh
-cd cmd/goauth
-go vet ./...
-go build ./...
-go test ./... -count=1
-```
+The CLI in `cmd/goauth` shares the root module and is covered by these commands.
 
 ## Expectations
 

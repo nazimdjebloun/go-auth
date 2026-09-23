@@ -6,7 +6,7 @@ icon: "KeyRound"
 
 # Authentication
 
-This page walks through the three entry points to a session — register, login, logout — end to end: which config flags turn each path on, exactly what each endpoint takes and returns, every error it can produce, and three ways to call it: `curl`, directly in Go via `Auth.Services`, and from a browser client.
+This page walks through the three entry points to a session — register, login, logout — end to end: which config flags turn each path on, exactly what each endpoint takes and returns, every error it can produce, and three ways to call it: `curl`, directly in Go via `Auth.Services()`, and from a browser client.
 
 For the full path/param reference across every route (not just these three), see [Routes](../routes/). For the error envelope shape and codes shared across the whole API, see [Error Handling](../error-handling.mdx).
 
@@ -152,7 +152,7 @@ curl -X POST https://api.myapp.com/auth/register \
 Calling the service directly skips HTTP entirely — no cookies get set for you, so you own the raw tokens from here.
 
 ```go
-result, err := auth.Services.Auth.Register(ctx, goauth.RegisterInput{
+result, err := auth.Services().Auth.Register(ctx, goauth.RegisterInput{
     Email:     "ada@example.com",
     Password:  "correct horse battery staple 1",
     Name:      "Ada Lovelace",
@@ -243,12 +243,12 @@ curl -X POST https://api.myapp.com/auth/verify-email \
 The service call only verifies the user — it doesn't create a session by itself. Mirror what the HTTP handler does and create one explicitly right after:
 
 ```go
-user, err := auth.Services.Verify.VerifyEmail(ctx, code)
+user, err := auth.Services().Verify.VerifyEmail(ctx, code)
 if err != nil {
     // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
 }
 
-result, err := auth.Services.Session.Create(ctx, user.ID, r.RemoteAddr, r.UserAgent())
+result, err := auth.Services().Session.Create(ctx, user.ID, r.RemoteAddr, r.UserAgent())
 // result.SessionToken / result.RefreshToken are the raw values — set them as cookies yourself
 ```
 
@@ -319,10 +319,10 @@ curl -X POST https://api.myapp.com/auth/invite/register \
 #### Programmatic (Go)
 
 ```go
-invite, err := auth.Services.Invite.GetInviteByToken(ctx, rawToken)
+invite, err := auth.Services().Invite.GetInviteByToken(ctx, rawToken)
 // invite.Email — pre-fill the form with this
 
-result, err := auth.Services.Invite.CompleteInviteRegistration(ctx, goauth.CompleteInviteInput{
+result, err := auth.Services().Invite.CompleteInviteRegistration(ctx, goauth.CompleteInviteInput{
     Code:            rawToken,
     Name:            "Ada Lovelace",
     Password:        "correct horse battery staple 1",
@@ -423,7 +423,7 @@ curl -X POST https://api.myapp.com/auth/login \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Auth.Login(ctx, goauth.LoginInput{
+result, err := auth.Services().Auth.Login(ctx, goauth.LoginInput{
     Email:     "ada@example.com",
     Password:  "correct horse battery staple 1",
     IP:        r.RemoteAddr,
@@ -508,7 +508,7 @@ curl -X POST https://api.myapp.com/auth/2fa/verify \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.TwoFactor.Verify(
+result, err := auth.Services().TwoFactor.Verify(
     ctx, challengeID, bindingToken, code, r.RemoteAddr, r.UserAgent(),
 )
 if err != nil {
@@ -555,7 +555,7 @@ curl -X POST https://api.myapp.com/auth/2fa/resend \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.TwoFactor.Resend(ctx, challengeID, bindingToken)
+result, err := auth.Services().TwoFactor.Resend(ctx, challengeID, bindingToken)
 ```
 
 ---
@@ -595,10 +595,10 @@ curl -X POST https://api.myapp.com/auth/logout \
 The HTTP handler revokes by the raw session token — the same value stored in the cookie — not by session ID:
 
 ```go
-err := auth.Services.Session.Revoke(ctx, sessionToken) // sessionToken is the raw value from the cookie, not the session's ID
+err := auth.Services().Session.Revoke(ctx, sessionToken) // sessionToken is the raw value from the cookie, not the session's ID
 ```
 
-If you only have the session ID instead (e.g. an admin ending one specific session — see [Routes → Sessions](../routes/sessions.mdx)), use `auth.Services.Auth.Logout(ctx, sessionID)` instead — same effect, looked up differently.
+If you only have the session ID instead (e.g. an admin ending one specific session — see [Routes → Sessions](../routes/sessions.mdx)), use `auth.Services().Auth.Logout(ctx, sessionID)` instead — same effect, looked up differently.
 
 ---
 

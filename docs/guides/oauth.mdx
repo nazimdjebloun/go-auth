@@ -44,7 +44,7 @@ The response is JSON, not a redirect — your frontend reads `url` and navigates
 #### Programmatic (Go)
 
 ```go
-flow, err := auth.Services.OAuth.InitiateLink(ctx, "github", userID, session.TokenHash)
+flow, err := auth.Services().OAuth.InitiateLink(ctx, "github", userID, session.TokenHash)
 if err != nil {
     // wraps a *domain.AuthError — provider_not_found if the name is wrong
 }
@@ -117,7 +117,7 @@ curl -X POST https://api.myapp.com/auth/oauth/github/unlink \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.OAuth.Unlink(ctx, userID, "github")
+err := auth.Services().OAuth.Unlink(ctx, userID, "github")
 ```
 
 ---
@@ -171,7 +171,7 @@ curl https://api.myapp.com/auth/oauth/providers \
 #### Programmatic (Go)
 
 ```go
-accounts, err := auth.Services.OAuth.ListConnected(ctx, userID)
+accounts, err := auth.Services().OAuth.ListConnected(ctx, userID)
 // accounts[i].AccessToken / RefreshToken ARE populated here — this is the
 // internal domain type, not the handler's filtered response shape above.
 // Never send this straight back to a client.

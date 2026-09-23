@@ -134,7 +134,7 @@ func TestMySQL_RegisterAndValidateSession(t *testing.T) {
 		t.Fatal("session token missing after register")
 	}
 
-	user, session, aerr := a.Services.Auth.ValidateSession(ctx, res.SessionToken)
+	user, session, aerr := a.Services().Auth.ValidateSession(ctx, res.SessionToken)
 	if aerr != nil {
 		t.Fatal("ValidateSession:", aerr)
 	}
@@ -151,10 +151,10 @@ func TestMySQL_RegisterAndValidateSession(t *testing.T) {
 		t.Error("session token hash mismatch")
 	}
 
-	if aerr := a.Services.Auth.Logout(ctx, session.ID); aerr != nil {
+	if aerr := a.Services().Auth.Logout(ctx, session.ID); aerr != nil {
 		t.Fatal(aerr)
 	}
-	if _, _, aerr = a.Services.Auth.ValidateSession(ctx, res.SessionToken); aerr == nil {
+	if _, _, aerr = a.Services().Auth.ValidateSession(ctx, res.SessionToken); aerr == nil {
 		t.Error("expected error after session revoked")
 	}
 }
@@ -191,7 +191,7 @@ func TestMySQL_RefreshRotation(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	rotated, aerr := a.Services.Session.RefreshSession(ctx, res.RefreshToken)
+	rotated, aerr := a.Services().Session.RefreshSession(ctx, res.RefreshToken)
 	if aerr != nil {
 		t.Fatal("first refresh:", aerr)
 	}
@@ -208,14 +208,14 @@ func TestMySQL_RefreshRotation(t *testing.T) {
 	}
 
 	// Old token must be dead outside any grace window (grace is disabled).
-	if _, aerr := a.Services.Session.RefreshSession(ctx, res.RefreshToken); aerr == nil {
+	if _, aerr := a.Services().Session.RefreshSession(ctx, res.RefreshToken); aerr == nil {
 		t.Error("expected reused pre-rotation refresh token to be rejected")
 	}
 
-	if _, _, aerr := a.Services.Auth.ValidateSession(ctx, rotated.SessionToken); aerr != nil {
+	if _, _, aerr := a.Services().Auth.ValidateSession(ctx, rotated.SessionToken); aerr != nil {
 		t.Fatal("ValidateSession after rotation:", aerr)
 	}
-	if _, aerr := a.Services.Session.RefreshSession(ctx, rotated.RefreshToken); aerr != nil {
+	if _, aerr := a.Services().Session.RefreshSession(ctx, rotated.RefreshToken); aerr != nil {
 		t.Fatal("second refresh with rotated token:", aerr)
 	}
 }
@@ -250,7 +250,7 @@ func TestMySQL_PasswordReset(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	if aerr := a.Services.Password.ForgotPassword(ctx, service.ForgotPasswordInput{
+	if aerr := a.Services().Password.ForgotPassword(ctx, service.ForgotPasswordInput{
 		Email: "admin@mysql.test",
 	}); aerr != nil {
 		t.Fatal(aerr)
@@ -261,14 +261,14 @@ func TestMySQL_PasswordReset(t *testing.T) {
 		t.Fatal("could not extract reset token from email")
 	}
 
-	if aerr := a.Services.Password.ResetPassword(ctx, service.ResetPasswordInput{
+	if aerr := a.Services().Password.ResetPassword(ctx, service.ResetPasswordInput{
 		Code:        resetToken,
 		NewPassword: "NewP@sswd2",
 	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
-	if _, aerr := a.Services.Auth.Login(ctx, service.LoginInput{
+	if _, aerr := a.Services().Auth.Login(ctx, service.LoginInput{
 		Email:    "admin@mysql.test",
 		Password: "NewP@sswd2",
 	}); aerr != nil {

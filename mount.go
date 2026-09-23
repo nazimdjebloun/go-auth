@@ -3,16 +3,7 @@ package goauth
 import (
 	"net/http"
 	"strings"
-
-	"github.com/nazimdjebloun/go-auth/internal/routes"
 )
-
-// routeEntry pairs a canonical route pattern (from internal/routes) with
-// the already-middleware-wrapped handler that serves it.
-type routeEntry struct {
-	pattern string
-	handler http.Handler
-}
 
 // Mount registers every enabled route onto mux. It requires a real
 // *http.ServeMux (Go 1.22+'s pattern syntax, e.g. "GET /admin/users/{id}")
@@ -22,10 +13,10 @@ type routeEntry struct {
 // ID on every parameterized route, with no error at mount time. Bridge to
 // another router by having it populate PathValue before calling into these
 // handlers, or use Auth.RequireAuth/RequireAdmin/RequireOrg plus
-// auth.Services.* directly and write your own routing layer.
+// auth.Services().* directly and write your own routing layer.
 func (a *Auth) Mount(mux *http.ServeMux) {
 	// All middleware (CORS, rate limit, csrf token, origin check, auth, admin)
-	// is already baked into a.Handlers — CORS outermost so preflight OPTIONS
+	// is already baked into a.routes — CORS outermost so preflight OPTIONS
 	// short-circuits before rate limiting. Mount only registers routes; do NOT
 	// wrap the mux again with a.CORS or any other middleware.
 	//
@@ -54,125 +45,26 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 		}
 	}
 
-	entries := []routeEntry{
-		{routes.Login, a.Handlers.Login},
-		{routes.AdminLogin, a.Handlers.AdminLogin},
-		{routes.ForgotPassword, a.Handlers.ForgotPassword},
-		{routes.ResetPassword, a.Handlers.ResetPassword},
-		{routes.VerifyEmail, a.Handlers.VerifyEmail},
-		{routes.TwoFactorVerify, a.Handlers.VerifyTwoFactor},
-		{routes.TwoFactorResend, a.Handlers.ResendTwoFactor},
-		{routes.TwoFactorEnable, a.Handlers.Enable2FA},
-		{routes.TwoFactorDisable, a.Handlers.Disable2FA},
-		{routes.Logout, a.Handlers.Logout},
-		{routes.Me, a.Handlers.GetMe},
-		{routes.CSRFToken, a.Handlers.CSRFToken},
-		{routes.ChangeName, a.Handlers.ChangeName},
-		{routes.ListSessions, a.Handlers.ListSessions},
-		{routes.AllSessions, a.Handlers.GetAllSessions},
-		{routes.RevokeSession, a.Handlers.RevokeSession},
-		{routes.RevokeManySessions, a.Handlers.RevokeManySessions},
-		{routes.RevokeAllSessions, a.Handlers.RevokeAllSessions},
-		{routes.ChangePassword, a.Handlers.ChangePassword},
-		{routes.SetPasswordRequest, a.Handlers.SetPasswordRequest},
-		{routes.SetPasswordConfirm, a.Handlers.SetPasswordConfirm},
-		{routes.DeleteAccount, a.Handlers.DeleteAccount},
-		{routes.RequestDeleteAccount, a.Handlers.RequestDeleteAccount},
-		{routes.ConfirmDeleteAccount, a.Handlers.ConfirmDeleteAccount},
-		{routes.ResendVerification, a.Handlers.ResendVerification},
-		{routes.ResendVerificationPublic, a.Handlers.ResendVerificationPublic},
-		{routes.RefreshToken, a.Handlers.RefreshToken},
-		{routes.ListUsers, a.Handlers.ListUsers},
-		{routes.AdminCountUsers, a.Handlers.CountUsers},
-		{routes.GetUserDetail, a.Handlers.GetUserDetail},
-		{routes.UpdateUserRole, a.Handlers.UpdateUserRole},
-		{routes.BanUser, a.Handlers.BanUser},
-		{routes.UnbanUser, a.Handlers.UnbanUser},
-		{routes.DeleteUser, a.Handlers.DeleteUser},
-		{routes.AdminCreateUser, a.Handlers.AdminCreateUser},
-		{routes.AdminListUserSessions, a.Handlers.AdminListUserSessions},
-		{routes.AdminRevokeUserSession, a.Handlers.AdminRevokeUserSession},
-		{routes.RevokeUserSessions, a.Handlers.RevokeUserSessions},
-		{routes.AdminListAuditLogs, a.Handlers.AdminListAuditLogs},
-		{routes.AdminCountAuditLogs, a.Handlers.AdminListAuditLogs},
-		{routes.AdminListUserAuditLogs, a.Handlers.AdminListUserAuditLogs},
-		{routes.AdminCountUserAuditLogs, a.Handlers.AdminListUserAuditLogs},
-		{routes.AdminStats, a.Handlers.AdminStats},
-		{routes.AdminRegistrationTrend, a.Handlers.AdminRegistrationTrend},
-		{routes.AdminLoginActivity, a.Handlers.AdminLoginActivity},
-		{routes.AdminListSessions, a.Handlers.AdminListSessions},
-		{routes.AdminCountSessions, a.Handlers.AdminListSessions},
-		{routes.BulkBanUsers, a.Handlers.BulkBanUsers},
-		{routes.BulkUnbanUsers, a.Handlers.BulkUnbanUsers},
-		{routes.BulkDeleteUsers, a.Handlers.BulkDeleteUsers},
-		{routes.BulkRevokeUserSessions, a.Handlers.BulkRevokeUserSessions},
+	for _, e := range a.routes {
+		handle(e.Pattern, e.Handler)
 	}
+}
 
-	if a.cfg.registration.EnableEmailPassword {
-		entries = append(entries, routeEntry{routes.Register, a.Handlers.Register})
+// Handler returns the fully wrapped handler for an enabled canonical route
+// pattern, such as "POST /auth/login". It returns false for disabled features
+// and unknown patterns. The returned handler sets Request.Pattern to the
+// canonical pattern for per-route rate limiting. A custom router must still
+// set PathValue for each parameterized path segment before calling it.
+func (a *Auth) Handler(pattern string) (http.Handler, bool) {
+	for _, e := range a.routes {
+		if e.Pattern == pattern {
+			h := e.Handler
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				request := *r
+				request.Pattern = pattern
+				h.ServeHTTP(w, &request)
+			}), true
+		}
 	}
-	if a.cfg.registration.EnableInvite {
-		entries = append(entries,
-			routeEntry{routes.InviteInfo, a.Handlers.GetInviteInfo},
-			routeEntry{routes.InviteRegister, a.Handlers.InviteRegister},
-			routeEntry{routes.CreateInvite, a.Handlers.CreateInvite},
-			routeEntry{routes.ListInvites, a.Handlers.ListInvites},
-			routeEntry{routes.AdminCountInvites, a.Handlers.CountInvites},
-			routeEntry{routes.RevokeInvite, a.Handlers.RevokeInvite},
-			routeEntry{routes.ResendInvite, a.Handlers.ResendInvite},
-			routeEntry{routes.HardDeleteInvite, a.Handlers.HardDeleteInvite},
-			routeEntry{routes.BulkSendInvites, a.Handlers.BulkSendInvites},
-			routeEntry{routes.BulkResendInvites, a.Handlers.BulkResendInvites},
-			routeEntry{routes.BulkRevokeInvites, a.Handlers.BulkRevokeInvites},
-			routeEntry{routes.BulkDeleteInvites, a.Handlers.BulkDeleteInvites},
-		)
-	}
-	if a.cfg.registration.EnableOAuth && a.oAuthService != nil {
-		entries = append(entries,
-			routeEntry{routes.OAuthInitiate, a.Handlers.OAuthInitiate},
-			routeEntry{routes.OAuthCallbackGet, a.Handlers.OAuthCallback},
-			routeEntry{routes.OAuthCallbackPost, a.Handlers.OAuthCallback},
-			routeEntry{routes.OAuthLink, a.Handlers.OAuthLink},
-			routeEntry{routes.OAuthUnlink, a.Handlers.OAuthUnlink},
-			routeEntry{routes.OAuthProviders, a.Handlers.OAuthProviders},
-		)
-	}
-	if a.orgService != nil {
-		entries = append(entries,
-			routeEntry{routes.CreateOrg, a.Handlers.CreateOrg},
-			routeEntry{routes.ListUserOrgs, a.Handlers.ListUserOrgs},
-			routeEntry{routes.CountUserOrgs, a.Handlers.CountUserOrgs},
-			routeEntry{routes.GetOrg, a.Handlers.GetOrg},
-			routeEntry{routes.UpdateOrg, a.Handlers.UpdateOrg},
-			routeEntry{routes.DeleteOrg, a.Handlers.DeleteOrg},
-			routeEntry{routes.ListOrgMembers, a.Handlers.ListOrgMembers},
-			routeEntry{routes.CountOrgMembers, a.Handlers.CountOrgMembers},
-			routeEntry{routes.RemoveOrgMember, a.Handlers.RemoveOrgMember},
-			routeEntry{routes.UpdateOrgMemberRole, a.Handlers.UpdateOrgMemberRole},
-			routeEntry{routes.AdminListOrgs, a.Handlers.AdminListOrgs},
-			routeEntry{routes.AdminCountOrgs, a.Handlers.AdminListOrgs},
-			routeEntry{routes.AdminGetOrg, a.Handlers.AdminGetOrg},
-			routeEntry{routes.AdminListOrgMembers, a.Handlers.AdminListOrgMembers},
-			routeEntry{routes.AdminCountOrgMembers, a.Handlers.AdminListOrgMembers},
-			routeEntry{routes.AdminAddOrgMember, a.Handlers.AdminAddOrgMember},
-			routeEntry{routes.AdminDeleteOrg, a.Handlers.AdminDeleteOrg},
-			routeEntry{routes.AdminRemoveOrgMember, a.Handlers.AdminRemoveOrgMember},
-			routeEntry{routes.AdminUpdateOrgMemberRole, a.Handlers.AdminUpdateOrgMemberRole},
-			routeEntry{routes.AdminListUserOrgs, a.Handlers.AdminListUserOrgs},
-			routeEntry{routes.AdminCountUserOrgs, a.Handlers.AdminListUserOrgs},
-			routeEntry{routes.LeaveOrg, a.Handlers.LeaveOrg},
-			routeEntry{routes.SetActiveOrg, a.Handlers.SetActiveOrg},
-			routeEntry{routes.ClearActiveOrg, a.Handlers.ClearActiveOrg},
-			routeEntry{routes.CreateOrgInvite, a.Handlers.CreateOrgInvite},
-			routeEntry{routes.AcceptOrgInvite, a.Handlers.AcceptOrgInvite},
-			routeEntry{routes.ListOrgInvites, a.Handlers.ListOrgInvites},
-			routeEntry{routes.CountOrgInvites, a.Handlers.CountOrgInvites},
-			routeEntry{routes.ResendOrgInvite, a.Handlers.ResendOrgInvite},
-			routeEntry{routes.DeleteOrgInvite, a.Handlers.DeleteOrgInvite},
-		)
-	}
-
-	for _, e := range entries {
-		handle(e.pattern, e.handler)
-	}
+	return nil, false
 }

@@ -45,7 +45,7 @@ curl -X PUT https://api.myapp.com/auth/name \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Auth.ChangeName(ctx, userID, "Ada Byron")
+err := auth.Services().Auth.ChangeName(ctx, userID, "Ada Byron")
 ```
 
 ---
@@ -89,8 +89,8 @@ curl -X POST https://api.myapp.com/auth/2fa/enable \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.TwoFactor.Enable(ctx, userID, password, keepOtherSessions, callerSessionID)
-err = auth.Services.TwoFactor.Disable(ctx, userID, password)
+err := auth.Services().TwoFactor.Enable(ctx, userID, password, keepOtherSessions, callerSessionID)
+err = auth.Services().TwoFactor.Disable(ctx, userID, password)
 ```
 
 ---
@@ -137,7 +137,7 @@ curl -X DELETE https://api.myapp.com/auth/account \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Auth.DeleteAccount(ctx, userID, "correct horse battery staple 1")
+err := auth.Services().Auth.DeleteAccount(ctx, userID, "correct horse battery staple 1")
 ```
 
 ---
@@ -191,9 +191,9 @@ curl -X POST https://api.myapp.com/auth/account/delete/confirm \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Auth.RequestDeleteAccount(ctx, userID)
+err := auth.Services().Auth.RequestDeleteAccount(ctx, userID)
 
-err = auth.Services.Auth.ConfirmDeleteAccount(ctx, goauth.ConfirmDeleteAccountInput{
+err = auth.Services().Auth.ConfirmDeleteAccount(ctx, goauth.ConfirmDeleteAccountInput{
     UserID: userID, // always the session's own ID — never take this from client input yourself either
     Code:   "ABCD1234",
 })

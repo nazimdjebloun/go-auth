@@ -103,7 +103,7 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 
 	// NeverLoggedIn: only "never" (dormant/active both have a last_login_at).
 	yes := true
-	neverResult, err := a.Services.Admin.ListUsers(ctx, service.AdminListUsersInput{
+	neverResult, err := a.Services().Admin.ListUsers(ctx, service.AdminListUsersInput{
 		ActorID: admin.User.ID, Limit: 10, NeverLoggedIn: &yes,
 	})
 	if err != nil {
@@ -116,7 +116,7 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 
 	// LastLoginBefore cutoff: only "dormant" (logged in before cutoff) — not
 	// "active" (logged in after), not "never" (LastLoginBefore excludes NULLs).
-	dormantResult, err := a.Services.Admin.ListUsers(ctx, service.AdminListUsersInput{
+	dormantResult, err := a.Services().Admin.ListUsers(ctx, service.AdminListUsersInput{
 		ActorID: admin.User.ID, Limit: 10, LastLoginBefore: &cutoff,
 	})
 	if err != nil {
@@ -155,7 +155,7 @@ func TestAdmin_GetRegistrationTrend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	counts, err := a.Services.Admin.GetRegistrationTrend(ctx, service.StatsRangeInput{
+	counts, err := a.Services().Admin.GetRegistrationTrend(ctx, service.StatsRangeInput{
 		ActorID: admin.User.ID,
 		From:    twoDaysAgo.Add(-time.Hour),
 		To:      today.Add(time.Hour),
@@ -205,7 +205,7 @@ func TestAdmin_GetLoginActivity(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	now := time.Now().UTC()
-	perUser, err := a.Services.Admin.GetLoginActivity(ctx, service.LoginActivityInput{
+	perUser, err := a.Services().Admin.GetLoginActivity(ctx, service.LoginActivityInput{
 		ActorID: admin.User.ID,
 		UserID:  &u1.User.ID,
 		From:    now.Add(-time.Hour),
@@ -222,7 +222,7 @@ func TestAdmin_GetLoginActivity(t *testing.T) {
 		t.Fatalf("expected 1 login for u1, got %d: %+v", perUserTotal, perUser)
 	}
 
-	global, err := a.Services.Admin.GetLoginActivity(ctx, service.LoginActivityInput{
+	global, err := a.Services().Admin.GetLoginActivity(ctx, service.LoginActivityInput{
 		ActorID: admin.User.ID,
 		From:    now.Add(-time.Hour),
 		To:      now.Add(time.Hour),
@@ -269,7 +269,7 @@ func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
 	}
 
 	ip := "10.0.0.1"
-	result, err := a.Services.Admin.ListSessions(ctx, service.AdminListSessionsInput{
+	result, err := a.Services().Admin.ListSessions(ctx, service.AdminListSessionsInput{
 		ActorID: admin.User.ID, IP: &ip,
 	})
 	if err != nil {
@@ -281,7 +281,7 @@ func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
 
 	// Search substring-matches IP too, same as the IP filter but fuzzy.
 	search := "10.0.0.2"
-	searched, err := a.Services.Admin.ListSessions(ctx, service.AdminListSessionsInput{
+	searched, err := a.Services().Admin.ListSessions(ctx, service.AdminListSessionsInput{
 		ActorID: admin.User.ID, Search: &search,
 	})
 	if err != nil {
@@ -316,7 +316,7 @@ func TestAdmin_BulkBanUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := a.Services.Admin.BulkBanUsers(ctx, service.BulkUserActionInput{
+	result, err := a.Services().Admin.BulkBanUsers(ctx, service.BulkUserActionInput{
 		UserIDs: []string{u1.User.ID, u2.User.ID, "nonexistent"}, ActorID: admin.User.ID,
 	})
 	if err != nil {
@@ -372,7 +372,7 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 	waitAuditCount(t, db, "SELECT COUNT(*) FROM audit_log WHERE event_type IN ('user.registered', 'login.success')", 5)
 
 	deviceType := "mobile"
-	result, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+	result, err := a.Services().Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
 		ActorID: admin.User.ID, EventTypes: []string{"login.success"}, DeviceType: &deviceType,
 	})
 	if err != nil {
@@ -384,7 +384,7 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 
 	// Multi-value event type: registrations (3) + logins (2) in one call,
 	// nothing else.
-	multi, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+	multi, err := a.Services().Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
 		ActorID: admin.User.ID, EventTypes: []string{"user.registered", "login.success"},
 	})
 	if err != nil {
@@ -414,13 +414,13 @@ func TestAdmin_ListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := a.Services.Admin.BanUser(ctx, service.BanUserInput{UserID: target.User.ID, ActorID: admin.User.ID}); err != nil {
+	if err := a.Services().Admin.BanUser(ctx, service.BanUserInput{UserID: target.User.ID, ActorID: admin.User.ID}); err != nil {
 		t.Fatal(err)
 	}
 	waitAuditCount(t, db, "SELECT COUNT(*) FROM audit_log WHERE event_type = 'admin.user.banned'", 1)
 
 	bannedType := "admin.user.banned"
-	result, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+	result, err := a.Services().Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
 		ActorID: admin.User.ID, EventTypes: []string{bannedType},
 	})
 	if err != nil {
@@ -453,18 +453,18 @@ func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{Name: "Acme Inc", Slug: "acme-inc", OwnerID: owner.User.ID})
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{Name: "Acme Inc", Slug: "acme-inc", OwnerID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// admin is a platform admin but not a member of org — self-service
 	// DeleteOrg would reject this with ErrOrgMemberNotFound.
-	if err := a.Services.Org.AdminDeleteOrg(ctx, service.AdminOrgActionInput{OrgID: org.ID, ActorID: admin.User.ID}); err != nil {
+	if err := a.Services().Org.AdminDeleteOrg(ctx, service.AdminOrgActionInput{OrgID: org.ID, ActorID: admin.User.ID}); err != nil {
 		t.Fatalf("AdminDeleteOrg failed for a non-member platform admin: %v", err)
 	}
 
-	if got, err := a.Services.Org.AdminGetOrg(ctx, service.AdminGetOrgInput{OrgID: org.ID, ActorID: admin.User.ID}); err != domain.ErrOrgNotFound {
+	if got, err := a.Services().Org.AdminGetOrg(ctx, service.AdminGetOrgInput{OrgID: org.ID, ActorID: admin.User.ID}); err != domain.ErrOrgNotFound {
 		t.Fatalf("expected the org to be gone (ErrOrgNotFound), got %+v, err=%v", got, err)
 	}
 
@@ -472,7 +472,7 @@ func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
 	// FlushInterval is 100ms).
 	time.Sleep(200 * time.Millisecond)
 
-	result, err := a.Services.Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+	result, err := a.Services().Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
 		ActorID: admin.User.ID, EventTypes: []string{"admin.org.deleted"},
 	})
 	if err != nil {
@@ -509,7 +509,7 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{Name: "Orphan Co", Slug: "orphan-co", OwnerID: owner.User.ID})
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{Name: "Orphan Co", Slug: "orphan-co", OwnerID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +522,7 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	if _, err := db.ExecContext(ctx, "DELETE FROM organization_members WHERE org_id = ? AND user_id = ?", org.ID, owner.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	members, err := a.Services.Org.AdminListOrgMembers(ctx, service.AdminListOrgMembersInput{OrgID: org.ID, ActorID: admin.User.ID})
+	members, err := a.Services().Org.AdminListOrgMembers(ctx, service.AdminListOrgMembersInput{OrgID: org.ID, ActorID: admin.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -534,13 +534,13 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Services.Org.AdminAddMember(ctx, service.AdminAddMemberInput{
+	if err := a.Services().Org.AdminAddMember(ctx, service.AdminAddMemberInput{
 		OrgID: org.ID, UserID: newOwner.User.ID, Role: "owner", ActorID: admin.User.ID,
 	}); err != nil {
 		t.Fatalf("AdminAddMember failed to recover the orphaned org: %v", err)
 	}
 
-	m, err := a.Services.Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: newOwner.User.ID})
+	m, err := a.Services().Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: newOwner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

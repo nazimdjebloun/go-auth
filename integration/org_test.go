@@ -79,7 +79,7 @@ func TestOrg_CreateOrgAndGetByID(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "My Org", Slug: "my-org", OwnerID: res.User.ID,
 	})
 	if err != nil {
@@ -111,7 +111,7 @@ func TestOrg_CreateOrgAndGetByID(t *testing.T) {
 		t.Errorf("role=%q", role)
 	}
 
-	got, err := a.Services.Org.GetByID(ctx, service.GetOrgInput{OrgID: org.ID, ActorID: res.User.ID})
+	got, err := a.Services().Org.GetByID(ctx, service.GetOrgInput{OrgID: org.ID, ActorID: res.User.ID})
 	if err != nil {
 		t.Fatalf("GetByID failed: %v", err)
 	}
@@ -134,13 +134,13 @@ func TestOrg_CreateOrgDuplicateSlug(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	if _, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	if _, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "First", Slug: "dup", OwnerID: res.User.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	_, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "Second", Slug: "dup", OwnerID: res.User.ID,
 	})
 	if err == nil {
@@ -165,7 +165,7 @@ func TestOrg_CreateOrgReservedSlug(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	_, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	_, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "Admin", Slug: "admin", OwnerID: res.User.ID,
 	})
 	if err == nil {
@@ -190,14 +190,14 @@ func TestOrg_GetBySlug(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "By Slug", Slug: "by-slug", OwnerID: res.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := a.Services.Org.GetBySlug(ctx, service.GetOrgBySlugInput{Slug: "by-slug", ActorID: res.User.ID})
+	got, err := a.Services().Org.GetBySlug(ctx, service.GetOrgBySlugInput{Slug: "by-slug", ActorID: res.User.ID})
 	if err != nil {
 		t.Fatalf("GetBySlug failed: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestOrg_GetBySlug(t *testing.T) {
 		t.Error("GetBySlug wrong org")
 	}
 
-	_, err = a.Services.Org.GetBySlug(ctx, service.GetOrgBySlugInput{Slug: "nonexistent", ActorID: res.User.ID})
+	_, err = a.Services().Org.GetBySlug(ctx, service.GetOrgBySlugInput{Slug: "nonexistent", ActorID: res.User.ID})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -225,7 +225,7 @@ func TestOrg_UpdateOrg(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "Old Name", Slug: "old-slug", OwnerID: res.User.ID,
 	})
 	if err != nil {
@@ -233,7 +233,7 @@ func TestOrg_UpdateOrg(t *testing.T) {
 	}
 
 	newName, newSlug := "New Name", "new-slug"
-	updated, err := a.Services.Org.UpdateOrg(ctx, service.UpdateOrgInput{
+	updated, err := a.Services().Org.UpdateOrg(ctx, service.UpdateOrgInput{
 		OrgID: org.ID, Name: &newName, Slug: &newSlug, ActorID: res.User.ID,
 	})
 	if err != nil {
@@ -264,18 +264,18 @@ func TestOrg_DeleteOrg(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "To Delete", Slug: "to-delete", OwnerID: res.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := a.Services.Org.DeleteOrg(ctx, service.DeleteOrgInput{OrgID: org.ID, ActorID: res.User.ID}); err != nil {
+	if err := a.Services().Org.DeleteOrg(ctx, service.DeleteOrgInput{OrgID: org.ID, ActorID: res.User.ID}); err != nil {
 		t.Fatalf("DeleteOrg failed: %v", err)
 	}
 
-	if _, err := a.Services.Org.GetByID(ctx, service.GetOrgInput{OrgID: org.ID, ActorID: res.User.ID}); err == nil {
+	if _, err := a.Services().Org.GetByID(ctx, service.GetOrgInput{OrgID: org.ID, ActorID: res.User.ID}); err == nil {
 		t.Fatal("expected error after deletion")
 	}
 }
@@ -302,20 +302,20 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "Team", Slug: "team", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
+	if err := a.Services().Org.AddMember(ctx, service.AddMemberInput{
 		OrgID: org.ID, UserID: member.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 	}); err != nil {
 		t.Fatalf("AddMember failed: %v", err)
 	}
 
-	m, err := a.Services.Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID})
+	m, err := a.Services().Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID})
 	if err != nil {
 		t.Fatalf("GetMembership failed: %v", err)
 	}
@@ -329,11 +329,11 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 		t.Errorf("member_count=%d", dbCount)
 	}
 
-	if err := a.Services.Org.RemoveMember(ctx, service.RemoveMemberInput{OrgID: org.ID, UserID: member.User.ID, ActorID: owner.User.ID}); err != nil {
+	if err := a.Services().Org.RemoveMember(ctx, service.RemoveMemberInput{OrgID: org.ID, UserID: member.User.ID, ActorID: owner.User.ID}); err != nil {
 		t.Fatalf("RemoveMember failed: %v", err)
 	}
 
-	if _, err := a.Services.Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID}); err == nil {
+	if _, err := a.Services().Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID}); err == nil {
 		t.Fatal("expected error after removal")
 	}
 	checkTestErrors(t).noError(db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount))
@@ -357,14 +357,14 @@ func TestOrg_AddDuplicateMember(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "Dup", Slug: "dup", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = a.Services.Org.AddMember(ctx, service.AddMemberInput{
+	err = a.Services().Org.AddMember(ctx, service.AddMemberInput{
 		OrgID: org.ID, UserID: owner.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 	})
 	if err == nil {
@@ -397,20 +397,20 @@ func TestOrg_UpdateMemberRole(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "Roles", Slug: "roles", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
+	if err := a.Services().Org.AddMember(ctx, service.AddMemberInput{
 		OrgID: org.ID, UserID: member.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := a.Services.Org.UpdateMemberRole(ctx, service.UpdateMemberRoleInput{
+	if err := a.Services().Org.UpdateMemberRole(ctx, service.UpdateMemberRoleInput{
 		OrgID: org.ID, UserID: member.User.ID, NewRole: domain.OrgRoleOwner, ActorID: owner.User.ID,
 	}); err != nil {
 		t.Fatalf("promote failed: %v", err)
@@ -444,14 +444,14 @@ func TestOrg_CannotRemoveLastOwner(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "OnlyOne", Slug: "only-one", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := a.Services.Org.RemoveMember(ctx, service.RemoveMemberInput{OrgID: org.ID, UserID: owner.User.ID, ActorID: owner.User.ID}); err == nil {
+	if err := a.Services().Org.RemoveMember(ctx, service.RemoveMemberInput{OrgID: org.ID, UserID: owner.User.ID, ActorID: owner.User.ID}); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -471,7 +471,7 @@ func TestOrg_ListMembers(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "List", Slug: "list", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -485,7 +485,7 @@ func TestOrg_ListMembers(t *testing.T) {
 		if rerr != nil {
 			t.Fatal(rerr)
 		}
-		if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
+		if err := a.Services().Org.AddMember(ctx, service.AddMemberInput{
 			OrgID: org.ID, UserID: u.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 		}); err != nil {
 			t.Fatal(err)
@@ -493,14 +493,14 @@ func TestOrg_ListMembers(t *testing.T) {
 	}
 
 	two := 2
-	result, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Offset: 0, Limit: &two})
+	result, err := a.Services().Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Offset: 0, Limit: &two})
 	if err != nil {
 		t.Fatalf("ListMembers failed: %v", err)
 	}
 	if len(result.Members) > 2 {
 		t.Errorf("expected <=2, got %d", len(result.Members))
 	}
-	count, err := a.Services.Org.CountMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID})
+	count, err := a.Services().Org.CountMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID})
 	if err != nil {
 		t.Fatalf("CountMembers failed: %v", err)
 	}
@@ -511,7 +511,7 @@ func TestOrg_ListMembers(t *testing.T) {
 	// Exact-order assertion: default sort is joined_at ascending, and the
 	// owner is added first (during CreateOrg), so with Limit:2 the first
 	// page must start with the owner.
-	ordered, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{
+	ordered, err := a.Services().Org.ListMembers(ctx, service.ListMembersInput{
 		OrgID: org.ID, ActorID: owner.User.ID, OrderBy: "joined_at", OrderDirection: "asc",
 	})
 	if err != nil {
@@ -537,7 +537,7 @@ func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "LimitTest", Slug: "limit-test", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -551,7 +551,7 @@ func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
 		if rerr != nil {
 			t.Fatal(rerr)
 		}
-		if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
+		if err := a.Services().Org.AddMember(ctx, service.AddMemberInput{
 			OrgID: org.ID, UserID: u.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 		}); err != nil {
 			t.Fatal(err)
@@ -560,14 +560,14 @@ func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
 
 	// Limit left nil (not set) — must default to 20, proving the repo's
 	// real SQL LIMIT clause actually gets applied, not just the mock.
-	defaultResult, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID})
+	defaultResult, err := a.Services().Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID})
 	if err != nil {
 		t.Fatalf("ListMembers (default) failed: %v", err)
 	}
 	if len(defaultResult.Members) != 20 || defaultResult.Limit != 20 {
 		t.Errorf("expected 20 members (default limit), got %d, limit=%d", len(defaultResult.Members), defaultResult.Limit)
 	}
-	count2, err := a.Services.Org.CountMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID})
+	count2, err := a.Services().Org.CountMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID})
 	if err != nil {
 		t.Fatalf("CountMembers failed: %v", err)
 	}
@@ -578,7 +578,7 @@ func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
 	// Explicit Limit: 0 — must return everything, proving the repo's real
 	// SQL genuinely omits LIMIT/OFFSET rather than defaulting.
 	zero := 0
-	unlimited, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Limit: &zero})
+	unlimited, err := a.Services().Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Limit: &zero})
 	if err != nil {
 		t.Fatalf("ListMembers (unlimited) failed: %v", err)
 	}
@@ -602,7 +602,7 @@ func TestOrg_ListMembers_Search(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "SearchOrg", Slug: "search-org", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -615,7 +615,7 @@ func TestOrg_ListMembers_Search(t *testing.T) {
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
-	if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
+	if err := a.Services().Org.AddMember(ctx, service.AddMemberInput{
 		OrgID: org.ID, UserID: alice.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 	}); err != nil {
 		t.Fatal(err)
@@ -627,14 +627,14 @@ func TestOrg_ListMembers_Search(t *testing.T) {
 	if rerr != nil {
 		t.Fatal(rerr)
 	}
-	if err := a.Services.Org.AddMember(ctx, service.AddMemberInput{
+	if err := a.Services().Org.AddMember(ctx, service.AddMemberInput{
 		OrgID: org.ID, UserID: bob.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	search := "alice"
-	result, err := a.Services.Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Search: &search})
+	result, err := a.Services().Org.ListMembers(ctx, service.ListMembersInput{OrgID: org.ID, ActorID: owner.User.ID, Search: &search})
 	if err != nil {
 		t.Fatalf("ListMembers failed: %v", err)
 	}
@@ -658,14 +658,14 @@ func TestOrg_ListUserOrgs(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org1, _ := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org1, _ := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "A", Slug: "org-a", OwnerID: owner.User.ID,
 	})
-	org2, _ := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org2, _ := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "B", Slug: "org-b", OwnerID: owner.User.ID,
 	})
 
-	result, err := a.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{UserID: owner.User.ID})
+	result, err := a.Services().Org.ListUserOrgs(ctx, service.ListUserOrgsInput{UserID: owner.User.ID})
 	if err != nil {
 		t.Fatalf("ListUserOrgs failed: %v", err)
 	}
@@ -682,7 +682,7 @@ func TestOrg_ListUserOrgs(t *testing.T) {
 	}
 
 	// Exact-order assertion: sort by name descending, "B" before "A".
-	descResult, err := a.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
+	descResult, err := a.Services().Org.ListUserOrgs(ctx, service.ListUserOrgsInput{
 		UserID: owner.User.ID, OrderBy: "name", OrderDirection: "desc",
 	})
 	if err != nil {
@@ -708,20 +708,20 @@ func TestOrg_ListUserOrgs_Search(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	acme, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	acme, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "Acme Corp", Slug: "acme-corp", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	if _, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "Widgets Inc", Slug: "widgets-inc", OwnerID: owner.User.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	search := "acme"
-	result, err := a.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{UserID: owner.User.ID, Search: &search})
+	result, err := a.Services().Org.ListUserOrgs(ctx, service.ListUserOrgsInput{UserID: owner.User.ID, Search: &search})
 	if err != nil {
 		t.Fatalf("ListUserOrgs failed: %v", err)
 	}
@@ -745,14 +745,14 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "InviteTest", Slug: "invite-test", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	invite, err := a.Services.OrgInvite.CreateOrgInvite(ctx, service.CreateOrgInviteInput{
+	invite, err := a.Services().OrgInvite.CreateOrgInvite(ctx, service.CreateOrgInviteInput{
 		OrgID: org.ID, Email: "newguy@test.com", Role: domain.OrgRoleMember, InvitedBy: owner.User.ID,
 	})
 	if err != nil {
@@ -768,7 +768,7 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 		t.Errorf("email=%q role=%q", dbEmail, dbRole)
 	}
 
-	result, err := a.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
+	result, err := a.Services().OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
 	if err != nil {
 		t.Fatalf("ListOrgInvites failed: %v", err)
 	}
@@ -776,18 +776,18 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 		t.Errorf("expected 1, got %d", len(result.Invites))
 	}
 
-	if err := a.Services.OrgInvite.DeleteOrgInvite(ctx, org.ID, invite.ID, owner.User.ID); err != nil {
+	if err := a.Services().OrgInvite.DeleteOrgInvite(ctx, org.ID, invite.ID, owner.User.ID); err != nil {
 		t.Fatalf("DeleteOrgInvite failed: %v", err)
 	}
 
-	afterDelete, err := a.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
+	afterDelete, err := a.Services().OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(afterDelete.Invites) != 0 {
 		t.Errorf("expected 0 invites after delete, got %d", len(afterDelete.Invites))
 	}
-	count, err := a.Services.OrgInvite.CountOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
+	count, err := a.Services().OrgInvite.CountOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -813,14 +813,14 @@ func TestOrg_MaxOrgLimit(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		slug := "limit-" + string(rune('a'+i))
-		if _, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+		if _, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 			Name: slug, Slug: slug, OwnerID: owner.User.ID,
 		}); err != nil {
 			t.Fatalf("create %d failed: %v", i, err)
 		}
 	}
 
-	result, err := a.Services.Org.ListUserOrgs(ctx, service.ListUserOrgsInput{UserID: owner.User.ID})
+	result, err := a.Services().Org.ListUserOrgs(ctx, service.ListUserOrgsInput{UserID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -851,14 +851,14 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "AcceptTest", Slug: "accept-test", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	invite, err := a.Services.OrgInvite.CreateOrgInvite(ctx, service.CreateOrgInviteInput{
+	invite, err := a.Services().OrgInvite.CreateOrgInvite(ctx, service.CreateOrgInviteInput{
 		OrgID: org.ID, Email: "invitee@test.com", Role: domain.OrgRoleMember, InvitedBy: owner.User.ID,
 	})
 	if err != nil {
@@ -869,14 +869,14 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 	}
 
 	// Accept the invite
-	if err := a.Services.OrgInvite.AcceptInvite(ctx, service.AcceptInviteInput{
+	if err := a.Services().OrgInvite.AcceptInvite(ctx, service.AcceptInviteInput{
 		UserID: invitee.User.ID, RawCode: invite.RawCode,
 	}); err != nil {
 		t.Fatalf("AcceptInvite failed: %v", err)
 	}
 
 	// Verify membership
-	m, err := a.Services.Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: invitee.User.ID})
+	m, err := a.Services().Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: invitee.User.ID})
 	if err != nil {
 		t.Fatalf("GetMembership after accept failed: %v", err)
 	}
@@ -892,7 +892,7 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 	}
 
 	// Invite is claimed (no longer listed)
-	result, err := a.Services.OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
+	result, err := a.Services().OrgInvite.ListOrgInvites(ctx, service.ListOrgInvitesInput{OrgID: org.ID, ActorID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -923,21 +923,21 @@ func TestOrg_AcceptInvite_WrongEmail(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "EmailMismatch", Slug: "email-mismatch", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	invite, err := a.Services.OrgInvite.CreateOrgInvite(ctx, service.CreateOrgInviteInput{
+	invite, err := a.Services().OrgInvite.CreateOrgInvite(ctx, service.CreateOrgInviteInput{
 		OrgID: org.ID, Email: "expected@test.com", Role: domain.OrgRoleMember, InvitedBy: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = a.Services.OrgInvite.AcceptInvite(ctx, service.AcceptInviteInput{
+	err = a.Services().OrgInvite.AcceptInvite(ctx, service.AcceptInviteInput{
 		UserID: invitee.User.ID, RawCode: invite.RawCode,
 	})
 	if err == nil {
@@ -969,14 +969,14 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services.Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
 		Name: "Active Org", Slug: "active-org", OwnerID: res.User.ID,
 	})
 	if err != nil {
 		t.Fatalf("CreateOrg failed: %v", err)
 	}
 
-	login, aerr := a.Services.Auth.Login(ctx, service.LoginInput{
+	login, aerr := a.Services().Auth.Login(ctx, service.LoginInput{
 		Email: "active@test.com", Password: validTestPassword(),
 	})
 	if aerr != nil {

@@ -18,9 +18,9 @@ Follow this sequence for feature work.
    constructors must remain green.
 6. **Keep handlers thin.** Decode camelCase JSON, call the service, use the shared
    error writer, and set cookies through middleware helpers.
-7. **Wire the route explicitly.** Add canonical metadata in `internal/routes`,
-   then add the handler with its exact middleware chain. A rate-limit config
-   entry alone does not protect a route.
+7. **Wire the route explicitly.** Add the canonical pattern in `internal/routes`,
+   then add the handler with its exact middleware chain in `internal/httproutes`.
+   A rate-limit config entry alone does not protect a route.
 8. **Update persistence.** Change all three embedded schemas when the data model
    changes and implement the repository in `internal/sqlstore` behind a narrow
    port. Storage is SQL-only — there is no custom-repository extension point.
@@ -30,7 +30,8 @@ Follow this sequence for feature work.
    end-to-end HTTP behavior when applicable.
 10. **Update public documentation after behavior is green.** Verify signatures,
     defaults, error codes, and security claims directly from the implementation.
-11. **Run the complete checks in both Go modules.** Follow `testing.md`.
+11. **Run the complete checks in the root Go module.** Follow `testing.md`;
+    the root commands cover the library and `cmd/goauth`.
 
 ## Service rules
 

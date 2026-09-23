@@ -68,7 +68,7 @@ No `Origin` header needed — this is a `GET` with no state-changing effect, so 
 #### Programmatic (Go)
 
 ```go
-flow, err := auth.Services.OAuth.Initiate(ctx, "google")
+flow, err := auth.Services().OAuth.Initiate(ctx, "google")
 if err != nil {
     // wraps a *domain.AuthError — provider_not_found if the name is wrong
 }

@@ -4,10 +4,10 @@
 
 | Layer | Location | Responsibility |
 |---|---|---|
-| Public configuration | `config*.go`, `options.go` | `Config`, section types, defaults, validation, and functional options |
-| Construction and wiring | `auth.go`, `wire.go`, `handlers.go` | Build repositories, services, middleware, handlers, and adapters |
-| Public facade | `facade_services.go`, `facade_middleware.go` | Stable direct-use methods and middleware helpers on `*Auth` |
-| Route registration | `internal/routes/routes.go`, `mount.go` | Canonical route metadata and `http.ServeMux` registration |
+| Public configuration | `config.go`, `config_*.go` | `Config` coordinates section files that own their types, options, defaults, and validation; cross-section checks stay in `config_validate.go` |
+| Construction and wiring | `auth.go`, `wire_*.go` | Build repositories, services, middleware, handlers, and adapters |
+| Public facade | `facade_services.go`, `facade_http.go`, `facade_org.go` | Direct-use methods and middleware helpers on `*Auth` |
+| Route registration | `internal/routes/`, `internal/httproutes/`, `mount.go` | Canonical patterns, wrapped route entries, public lookup, and `http.ServeMux` registration |
 | HTTP handlers | `internal/handler/` | Decode/encode HTTP, cookies, and thin service calls |
 | Business logic | `internal/service/` | Authentication, sessions, passwords, verification, invites, admin, OAuth, organizations, and 2FA |
 | Interfaces | `port/` | Narrow dependencies for repositories and adapters |
@@ -19,13 +19,14 @@
 
 ## Request flow
 
-Routes are declared in `internal/routes`, wired to already-wrapped handlers in
-`auth.go`, and registered on a Go 1.22+ `*http.ServeMux` by `Mount`. Handlers
+Canonical patterns live in `internal/routes`. `wire_http.go` builds handlers
+and middleware; `internal/httproutes` pairs enabled patterns with their exact
+wrapped handlers. `Mount` registers them on a Go 1.22+ `*http.ServeMux`. Handlers
 stay transport-focused and delegate business behavior to `internal/service`.
 Services depend on narrow `port` interfaces; SQL details stay in
 `internal/sqlstore`.
 
-The middleware order is outer to inner:
+When present, middleware is ordered outer to inner:
 
 ```text
 CORS → rate limit → CSRF token → CSRF origin check → authentication → handler
@@ -38,9 +39,12 @@ outermost so preflight requests short-circuit before rate-limit accounting.
 ## Public use
 
 Core operations have facade methods such as `Auth.Register` and `Auth.Login`.
-The full service surface is exposed through `Auth.Services`. HTTP integration
-uses `Auth.Mount`; custom routers can use the public middleware/service surface
-instead of duplicating internal handlers.
+The full service surface is exposed through `Auth.Services()`, which returns a
+copy of the service references. HTTP integration uses `Auth.Mount`; custom
+routers can call `Auth.Handler(pattern)` for an enabled wrapped route and must
+populate `PathValue` for parameterized routes. The handler lookup sets
+`Request.Pattern` for route-aware rate limiting. Applications can also use the
+public middleware and service methods for their own routes.
 
 ## Transactions
 

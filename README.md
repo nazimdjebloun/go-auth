@@ -162,9 +162,18 @@ result, err := auth.Login(ctx, goauth.LoginInput{
 })
 ```
 
-The complete service surface is available under `auth.Services` for applications
-that provide their own transport. `Auth.Mount` remains the simplest way to use
+The complete service surface is available under `auth.Services()` for applications
+that provide their own transport. Before this restructure it was an exported
+field; change `auth.Services.Auth.Login(...)` to `auth.Services().Auth.Login(...)`.
+The returned bundle is a value, so reassigning one of its fields does not change
+the instance's wiring. `Auth.Mount` remains the simplest way to use
 the built-in handlers, cookies, CSRF checks, and route middleware.
+
+For a custom router, use `handler, ok := auth.Handler("POST /auth/login")`
+instead of the old `auth.Handlers.Login` field. The returned handler has its
+middleware already applied and sets the canonical request pattern for rate
+limiting. For routes with `{parameter}` path segments, your router must populate
+the corresponding `PathValue`s. Disabled and unknown routes return `ok == false`.
 
 ## Documentation
 

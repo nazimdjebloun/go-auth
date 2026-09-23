@@ -71,7 +71,7 @@ func BenchmarkLivePostgres_ValidateSession(b *testing.B) {
 	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, _, err := a.Services.Auth.ValidateSession(ctx, token); err != nil {
+		if _, _, err := a.Services().Auth.ValidateSession(ctx, token); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -93,7 +93,7 @@ func BenchmarkLivePostgres_RefreshSession(b *testing.B) {
 	refresh := res.RefreshToken
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		out, err := a.Services.Session.RefreshSession(ctx, refresh)
+		out, err := a.Services().Session.RefreshSession(ctx, refresh)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -111,7 +111,7 @@ func BenchmarkLiveMySQL_ValidateSession(b *testing.B) {
 	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, _, err := a.Services.Auth.ValidateSession(ctx, token); err != nil {
+		if _, _, err := a.Services().Auth.ValidateSession(ctx, token); err != nil {
 			b.Fatal(err)
 		}
 	}

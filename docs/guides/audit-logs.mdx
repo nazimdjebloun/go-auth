@@ -112,7 +112,7 @@ This list can grow across versions — treat `event_type` as an opaque string in
 Events emitted before an account is resolved — failed/locked login, admin login failure, verification send, and password-reset request — leave `actor_id` null and put the submitted address in `metadata.email`. This keeps PostgreSQL's UUID-typed actor column valid while preserving the security signal.
 
 <Callout type="info" title="Admin-organization events are always distinct from the self-service ones">
-  A platform admin using `auth.Services.Org.AdminDeleteOrg`/`AdminRemoveMember`/`AdminUpdateMemberRole` publishes `admin.org.*`, never the plain `organization.*` type the org's own owner/admin would publish for the same action — so "the owner deleted their org" and "a platform admin force-deleted it" never look identical in the log. `admin.org.deleted` also carries the org's `name`/`slug` in its `metadata`, snapshotted at the moment of deletion — the `organizations` row is hard-deleted, so nothing else could resolve `orgId` back to a name afterward (the same limitation as the deleted-user email case below, applied to orgs).
+  A platform admin using `auth.Services().Org.AdminDeleteOrg`/`AdminRemoveMember`/`AdminUpdateMemberRole` publishes `admin.org.*`, never the plain `organization.*` type the org's own owner/admin would publish for the same action — so "the owner deleted their org" and "a platform admin force-deleted it" never look identical in the log. `admin.org.deleted` also carries the org's `name`/`slug` in its `metadata`, snapshotted at the moment of deletion — the `organizations` row is hard-deleted, so nothing else could resolve `orgId` back to a name afterward (the same limitation as the deleted-user email case below, applied to orgs).
 </Callout>
 
 ## Querying audit logs
@@ -199,7 +199,7 @@ curl "https://api.myapp.com/admin/audit-logs?event_type=login.failed&limit=50" \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Admin.ListAuditLogs(ctx, goauth.AdminListAuditLogsInput{
+result, err := auth.Services().Admin.ListAuditLogs(ctx, goauth.AdminListAuditLogsInput{
     ActorID:    adminID, // the admin making this call
     EventTypes: []string{"login.failed"},
     Limit:      50,
@@ -207,7 +207,7 @@ result, err := auth.Services.Admin.ListAuditLogs(ctx, goauth.AdminListAuditLogsI
 // result.Events
 ```
 
-`AdminService.ListAuditLogs` — not `auth.Services.AuditLog.List` directly — is the supported programmatic path: it's what resolves `EventActorEmail`/`TargetEmail` to IDs and enforces the calling actor is an admin, same as every other `auth.Services.Admin.*` method.
+`AdminService.ListAuditLogs` — not `auth.Services().AuditLog.List` directly — is the supported programmatic path: it's what resolves `EventActorEmail`/`TargetEmail` to IDs and enforces the calling actor is an admin, same as every other `auth.Services().Admin.*` method.
 
 ---
 
@@ -230,7 +230,7 @@ The matching total for the list, split into its own call so a paginated log view
 **Response** (`200 OK`): `{ "count": 1000 }`
 
 ```go
-n, err := auth.Services.Admin.CountAuditLogs(ctx, goauth.AdminListAuditLogsInput{
+n, err := auth.Services().Admin.CountAuditLogs(ctx, goauth.AdminListAuditLogsInput{
     ActorID:    adminID,
     EventTypes: []string{"login.failed"},
 })
@@ -263,7 +263,7 @@ curl "https://api.myapp.com/admin/users/b3f1.../audit-logs?limit=50" \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Admin.ListAuditLogs(ctx, goauth.AdminListAuditLogsInput{
+result, err := auth.Services().Admin.ListAuditLogs(ctx, goauth.AdminListAuditLogsInput{
     ActorID:      adminID,
     TargetUserID: &userID,
     Limit:        50,

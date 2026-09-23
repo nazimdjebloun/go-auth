@@ -124,7 +124,7 @@ func TestPostgres_RegisterAndValidateSession(t *testing.T) {
 	}
 
 	// Validate session
-	user, session, aerr := a.Services.Auth.ValidateSession(ctx, res.SessionToken)
+	user, session, aerr := a.Services().Auth.ValidateSession(ctx, res.SessionToken)
 	if aerr != nil {
 		t.Fatal("ValidateSession:", aerr)
 	}
@@ -148,12 +148,12 @@ func TestPostgres_RegisterAndValidateSession(t *testing.T) {
 	}
 
 	// Logout
-	if aerr := a.Services.Auth.Logout(ctx, session.ID); aerr != nil {
+	if aerr := a.Services().Auth.Logout(ctx, session.ID); aerr != nil {
 		t.Fatal(aerr)
 	}
 
 	// Validate after logout should fail
-	_, _, aerr = a.Services.Auth.ValidateSession(ctx, res.SessionToken)
+	_, _, aerr = a.Services().Auth.ValidateSession(ctx, res.SessionToken)
 	if aerr == nil {
 		t.Error("expected error after session revoked")
 	}
@@ -188,7 +188,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	}
 
 	// Forgot password
-	if aerr := a.Services.Password.ForgotPassword(ctx, service.ForgotPasswordInput{
+	if aerr := a.Services().Password.ForgotPassword(ctx, service.ForgotPasswordInput{
 		Email: "admin@pg.test",
 	}); aerr != nil {
 		t.Fatal(aerr)
@@ -201,7 +201,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	}
 
 	// Reset password
-	if aerr := a.Services.Password.ResetPassword(ctx, service.ResetPasswordInput{
+	if aerr := a.Services().Password.ResetPassword(ctx, service.ResetPasswordInput{
 		Code:        resetToken,
 		NewPassword: "NewP@sswd2",
 	}); aerr != nil {
@@ -209,7 +209,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	}
 
 	// Login with new password
-	if _, aerr := a.Services.Auth.Login(ctx, service.LoginInput{
+	if _, aerr := a.Services().Auth.Login(ctx, service.LoginInput{
 		Email:    "admin@pg.test",
 		Password: "NewP@sswd2",
 	}); aerr != nil {

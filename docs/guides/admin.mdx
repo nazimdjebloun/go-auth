@@ -125,7 +125,7 @@ Use a separate cookie jar from your regular user session while testing — the v
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Auth.AdminLogin(ctx, goauth.LoginInput{
+result, err := auth.Services().Auth.AdminLogin(ctx, goauth.LoginInput{
     Email:     "root@myapp.com",
     Password:  "a very strong admin password 1",
     IP:        r.RemoteAddr,
@@ -137,7 +137,7 @@ if err != nil {
 // result.RequiresTwoFactor is always true here — result.TwoFactorChallenge is
 // the challenge id, result.BindingToken() is what the handler sets as a cookie.
 
-verified, err := auth.Services.TwoFactor.Verify(
+verified, err := auth.Services().TwoFactor.Verify(
     ctx, result.TwoFactorChallenge, result.BindingToken(), code, r.RemoteAddr, r.UserAgent(),
 )
 if err != nil {
@@ -224,7 +224,7 @@ curl "https://api.myapp.com/admin/users?limit=20&search=ada&role=user" \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Admin.ListUsers(ctx, goauth.AdminListUsersInput{
+result, err := auth.Services().Admin.ListUsers(ctx, goauth.AdminListUsersInput{
     Limit:  20,
     Search: goauth.String("ada"),
 })
@@ -260,7 +260,7 @@ curl "https://api.myapp.com/admin/users/count?role=user&isBanned=true" \
 #### Programmatic (Go)
 
 ```go
-n, err := auth.Services.Admin.CountUsers(ctx, goauth.AdminListUsersInput{
+n, err := auth.Services().Admin.CountUsers(ctx, goauth.AdminListUsersInput{
     Role: &roleUser,
 })
 ```
@@ -309,7 +309,7 @@ curl https://api.myapp.com/admin/users/b3f1... \
 #### Programmatic (Go)
 
 ```go
-detail, err := auth.Services.Admin.GetUserDetail(ctx, goauth.GetUserDetailInput{
+detail, err := auth.Services().Admin.GetUserDetail(ctx, goauth.GetUserDetailInput{
     UserID:  userID,
     ActorID: adminID, // the admin making this call
 })
@@ -368,7 +368,7 @@ curl -X POST https://api.myapp.com/admin/users \
 #### Programmatic (Go)
 
 ```go
-user, err := auth.Services.Admin.CreateUser(ctx, goauth.CreateUserInput{
+user, err := auth.Services().Admin.CreateUser(ctx, goauth.CreateUserInput{
     Email:    "newadmin@myapp.com",
     Password: "a very strong password 1",
     Name:     "New Admin",
@@ -424,7 +424,7 @@ curl -X PATCH https://api.myapp.com/admin/users/b3f1.../role \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.UpdateUserRole(ctx, goauth.UpdateUserRoleInput{
+err := auth.Services().Admin.UpdateUserRole(ctx, goauth.UpdateUserRoleInput{
     UserID:  userID,
     Role:    "admin",
     ActorID: adminID, // the admin making this call
@@ -469,8 +469,8 @@ curl -X PATCH https://api.myapp.com/admin/users/b3f1.../ban \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.BanUser(ctx, goauth.BanUserInput{UserID: userID, ActorID: adminID})
-err  = auth.Services.Admin.UnbanUser(ctx, goauth.UnbanUserInput{UserID: userID, ActorID: adminID})
+err := auth.Services().Admin.BanUser(ctx, goauth.BanUserInput{UserID: userID, ActorID: adminID})
+err  = auth.Services().Admin.UnbanUser(ctx, goauth.UnbanUserInput{UserID: userID, ActorID: adminID})
 ```
 
 ---
@@ -509,7 +509,7 @@ curl -X DELETE https://api.myapp.com/admin/users/b3f1... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.DeleteUser(ctx, goauth.DeleteUserInput{UserID: userID, ActorID: adminID})
+err := auth.Services().Admin.DeleteUser(ctx, goauth.DeleteUserInput{UserID: userID, ActorID: adminID})
 ```
 
 ---
@@ -545,7 +545,7 @@ curl "https://api.myapp.com/admin/users/b3f1.../sessions?limit=20" \
 #### Programmatic (Go)
 
 ```go
-sessions, total, err := auth.Services.Admin.ListUserSessions(ctx, goauth.AdminListUserSessionsInput{
+sessions, total, err := auth.Services().Admin.ListUserSessions(ctx, goauth.AdminListUserSessionsInput{
     ActorID: adminID, // the admin making this call
     UserID:  userID,
     Limit:   20,
@@ -588,10 +588,10 @@ curl -X DELETE https://api.myapp.com/admin/users/b3f1.../sessions \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Admin.RevokeUserSession(ctx, goauth.RevokeUserSessionInput{
+err := auth.Services().Admin.RevokeUserSession(ctx, goauth.RevokeUserSessionInput{
     UserID: userID, SessionID: sessionID, ActorID: adminID,
 })
-err  = auth.Services.Admin.RevokeUserSessions(ctx, goauth.RevokeUserSessionsInput{
+err  = auth.Services().Admin.RevokeUserSessions(ctx, goauth.RevokeUserSessionsInput{
     UserID: userID, ActorID: adminID,
 }) // all of them
 ```
@@ -629,7 +629,7 @@ curl "https://api.myapp.com/admin/sessions?ip=203.0.113.9" \
 
 ```go
 ip := "203.0.113.9"
-result, err := auth.Services.Admin.ListSessions(ctx, goauth.AdminListSessionsInput{
+result, err := auth.Services().Admin.ListSessions(ctx, goauth.AdminListSessionsInput{
     ActorID: adminID,
     IP:      &ip,
     Limit:   20,
@@ -653,7 +653,7 @@ Total for the filter above, on its own call (same rationale as [Count users](#co
 **Response**: `{ "count": 5 }`
 
 ```go
-n, err := auth.Services.Admin.CountSessions(ctx, goauth.AdminListSessionsInput{
+n, err := auth.Services().Admin.CountSessions(ctx, goauth.AdminListSessionsInput{
     ActorID: adminID, IP: &ip,
 })
 ```
@@ -689,7 +689,7 @@ curl -X POST https://api.myapp.com/admin/users/bulk/ban \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Admin.BulkBanUsers(ctx, goauth.BulkUserActionInput{
+result, err := auth.Services().Admin.BulkBanUsers(ctx, goauth.BulkUserActionInput{
     UserIDs: []string{"b3f1...", "9e2c..."},
     ActorID: adminID,
 })
@@ -748,7 +748,7 @@ curl https://api.myapp.com/admin/stats -H "Origin: https://myapp.com" -b admin-c
 #### Programmatic (Go)
 
 ```go
-stats, err := auth.Services.Admin.GetStats(ctx, adminID)
+stats, err := auth.Services().Admin.GetStats(ctx, adminID)
 ```
 
 ---
@@ -786,7 +786,7 @@ curl "https://api.myapp.com/admin/stats/registrations?from=2026-07-01T00:00:00Z&
 #### Programmatic (Go)
 
 ```go
-counts, err := auth.Services.Admin.GetRegistrationTrend(ctx, goauth.StatsRangeInput{
+counts, err := auth.Services().Admin.GetRegistrationTrend(ctx, goauth.StatsRangeInput{
     ActorID: adminID, From: from, To: to,
 })
 ```
@@ -831,11 +831,11 @@ curl "https://api.myapp.com/admin/stats/logins?from=2026-07-01T00:00:00Z&to=2026
 
 ```go
 // Global
-counts, err := auth.Services.Admin.GetLoginActivity(ctx, goauth.LoginActivityInput{
+counts, err := auth.Services().Admin.GetLoginActivity(ctx, goauth.LoginActivityInput{
     ActorID: adminID, From: from, To: to,
 })
 // One user
-counts, err = auth.Services.Admin.GetLoginActivity(ctx, goauth.LoginActivityInput{
+counts, err = auth.Services().Admin.GetLoginActivity(ctx, goauth.LoginActivityInput{
     ActorID: adminID, UserID: &userID, From: from, To: to,
 })
 ```
@@ -854,7 +854,7 @@ const { logins } = await apiRequest(
 
 ## Organizations — requires `WithOrganizations`
 
-Platform-admin oversight of organizations: list any org, view one regardless of the caller's own membership in it, and force a mutation an org's own owner/admin couldn't otherwise trigger from outside it. These call `auth.Services.Org` (not `auth.Services.Admin`) — the methods live on `OrgService` because it's only constructed when organizations are enabled, so they simply don't exist (and the routes below aren't mounted) when they're not, the same way every other `/auth/orgs/*` route already works.
+Platform-admin oversight of organizations: list any org, view one regardless of the caller's own membership in it, and force a mutation an org's own owner/admin couldn't otherwise trigger from outside it. These call `auth.Services().Org` (not `auth.Services().Admin`) — the methods live on `OrgService` because it's only constructed when organizations are enabled, so they simply don't exist (and the routes below aren't mounted) when they're not, the same way every other `/auth/orgs/*` route already works.
 
 <Callout type="info" title="Every mutation here publishes its own admin.org.* audit event">
   Distinct from the `organization.*` events the org's own owner/admin would publish for the same action — see [Audit Logs](./audit-logs.mdx) for the full list and why the distinction matters. `admin.org.deleted` also snapshots the org's `name`/`slug` into the event's metadata, since the `organizations` row is hard-deleted and nothing else could resolve `orgId` back to a name afterward.
@@ -879,7 +879,7 @@ curl "https://api.myapp.com/admin/orgs?search=acme" \
 
 ```go
 search := "acme"
-result, err := auth.Services.Org.AdminListOrgs(ctx, goauth.AdminListOrgsInput{
+result, err := auth.Services().Org.AdminListOrgs(ctx, goauth.AdminListOrgsInput{
     ActorID: adminID,
     Search:  &search,
 })
@@ -902,7 +902,7 @@ Total for [List organizations](#list-organizations--get-adminorgs), split out fo
 **Response**: `{ "count": 42 }`
 
 ```go
-n, err := auth.Services.Org.CountOrgs(ctx, goauth.AdminListOrgsInput{
+n, err := auth.Services().Org.CountOrgs(ctx, goauth.AdminListOrgsInput{
     ActorID: adminID, Search: &search,
 })
 ```
@@ -929,7 +929,7 @@ curl https://api.myapp.com/admin/orgs/org-123 \
 #### Programmatic (Go)
 
 ```go
-org, err := auth.Services.Org.AdminGetOrg(ctx, goauth.AdminGetOrgInput{
+org, err := auth.Services().Org.AdminGetOrg(ctx, goauth.AdminGetOrgInput{
     OrgID: "org-123", ActorID: adminID,
 })
 ```
@@ -960,7 +960,7 @@ curl https://api.myapp.com/admin/orgs/org-123/members \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services.Org.AdminListOrgMembers(ctx, goauth.AdminListOrgMembersInput{
+result, err := auth.Services().Org.AdminListOrgMembers(ctx, goauth.AdminListOrgMembersInput{
     OrgID: "org-123", ActorID: adminID,
 })
 ```
@@ -982,7 +982,7 @@ Total for the list above. Accepts `role` and `search`; ignores pagination and va
 **Response**: `{ "count": 12 }`
 
 ```go
-n, err := auth.Services.Org.AdminCountOrgMembers(ctx, goauth.AdminListOrgMembersInput{
+n, err := auth.Services().Org.AdminCountOrgMembers(ctx, goauth.AdminListOrgMembersInput{
     OrgID: "org-123", ActorID: adminID,
 })
 ```
@@ -1018,7 +1018,7 @@ curl "https://api.myapp.com/admin/users/user-123/orgs?role=owner&orderBy=member_
 
 ```go
 role := domain.OrgRoleOwner
-result, err := auth.Services.Org.AdminListUserOrgs(ctx, goauth.AdminListUserOrgsInput{
+result, err := auth.Services().Org.AdminListUserOrgs(ctx, goauth.AdminListUserOrgsInput{
     ActorID: adminID, UserID: "user-123", Role: &role,
 })
 // result.Orgs, result.Limit, result.Offset
@@ -1043,7 +1043,7 @@ Total for the list above. Accepts `search` and `role`; ignores pagination and va
 **Response**: `{ "count": 3 }`
 
 ```go
-n, err := auth.Services.Org.AdminCountUserOrgs(ctx, goauth.AdminListUserOrgsInput{
+n, err := auth.Services().Org.AdminCountUserOrgs(ctx, goauth.AdminListUserOrgsInput{
     ActorID: adminID, UserID: "user-123",
 })
 ```
@@ -1075,7 +1075,7 @@ curl -X POST https://api.myapp.com/admin/orgs/org-123/members \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.AdminAddMember(ctx, goauth.AdminAddMemberInput{
+err := auth.Services().Org.AdminAddMember(ctx, goauth.AdminAddMemberInput{
     OrgID: "org-123", UserID: "b3f1...", Role: domain.OrgRoleOwner, ActorID: adminID,
 })
 ```
@@ -1110,7 +1110,7 @@ curl -X DELETE https://api.myapp.com/admin/orgs/org-123 \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.AdminDeleteOrg(ctx, goauth.AdminOrgActionInput{
+err := auth.Services().Org.AdminDeleteOrg(ctx, goauth.AdminOrgActionInput{
     OrgID: "org-123", ActorID: adminID,
 })
 ```
@@ -1150,11 +1150,11 @@ curl -X PATCH https://api.myapp.com/admin/orgs/org-123/members/b3f1.../role \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Org.AdminRemoveMember(ctx, goauth.AdminRemoveMemberInput{
+err := auth.Services().Org.AdminRemoveMember(ctx, goauth.AdminRemoveMemberInput{
     OrgID: "org-123", UserID: "b3f1...", ActorID: adminID,
 })
 
-err = auth.Services.Org.AdminUpdateMemberRole(ctx, goauth.AdminUpdateMemberRoleInput{
+err = auth.Services().Org.AdminUpdateMemberRole(ctx, goauth.AdminUpdateMemberRoleInput{
     OrgID: "org-123", UserID: "b3f1...", NewRole: domain.OrgRoleOwner, ActorID: adminID,
 })
 ```
@@ -1220,7 +1220,7 @@ curl -X POST https://api.myapp.com/admin/invites \
 #### Programmatic (Go)
 
 ```go
-invite, err := auth.Services.Invite.CreateInvite(ctx, goauth.CreateInviteInput{
+invite, err := auth.Services().Invite.CreateInvite(ctx, goauth.CreateInviteInput{
     Email:   "ada@example.com",
     AdminID: adminUserID,
 })
@@ -1255,7 +1255,7 @@ curl "https://api.myapp.com/admin/invites?status=pending&limit=20" \
 #### Programmatic (Go)
 
 ```go
-invites, err := auth.Services.Invite.ListInvites(ctx, goauth.ListInvitesInput{
+invites, err := auth.Services().Invite.ListInvites(ctx, goauth.ListInvitesInput{
     Status: "pending",
     Limit:  20,
 })
@@ -1278,7 +1278,7 @@ Total for the list, on its own call (same rationale as [Count users](#count-user
 **Response** (`200 OK`): `{ "count": 42 }`
 
 ```go
-n, err := auth.Services.Invite.CountInvites(ctx, goauth.ListInvitesInput{Status: "pending"})
+n, err := auth.Services().Invite.CountInvites(ctx, goauth.ListInvitesInput{Status: "pending"})
 ```
 
 ```ts
@@ -1306,7 +1306,7 @@ curl -X DELETE https://api.myapp.com/admin/invites/9e2c... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Invite.RevokeInvite(ctx, inviteID)
+err := auth.Services().Invite.RevokeInvite(ctx, inviteID)
 ```
 
 ---
@@ -1345,7 +1345,7 @@ curl -X POST https://api.myapp.com/admin/invites/9e2c.../resend \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Invite.ResendInviteEmail(ctx, inviteID)
+err := auth.Services().Invite.ResendInviteEmail(ctx, inviteID)
 ```
 
 ---
@@ -1377,7 +1377,7 @@ curl -X DELETE https://api.myapp.com/admin/invites/9e2c.../hard \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services.Invite.HardDeleteInvite(ctx, inviteID)
+err := auth.Services().Invite.HardDeleteInvite(ctx, inviteID)
 ```
 
 ---

@@ -12,8 +12,51 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nazimdjebloun/go-auth/internal/httproutes"
+	"github.com/nazimdjebloun/go-auth/internal/routes"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
+
+func TestHandlerRegistryRespectsFeatureGates(t *testing.T) {
+	a := buildAuth(t, minimalOpts()...)
+	defer a.Close()
+
+	if len(a.routes) != 52 {
+		t.Fatalf("default route count = %d, want 52", len(a.routes))
+	}
+	for _, pattern := range []string{routes.Login, routes.Register, routes.Me} {
+		if h, ok := a.Handler(pattern); !ok || h == nil {
+			t.Errorf("enabled route %q is unavailable", pattern)
+		}
+	}
+	for _, pattern := range []string{routes.InviteInfo, routes.OAuthInitiate, routes.CreateOrg, "GET /unknown"} {
+		if h, ok := a.Handler(pattern); ok || h != nil {
+			t.Errorf("disabled or unknown route %q is available", pattern)
+		}
+	}
+}
+
+func TestHandlerSetsPatternForCustomRouter(t *testing.T) {
+	const pattern = "GET /widgets/{id}"
+	var gotPattern, gotID string
+	a := &Auth{routes: []httproutes.Entry{{Pattern: pattern, Handler: http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		gotPattern = r.Pattern
+		gotID = r.PathValue("id")
+	})}}}
+	h, ok := a.Handler(pattern)
+	if !ok {
+		t.Fatal("handler lookup failed")
+	}
+	req := httptest.NewRequest(http.MethodGet, "/widgets/42", nil)
+	req.SetPathValue("id", "42")
+	h.ServeHTTP(httptest.NewRecorder(), req)
+	if gotPattern != pattern || gotID != "42" {
+		t.Fatalf("handler saw pattern %q and id %q", gotPattern, gotID)
+	}
+	if req.Pattern != "" {
+		t.Fatalf("handler changed caller request pattern to %q", req.Pattern)
+	}
+}
 
 // TestClose_DoesNotCloseConsumerSuppliedPool guards the DatabaseConfig.Pool
 // contract ("library borrows, does not close"): Close() must only close a
@@ -54,7 +97,7 @@ func TestClose_DoesNotCloseConsumerSuppliedPool(t *testing.T) {
 }
 
 // TestSetSessionCookies verifies the custom-handler cookie-writing path
-// (a.Services.Auth.Login + a.SetSessionCookies) produces cookies with the
+// (a.Services().Auth.Login + a.SetSessionCookies) produces cookies with the
 // configured name/Secure/SameSite/Path, and that an empty refresh token is
 // omitted rather than written as an empty cookie.
 func TestSetSessionCookies(t *testing.T) {
@@ -184,20 +227,23 @@ func TestPasswordConfirmationRoutesAreRateLimited(t *testing.T) {
 	defer a.Close()
 
 	tests := []struct {
-		name    string
-		path    string
-		method  string
-		handler http.HandlerFunc
+		name   string
+		path   string
+		method string
 	}{
-		{name: "change password", path: "/auth/change-password", method: http.MethodPost, handler: a.Handlers.ChangePassword},
-		{name: "delete account", path: "/auth/account", method: http.MethodDelete, handler: a.Handlers.DeleteAccount},
+		{name: "change password", path: "/auth/change-password", method: http.MethodPost},
+		{name: "delete account", path: "/auth/account", method: http.MethodDelete},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			h, ok := a.Handler(tt.method + " " + tt.path)
+			if !ok {
+				t.Fatal("enabled handler is missing")
+			}
 			req := httptest.NewRequest(tt.method, tt.path, nil)
 			w := httptest.NewRecorder()
-			tt.handler(w, req)
+			h.ServeHTTP(w, req)
 			if w.Code != http.StatusTooManyRequests {
 				t.Fatalf("status = %d, want %d", w.Code, http.StatusTooManyRequests)
 			}

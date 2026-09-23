@@ -199,7 +199,7 @@ The first five responses come back `401 invalid_credentials`; the sixth is `429`
 
 #### Programmatic (Go)
 
-Calling a service method directly (`auth.Services.Auth.Login(ctx, ...)`) skips the HTTP layer entirely — rate limiting is middleware wrapped around `Handlers`, not something the service layer enforces itself. If you're driving go-auth programmatically rather than over HTTP, you're responsible for your own throttling.
+Calling a service method directly (`auth.Services().Auth.Login(ctx, ...)`) skips the HTTP layer entirely — rate limiting is part of each applicable route's wrapped handler, not something the service layer enforces itself. If you're driving go-auth programmatically rather than over HTTP, you're responsible for your own throttling.
 
 ---
 

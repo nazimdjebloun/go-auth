@@ -257,7 +257,7 @@ func newInviteTestService(users *testutil.MockUserRepo) (*InviteService, *testut
 }
 
 // App-wide invites are admin-only at the service layer, not just behind the
-// admin middleware — Auth.Services.Invite is a documented direct-call path.
+// admin middleware — Auth.Services().Invite is a documented direct-call path.
 func TestInvite_NonAdminActorIsForbidden(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	svc, invites, _ := newInviteTestService(users)

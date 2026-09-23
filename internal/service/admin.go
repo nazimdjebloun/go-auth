@@ -74,7 +74,7 @@ func NewAdminService(
 // rather than two copies that could drift. The HTTP layer's
 // RequireRole(domain.RoleAdmin) middleware pre-checks the same thing, but
 // this is the real authority: it also protects the "call it without HTTP"
-// path the root package advertises (auth.Services.Admin.BanUser(ctx, ...)),
+// path the root package advertises (auth.Services().Admin.BanUser(ctx, ...)),
 // which has no middleware in front of it at all.
 func requireAdminRole(ctx context.Context, users port.UserRepository, actorID string) error {
 	if actorID == "" {

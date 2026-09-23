@@ -410,7 +410,7 @@ type AddMemberInput struct {
 // for it — invite acceptance adds members via the repository directly, in
 // its own transaction, rather than calling this method — but it is an
 // exported method on an exported service and reachable directly as
-// auth.Services.Org.AddMember(...), so it enforces the same Admin-or-above
+// auth.Services().Org.AddMember(...), so it enforces the same Admin-or-above
 // requirement as the other org-mutating methods.
 // addMemberTx does the actual work of adding userID to orgID with role —
 // existence check, owner/member-count upkeep, insert — with no authorization

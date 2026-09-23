@@ -50,11 +50,13 @@ belongs before you start writing it.
 - **`internal/handler`** — HTTP adapters: decode a request, call a
   service method, write JSON or set a cookie. Never contains business
   logic itself.
-- **`internal/routes`** — the single source of truth mapping every
-  `"METHOD /path"` to a `HandlerGroup` entry and its rate limit.
+- **`internal/routes`** — canonical `"METHOD /path"` constants shared by
+  route wiring and rate limit configuration.
+- **`internal/httproutes`** — pairs enabled route patterns with handlers and
+  their exact middleware chains.
 - **`middleware`** — cross-cutting HTTP concerns (auth/role gating,
-  CSRF, CORS, rate limiting, org access control), composed per-route in
-  `auth.go`'s `New()`.
+  CSRF, CORS, rate limiting, org access control), constructed in
+  `wire_http.go` and composed per route in `internal/httproutes`.
 - **`provider`** — built-in OAuth adapters (`provider/google`,
   `provider/github`), each implementing `port.OAuthProvider`.
 
@@ -70,20 +72,19 @@ constructed there and nowhere else.
   method to the relevant `port.*Repository` interface first, then
   implement it in `internal/sqlstore`.
 - New HTTP-reachable operation → service method (above), then a handler
-  in `internal/handler`, then an entry in `internal/routes` (this is
-  what actually exposes it — a handler with no route entry is dead
-  code).
+  in `internal/handler`, a pattern constant in `internal/routes`, and an
+  entry in `internal/httproutes` (the entry exposes the handler).
 - New OAuth provider → a new package under `provider/`, implementing
   `port.OAuthProvider` (`Name()`, `AuthURL()`, `Exchange()`).
-- New middleware / cross-cutting HTTP concern → `middleware/`, then wire
-  it into the relevant chain in `auth.go`'s `New()`.
+- New middleware / cross-cutting HTTP concern → `middleware/`, then construct
+  it in `wire_http.go` and apply it to the relevant `internal/httproutes` entries.
 - Schema change → `internal/schema` (embedded SQL, one file per driver)
   — every `CREATE` statement must stay `IF NOT EXISTS`; `goauth migrate`
   has to stay idempotent on an already-migrated database.
 
 Every operation is reachable two ways — see the "Two ways to drive it"
 section of `docs/architecture.mdx` for why `service` never imports
-`net/http`: it means `auth.Services.Auth.Register(...)` and
+`net/http`: it means `auth.Services().Auth.Register(...)` and
 `auth.Mount(mux)`'s HTTP route both call the exact same code path, so a
 bug fixed once is fixed in both.
 

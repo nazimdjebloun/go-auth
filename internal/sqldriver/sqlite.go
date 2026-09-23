@@ -1,4 +1,4 @@
-package goauth
+package sqldriver
 
 import (
 	"context"
@@ -8,10 +8,10 @@ import (
 	"strings"
 )
 
-// sqliteForeignKeyDSN configures connection initialization, rather than running
+// SQLiteForeignKeyDSN configures connection initialization, rather than running
 // a PRAGMA once on a pool. Keep the filename verbatim: converting a plain path
 // to a file: URI would reinterpret percent escapes and URI-only options.
-func sqliteForeignKeyDSN(driverName, dsn string) (string, error) {
+func SQLiteForeignKeyDSN(driverName, dsn string) (string, error) {
 	filename, query, _ := strings.Cut(dsn, "?")
 	params, err := url.ParseQuery(query)
 	if err != nil {
@@ -40,10 +40,10 @@ func sqliteForeignKeyDSN(driverName, dsn string) (string, error) {
 	return filename + "?" + params.Encode(), nil
 }
 
-// requireSQLiteForeignKeys samples a connection without changing caller-owned
+// RequireSQLiteForeignKeys samples a connection without changing caller-owned
 // state. With a borrowed pool this cannot certify other or future connections:
 // the caller must configure their driver to enable enforcement on every one.
-func requireSQLiteForeignKeys(ctx context.Context, db *sql.DB) error {
+func RequireSQLiteForeignKeys(ctx context.Context, db *sql.DB) error {
 	var enabled int
 	if err := db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&enabled); err != nil {
 		return fmt.Errorf("goauth: check sqlite foreign_keys: %w", err)

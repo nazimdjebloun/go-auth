@@ -626,7 +626,7 @@ func TestAdminRevokeUserSessions_NotFound(t *testing.T) {
 // Every AdminService method requires an ActorID that resolves to a current
 // domain.RoleAdmin user — these mirror the HTTP layer's
 // RequireRole(domain.RoleAdmin) middleware, but are the real authority: they
-// also protect auth.Services.Admin.* called directly, with no HTTP in front.
+// also protect auth.Services().Admin.* called directly, with no HTTP in front.
 
 func TestAdminBanUser_ActorNotAdmin_Forbidden(t *testing.T) {
 	users := testutil.NewMockUserRepo()

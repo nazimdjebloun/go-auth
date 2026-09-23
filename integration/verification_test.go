@@ -37,14 +37,14 @@ func TestVerification_UserUpdateFailureRollsBackTokenClaim(t *testing.T) {
 		BEGIN SELECT RAISE(FAIL, 'blocked user update'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Services.Verify.VerifyEmail(ctx, code); !errors.Is(err, domain.ErrInternal) {
+	if _, err := a.Services().Verify.VerifyEmail(ctx, code); !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("verification error = %v, want internal_error", err)
 	}
 	if _, err := db.Exec("DROP TRIGGER block_email_verification"); err != nil {
 		t.Fatal(err)
 	}
 
-	user, err := a.Services.Verify.VerifyEmail(ctx, code)
+	user, err := a.Services().Verify.VerifyEmail(ctx, code)
 	if err != nil {
 		t.Fatalf("verification token was not rolled back with the failed user update: %v", err)
 	}

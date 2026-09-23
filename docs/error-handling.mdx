@@ -21,10 +21,10 @@ This page covers **runtime** errors from mounted HTTP handlers. For configuratio
 
 ## Handling errors programmatically
 
-Direct service calls such as `auth.Register(...)`, `auth.Services.Auth.Login(...)`, and `auth.Services.Admin.BanUser(...)` return a normal Go `error`, not the JSON envelope. Library errors are `*domain.AuthError` values with `Code` and `Message`; they intentionally do not contain an HTTP status. The built-in handlers derive a status from `Code`.
+Direct service calls such as `auth.Register(...)`, `auth.Services().Auth.Login(...)`, and `auth.Services().Admin.BanUser(...)` return a normal Go `error`, not the JSON envelope. Library errors are `*domain.AuthError` values with `Code` and `Message`; they intentionally do not contain an HTTP status. The built-in handlers derive a status from `Code`.
 
 ```go
-result, err := auth.Services.Auth.Login(ctx, goauth.LoginInput{Email: email, Password: password})
+result, err := auth.Services().Auth.Login(ctx, goauth.LoginInput{Email: email, Password: password})
 if err != nil {
     if errors.Is(err, domain.ErrInvalidCredentials) {
         // matches the exported sentinel for this fixed error
