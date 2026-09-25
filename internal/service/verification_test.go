@@ -171,7 +171,7 @@ func TestSendVerification_MailerError(t *testing.T) {
 }
 
 // The three tests below pin the reused/throttled paths, which report
-// themselves only through VerificationResult.Sent — a nil error covers a real
+// themselves only through api.VerificationResult.Sent — a nil error covers a real
 // send and a deliberate skip alike, so Sent is the assertion that separates
 // them. Each also checks the mailer call count, so a regression that starts
 // mailing on every request fails here rather than at someone's SMTP quota.

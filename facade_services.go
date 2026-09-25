@@ -3,6 +3,7 @@ package goauth
 import (
 	"context"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
@@ -11,21 +12,21 @@ import (
 // audit event this produces — pass the caller's real values for a
 // programmatic (non-HTTP) integration; the built-in HTTP handler already
 // does this for you.
-func (a *Auth) Register(ctx context.Context, input RegisterInput) (*RegisterResult, error) {
+func (a *Auth) Register(ctx context.Context, input api.RegisterInput) (*api.RegisterResult, error) {
 	return a.services.Auth.Register(ctx, input)
 }
 
 // Login authenticates an email/password account. input.IP and
 // input.UserAgent, when set, are recorded on the resulting session and any
 // audit event this produces.
-func (a *Auth) Login(ctx context.Context, input LoginInput) (*LoginResult, error) {
+func (a *Auth) Login(ctx context.Context, input api.LoginInput) (*api.LoginResult, error) {
 	return a.services.Auth.Login(ctx, input)
 }
 
 // CompleteInviteRegistration finishes registration from an invite code.
 // input.IP and input.UserAgent, when set, are recorded the same way as
 // Register.
-func (a *Auth) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, error) {
+func (a *Auth) CompleteInviteRegistration(ctx context.Context, input api.CompleteInviteInput) (*api.CompleteInviteResult, error) {
 	return a.services.Invite.CompleteInviteRegistration(ctx, input)
 }
 

@@ -18,7 +18,7 @@ import (
 // serviceWiring contains the values New needs after constructing services.
 // Repositories and stores retain their original ownership rules.
 type serviceWiring struct {
-	services       Services
+	services       serviceSet
 	sessionRepo    *sqlstore.SessionRepository
 	tokenRepo      *sqlstore.TokenRepository
 	userRepo       *sqlstore.UserRepository
@@ -210,7 +210,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	adminSvc.AttachAccountDeletion(accountDeletion)
 
 	return serviceWiring{
-		services: Services{
+		services: serviceSet{
 			Auth: authSvc, Password: passSvc, Session: sessSvc,
 			Verify: verifySvc, Invite: inviteSvc, Admin: adminSvc,
 			OAuth: oauthSvc, Org: orgSvc, OrgInvite: orgInviteSvc,

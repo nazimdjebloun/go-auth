@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
-	"github.com/nazimdjebloun/go-auth/port"
 )
 
 // ─── ListAuditLogs ───────────────────────────────────────────────────
@@ -29,11 +29,11 @@ func TestAdminListAuditLogs_MultiEventType(t *testing.T) {
 	svc, actorID, _ := newTestAdminServiceWithAudit(users, sessions, auditLogs, &testutil.MockHasher{})
 
 	now := time.Now().UTC()
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.failed", CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e3", Type: "logout", CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.failed", CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e3", Type: "logout", CreatedAt: now})
 
-	result, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{
+	result, err := svc.ListAuditLogs(context.Background(), api.AdminListAuditLogsInput{
 		ActorID: actorID, EventTypes: []string{"login.success", "logout"},
 	})
 	if err != nil {
@@ -52,11 +52,11 @@ func TestAdminListAuditLogs_ActorByEmail(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"}))
 	alice, bob := "alice-id", "bob-id"
 	now := time.Now().UTC()
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
 
 	email := "alice@example.com"
-	result, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{
+	result, err := svc.ListAuditLogs(context.Background(), api.AdminListAuditLogsInput{
 		ActorID: actorID, EventActorEmail: &email,
 	})
 	if err != nil {
@@ -74,7 +74,7 @@ func TestAdminListAuditLogs_ActorByEmail_NotFound(t *testing.T) {
 	svc, actorID, _ := newTestAdminServiceWithAudit(users, sessions, auditLogs, &testutil.MockHasher{})
 
 	email := "nobody@example.com"
-	_, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{
+	_, err := svc.ListAuditLogs(context.Background(), api.AdminListAuditLogsInput{
 		ActorID: actorID, EventActorEmail: &email,
 	})
 	if authErrCode(err) != "user_not_found" {
@@ -90,11 +90,11 @@ func TestAdminListAuditLogs_TargetByEmail(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "target-id", Email: "target@example.com"}))
 	target, other := "target-id", "other-id"
 	now := time.Now().UTC()
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "admin.user.banned", TargetUserID: &target, CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "admin.user.banned", TargetUserID: &other, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "admin.user.banned", TargetUserID: &target, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "admin.user.banned", TargetUserID: &other, CreatedAt: now})
 
 	email := "target@example.com"
-	result, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{
+	result, err := svc.ListAuditLogs(context.Background(), api.AdminListAuditLogsInput{
 		ActorID: actorID, TargetEmail: &email,
 	})
 	if err != nil {
@@ -112,11 +112,11 @@ func TestAdminListAuditLogs_DeviceType(t *testing.T) {
 	svc, actorID, _ := newTestAdminServiceWithAudit(users, sessions, auditLogs, &testutil.MockHasher{})
 
 	now := time.Now().UTC()
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ParsedUA: parsedUA(t, "mobile"), CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", ParsedUA: parsedUA(t, "desktop"), CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", ParsedUA: parsedUA(t, "mobile"), CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", ParsedUA: parsedUA(t, "desktop"), CreatedAt: now})
 
 	mobile := "mobile"
-	result, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{
+	result, err := svc.ListAuditLogs(context.Background(), api.AdminListAuditLogsInput{
 		ActorID: actorID, DeviceType: &mobile,
 	})
 	if err != nil {
@@ -134,11 +134,11 @@ func TestAdminListAuditLogs_IPFilter(t *testing.T) {
 	svc, actorID, _ := newTestAdminServiceWithAudit(users, sessions, auditLogs, &testutil.MockHasher{})
 
 	now := time.Now().UTC()
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", IP: "10.0.0.1", CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", IP: "10.0.0.2", CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", IP: "10.0.0.1", CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", IP: "10.0.0.2", CreatedAt: now})
 
 	ip := "10.0.0.2"
-	result, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{
+	result, err := svc.ListAuditLogs(context.Background(), api.AdminListAuditLogsInput{
 		ActorID: actorID, IP: &ip,
 	})
 	if err != nil {
@@ -157,10 +157,10 @@ func TestAdminListAuditLogs_PerUserRouteScoping(t *testing.T) {
 
 	target, other := "target-id", "other-id"
 	now := time.Now().UTC()
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", TargetUserID: &target, CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", TargetUserID: &other, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", TargetUserID: &target, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", TargetUserID: &other, CreatedAt: now})
 
-	result, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{
+	result, err := svc.ListAuditLogs(context.Background(), api.AdminListAuditLogsInput{
 		ActorID: actorID, TargetUserID: &target,
 	})
 	if err != nil {
@@ -180,10 +180,10 @@ func TestAdminListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "bob-id", Email: "bob@example.com"}))
 	alice, bob, ghost := "alice-id", "bob-id", "deleted-user-id"
 	now := time.Now().UTC()
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "admin.user.banned", ActorID: &alice, TargetUserID: &bob, CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &ghost, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "admin.user.banned", ActorID: &alice, TargetUserID: &bob, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &ghost, CreatedAt: now})
 
-	result, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{ActorID: actorID})
+	result, err := svc.ListAuditLogs(context.Background(), api.AdminListAuditLogsInput{ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestAdminListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 		t.Fatalf("expected 2 events, got %d", len(result.Events))
 	}
 
-	var e1, e2 *AdminAuditLogEntry
+	var e1, e2 *api.AdminAuditLogEntry
 	for i := range result.Events {
 		switch result.Events[i].ID {
 		case "e1":
@@ -223,7 +223,7 @@ func TestAdminListAuditLogs_ActorNotAdmin_Forbidden(t *testing.T) {
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
-	_, err := svc.ListAuditLogs(context.Background(), AdminListAuditLogsInput{ActorID: "not-admin"})
+	_, err := svc.ListAuditLogs(context.Background(), api.AdminListAuditLogsInput{ActorID: "not-admin"})
 	if err != domain.ErrForbidden {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/hasher/registry"
@@ -227,7 +228,7 @@ func TestPasswordPepper_UnpepperedLoginUpgradesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedPasswordUser(t, users, "legacy-pepper@example.com", legacyHash)
-	if _, err := svc.Login(context.Background(), LoginInput{Email: "legacy-pepper@example.com", Password: password}); err != nil {
+	if _, err := svc.Login(context.Background(), api.LoginInput{Email: "legacy-pepper@example.com", Password: password}); err != nil {
 		t.Fatalf("legacy login: %v", err)
 	}
 	user, _ := users.GetByEmail(context.Background(), "legacy-pepper@example.com")
@@ -237,7 +238,7 @@ func TestPasswordPepper_UnpepperedLoginUpgradesOnce(t *testing.T) {
 	if current.hashCalls != probeHashCalls+1 {
 		t.Fatalf("first login hash calls = %d, want %d", current.hashCalls, probeHashCalls+1)
 	}
-	if _, err := svc.Login(context.Background(), LoginInput{Email: user.Email, Password: password}); err != nil {
+	if _, err := svc.Login(context.Background(), api.LoginInput{Email: user.Email, Password: password}); err != nil {
 		t.Fatalf("second login: %v", err)
 	}
 	if current.hashCalls != probeHashCalls+1 {

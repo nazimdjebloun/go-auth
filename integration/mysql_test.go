@@ -9,7 +9,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 	goauth "github.com/nazimdjebloun/go-auth"
-	"github.com/nazimdjebloun/go-auth/internal/service"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -122,7 +122,7 @@ func TestMySQL_RegisterAndValidateSession(t *testing.T) {
 
 	ctx := context.Background()
 
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "alice@mysql.test",
 		Password: validTestPassword(),
 		Name:     "Alice",
@@ -182,7 +182,7 @@ func TestMySQL_RefreshRotation(t *testing.T) {
 
 	ctx := context.Background()
 
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "bob@mysql.test",
 		Password: validTestPassword(),
 		Name:     "Bob",
@@ -242,7 +242,7 @@ func TestMySQL_PasswordReset(t *testing.T) {
 
 	ctx := context.Background()
 
-	if _, aerr := a.Register(ctx, goauth.RegisterInput{
+	if _, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "admin@mysql.test",
 		Password: validTestPassword(),
 		Name:     "Admin",
@@ -250,7 +250,7 @@ func TestMySQL_PasswordReset(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	if aerr := a.Services().Password.ForgotPassword(ctx, service.ForgotPasswordInput{
+	if aerr := a.Services().Password.ForgotPassword(ctx, api.ForgotPasswordInput{
 		Email: "admin@mysql.test",
 	}); aerr != nil {
 		t.Fatal(aerr)
@@ -261,14 +261,14 @@ func TestMySQL_PasswordReset(t *testing.T) {
 		t.Fatal("could not extract reset token from email")
 	}
 
-	if aerr := a.Services().Password.ResetPassword(ctx, service.ResetPasswordInput{
+	if aerr := a.Services().Password.ResetPassword(ctx, api.ResetPasswordInput{
 		Code:        resetToken,
 		NewPassword: "NewP@sswd2",
 	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
-	if _, aerr := a.Services().Auth.Login(ctx, service.LoginInput{
+	if _, aerr := a.Services().Auth.Login(ctx, api.LoginInput{
 		Email:    "admin@mysql.test",
 		Password: "NewP@sswd2",
 	}); aerr != nil {

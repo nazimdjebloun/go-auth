@@ -8,8 +8,8 @@ import (
 	"time"
 
 	goauth "github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -71,7 +71,7 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin@example.com", Password: "Passw0rd!", Name: "Admin"})
+	admin, err := a.Register(ctx, api.RegisterInput{Email: "admin@example.com", Password: "Passw0rd!", Name: "Admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,15 +79,15 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dormant, err := a.Register(ctx, goauth.RegisterInput{Email: "dormant@example.com", Password: "Passw0rd!", Name: "Dormant"})
+	dormant, err := a.Register(ctx, api.RegisterInput{Email: "dormant@example.com", Password: "Passw0rd!", Name: "Dormant"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	active, err := a.Register(ctx, goauth.RegisterInput{Email: "active@example.com", Password: "Passw0rd!", Name: "Active"})
+	active, err := a.Register(ctx, api.RegisterInput{Email: "active@example.com", Password: "Passw0rd!", Name: "Active"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "never@example.com", Password: "Passw0rd!", Name: "Never"}); err != nil {
+	if _, err := a.Register(ctx, api.RegisterInput{Email: "never@example.com", Password: "Passw0rd!", Name: "Never"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,7 +103,7 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 
 	// NeverLoggedIn: only "never" (dormant/active both have a last_login_at).
 	yes := true
-	neverResult, err := a.Services().Admin.ListUsers(ctx, service.AdminListUsersInput{
+	neverResult, err := a.Services().Admin.ListUsers(ctx, api.AdminListUsersInput{
 		ActorID: admin.User.ID, Limit: 10, NeverLoggedIn: &yes,
 	})
 	if err != nil {
@@ -116,7 +116,7 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 
 	// LastLoginBefore cutoff: only "dormant" (logged in before cutoff) — not
 	// "active" (logged in after), not "never" (LastLoginBefore excludes NULLs).
-	dormantResult, err := a.Services().Admin.ListUsers(ctx, service.AdminListUsersInput{
+	dormantResult, err := a.Services().Admin.ListUsers(ctx, api.AdminListUsersInput{
 		ActorID: admin.User.ID, Limit: 10, LastLoginBefore: &cutoff,
 	})
 	if err != nil {
@@ -134,7 +134,7 @@ func TestAdmin_GetRegistrationTrend(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin2@example.com", Password: "Passw0rd!", Name: "Admin"})
+	admin, err := a.Register(ctx, api.RegisterInput{Email: "admin2@example.com", Password: "Passw0rd!", Name: "Admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,10 +144,10 @@ func TestAdmin_GetRegistrationTrend(t *testing.T) {
 
 	today := time.Now().UTC()
 	twoDaysAgo := today.Add(-48 * time.Hour)
-	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "regtrend1@example.com", Password: "Passw0rd!", Name: "One"}); err != nil {
+	if _, err := a.Register(ctx, api.RegisterInput{Email: "regtrend1@example.com", Password: "Passw0rd!", Name: "One"}); err != nil {
 		t.Fatal(err)
 	}
-	u2, err := a.Register(ctx, goauth.RegisterInput{Email: "regtrend2@example.com", Password: "Passw0rd!", Name: "Two"})
+	u2, err := a.Register(ctx, api.RegisterInput{Email: "regtrend2@example.com", Password: "Passw0rd!", Name: "Two"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestAdmin_GetRegistrationTrend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	counts, err := a.Services().Admin.GetRegistrationTrend(ctx, service.StatsRangeInput{
+	counts, err := a.Services().Admin.GetRegistrationTrend(ctx, api.StatsRangeInput{
 		ActorID: admin.User.ID,
 		From:    twoDaysAgo.Add(-time.Hour),
 		To:      today.Add(time.Hour),
@@ -183,21 +183,21 @@ func TestAdmin_GetLoginActivity(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin3@example.com", Password: "Passw0rd!", Name: "Admin"})
+	admin, err := a.Register(ctx, api.RegisterInput{Email: "admin3@example.com", Password: "Passw0rd!", Name: "Admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	u1, err := a.Register(ctx, goauth.RegisterInput{Email: "loginuser@example.com", Password: "Passw0rd!", Name: "LoginUser"})
+	u1, err := a.Register(ctx, api.RegisterInput{Email: "loginuser@example.com", Password: "Passw0rd!", Name: "LoginUser"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// Register itself only emits user.registered, not login.success — log in
 	// explicitly to produce the event this test checks for.
-	if _, err := a.Login(ctx, goauth.LoginInput{Email: "loginuser@example.com", Password: "Passw0rd!"}); err != nil {
+	if _, err := a.Login(ctx, api.LoginInput{Email: "loginuser@example.com", Password: "Passw0rd!"}); err != nil {
 		t.Fatal(err)
 	}
 	// Audit events are published asynchronously (ServiceConfig's default
@@ -205,7 +205,7 @@ func TestAdmin_GetLoginActivity(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	now := time.Now().UTC()
-	perUser, err := a.Services().Admin.GetLoginActivity(ctx, service.LoginActivityInput{
+	perUser, err := a.Services().Admin.GetLoginActivity(ctx, api.LoginActivityInput{
 		ActorID: admin.User.ID,
 		UserID:  &u1.User.ID,
 		From:    now.Add(-time.Hour),
@@ -222,7 +222,7 @@ func TestAdmin_GetLoginActivity(t *testing.T) {
 		t.Fatalf("expected 1 login for u1, got %d: %+v", perUserTotal, perUser)
 	}
 
-	global, err := a.Services().Admin.GetLoginActivity(ctx, service.LoginActivityInput{
+	global, err := a.Services().Admin.GetLoginActivity(ctx, api.LoginActivityInput{
 		ActorID: admin.User.ID,
 		From:    now.Add(-time.Hour),
 		To:      now.Add(time.Hour),
@@ -246,7 +246,7 @@ func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin4@example.com", Password: "Passw0rd!", Name: "Admin"})
+	admin, err := a.Register(ctx, api.RegisterInput{Email: "admin4@example.com", Password: "Passw0rd!", Name: "Admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,22 +254,22 @@ func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "sessionuser1@example.com", Password: "Passw0rd!", Name: "One"}); err != nil {
+	if _, err := a.Register(ctx, api.RegisterInput{Email: "sessionuser1@example.com", Password: "Passw0rd!", Name: "One"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "sessionuser2@example.com", Password: "Passw0rd!", Name: "Two"}); err != nil {
+	if _, err := a.Register(ctx, api.RegisterInput{Email: "sessionuser2@example.com", Password: "Passw0rd!", Name: "Two"}); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, err := a.Login(ctx, goauth.LoginInput{Email: "sessionuser1@example.com", Password: "Passw0rd!", IP: "10.0.0.1"}); err != nil {
+	if _, err := a.Login(ctx, api.LoginInput{Email: "sessionuser1@example.com", Password: "Passw0rd!", IP: "10.0.0.1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Login(ctx, goauth.LoginInput{Email: "sessionuser2@example.com", Password: "Passw0rd!", IP: "10.0.0.2"}); err != nil {
+	if _, err := a.Login(ctx, api.LoginInput{Email: "sessionuser2@example.com", Password: "Passw0rd!", IP: "10.0.0.2"}); err != nil {
 		t.Fatal(err)
 	}
 
 	ip := "10.0.0.1"
-	result, err := a.Services().Admin.ListSessions(ctx, service.AdminListSessionsInput{
+	result, err := a.Services().Admin.ListSessions(ctx, api.AdminListSessionsInput{
 		ActorID: admin.User.ID, IP: &ip,
 	})
 	if err != nil {
@@ -281,7 +281,7 @@ func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
 
 	// Search substring-matches IP too, same as the IP filter but fuzzy.
 	search := "10.0.0.2"
-	searched, err := a.Services().Admin.ListSessions(ctx, service.AdminListSessionsInput{
+	searched, err := a.Services().Admin.ListSessions(ctx, api.AdminListSessionsInput{
 		ActorID: admin.User.ID, Search: &search,
 	})
 	if err != nil {
@@ -299,7 +299,7 @@ func TestAdmin_BulkBanUsers(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin5@example.com", Password: "Passw0rd!", Name: "Admin"})
+	admin, err := a.Register(ctx, api.RegisterInput{Email: "admin5@example.com", Password: "Passw0rd!", Name: "Admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,16 +307,16 @@ func TestAdmin_BulkBanUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	u1, err := a.Register(ctx, goauth.RegisterInput{Email: "bulk1@example.com", Password: "Passw0rd!", Name: "One"})
+	u1, err := a.Register(ctx, api.RegisterInput{Email: "bulk1@example.com", Password: "Passw0rd!", Name: "One"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	u2, err := a.Register(ctx, goauth.RegisterInput{Email: "bulk2@example.com", Password: "Passw0rd!", Name: "Two"})
+	u2, err := a.Register(ctx, api.RegisterInput{Email: "bulk2@example.com", Password: "Passw0rd!", Name: "Two"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	result, err := a.Services().Admin.BulkBanUsers(ctx, service.BulkUserActionInput{
+	result, err := a.Services().Admin.BulkBanUsers(ctx, api.BulkUserActionInput{
 		UserIDs: []string{u1.User.ID, u2.User.ID, "nonexistent"}, ActorID: admin.User.ID,
 	})
 	if err != nil {
@@ -345,7 +345,7 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin6@example.com", Password: "Passw0rd!", Name: "Admin"})
+	admin, err := a.Register(ctx, api.RegisterInput{Email: "admin6@example.com", Password: "Passw0rd!", Name: "Admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,26 +353,26 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "mobileuser@example.com", Password: "Passw0rd!", Name: "Mobile"}); err != nil {
+	if _, err := a.Register(ctx, api.RegisterInput{Email: "mobileuser@example.com", Password: "Passw0rd!", Name: "Mobile"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Register(ctx, goauth.RegisterInput{Email: "deskuser@example.com", Password: "Passw0rd!", Name: "Desk"}); err != nil {
+	if _, err := a.Register(ctx, api.RegisterInput{Email: "deskuser@example.com", Password: "Passw0rd!", Name: "Desk"}); err != nil {
 		t.Fatal(err)
 	}
 
 	mobileUA := "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 	desktopUA := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-	if _, err := a.Login(ctx, goauth.LoginInput{Email: "mobileuser@example.com", Password: "Passw0rd!", UserAgent: mobileUA}); err != nil {
+	if _, err := a.Login(ctx, api.LoginInput{Email: "mobileuser@example.com", Password: "Passw0rd!", UserAgent: mobileUA}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Login(ctx, goauth.LoginInput{Email: "deskuser@example.com", Password: "Passw0rd!", UserAgent: desktopUA}); err != nil {
+	if _, err := a.Login(ctx, api.LoginInput{Email: "deskuser@example.com", Password: "Passw0rd!", UserAgent: desktopUA}); err != nil {
 		t.Fatal(err)
 	}
 	waitAuditCount(t, db, "SELECT COUNT(*) FROM audit_log WHERE event_type IN ('user.registered', 'login.success')", 5)
 
 	deviceType := "mobile"
-	result, err := a.Services().Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+	result, err := a.Services().Admin.ListAuditLogs(ctx, api.AdminListAuditLogsInput{
 		ActorID: admin.User.ID, EventTypes: []string{"login.success"}, DeviceType: &deviceType,
 	})
 	if err != nil {
@@ -384,7 +384,7 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 
 	// Multi-value event type: registrations (3) + logins (2) in one call,
 	// nothing else.
-	multi, err := a.Services().Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+	multi, err := a.Services().Admin.ListAuditLogs(ctx, api.AdminListAuditLogsInput{
 		ActorID: admin.User.ID, EventTypes: []string{"user.registered", "login.success"},
 	})
 	if err != nil {
@@ -402,25 +402,25 @@ func TestAdmin_ListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "admin7@example.com", Password: "Passw0rd!", Name: "Admin"})
+	admin, err := a.Register(ctx, api.RegisterInput{Email: "admin7@example.com", Password: "Passw0rd!", Name: "Admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	target, err := a.Register(ctx, goauth.RegisterInput{Email: "bantarget@example.com", Password: "Passw0rd!", Name: "Target"})
+	target, err := a.Register(ctx, api.RegisterInput{Email: "bantarget@example.com", Password: "Passw0rd!", Name: "Target"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := a.Services().Admin.BanUser(ctx, service.BanUserInput{UserID: target.User.ID, ActorID: admin.User.ID}); err != nil {
+	if err := a.Services().Admin.BanUser(ctx, api.BanUserInput{UserID: target.User.ID, ActorID: admin.User.ID}); err != nil {
 		t.Fatal(err)
 	}
 	waitAuditCount(t, db, "SELECT COUNT(*) FROM audit_log WHERE event_type = 'admin.user.banned'", 1)
 
 	bannedType := "admin.user.banned"
-	result, err := a.Services().Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+	result, err := a.Services().Admin.ListAuditLogs(ctx, api.AdminListAuditLogsInput{
 		ActorID: admin.User.ID, EventTypes: []string{bannedType},
 	})
 	if err != nil {
@@ -441,7 +441,7 @@ func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "orgadmin@example.com", Password: "Passw0rd!", Name: "Admin"})
+	admin, err := a.Register(ctx, api.RegisterInput{Email: "orgadmin@example.com", Password: "Passw0rd!", Name: "Admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -449,22 +449,22 @@ func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	owner, err := a.Register(ctx, goauth.RegisterInput{Email: "orgowner@example.com", Password: "Passw0rd!", Name: "Owner"})
+	owner, err := a.Register(ctx, api.RegisterInput{Email: "orgowner@example.com", Password: "Passw0rd!", Name: "Owner"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{Name: "Acme Inc", Slug: "acme-inc", OwnerID: owner.User.ID})
+	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{Name: "Acme Inc", Slug: "acme-inc", OwnerID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// admin is a platform admin but not a member of org — self-service
 	// DeleteOrg would reject this with ErrOrgMemberNotFound.
-	if err := a.Services().Org.AdminDeleteOrg(ctx, service.AdminOrgActionInput{OrgID: org.ID, ActorID: admin.User.ID}); err != nil {
+	if err := a.Services().Org.AdminDeleteOrg(ctx, api.AdminOrgActionInput{OrgID: org.ID, ActorID: admin.User.ID}); err != nil {
 		t.Fatalf("AdminDeleteOrg failed for a non-member platform admin: %v", err)
 	}
 
-	if got, err := a.Services().Org.AdminGetOrg(ctx, service.AdminGetOrgInput{OrgID: org.ID, ActorID: admin.User.ID}); err != domain.ErrOrgNotFound {
+	if got, err := a.Services().Org.AdminGetOrg(ctx, api.AdminGetOrgInput{OrgID: org.ID, ActorID: admin.User.ID}); err != domain.ErrOrgNotFound {
 		t.Fatalf("expected the org to be gone (ErrOrgNotFound), got %+v, err=%v", got, err)
 	}
 
@@ -472,7 +472,7 @@ func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
 	// FlushInterval is 100ms).
 	time.Sleep(200 * time.Millisecond)
 
-	result, err := a.Services().Admin.ListAuditLogs(ctx, service.AdminListAuditLogsInput{
+	result, err := a.Services().Admin.ListAuditLogs(ctx, api.AdminListAuditLogsInput{
 		ActorID: admin.User.ID, EventTypes: []string{"admin.org.deleted"},
 	})
 	if err != nil {
@@ -497,7 +497,7 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, err := a.Register(ctx, goauth.RegisterInput{Email: "recoveryadmin@example.com", Password: "Passw0rd!", Name: "Admin"})
+	admin, err := a.Register(ctx, api.RegisterInput{Email: "recoveryadmin@example.com", Password: "Passw0rd!", Name: "Admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,11 +505,11 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	owner, err := a.Register(ctx, goauth.RegisterInput{Email: "orphanowner@example.com", Password: "Passw0rd!", Name: "Owner"})
+	owner, err := a.Register(ctx, api.RegisterInput{Email: "orphanowner@example.com", Password: "Passw0rd!", Name: "Owner"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{Name: "Orphan Co", Slug: "orphan-co", OwnerID: owner.User.ID})
+	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{Name: "Orphan Co", Slug: "orphan-co", OwnerID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +522,7 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	if _, err := db.ExecContext(ctx, "DELETE FROM organization_members WHERE org_id = ? AND user_id = ?", org.ID, owner.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	members, err := a.Services().Org.AdminListOrgMembers(ctx, service.AdminListOrgMembersInput{OrgID: org.ID, ActorID: admin.User.ID})
+	members, err := a.Services().Org.AdminListOrgMembers(ctx, api.AdminListOrgMembersInput{OrgID: org.ID, ActorID: admin.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,17 +530,17 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 		t.Fatalf("expected the org to be memberless, got %+v", members)
 	}
 
-	newOwner, err := a.Register(ctx, goauth.RegisterInput{Email: "neworgowner@example.com", Password: "Passw0rd!", Name: "New Owner"})
+	newOwner, err := a.Register(ctx, api.RegisterInput{Email: "neworgowner@example.com", Password: "Passw0rd!", Name: "New Owner"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Services().Org.AdminAddMember(ctx, service.AdminAddMemberInput{
+	if err := a.Services().Org.AdminAddMember(ctx, api.AdminAddMemberInput{
 		OrgID: org.ID, UserID: newOwner.User.ID, Role: "owner", ActorID: admin.User.ID,
 	}); err != nil {
 		t.Fatalf("AdminAddMember failed to recover the orphaned org: %v", err)
 	}
 
-	m, err := a.Services().Org.GetMembership(ctx, service.GetOrgMembershipInput{OrgID: org.ID, UserID: newOwner.User.ID})
+	m, err := a.Services().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: newOwner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

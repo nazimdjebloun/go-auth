@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	goauth "github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
@@ -19,7 +20,7 @@ func TestVerification_UserUpdateFailureRollsBackTokenClaim(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	registered, err := a.Register(ctx, goauth.RegisterInput{
+	registered, err := a.Register(ctx, api.RegisterInput{
 		Email: "verify-rollback@example.com", Password: "Passw0rd!", Name: "Verify Rollback",
 	})
 	if err != nil {

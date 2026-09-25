@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -45,7 +46,7 @@ func TestConfirmDeleteAccount_CodeWriteFailurePreservesAccount(t *testing.T) {
 	svc := NewAuthService(f.users, f.sessions, tokens, f.hasher, nil, nil, cfg, nil, nil, nil)
 	svc.AttachAccountDeletion(NewAccountDeletion(f.db, sqlstore.NewOrgRepository(f.db), f.sessions, f.users))
 
-	err := svc.ConfirmDeleteAccount(ctx, ConfirmDeleteAccountInput{UserID: f.userID, Code: code})
+	err := svc.ConfirmDeleteAccount(ctx, api.ConfirmDeleteAccountInput{UserID: f.userID, Code: code})
 	if err == nil {
 		t.Fatal("expected deletion-code write failure")
 	}

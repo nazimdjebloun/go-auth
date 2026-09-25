@@ -10,6 +10,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
@@ -55,7 +56,7 @@ func benchAuth(b *testing.B, auditEnabled ...bool) *Auth {
 }
 
 func benchRegister(b *testing.B, a *Auth, i int) string {
-	res, err := a.Register(context.Background(), RegisterInput{
+	res, err := a.Register(context.Background(), api.RegisterInput{
 		Email:    fmt.Sprintf("bench%d@example.com", i),
 		Password: validTestPassword(),
 		Name:     "Bench",
@@ -73,7 +74,7 @@ func BenchmarkRegister(b *testing.B) {
 	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := a.Register(ctx, RegisterInput{
+		if _, err := a.Register(ctx, api.RegisterInput{
 			Email:    fmt.Sprintf("reg%d@example.com", i),
 			Password: validTestPassword(),
 			Name:     "Bench",
@@ -99,7 +100,7 @@ func BenchmarkLogin(b *testing.B) {
 			a := benchAuth(b, tc.auditEnabled)
 			ctx := context.Background()
 			pwd := validTestPassword()
-			if _, err := a.Register(ctx, RegisterInput{
+			if _, err := a.Register(ctx, api.RegisterInput{
 				Email: "login@example.com", Password: pwd, Name: "Bench",
 			}); err != nil {
 				b.Fatal(err)
@@ -107,7 +108,7 @@ func BenchmarkLogin(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				if _, err := a.Login(ctx, LoginInput{
+				if _, err := a.Login(ctx, api.LoginInput{
 					Email: "login@example.com", Password: pwd,
 				}); err != nil {
 					b.Fatal(err)
@@ -137,7 +138,7 @@ func BenchmarkValidateSession(b *testing.B) {
 func BenchmarkRefreshSession(b *testing.B) {
 	a := benchAuth(b)
 	ctx := context.Background()
-	res, err := a.Register(ctx, RegisterInput{
+	res, err := a.Register(ctx, api.RegisterInput{
 		Email: "refresh@example.com", Password: validTestPassword(), Name: "Bench",
 	})
 	if err != nil {

@@ -3,8 +3,8 @@ package handler
 import (
 	"net/http"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -19,7 +19,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.services.Auth.Register(r.Context(), service.RegisterInput{
+	result, err := h.services.Auth.Register(r.Context(), api.RegisterInput{
 		Email:     body.Email,
 		Password:  body.Password,
 		Name:      body.Name,
@@ -62,7 +62,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.services.Auth.Login(r.Context(), service.LoginInput{
+	result, err := h.services.Auth.Login(r.Context(), api.LoginInput{
 		Email:     body.Email,
 		Password:  body.Password,
 		IP:        h.ip(r),
@@ -104,7 +104,7 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.services.Auth.AdminLogin(r.Context(), service.LoginInput{
+	result, err := h.services.Auth.AdminLogin(r.Context(), api.LoginInput{
 		Email:     body.Email,
 		Password:  body.Password,
 		IP:        h.ip(r),

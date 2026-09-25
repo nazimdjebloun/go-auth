@@ -2,8 +2,10 @@ package port
 
 import (
 	"context"
-	"github.com/nazimdjebloun/go-auth/domain"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/api"
+	"github.com/nazimdjebloun/go-auth/domain"
 )
 
 // UpdateRefreshInput rotates a session's tokens on refresh. The
@@ -58,8 +60,8 @@ type SessionFilter struct {
 	ExpiresBefore    *time.Time
 	LastActiveAfter  *time.Time
 	LastActiveBefore *time.Time
-	OrderBy          SessionSortField
-	OrderDirection   SortDirection
+	OrderBy          api.SessionSortField
+	OrderDirection   api.SortDirection
 	Offset           int
 	Limit            int
 }

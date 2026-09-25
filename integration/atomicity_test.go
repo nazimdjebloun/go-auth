@@ -19,8 +19,8 @@ import (
 	"time"
 
 	goauth "github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -78,7 +78,7 @@ func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Register(ctx, goauth.RegisterInput{
+	reg, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "oauthonly@test.com", Password: validTestPassword(), Name: "OAuthOnly",
 	})
 	if aerr != nil {
@@ -101,7 +101,7 @@ func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
 	results := make([]error, len(passwords))
 	confirm := func(i int) {
 		results[i] = doWithBusyRetry(func() error {
-			return a.Services().Password.ConfirmSetPassword(ctx, service.ConfirmSetPasswordInput{
+			return a.Services().Password.ConfirmSetPassword(ctx, api.ConfirmSetPasswordInput{
 				UserID: reg.User.ID, Code: code, NewPassword: passwords[i],
 			})
 		})
@@ -160,7 +160,7 @@ func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
 	// Verify the successful request's password specifically, not just that
 	// some password works: the loser must not overwrite the winner.
 	for i, pw := range passwords {
-		_, err := a.Services().Auth.Login(ctx, service.LoginInput{
+		_, err := a.Services().Auth.Login(ctx, api.LoginInput{
 			Email: "oauthonly@test.com", Password: pw,
 		})
 		if i == winner {
@@ -188,7 +188,7 @@ func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, aerr := a.Register(ctx, goauth.RegisterInput{
+	admin, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "admin@test.com", Password: validTestPassword(), Name: "Admin",
 	})
 	if aerr != nil {
@@ -197,7 +197,7 @@ func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
 	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	invite, aerr := a.Services().Invite.CreateInvite(ctx, service.CreateInviteInput{
+	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{
 		Email: "invitee@example.com", AdminID: admin.User.ID,
 	})
 	if aerr != nil {
@@ -215,7 +215,7 @@ func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			err := doWithBusyRetry(func() error {
-				_, err := a.CompleteInviteRegistration(ctx, goauth.CompleteInviteInput{
+				_, err := a.CompleteInviteRegistration(ctx, api.CompleteInviteInput{
 					Code: knownRaw, Name: "Invitee", Password: "Inv@lidPwd1", ConfirmPassword: "Inv@lidPwd1",
 				})
 				return err
@@ -266,7 +266,7 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	admin, aerr := a.Register(ctx, goauth.RegisterInput{
+	admin, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "admin@test.com", Password: validTestPassword(), Name: "Admin",
 	})
 	if aerr != nil {
@@ -275,7 +275,7 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	invite, aerr := a.Services().Invite.CreateInvite(ctx, service.CreateInviteInput{
+	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{
 		Email: "late@example.com", AdminID: admin.User.ID,
 	})
 	if aerr != nil {
@@ -287,13 +287,13 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 	}
 
 	// The address registers normally after the invite was sent.
-	if _, aerr := a.Register(ctx, goauth.RegisterInput{
+	if _, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "late@example.com", Password: validTestPassword(), Name: "Late",
 	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
-	_, err := a.CompleteInviteRegistration(ctx, goauth.CompleteInviteInput{
+	_, err := a.CompleteInviteRegistration(ctx, api.CompleteInviteInput{
 		Code: knownRaw, Name: "Late", Password: "Inv@lidPwd1", ConfirmPassword: "Inv@lidPwd1",
 	})
 	if authCode(err) != "email_already_exists" {
@@ -340,25 +340,25 @@ func TestOrg_ConcurrentRemoveMember_CountsConsistent(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	owner, aerr := a.Register(ctx, goauth.RegisterInput{
+	owner, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	member, aerr := a.Register(ctx, goauth.RegisterInput{
+	member, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "member@test.com", Password: validTestPassword(), Name: "Member",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Services().Org.AddMember(ctx, service.AddMemberInput{
+	if err := a.Services().Org.AddMember(ctx, api.AddMemberInput{
 		OrgID: org.ID, UserID: member.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 	}); err != nil {
 		t.Fatal(err)
@@ -371,7 +371,7 @@ func TestOrg_ConcurrentRemoveMember_CountsConsistent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			err := doWithBusyRetry(func() error {
-				return a.Services().Org.RemoveMember(ctx, service.RemoveMemberInput{
+				return a.Services().Org.RemoveMember(ctx, api.RemoveMemberInput{
 					OrgID: org.ID, UserID: member.User.ID, ActorID: owner.User.ID,
 				})
 			})
@@ -418,26 +418,26 @@ func TestOrg_ConcurrentDemoteSameMemberTwice(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	owner1, aerr := a.Register(ctx, goauth.RegisterInput{
+	owner1, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "owner1@test.com", Password: validTestPassword(), Name: "Owner1",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	owner2, aerr := a.Register(ctx, goauth.RegisterInput{
+	owner2, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "owner2@test.com", Password: validTestPassword(), Name: "Owner2",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner1.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// owner-2 joins as a second owner so demoting owner-1 is legal.
-	if err := a.Services().Org.AddMember(ctx, service.AddMemberInput{
+	if err := a.Services().Org.AddMember(ctx, api.AddMemberInput{
 		OrgID: org.ID, UserID: owner2.User.ID, Role: domain.OrgRoleOwner, ActorID: owner1.User.ID,
 	}); err != nil {
 		t.Fatal(err)
@@ -449,7 +449,7 @@ func TestOrg_ConcurrentDemoteSameMemberTwice(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			if err := doWithBusyRetry(func() error {
-				return a.Services().Org.UpdateMemberRole(ctx, service.UpdateMemberRoleInput{
+				return a.Services().Org.UpdateMemberRole(ctx, api.UpdateMemberRoleInput{
 					OrgID: org.ID, UserID: owner1.User.ID, NewRole: domain.OrgRoleMember, ActorID: owner2.User.ID,
 				})
 			}); err != nil {
@@ -490,25 +490,25 @@ func TestOrg_ConcurrentRemoveVsDemote(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	owner1, aerr := a.Register(ctx, goauth.RegisterInput{
+	owner1, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "owner1@test.com", Password: validTestPassword(), Name: "Owner1",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	owner2, aerr := a.Register(ctx, goauth.RegisterInput{
+	owner2, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "owner2@test.com", Password: validTestPassword(), Name: "Owner2",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner1.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Services().Org.AddMember(ctx, service.AddMemberInput{
+	if err := a.Services().Org.AddMember(ctx, api.AddMemberInput{
 		OrgID: org.ID, UserID: owner2.User.ID, Role: domain.OrgRoleOwner, ActorID: owner1.User.ID,
 	}); err != nil {
 		t.Fatal(err)
@@ -520,7 +520,7 @@ func TestOrg_ConcurrentRemoveVsDemote(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		removeErr = doWithBusyRetry(func() error {
-			return a.Services().Org.RemoveMember(ctx, service.RemoveMemberInput{
+			return a.Services().Org.RemoveMember(ctx, api.RemoveMemberInput{
 				OrgID: org.ID, UserID: owner1.User.ID, ActorID: owner2.User.ID,
 			})
 		})
@@ -528,7 +528,7 @@ func TestOrg_ConcurrentRemoveVsDemote(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		demoteErr = doWithBusyRetry(func() error {
-			return a.Services().Org.UpdateMemberRole(ctx, service.UpdateMemberRoleInput{
+			return a.Services().Org.UpdateMemberRole(ctx, api.UpdateMemberRoleInput{
 				OrgID: org.ID, UserID: owner1.User.ID, NewRole: domain.OrgRoleMember, ActorID: owner2.User.ID,
 			})
 		})
@@ -594,13 +594,13 @@ func TestOrg_ConcurrentDeleteOrg_CountsConsistent(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	owner, aerr := a.Register(ctx, goauth.RegisterInput{
+	owner, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -614,7 +614,7 @@ func TestOrg_ConcurrentDeleteOrg_CountsConsistent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			err := doWithBusyRetry(func() error {
-				return a.Services().Org.DeleteOrg(ctx, service.DeleteOrgInput{
+				return a.Services().Org.DeleteOrg(ctx, api.DeleteOrgInput{
 					OrgID: org.ID, ActorID: owner.User.ID,
 				})
 			})
@@ -657,19 +657,19 @@ func TestOrg_ConcurrentAddMember_CountsConsistent(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	owner, aerr := a.Register(ctx, goauth.RegisterInput{
+	owner, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	member, aerr := a.Register(ctx, goauth.RegisterInput{
+	member, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "member@test.com", Password: validTestPassword(), Name: "Member",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -683,7 +683,7 @@ func TestOrg_ConcurrentAddMember_CountsConsistent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			err := doWithBusyRetry(func() error {
-				return a.Services().Org.AddMember(ctx, service.AddMemberInput{
+				return a.Services().Org.AddMember(ctx, api.AddMemberInput{
 					OrgID: org.ID, UserID: member.User.ID, Role: domain.OrgRoleMember, ActorID: owner.User.ID,
 				})
 			})
@@ -730,25 +730,25 @@ func TestOrgInvite_RotatedCodeRejected(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	owner, aerr := a.Register(ctx, goauth.RegisterInput{
+	owner, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "owner@test.com", Password: validTestPassword(), Name: "Owner",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	invitee, aerr := a.Register(ctx, goauth.RegisterInput{
+	invitee, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "invitee@test.com", Password: validTestPassword(), Name: "Invitee",
 	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, service.CreateOrgInput{
+	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	invite, err := a.Services().OrgInvite.CreateOrgInvite(ctx, service.CreateOrgInviteInput{
+	invite, err := a.Services().OrgInvite.CreateOrgInvite(ctx, api.CreateOrgInviteInput{
 		OrgID: org.ID, Email: "invitee@test.com", Role: domain.OrgRoleMember, InvitedBy: owner.User.ID,
 	})
 	if err != nil {
@@ -763,7 +763,7 @@ func TestOrgInvite_RotatedCodeRejected(t *testing.T) {
 	if err := a.Services().OrgInvite.ResendOrgInviteEmail(ctx, org.ID, invite.ID, owner.User.ID); err != nil {
 		t.Fatalf("ResendOrgInviteEmail failed: %v", err)
 	}
-	if err := a.Services().OrgInvite.AcceptInvite(ctx, service.AcceptInviteInput{
+	if err := a.Services().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
 		UserID: invitee.User.ID, RawCode: oldCode,
 	}); authCode(err) != "org_invite_expired" {
 		t.Fatalf("stale code accept: code = %q, want org_invite_expired", authCode(err))

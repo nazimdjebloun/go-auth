@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
@@ -69,7 +70,7 @@ func TestLogin_Failure_PublishesLoginFailed(t *testing.T) {
 	svc, users, _ := newAuditTestAuthService(t, auditPub)
 	seedAuditPasswordUser(t, users, "user-1", "alice@example.com", "Passw0rd!")
 
-	if _, err := svc.Login(context.Background(), LoginInput{
+	if _, err := svc.Login(context.Background(), api.LoginInput{
 		Email: "alice@example.com", Password: "wrong-password", IP: "10.0.0.9",
 	}); err == nil {
 		t.Fatal("expected login failure")
@@ -100,7 +101,7 @@ func TestLogin_Failure_UnknownEmail_PublishesLoginFailed(t *testing.T) {
 	auditPub := testutil.NewMockAuditPublisher()
 	svc, _, _ := newAuditTestAuthService(t, auditPub)
 
-	if _, err := svc.Login(context.Background(), LoginInput{
+	if _, err := svc.Login(context.Background(), api.LoginInput{
 		Email: "nobody@example.com", Password: "Passw0rd!",
 	}); err == nil {
 		t.Fatal("expected login failure for unknown email")
@@ -163,7 +164,7 @@ func TestConfirmDeleteAccount_PublishesAccountDeleted(t *testing.T) {
 		t.Fatalf("RequestDeleteAccount: %v", err)
 	}
 	code := testutil.GetLastVerificationCode(mailer)
-	if err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+	if err := svc.ConfirmDeleteAccount(context.Background(), api.ConfirmDeleteAccountInput{
 		UserID: "user-1", Code: code,
 	}); err != nil {
 		t.Fatalf("ConfirmDeleteAccount: %v", err)

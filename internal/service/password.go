@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/otp"
@@ -65,7 +66,7 @@ func NewPasswordService(
 }
 
 // ForgotPassword sends a password-reset code when the account permits it.
-func (s *PasswordService) ForgotPassword(ctx context.Context, input ForgotPasswordInput) error {
+func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPasswordInput) error {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	if s.mailer == nil {
 		// This check precedes the account lookup so a configuration failure has
@@ -191,7 +192,7 @@ func (s *PasswordService) writePasswordResetToken(
 }
 
 // ResetPassword changes a password using a valid reset code.
-func (s *PasswordService) ResetPassword(ctx context.Context, input ResetPasswordInput) error {
+func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPasswordInput) error {
 	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
 		return err
 	}
@@ -354,7 +355,7 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 }
 
 // ConfirmSetPassword sets a password using a valid code.
-func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmSetPasswordInput) error {
+func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.ConfirmSetPasswordInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
@@ -433,7 +434,7 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input ConfirmS
 }
 
 // ChangePassword changes a user's password.
-func (s *PasswordService) ChangePassword(ctx context.Context, input ChangePasswordInput) error {
+func (s *PasswordService) ChangePassword(ctx context.Context, input api.ChangePasswordInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound

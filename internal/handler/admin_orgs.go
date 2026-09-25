@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -62,7 +62,7 @@ func (h *Handler) AdminListOrgs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input := service.AdminListOrgsInput{
+	input := api.AdminListOrgsInput{
 		ActorID:        actor.ID,
 		Search:         search,
 		CreatedAfter:   parseTime("createdAfter"),
@@ -103,7 +103,7 @@ func (h *Handler) AdminGetOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID := r.PathValue("orgID")
-	org, err := h.services.Org.AdminGetOrg(r.Context(), service.AdminGetOrgInput{OrgID: orgID, ActorID: actor.ID})
+	org, err := h.services.Org.AdminGetOrg(r.Context(), api.AdminGetOrgInput{OrgID: orgID, ActorID: actor.ID})
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -148,7 +148,7 @@ func (h *Handler) AdminListOrgMembers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input := service.AdminListOrgMembersInput{
+	input := api.AdminListOrgMembersInput{
 		OrgID: orgID, ActorID: actor.ID, Offset: offset, Limit: limit,
 		Role: role, Search: search, OrderBy: orderBy, OrderDirection: orderDirection,
 	}
@@ -192,7 +192,7 @@ func (h *Handler) AdminAddOrgMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Org.AdminAddMember(r.Context(), service.AdminAddMemberInput{
+	if err := h.services.Org.AdminAddMember(r.Context(), api.AdminAddMemberInput{
 		OrgID:   orgID,
 		UserID:  body.UserID,
 		Role:    domain.OrgRole(body.Role),
@@ -216,7 +216,7 @@ func (h *Handler) AdminDeleteOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID := r.PathValue("orgID")
-	if err := h.services.Org.AdminDeleteOrg(r.Context(), service.AdminOrgActionInput{OrgID: orgID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Org.AdminDeleteOrg(r.Context(), api.AdminOrgActionInput{OrgID: orgID, ActorID: actor.ID}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -236,7 +236,7 @@ func (h *Handler) AdminRemoveOrgMember(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID := r.PathValue("orgID")
 	userID := r.PathValue("userID")
-	if err := h.services.Org.AdminRemoveMember(r.Context(), service.AdminRemoveMemberInput{OrgID: orgID, UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Org.AdminRemoveMember(r.Context(), api.AdminRemoveMemberInput{OrgID: orgID, UserID: userID, ActorID: actor.ID}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -264,7 +264,7 @@ func (h *Handler) AdminUpdateOrgMemberRole(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := h.services.Org.AdminUpdateMemberRole(r.Context(), service.AdminUpdateMemberRoleInput{
+	if err := h.services.Org.AdminUpdateMemberRole(r.Context(), api.AdminUpdateMemberRoleInput{
 		OrgID:   orgID,
 		UserID:  userID,
 		NewRole: domain.OrgRole(body.Role),
@@ -313,7 +313,7 @@ func (h *Handler) AdminListUserOrgs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input := service.AdminListUserOrgsInput{
+	input := api.AdminListUserOrgsInput{
 		ActorID:        actor.ID,
 		UserID:         userID,
 		Search:         search,

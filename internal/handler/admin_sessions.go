@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nazimdjebloun/go-auth/internal/service"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -59,7 +59,7 @@ func (h *Handler) AdminListSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input := service.AdminListSessionsInput{
+	input := api.AdminListSessionsInput{
 		ActorID:          actor.ID,
 		UserID:           userID,
 		IP:               ip,

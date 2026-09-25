@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -22,7 +23,7 @@ func NewAuditLogRepository(db *DB) *AuditLogRepository {
 }
 
 // List returns audit events matching the filter.
-func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, error) {
+func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilter) ([]api.AuditLogEntry, error) {
 	where, args := r.buildWhere(filter)
 
 	argIdx := len(args) + 1
@@ -38,9 +39,9 @@ func (r *AuditLogRepository) List(ctx context.Context, filter port.AuditLogFilte
 		return nil, err
 	}
 
-	entries := []port.AuditLogEntry{}
+	entries := []api.AuditLogEntry{}
 	for rows.Next() {
-		var e port.AuditLogEntry
+		var e api.AuditLogEntry
 		var parsedUA, metadata sql.NullString
 		if err := rows.Scan(
 			&e.ID, &e.Type, &e.Severity, &e.Success,
@@ -87,7 +88,7 @@ func (r *AuditLogRepository) Count(ctx context.Context, filter port.AuditLogFilt
 
 // CountByDay returns event counts per day matching filter — Offset/Limit on
 // filter are ignored, the result is naturally bounded by filter.FromDate/ToDate.
-func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLogFilter) ([]port.DailyCount, error) {
+func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLogFilter) ([]api.DailyCount, error) {
 	where, args := r.buildWhere(filter)
 
 	var dayExpr string
@@ -116,9 +117,9 @@ func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLo
 		return nil, err
 	}
 
-	var counts []port.DailyCount
+	var counts []api.DailyCount
 	for rows.Next() {
-		var c port.DailyCount
+		var c api.DailyCount
 		var day time.Time
 		if r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
 			// modernc.org/sqlite returns date() as a string, not a time.Time.
@@ -142,7 +143,7 @@ func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLo
 		counts = append(counts, c)
 	}
 	if counts == nil {
-		counts = []port.DailyCount{}
+		counts = []api.DailyCount{}
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
@@ -155,8 +156,8 @@ func (r *AuditLogRepository) CountByDay(ctx context.Context, filter port.AuditLo
 }
 
 // GetByID returns an audit event by ID or nil when absent.
-func (r *AuditLogRepository) GetByID(ctx context.Context, id string) (*port.AuditLogEntry, error) {
-	var e port.AuditLogEntry
+func (r *AuditLogRepository) GetByID(ctx context.Context, id string) (*api.AuditLogEntry, error) {
+	var e api.AuditLogEntry
 	var parsedUA, metadata sql.NullString
 	err := r.db.QueryRowContext(ctx, auditLogByIDQuery, id).Scan(
 		&e.ID, &e.Type, &e.Severity, &e.Success,

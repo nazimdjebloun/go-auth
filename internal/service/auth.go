@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher/registry"
@@ -187,8 +188,8 @@ func (s *AuthService) createAuditedLoginSession(
 	ctx context.Context,
 	userID, ip, userAgent string,
 	loginEvent func(sessionID string) audit.Event,
-) (*SessionResult, error) {
-	var result *SessionResult
+) (*api.SessionResult, error) {
+	var result *api.SessionResult
 	err := s.withTx(ctx, func(txCtx context.Context) error {
 		created, err := s.sessionSvc.Create(txCtx, userID, ip, userAgent)
 		if err != nil {
@@ -209,7 +210,7 @@ func (s *AuthService) createAuditedLoginSession(
 }
 
 // Register creates a user account.
-func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*RegisterResult, error) {
+func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*api.RegisterResult, error) {
 	if !s.config.EnableEmailPassword {
 		return nil, domain.ErrMethodDisabled
 	}
@@ -293,7 +294,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		if _, err := s.verifySvc.SendVerification(ctx, user); err != nil {
 			return nil, err
 		}
-		return &RegisterResult{
+		return &api.RegisterResult{
 			User:                 user,
 			RequiresVerification: true,
 		}, nil
@@ -309,14 +310,13 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		if aerr != nil {
 			return nil, aerr
 		}
-		return &RegisterResult{
+		return api.NewRegisterResult(api.RegisterResult{
 			User:               user,
 			RequiresTwoFactor:  true,
 			CodeSent:           challenge.Sent,
 			TwoFactorChallenge: challenge.ID,
 			TwoFactorExpiresAt: challenge.ExpiresAt,
-			bindingToken:       challenge.BindingToken,
-		}, nil
+		}, challenge.BindingToken), nil
 	}
 
 	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
@@ -325,7 +325,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 		return nil, domain.ErrInternal
 	}
 
-	return &RegisterResult{
+	return &api.RegisterResult{
 		User:         user,
 		Session:      sessResult.Session,
 		SessionToken: sessResult.SessionToken,
@@ -336,7 +336,7 @@ func (s *AuthService) Register(ctx context.Context, input RegisterInput) (*Regis
 // authenticate resolves and validates email/password credentials.
 // On success it returns the authenticated user. requiresVerification is true
 // when the user must verify their email before a session can be issued.
-func (s *AuthService) authenticate(ctx context.Context, input LoginInput) (*domain.User, bool, error) {
+func (s *AuthService) authenticate(ctx context.Context, input api.LoginInput) (*domain.User, bool, error) {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
@@ -461,7 +461,7 @@ type rehashRegistry interface {
 }
 
 // Login authenticates a user.
-func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult, error) {
+func (s *AuthService) Login(ctx context.Context, input api.LoginInput) (*api.LoginResult, error) {
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
 		if s.audit != nil {
@@ -477,7 +477,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		return nil, aerr
 	}
 	if requiresVerification {
-		return &LoginResult{
+		return &api.LoginResult{
 			User:                 user,
 			RequiresVerification: true,
 		}, nil
@@ -489,14 +489,13 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 		if aerr != nil {
 			return nil, aerr
 		}
-		return &LoginResult{
+		return api.NewLoginResult(api.LoginResult{
 			User:               user,
 			RequiresTwoFactor:  true,
 			CodeSent:           challenge.Sent,
 			TwoFactorChallenge: challenge.ID,
 			TwoFactorExpiresAt: challenge.ExpiresAt,
-			bindingToken:       challenge.BindingToken,
-		}, nil
+		}, challenge.BindingToken), nil
 	}
 
 	sessResult, err := s.createAuditedLoginSession(ctx, user.ID, input.IP, input.UserAgent, func(sessionID string) audit.Event {
@@ -513,7 +512,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 
 	s.log.Info("user logged in", "user_id", user.ID, "ip", input.IP)
 
-	return &LoginResult{
+	return &api.LoginResult{
 		User:         user,
 		Session:      sessResult.Session,
 		SessionToken: sessResult.SessionToken,
@@ -524,7 +523,7 @@ func (s *AuthService) Login(ctx context.Context, input LoginInput) (*LoginResult
 // AdminLogin authenticates a user and requires the admin role.
 // Non-admin users are rejected with generic invalid_credentials so the
 // endpoint never reveals whether an account is an admin.
-func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginResult, error) {
+func (s *AuthService) AdminLogin(ctx context.Context, input api.LoginInput) (*api.LoginResult, error) {
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
 		if s.audit != nil {
@@ -566,14 +565,13 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 		if aerr != nil {
 			return nil, aerr
 		}
-		return &LoginResult{
+		return api.NewLoginResult(api.LoginResult{
 			User:               user,
 			RequiresTwoFactor:  true,
 			CodeSent:           challenge.Sent,
 			TwoFactorChallenge: challenge.ID,
 			TwoFactorExpiresAt: challenge.ExpiresAt,
-			bindingToken:       challenge.BindingToken,
-		}, nil
+		}, challenge.BindingToken), nil
 	}
 
 	sessResult, err := s.createAuditedLoginSession(ctx, user.ID, input.IP, input.UserAgent, func(sessionID string) audit.Event {
@@ -590,7 +588,7 @@ func (s *AuthService) AdminLogin(ctx context.Context, input LoginInput) (*LoginR
 
 	s.log.Info("admin logged in", "user_id", user.ID, "ip", input.IP)
 
-	return &LoginResult{
+	return &api.LoginResult{
 		User:         user,
 		Session:      sessResult.Session,
 		SessionToken: sessResult.SessionToken,
@@ -769,7 +767,7 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 }
 
 // ConfirmDeleteAccount deletes an account using a valid code.
-func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input ConfirmDeleteAccountInput) error {
+func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input api.ConfirmDeleteAccountInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound

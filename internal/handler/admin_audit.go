@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nazimdjebloun/go-auth/internal/service"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -93,7 +93,7 @@ func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request, userID *
 		targetEmail = nil
 	}
 
-	input := service.AdminListAuditLogsInput{
+	input := api.AdminListAuditLogsInput{
 		ActorID:         actor.ID,
 		EventTypes:      eventTypes,
 		EventActorID:    actorID,

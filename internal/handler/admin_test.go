@@ -11,10 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
-	"github.com/nazimdjebloun/go-auth/port"
 )
 
 // seedAdminActor seeds and returns an admin user — every admin handler now
@@ -436,7 +435,7 @@ func TestGetAdminStats_HappyPath(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var stats service.AdminStats
+	var stats api.AdminStats
 	if err := json.NewDecoder(res.Body).Decode(&stats); err != nil {
 		t.Fatal(err)
 	}
@@ -495,7 +494,7 @@ func TestGetRegistrationTrend_HappyPath(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 	var body struct {
-		Registrations []port.DailyCount `json:"registrations"`
+		Registrations []api.DailyCount `json:"registrations"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
@@ -532,9 +531,9 @@ func TestGetLoginActivity_Global(t *testing.T) {
 
 	now := time.Now().UTC()
 	alice, bob := "user-alice", "user-bob"
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e3", Type: "login.failed", ActorID: &alice, CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e3", Type: "login.failed", ActorID: &alice, CreatedAt: now})
 
 	from := now.Add(-24 * time.Hour).Format(time.RFC3339)
 	to := now.Add(24 * time.Hour).Format(time.RFC3339)
@@ -548,7 +547,7 @@ func TestGetLoginActivity_Global(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 	var body struct {
-		Logins []port.DailyCount `json:"logins"`
+		Logins []api.DailyCount `json:"logins"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
@@ -569,8 +568,8 @@ func TestGetLoginActivity_PerUser(t *testing.T) {
 
 	now := time.Now().UTC()
 	alice, bob := "user-alice", "user-bob"
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
 
 	from := now.Add(-24 * time.Hour).Format(time.RFC3339)
 	to := now.Add(24 * time.Hour).Format(time.RFC3339)
@@ -584,7 +583,7 @@ func TestGetLoginActivity_PerUser(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 	var body struct {
-		Logins []port.DailyCount `json:"logins"`
+		Logins []api.DailyCount `json:"logins"`
 	}
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
@@ -702,7 +701,7 @@ func TestBulkBanUsers(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var result service.BulkUserActionResult
+	var result api.BulkUserActionResult
 	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
@@ -745,7 +744,7 @@ func TestBulkUnbanUsers(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var result service.BulkUserActionResult
+	var result api.BulkUserActionResult
 	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
@@ -770,7 +769,7 @@ func TestBulkDeleteUsers(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var result service.BulkUserActionResult
+	var result api.BulkUserActionResult
 	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
@@ -799,7 +798,7 @@ func TestBulkRevokeUserSessions(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var result service.BulkUserActionResult
+	var result api.BulkUserActionResult
 	if err := json.NewDecoder(res.Body).Decode(&result); err != nil {
 		t.Fatal(err)
 	}
@@ -815,9 +814,9 @@ func TestAdminListAuditLogs_MultiEventType(t *testing.T) {
 	actor := seedAdminActor(t, th)
 
 	now := time.Now().UTC()
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", CreatedAt: now})
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.failed", CreatedAt: now})
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e3", Type: "logout", CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.failed", CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e3", Type: "logout", CreatedAt: now})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/audit-logs?event_type=login.success,logout", nil)
 	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
@@ -828,7 +827,7 @@ func TestAdminListAuditLogs_MultiEventType(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var body service.AdminListAuditLogsResult
+	var body api.AdminListAuditLogsResult
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
@@ -843,7 +842,7 @@ func TestAdminListAuditLogs_ActorEmail(t *testing.T) {
 	checkTestErrors(t).noError(th.users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"}))
 	alice := "alice-id"
 	now := time.Now().UTC()
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/audit-logs?actorEmail=alice@example.com", nil)
 	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
@@ -854,7 +853,7 @@ func TestAdminListAuditLogs_ActorEmail(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var body service.AdminListAuditLogsResult
+	var body api.AdminListAuditLogsResult
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
@@ -883,8 +882,8 @@ func TestAdminListUserAuditLogs_ScopesToPathUser(t *testing.T) {
 
 	target, other := "target-id", "other-id"
 	now := time.Now().UTC()
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", TargetUserID: &target, CreatedAt: now})
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", TargetUserID: &other, CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", TargetUserID: &target, CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", TargetUserID: &other, CreatedAt: now})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/users/target-id/audit-logs", nil)
 	req.SetPathValue("id", "target-id")
@@ -896,7 +895,7 @@ func TestAdminListUserAuditLogs_ScopesToPathUser(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var body service.AdminListAuditLogsResult
+	var body api.AdminListAuditLogsResult
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
@@ -911,7 +910,7 @@ func TestAdminListAuditLogs_ResolvesEmails(t *testing.T) {
 	checkTestErrors(t).noError(th.users.Create(context.Background(), &domain.User{ID: "alice-id", Email: "alice@example.com"}))
 	alice := "alice-id"
 	now := time.Now().UTC()
-	th.auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+	th.auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/audit-logs", nil)
 	req = req.WithContext(middleware.ContextWithUser(req.Context(), actor))
@@ -922,7 +921,7 @@ func TestAdminListAuditLogs_ResolvesEmails(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var body service.AdminListAuditLogsResult
+	var body api.AdminListAuditLogsResult
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
@@ -976,7 +975,7 @@ func TestAdminListOrgs_HappyPath(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var body service.AdminListOrgsResult
+	var body api.AdminListOrgsResult
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
@@ -1084,7 +1083,7 @@ func TestAdminListOrgMembers_HappyPath(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var body service.ListMembersResult
+	var body api.ListMembersResult
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
@@ -1392,7 +1391,7 @@ func TestAdminListUserOrgs_HappyPath(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
-	var body service.ListUserOrgsResult
+	var body api.ListUserOrgsResult
 	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
@@ -1442,7 +1441,7 @@ func TestAdminListUserOrgs_RoleFilter(t *testing.T) {
 		if res.StatusCode != http.StatusOK {
 			t.Fatalf("role=%s: expected 200, got %d", tc.role, res.StatusCode)
 		}
-		var body service.ListUserOrgsResult
+		var body api.ListUserOrgsResult
 		if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
 			t.Fatalf("role=%s: %v", tc.role, err)
 		}

@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
-	"github.com/nazimdjebloun/go-auth/port"
 )
 
 // ─── GetStats ────────────────────────────────────────────────────────
@@ -67,7 +67,7 @@ func TestGetRegistrationTrend_ActorNotAdmin_Forbidden(t *testing.T) {
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
-	_, err := svc.GetRegistrationTrend(context.Background(), StatsRangeInput{
+	_, err := svc.GetRegistrationTrend(context.Background(), api.StatsRangeInput{
 		ActorID: "not-admin", From: time.Now().Add(-time.Hour), To: time.Now(),
 	})
 	if err != domain.ErrForbidden {
@@ -81,7 +81,7 @@ func TestGetRegistrationTrend_InvalidRange(t *testing.T) {
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
 	now := time.Now().UTC()
-	_, err := svc.GetRegistrationTrend(context.Background(), StatsRangeInput{
+	_, err := svc.GetRegistrationTrend(context.Background(), api.StatsRangeInput{
 		ActorID: actorID, From: now, To: now.Add(-time.Hour), // to before from
 	})
 	authErr, ok := err.(*domain.AuthError)
@@ -100,7 +100,7 @@ func TestGetRegistrationTrend_HappyPath(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u1", Email: "u1@example.com", CreatedAt: today}))
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u2", Email: "u2@example.com", CreatedAt: yesterday}))
 
-	counts, err := svc.GetRegistrationTrend(context.Background(), StatsRangeInput{
+	counts, err := svc.GetRegistrationTrend(context.Background(), api.StatsRangeInput{
 		ActorID: actorID, From: yesterday.Add(-time.Hour), To: today.Add(time.Hour),
 	})
 	if err != nil {
@@ -125,7 +125,7 @@ func TestGetLoginActivity_ActorNotAdmin_Forbidden(t *testing.T) {
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
-	_, err := svc.GetLoginActivity(context.Background(), LoginActivityInput{
+	_, err := svc.GetLoginActivity(context.Background(), api.LoginActivityInput{
 		ActorID: "not-admin", From: time.Now().Add(-time.Hour), To: time.Now(),
 	})
 	if err != domain.ErrForbidden {
@@ -141,11 +141,11 @@ func TestGetLoginActivity_Global(t *testing.T) {
 
 	now := time.Now().UTC()
 	alice, bob := "alice", "bob"
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e3", Type: "login.failed", ActorID: &alice, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e3", Type: "login.failed", ActorID: &alice, CreatedAt: now})
 
-	counts, err := svc.GetLoginActivity(context.Background(), LoginActivityInput{
+	counts, err := svc.GetLoginActivity(context.Background(), api.LoginActivityInput{
 		ActorID: actorID, From: now.Add(-time.Hour), To: now.Add(time.Hour),
 	})
 	if err != nil {
@@ -168,10 +168,10 @@ func TestGetLoginActivity_PerUser(t *testing.T) {
 
 	now := time.Now().UTC()
 	alice, bob := "alice", "bob"
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
-	auditLogs.AddEntry(port.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e1", Type: "login.success", ActorID: &alice, CreatedAt: now})
+	auditLogs.AddEntry(api.AuditLogEntry{ID: "e2", Type: "login.success", ActorID: &bob, CreatedAt: now})
 
-	counts, err := svc.GetLoginActivity(context.Background(), LoginActivityInput{
+	counts, err := svc.GetLoginActivity(context.Background(), api.LoginActivityInput{
 		ActorID: actorID, UserID: &alice, From: now.Add(-time.Hour), To: now.Add(time.Hour),
 	})
 	if err != nil {

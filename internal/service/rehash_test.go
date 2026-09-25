@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/hasher/registry"
@@ -102,7 +103,7 @@ func TestRehashOnLogin_LegacyBcryptRowUpgradesOnce(t *testing.T) {
 	seedPasswordUser(t, svc.users, "legacy@example.com", legacyHash)
 
 	// First login: verifies against bcrypt, rehashes to argon format.
-	res, aerr := svc.Login(context.Background(), LoginInput{
+	res, aerr := svc.Login(context.Background(), api.LoginInput{
 		Email:    "legacy@example.com",
 		Password: password,
 	})
@@ -131,7 +132,7 @@ func TestRehashOnLogin_LegacyBcryptRowUpgradesOnce(t *testing.T) {
 	// Second login with the same password: verifies against the argon row
 	// (proving the re-hashed row is round-trippable) and does NOT rehash
 	// again — the hash is identical to the first login's output.
-	res2, aerr := svc.Login(context.Background(), LoginInput{
+	res2, aerr := svc.Login(context.Background(), api.LoginInput{
 		Email:    "legacy@example.com",
 		Password: password,
 	})
@@ -165,7 +166,7 @@ func TestRehashOnLogin_WrongPasswordDoesNotRehash(t *testing.T) {
 	svc := newRehashLoginService(t, argonFakeHasher{}, hasher.New(12))
 	seedPasswordUser(t, svc.users, "legacy@example.com", legacyHash)
 
-	_, aerr := svc.Login(context.Background(), LoginInput{
+	_, aerr := svc.Login(context.Background(), api.LoginInput{
 		Email:    "legacy@example.com",
 		Password: "WrongPass1!",
 	})
@@ -193,7 +194,7 @@ func TestRehashOnLogin_CostChangeUpgradesRow(t *testing.T) {
 	svc := newRehashLoginService(t, hasher.New(14), nil)
 	seedPasswordUser(t, svc.users, "cost@example.com", h12)
 
-	if _, aerr := svc.Login(context.Background(), LoginInput{
+	if _, aerr := svc.Login(context.Background(), api.LoginInput{
 		Email:    "cost@example.com",
 		Password: password,
 	}); aerr != nil {
@@ -219,7 +220,7 @@ func TestRehashOnLogin_AlreadyCurrentFormatNoOp(t *testing.T) {
 	svc := newRehashLoginService(t, hasher.New(12), nil)
 	seedPasswordUser(t, svc.users, "fresh@example.com", h)
 
-	if _, aerr := svc.Login(context.Background(), LoginInput{
+	if _, aerr := svc.Login(context.Background(), api.LoginInput{
 		Email:    "fresh@example.com",
 		Password: password,
 	}); aerr != nil {
@@ -241,7 +242,7 @@ func TestRehashOnLogin_UnknownPrefixFailsClosedAtLogin(t *testing.T) {
 	svc := newRehashLoginService(t, argonFakeHasher{}, hasher.New(12))
 	seedPasswordUser(t, svc.users, "corrupt@example.com", "$scrypt$N:2:1$salt$hash")
 
-	_, aerr := svc.Login(context.Background(), LoginInput{
+	_, aerr := svc.Login(context.Background(), api.LoginInput{
 		Email:    "corrupt@example.com",
 		Password: "Passw0rd!",
 	})
@@ -272,14 +273,14 @@ func TestRehashOnLogin_BareHasherKeepsWorking(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, &testutil.MockHasher{}, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
-	if _, aerr := svc.Register(context.Background(), RegisterInput{
+	if _, aerr := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "bare@example.com",
 		Password: "Passw0rd!",
 		Name:     "Bare",
 	}); aerr != nil {
 		t.Fatalf("register: %v", aerr)
 	}
-	res, aerr := svc.Login(context.Background(), LoginInput{
+	res, aerr := svc.Login(context.Background(), api.LoginInput{
 		Email:    "bare@example.com",
 		Password: "Passw0rd!",
 	})
@@ -312,7 +313,7 @@ func TestRehashOnLogin_DoesNotOverwriteConcurrentPasswordChange(t *testing.T) {
 	svc := NewAuthService(users, sessions, tokens, peppered, gen, nil, defaultTestConfig(), newTestSessionService(sessions, gen), nil, nil)
 	seedPasswordUser(t, users.MockUserRepo, "race@example.com", legacyHash)
 
-	if _, err := svc.Login(context.Background(), LoginInput{Email: "race@example.com", Password: password}); err != nil {
+	if _, err := svc.Login(context.Background(), api.LoginInput{Email: "race@example.com", Password: password}); err != nil {
 		t.Fatalf("login should remain usable when guarded update loses race: %v", err)
 	}
 	if users.updateCalls != 1 {

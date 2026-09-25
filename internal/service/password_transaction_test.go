@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
@@ -187,7 +188,7 @@ func TestResetPassword_TransactionRollsBackPasswordAndTokenWhenSessionRevocation
 	f := newPasswordTransactionFixture(t)
 	svc := f.passwordService(f.hasher, &failingPasswordSessionRevoker{SessionRevoker: f.sessions})
 
-	err := svc.ResetPassword(context.Background(), ResetPasswordInput{Code: f.code, NewPassword: "NewPass1!"})
+	err := svc.ResetPassword(context.Background(), api.ResetPasswordInput{Code: f.code, NewPassword: "NewPass1!"})
 	if !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("ResetPassword error = %v, want internal_error", err)
 	}
@@ -219,7 +220,7 @@ func TestChangePassword_TransactionRollsBackPasswordWhenSessionRevocationFails(t
 	f := newPasswordTransactionFixture(t)
 	svc := f.passwordService(f.hasher, &failingPasswordSessionRevoker{SessionRevoker: f.sessions})
 
-	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+	err := svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      f.userID,
 		OldPassword: "OldPass1!",
 		NewPassword: "NewPass1!",
@@ -264,7 +265,7 @@ func TestForgotPassword_DummyInsertIsRolledBack(t *testing.T) {
 	if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM verification_tokens").Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "missing@example.com"}); err != nil {
+	if err := svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "missing@example.com"}); err != nil {
 		t.Fatalf("ForgotPassword error = %v, want nil", err)
 	}
 	var after int
@@ -295,7 +296,7 @@ func TestResetPassword_TransactionRollsBackTokenClaimOnPasswordConflict(t *testi
 		cfg,
 	)
 
-	err := svc.ResetPassword(context.Background(), ResetPasswordInput{Code: f.code, NewPassword: "NewPass1!"})
+	err := svc.ResetPassword(context.Background(), api.ResetPasswordInput{Code: f.code, NewPassword: "NewPass1!"})
 	if !errors.Is(err, domain.ErrPasswordUpdateConflict) {
 		t.Fatalf("ResetPassword error = %v, want password_update_conflict", err)
 	}
@@ -326,7 +327,7 @@ func TestResetPassword_ConcurrentUseCommitsExactlyOnce(t *testing.T) {
 	for _, password := range passwords {
 		password := password
 		go func() {
-			errs <- svc.ResetPassword(context.Background(), ResetPasswordInput{Code: f.code, NewPassword: password})
+			errs <- svc.ResetPassword(context.Background(), api.ResetPasswordInput{Code: f.code, NewPassword: password})
 		}()
 	}
 

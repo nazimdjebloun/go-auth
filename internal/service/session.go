@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -85,12 +86,8 @@ func (s *SessionService) withTx(ctx context.Context, fn func(context.Context) er
 	return s.txManager.WithTx(ctx, fn)
 }
 
-// SessionResult remains available to service callers while its public shape
-// lives in domain, where middleware can name it without importing service.
-type SessionResult = domain.SessionResult
-
 // Create creates a user session.
-func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*SessionResult, error) {
+func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*api.SessionResult, error) {
 	sessionToken, err := s.tokenGen.Generate()
 	if err != nil {
 		return nil, fmt.Errorf("session create token: %w", err)
@@ -134,11 +131,11 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 
 	s.log.Info("session created", "user_id", userID, "session_id", session.ID)
 
-	return &SessionResult{Session: session, SessionToken: sessionToken, RefreshToken: refreshToken}, nil
+	return &api.SessionResult{Session: session, SessionToken: sessionToken, RefreshToken: refreshToken}, nil
 }
 
 // RefreshSession rotates a session using its refresh token.
-func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken string) (*SessionResult, error) {
+func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken string) (*api.SessionResult, error) {
 	hash := hashToken(rawRefreshToken)
 
 	newSessionToken, err := s.tokenGen.Generate()
@@ -195,7 +192,7 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 	}
 
 	s.log.Info("refresh token rotated", "user_id", session.UserID, "session_id", session.ID)
-	return &SessionResult{Session: session, SessionToken: newSessionToken, RefreshToken: newRefreshToken}, nil
+	return &api.SessionResult{Session: session, SessionToken: newSessionToken, RefreshToken: newRefreshToken}, nil
 }
 
 // checkSession applies the liveness rules to an already-loaded session. Shared

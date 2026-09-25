@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -40,7 +41,7 @@ func (m *MockAuditPublisher) Record(_ context.Context, event audit.Event) error 
 // MockAuditLogRepo is an in-memory audit log repository for tests.
 type MockAuditLogRepo struct {
 	mu      sync.Mutex
-	entries []port.AuditLogEntry
+	entries []api.AuditLogEntry
 }
 
 // NewMockAuditLogRepo returns an in-memory audit log repository.
@@ -50,18 +51,18 @@ func NewMockAuditLogRepo() *MockAuditLogRepo {
 
 // AddEntry seeds a row directly — tests exercising List/CountByDay don't
 // need the real audit publisher pipeline wired up.
-func (m *MockAuditLogRepo) AddEntry(e port.AuditLogEntry) {
+func (m *MockAuditLogRepo) AddEntry(e api.AuditLogEntry) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.entries = append(m.entries, e)
 }
 
 // List returns matching audit entries.
-func (m *MockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, error) {
+func (m *MockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) ([]api.AuditLogEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var matched []port.AuditLogEntry
+	var matched []api.AuditLogEntry
 	for _, e := range m.entries {
 		if auditEntryMatchesFilter(e, filter) {
 			matched = append(matched, e)
@@ -97,7 +98,7 @@ func (m *MockAuditLogRepo) Count(_ context.Context, filter port.AuditLogFilter) 
 }
 
 // GetByID returns an audit entry by ID.
-func (m *MockAuditLogRepo) GetByID(_ context.Context, id string) (*port.AuditLogEntry, error) {
+func (m *MockAuditLogRepo) GetByID(_ context.Context, id string) (*api.AuditLogEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, e := range m.entries {
@@ -111,7 +112,7 @@ func (m *MockAuditLogRepo) GetByID(_ context.Context, id string) (*port.AuditLog
 
 // CountByDay groups matched entries by CreatedAt day — a small in-memory
 // stand-in for the real GROUP BY date_trunc('day', ...) query.
-func (m *MockAuditLogRepo) CountByDay(_ context.Context, filter port.AuditLogFilter) ([]port.DailyCount, error) {
+func (m *MockAuditLogRepo) CountByDay(_ context.Context, filter port.AuditLogFilter) ([]api.DailyCount, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -124,15 +125,15 @@ func (m *MockAuditLogRepo) CountByDay(_ context.Context, filter port.AuditLogFil
 		byDay[day]++
 	}
 
-	counts := make([]port.DailyCount, 0, len(byDay))
+	counts := make([]api.DailyCount, 0, len(byDay))
 	for day, count := range byDay {
-		counts = append(counts, port.DailyCount{Date: day, Count: count})
+		counts = append(counts, api.DailyCount{Date: day, Count: count})
 	}
 	sort.Slice(counts, func(i, j int) bool { return counts[i].Date.Before(counts[j].Date) })
 	return counts, nil
 }
 
-func auditEntryMatchesFilter(e port.AuditLogEntry, filter port.AuditLogFilter) bool {
+func auditEntryMatchesFilter(e api.AuditLogEntry, filter port.AuditLogFilter) bool {
 	if len(filter.Types) > 0 && !slices.Contains(filter.Types, e.Type) {
 		return false
 	}

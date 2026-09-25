@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -80,15 +81,8 @@ func (s *OrgService) requireRole(ctx context.Context, orgID, actorID string, min
 	return nil
 }
 
-// CreateOrgInput contains values used to create an organization.
-type CreateOrgInput struct {
-	Name    string
-	Slug    string
-	OwnerID string
-}
-
 // CreateOrg creates an organization.
-func (s *OrgService) CreateOrg(ctx context.Context, input CreateOrgInput) (*domain.Organization, error) {
+func (s *OrgService) CreateOrg(ctx context.Context, input api.CreateOrgInput) (*domain.Organization, error) {
 	if domain.ReservedOrgSlugs[input.Slug] {
 		return nil, domain.ErrOrgSlugReserved
 	}
@@ -163,14 +157,8 @@ func (s *OrgService) CreateOrg(ctx context.Context, input CreateOrgInput) (*doma
 	return org, nil
 }
 
-// GetOrgInput identifies an organization and requesting user.
-type GetOrgInput struct {
-	OrgID   string
-	ActorID string
-}
-
 // GetByID returns an organization by ID.
-func (s *OrgService) GetByID(ctx context.Context, input GetOrgInput) (*domain.Organization, error) {
+func (s *OrgService) GetByID(ctx context.Context, input api.GetOrgInput) (*domain.Organization, error) {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
 		return nil, err
 	}
@@ -185,14 +173,8 @@ func (s *OrgService) GetByID(ctx context.Context, input GetOrgInput) (*domain.Or
 	return org, nil
 }
 
-// GetOrgBySlugInput identifies an organization by slug and requesting user.
-type GetOrgBySlugInput struct {
-	Slug    string
-	ActorID string
-}
-
 // GetBySlug returns an organization by slug.
-func (s *OrgService) GetBySlug(ctx context.Context, input GetOrgBySlugInput) (*domain.Organization, error) {
+func (s *OrgService) GetBySlug(ctx context.Context, input api.GetOrgBySlugInput) (*domain.Organization, error) {
 	org, err := s.orgs.GetBySlug(ctx, input.Slug)
 	if err != nil {
 		s.log.Error("failed to get org by slug", "err", err, "slug", input.Slug)
@@ -207,16 +189,8 @@ func (s *OrgService) GetBySlug(ctx context.Context, input GetOrgBySlugInput) (*d
 	return org, nil
 }
 
-// UpdateOrgInput contains organization changes and the requesting user.
-type UpdateOrgInput struct {
-	OrgID   string
-	Name    *string
-	Slug    *string
-	ActorID string
-}
-
 // UpdateOrg changes an organization.
-func (s *OrgService) UpdateOrg(ctx context.Context, input UpdateOrgInput) (*domain.Organization, error) {
+func (s *OrgService) UpdateOrg(ctx context.Context, input api.UpdateOrgInput) (*domain.Organization, error) {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return nil, err
 	}
@@ -256,12 +230,6 @@ func (s *OrgService) UpdateOrg(ctx context.Context, input UpdateOrgInput) (*doma
 	}
 	s.log.Info("org updated", "org_id", org.ID, "slug", org.Slug)
 	return org, nil
-}
-
-// DeleteOrgInput identifies an organization to delete.
-type DeleteOrgInput struct {
-	OrgID   string
-	ActorID string
 }
 
 // deleteOrgTx does the actual work of deleting orgID — fetch, invariant
@@ -319,7 +287,7 @@ func (s *OrgService) deleteOrgTx(ctx context.Context, orgID string, record func(
 }
 
 // DeleteOrg deletes an organization.
-func (s *OrgService) DeleteOrg(ctx context.Context, input DeleteOrgInput) error {
+func (s *OrgService) DeleteOrg(ctx context.Context, input api.DeleteOrgInput) error {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleOwner); err != nil {
 		return err
 	}
@@ -334,26 +302,8 @@ func (s *OrgService) DeleteOrg(ctx context.Context, input DeleteOrgInput) error 
 	return err
 }
 
-// ListUserOrgsInput contains filters for a user's organizations.
-type ListUserOrgsInput struct {
-	UserID         string
-	Search         *string
-	Role           *domain.OrgRole
-	OrderBy        port.UserOrgSortField
-	OrderDirection port.SortDirection
-	Offset         int
-	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
-}
-
-// ListUserOrgsResult contains organizations and the matching total.
-type ListUserOrgsResult struct {
-	Orgs   []domain.Organization `json:"orgs"`
-	Limit  int                   `json:"limit"`
-	Offset int                   `json:"offset"`
-}
-
 // ListUserOrgs returns a user's organizations.
-func (s *OrgService) ListUserOrgs(ctx context.Context, input ListUserOrgsInput) (*ListUserOrgsResult, error) {
+func (s *OrgService) ListUserOrgs(ctx context.Context, input api.ListUserOrgsInput) (*api.ListUserOrgsResult, error) {
 	limit := 20
 	if input.Limit != nil {
 		limit = *input.Limit
@@ -377,17 +327,11 @@ func (s *OrgService) ListUserOrgs(ctx context.Context, input ListUserOrgsInput) 
 	if orgs == nil {
 		orgs = []domain.Organization{}
 	}
-	return &ListUserOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
-}
-
-// GetOrgMembershipInput identifies a user's organization membership.
-type GetOrgMembershipInput struct {
-	OrgID  string
-	UserID string
+	return &api.ListUserOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
 }
 
 // GetMembership returns a user's organization membership.
-func (s *OrgService) GetMembership(ctx context.Context, input GetOrgMembershipInput) (*domain.OrgMember, error) {
+func (s *OrgService) GetMembership(ctx context.Context, input api.GetOrgMembershipInput) (*domain.OrgMember, error) {
 	m, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
 	if err != nil {
 		return nil, err
@@ -396,14 +340,6 @@ func (s *OrgService) GetMembership(ctx context.Context, input GetOrgMembershipIn
 		return nil, domain.ErrOrgMemberNotFound
 	}
 	return m, nil
-}
-
-// AddMemberInput identifies the user and role to add to an organization.
-type AddMemberInput struct {
-	OrgID   string
-	UserID  string
-	Role    domain.OrgRole
-	ActorID string
 }
 
 // AddMember adds input.UserID to input.OrgID. There is no direct HTTP route
@@ -470,7 +406,7 @@ func (s *OrgService) addMemberTx(ctx context.Context, orgID, userID string, role
 }
 
 // AddMember adds a member to an organization.
-func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error {
+func (s *OrgService) AddMember(ctx context.Context, input api.AddMemberInput) error {
 	if !input.Role.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
@@ -483,13 +419,6 @@ func (s *OrgService) AddMember(ctx context.Context, input AddMemberInput) error 
 		}
 		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberInvited, input.ActorID, input.OrgID, &input.UserID))
 	})
-}
-
-// RemoveMemberInput identifies the member to remove from an organization.
-type RemoveMemberInput struct {
-	OrgID   string
-	UserID  string
-	ActorID string
 }
 
 // RemoveMember removes input.UserID from input.OrgID. input.ActorID must
@@ -581,7 +510,7 @@ func (s *OrgService) membershipRaceError(txCtx context.Context, orgID, userID st
 }
 
 // RemoveMember removes a member from an organization.
-func (s *OrgService) RemoveMember(ctx context.Context, input RemoveMemberInput) error {
+func (s *OrgService) RemoveMember(ctx context.Context, input api.RemoveMemberInput) error {
 	if input.ActorID != input.UserID {
 		if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 			return err
@@ -595,14 +524,6 @@ func (s *OrgService) RemoveMember(ctx context.Context, input RemoveMemberInput) 
 		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, input.ActorID, input.OrgID, &input.UserID))
 	})
 	return err
-}
-
-// UpdateMemberRoleInput identifies an organization member and their new role.
-type UpdateMemberRoleInput struct {
-	OrgID   string
-	UserID  string
-	NewRole domain.OrgRole
-	ActorID string // user performing the action
 }
 
 // updateMemberRoleTx does the actual work of changing userID's role within
@@ -708,7 +629,7 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 // This guard is deliberately kept out of updateMemberRoleTx — it protects
 // against a same-org Admin abusing the self-service path, which doesn't
 // apply to a platform admin acting via AdminUpdateMemberRole.
-func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRoleInput) error {
+func (s *OrgService) UpdateMemberRole(ctx context.Context, input api.UpdateMemberRoleInput) error {
 	if !input.NewRole.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
@@ -751,38 +672,13 @@ func (s *OrgService) UpdateMemberRole(ctx context.Context, input UpdateMemberRol
 	return nil
 }
 
-// LeaveOrgInput identifies the organization a user is leaving.
-type LeaveOrgInput struct {
-	OrgID  string
-	UserID string
-}
-
 // LeaveOrg removes the current user from an organization.
-func (s *OrgService) LeaveOrg(ctx context.Context, input LeaveOrgInput) error {
-	return s.RemoveMember(ctx, RemoveMemberInput{OrgID: input.OrgID, UserID: input.UserID, ActorID: input.UserID})
-}
-
-// ListMembersInput contains filters for an organization's members.
-type ListMembersInput struct {
-	OrgID          string
-	ActorID        string
-	Role           *domain.OrgRole
-	Search         *string
-	OrderBy        port.OrgMemberSortField
-	OrderDirection port.SortDirection
-	Offset         int
-	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
-}
-
-// ListMembersResult contains members and the matching total.
-type ListMembersResult struct {
-	Members []domain.OrgMemberDetail `json:"members"`
-	Limit   int                      `json:"limit"`
-	Offset  int                      `json:"offset"`
+func (s *OrgService) LeaveOrg(ctx context.Context, input api.LeaveOrgInput) error {
+	return s.RemoveMember(ctx, api.RemoveMemberInput{OrgID: input.OrgID, UserID: input.UserID, ActorID: input.UserID})
 }
 
 // ListMembers returns an organization's members.
-func (s *OrgService) ListMembers(ctx context.Context, input ListMembersInput) (*ListMembersResult, error) {
+func (s *OrgService) ListMembers(ctx context.Context, input api.ListMembersInput) (*api.ListMembersResult, error) {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
 		return nil, err
 	}
@@ -809,18 +705,11 @@ func (s *OrgService) ListMembers(ctx context.Context, input ListMembersInput) (*
 	if members == nil {
 		members = []domain.OrgMemberDetail{}
 	}
-	return &ListMembersResult{Members: members, Limit: limit, Offset: input.Offset}, nil
-}
-
-// SetActiveOrgInput identifies the session and organization to activate.
-type SetActiveOrgInput struct {
-	SessionID string
-	UserID    string
-	OrgID     string
+	return &api.ListMembersResult{Members: members, Limit: limit, Offset: input.Offset}, nil
 }
 
 // SetActiveOrg selects a session's active organization.
-func (s *OrgService) SetActiveOrg(ctx context.Context, input SetActiveOrgInput) error {
+func (s *OrgService) SetActiveOrg(ctx context.Context, input api.SetActiveOrgInput) error {
 	member, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
 	if err != nil {
 		return err
@@ -832,12 +721,7 @@ func (s *OrgService) SetActiveOrg(ctx context.Context, input SetActiveOrgInput) 
 	return s.sessions.SetActiveOrg(ctx, input.SessionID, input.OrgID, member.Role)
 }
 
-// ClearActiveOrgInput identifies the session whose active organization to clear.
-type ClearActiveOrgInput struct {
-	SessionID string
-}
-
 // ClearActiveOrg clears a session's active organization.
-func (s *OrgService) ClearActiveOrg(ctx context.Context, input ClearActiveOrgInput) error {
+func (s *OrgService) ClearActiveOrg(ctx context.Context, input api.ClearActiveOrgInput) error {
 	return s.sessions.ClearActiveOrg(ctx, input.SessionID)
 }

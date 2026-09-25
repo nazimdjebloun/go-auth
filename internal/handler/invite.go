@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -39,7 +39,7 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.services.Invite.CompleteInviteRegistration(r.Context(), service.CompleteInviteInput{
+	result, err := h.services.Invite.CompleteInviteRegistration(r.Context(), api.CompleteInviteInput{
 		Code:            body.Code,
 		Name:            body.Name,
 		Password:        body.Password,
@@ -79,7 +79,7 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.services.Invite.CreateInvite(r.Context(), service.CreateInviteInput{
+	result, err := h.services.Invite.CreateInvite(r.Context(), api.CreateInviteInput{
 		Email:   body.Email,
 		AdminID: user.ID,
 	})
@@ -111,7 +111,7 @@ func (h *Handler) ListInvites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	invites, err := h.services.Invite.ListInvites(r.Context(), service.ListInvitesInput{
+	invites, err := h.services.Invite.ListInvites(r.Context(), api.ListInvitesInput{
 		ActorID:        actor.ID,
 		Offset:         offset,
 		Limit:          limit,
@@ -134,7 +134,7 @@ func (h *Handler) CountInvites(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
-	n, err := h.services.Invite.CountInvites(r.Context(), service.ListInvitesInput{
+	n, err := h.services.Invite.CountInvites(r.Context(), api.ListInvitesInput{
 		ActorID: actor.ID,
 		Search:  r.URL.Query().Get("search"),
 		Status:  r.URL.Query().Get("status"),
@@ -210,7 +210,7 @@ func (h *Handler) BulkSendInvites(w http.ResponseWriter, r *http.Request) {
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := h.services.Invite.BulkSendInvites(r.Context(), service.BulkInviteEmailsInput{
+	result, err := h.services.Invite.BulkSendInvites(r.Context(), api.BulkInviteEmailsInput{
 		Emails: body.Emails, ActorID: actor.ID,
 	})
 	if err != nil {
@@ -240,7 +240,7 @@ func (h *Handler) BulkDeleteInvites(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) bulkInviteAction(
 	w http.ResponseWriter,
 	r *http.Request,
-	run func(context.Context, service.BulkInviteIDsInput) (*service.BulkInviteResult, error),
+	run func(context.Context, api.BulkInviteIDsInput) (*api.BulkInviteResult, error),
 ) {
 	actor := middleware.GetUserFromContext(r.Context())
 	if actor == nil {
@@ -251,7 +251,7 @@ func (h *Handler) bulkInviteAction(
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := run(r.Context(), service.BulkInviteIDsInput{
+	result, err := run(r.Context(), api.BulkInviteIDsInput{
 		InviteIDs: body.InviteIDs, ActorID: actor.ID,
 	})
 	if err != nil {

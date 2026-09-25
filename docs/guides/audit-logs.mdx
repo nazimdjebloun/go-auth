@@ -198,8 +198,10 @@ curl "https://api.myapp.com/admin/audit-logs?event_type=login.failed&limit=50" \
 
 #### Programmatic (Go)
 
+Go examples on this page import `github.com/nazimdjebloun/go-auth/api` for operation inputs and results.
+
 ```go
-result, err := auth.Services().Admin.ListAuditLogs(ctx, goauth.AdminListAuditLogsInput{
+result, err := auth.Services().Admin.ListAuditLogs(ctx, api.AdminListAuditLogsInput{
     ActorID:    adminID, // the admin making this call
     EventTypes: []string{"login.failed"},
     Limit:      50,
@@ -207,7 +209,7 @@ result, err := auth.Services().Admin.ListAuditLogs(ctx, goauth.AdminListAuditLog
 // result.Events
 ```
 
-`AdminService.ListAuditLogs` — not `auth.Services().AuditLog.List` directly — is the supported programmatic path: it's what resolves `EventActorEmail`/`TargetEmail` to IDs and enforces the calling actor is an admin, same as every other `auth.Services().Admin.*` method.
+`auth.Services().Admin.ListAuditLogs` — not `auth.Services().AuditLog.List` directly — is the supported programmatic path: it resolves `EventActorEmail`/`TargetEmail` to IDs and enforces that the calling actor is an admin, like the other `auth.Services().Admin` methods.
 
 ---
 
@@ -230,7 +232,7 @@ The matching total for the list, split into its own call so a paginated log view
 **Response** (`200 OK`): `{ "count": 1000 }`
 
 ```go
-n, err := auth.Services().Admin.CountAuditLogs(ctx, goauth.AdminListAuditLogsInput{
+n, err := auth.Services().Admin.CountAuditLogs(ctx, api.AdminListAuditLogsInput{
     ActorID:    adminID,
     EventTypes: []string{"login.failed"},
 })
@@ -263,7 +265,7 @@ curl "https://api.myapp.com/admin/users/b3f1.../audit-logs?limit=50" \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services().Admin.ListAuditLogs(ctx, goauth.AdminListAuditLogsInput{
+result, err := auth.Services().Admin.ListAuditLogs(ctx, api.AdminListAuditLogsInput{
     ActorID:      adminID,
     TargetUserID: &userID,
     Limit:        50,

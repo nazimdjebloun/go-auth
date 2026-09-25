@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -173,7 +174,7 @@ func (m *MockSessionRepo) ListAll(_ context.Context, filter port.SessionFilter) 
 		default:
 			ci, cj = res[i].CreatedAt, res[j].CreatedAt
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return ci.Before(cj)
 		}
 		return ci.After(cj)

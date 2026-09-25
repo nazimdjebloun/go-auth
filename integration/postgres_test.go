@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/stdlib"
 	goauth "github.com/nazimdjebloun/go-auth"
-	"github.com/nazimdjebloun/go-auth/internal/service"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -111,7 +111,7 @@ func TestPostgres_RegisterAndValidateSession(t *testing.T) {
 	ctx := context.Background()
 
 	// Register
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "alice@pg.test",
 		Password: validTestPassword(),
 		Name:     "Alice",
@@ -179,7 +179,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	ctx := context.Background()
 
 	// Register (admin email skips verified check for login)
-	if _, aerr := a.Register(ctx, goauth.RegisterInput{
+	if _, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "admin@pg.test",
 		Password: validTestPassword(),
 		Name:     "Admin",
@@ -188,7 +188,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	}
 
 	// Forgot password
-	if aerr := a.Services().Password.ForgotPassword(ctx, service.ForgotPasswordInput{
+	if aerr := a.Services().Password.ForgotPassword(ctx, api.ForgotPasswordInput{
 		Email: "admin@pg.test",
 	}); aerr != nil {
 		t.Fatal(aerr)
@@ -201,7 +201,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	}
 
 	// Reset password
-	if aerr := a.Services().Password.ResetPassword(ctx, service.ResetPasswordInput{
+	if aerr := a.Services().Password.ResetPassword(ctx, api.ResetPasswordInput{
 		Code:        resetToken,
 		NewPassword: "NewP@sswd2",
 	}); aerr != nil {
@@ -209,7 +209,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 	}
 
 	// Login with new password
-	if _, aerr := a.Services().Auth.Login(ctx, service.LoginInput{
+	if _, aerr := a.Services().Auth.Login(ctx, api.LoginInput{
 		Email:    "admin@pg.test",
 		Password: "NewP@sswd2",
 	}); aerr != nil {

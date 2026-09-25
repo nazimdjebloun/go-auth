@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/nazimdjebloun/go-auth/internal/service"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -59,7 +59,7 @@ func (h *Handler) GetRegistrationTrend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	counts, err := h.services.Admin.GetRegistrationTrend(r.Context(), service.StatsRangeInput{
+	counts, err := h.services.Admin.GetRegistrationTrend(r.Context(), api.StatsRangeInput{
 		ActorID: actor.ID, From: from, To: to,
 	})
 	if err != nil {
@@ -86,7 +86,7 @@ func (h *Handler) GetLoginActivity(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("userId"); v != "" {
 		userID = &v
 	}
-	counts, err := h.services.Admin.GetLoginActivity(r.Context(), service.LoginActivityInput{
+	counts, err := h.services.Admin.GetLoginActivity(r.Context(), api.LoginActivityInput{
 		ActorID: actor.ID, UserID: userID, From: from, To: to,
 	})
 	if err != nil {

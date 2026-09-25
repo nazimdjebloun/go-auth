@@ -2,8 +2,10 @@ package port
 
 import (
 	"context"
-	"github.com/nazimdjebloun/go-auth/domain"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/api"
+	"github.com/nazimdjebloun/go-auth/domain"
 )
 
 // OrgMemberFilter narrows and orders OrgCRUD.ListMembers within one org.
@@ -12,8 +14,8 @@ import (
 type OrgMemberFilter struct {
 	Role           *domain.OrgRole
 	Search         *string // matches member's name or email
-	OrderBy        OrgMemberSortField
-	OrderDirection SortDirection
+	OrderBy        api.OrgMemberSortField
+	OrderDirection api.SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }
@@ -22,8 +24,8 @@ type OrgMemberFilter struct {
 type UserOrgFilter struct {
 	Search         *string         // matches org name or slug
 	Role           *domain.OrgRole // nil = all roles, else owner/admin/member
-	OrderBy        UserOrgSortField
-	OrderDirection SortDirection
+	OrderBy        api.UserOrgSortField
+	OrderDirection api.SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }
@@ -35,8 +37,8 @@ type OrgFilter struct {
 	Search         *string // matches org name or slug
 	CreatedAfter   *time.Time
 	CreatedBefore  *time.Time
-	OrderBy        OrgSortField
-	OrderDirection SortDirection
+	OrderBy        api.OrgSortField
+	OrderDirection api.SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }

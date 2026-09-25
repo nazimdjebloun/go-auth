@@ -18,9 +18,9 @@ import (
 	"time"
 
 	goauth "github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/schema"
-	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	_ "modernc.org/sqlite"
@@ -297,7 +297,7 @@ func TestRegister_CreatesUserAndSession(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "alice@example.com",
 		Password: validTestPassword(),
 		Name:     "Alice",
@@ -345,7 +345,7 @@ func TestSession_ValidateAfterRegister(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "bob@example.com",
 		Password: validTestPassword(),
 		Name:     "Bob",
@@ -374,7 +374,7 @@ func TestSession_RevokeInvalidates(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "carol@example.com",
 		Password: validTestPassword(),
 		Name:     "Carol",
@@ -401,7 +401,7 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	alice, aerr := a.Register(ctx, goauth.RegisterInput{
+	alice, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "alice@revoke.com",
 		Password: validTestPassword(),
 		Name:     "Alice",
@@ -409,7 +409,7 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	bob, aerr := a.Register(ctx, goauth.RegisterInput{
+	bob, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "bob@revoke.com",
 		Password: validTestPassword(),
 		Name:     "Bob",
@@ -460,7 +460,7 @@ func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	alice, aerr := a.Register(ctx, goauth.RegisterInput{
+	alice, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "alice2@revoke.com",
 		Password: validTestPassword(),
 		Name:     "Alice",
@@ -468,7 +468,7 @@ func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	bob, aerr := a.Register(ctx, goauth.RegisterInput{
+	bob, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "bob2@revoke.com",
 		Password: validTestPassword(),
 		Name:     "Bob",
@@ -514,7 +514,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 
 	// Register with an admin email so Login skips the email-verified check.
 	var aerr error
-	registered, aerr := a.Register(ctx, goauth.RegisterInput{
+	registered, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "admin@test.com",
 		Password: validTestPassword(),
 		Name:     "Admin",
@@ -524,7 +524,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 	}
 
 	// Forgot password
-	if aerr := a.Services().Password.ForgotPassword(ctx, service.ForgotPasswordInput{
+	if aerr := a.Services().Password.ForgotPassword(ctx, api.ForgotPasswordInput{
 		Email: "admin@test.com",
 	}); aerr != nil {
 		t.Fatal(aerr)
@@ -553,7 +553,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 	}
 
 	// Reset password
-	if aerr := a.Services().Password.ResetPassword(ctx, service.ResetPasswordInput{
+	if aerr := a.Services().Password.ResetPassword(ctx, api.ResetPasswordInput{
 		Code:        resetToken,
 		NewPassword: "NewP@sswd2",
 	}); aerr != nil {
@@ -577,7 +577,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 	}
 
 	// Login with new password succeeds
-	if _, aerr = a.Services().Auth.Login(ctx, service.LoginInput{
+	if _, aerr = a.Services().Auth.Login(ctx, api.LoginInput{
 		Email:    "admin@test.com",
 		Password: "NewP@sswd2",
 	}); aerr != nil {
@@ -585,7 +585,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 	}
 
 	// Login with old password fails
-	if _, aerr = a.Services().Auth.Login(ctx, service.LoginInput{
+	if _, aerr = a.Services().Auth.Login(ctx, api.LoginInput{
 		Email:    "admin@test.com",
 		Password: validTestPassword(),
 	}); aerr == nil {
@@ -603,7 +603,7 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 	ctx := context.Background()
 
 	// Register an admin
-	admin, aerr := a.Register(ctx, goauth.RegisterInput{
+	admin, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "admin@test.com",
 		Password: validTestPassword(),
 		Name:     "Admin",
@@ -619,7 +619,7 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 	}
 
 	// Create invite
-	invite, aerr := a.Services().Invite.CreateInvite(ctx, service.CreateInviteInput{
+	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{
 		Email:   "invitee@example.com",
 		AdminID: admin.User.ID,
 	})
@@ -654,7 +654,7 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 	}
 
 	// Complete registration
-	regResult, aerr := a.CompleteInviteRegistration(ctx, goauth.CompleteInviteInput{
+	regResult, aerr := a.CompleteInviteRegistration(ctx, api.CompleteInviteInput{
 		Code:            knownRaw,
 		Name:            "Invitee",
 		Password:        "Inv@lidPwd1",
@@ -700,7 +700,7 @@ func TestCheckSession_ValidToken(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "check@test.com",
 		Password: validTestPassword(),
 		Name:     "Check",
@@ -774,7 +774,7 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "expire@test.com",
 		Password: validTestPassword(),
 		Name:     "Expire",
@@ -798,7 +798,7 @@ func TestCheckSession_BannedUser(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "banned@test.com",
 		Password: validTestPassword(),
 		Name:     "Banned",
@@ -809,7 +809,7 @@ func TestCheckSession_BannedUser(t *testing.T) {
 
 	// Promote a second user to admin so BanUser's actor authorization check
 	// has someone to authorize.
-	admin, aerr := a.Register(ctx, goauth.RegisterInput{
+	admin, aerr := a.Register(ctx, api.RegisterInput{
 		Email: "banner-admin@test.com", Password: validTestPassword(), Name: "Admin",
 	})
 	if aerr != nil {
@@ -820,7 +820,7 @@ func TestCheckSession_BannedUser(t *testing.T) {
 	}
 
 	// Ban the user via admin service
-	if aerr := a.Services().Admin.BanUser(ctx, service.BanUserInput{UserID: res.User.ID, ActorID: admin.User.ID}); aerr != nil {
+	if aerr := a.Services().Admin.BanUser(ctx, api.BanUserInput{UserID: res.User.ID, ActorID: admin.User.ID}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -836,7 +836,7 @@ func TestCheckSession_AfterLogout(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "logout@test.com",
 		Password: validTestPassword(),
 		Name:     "Logout",
@@ -862,7 +862,7 @@ func TestGetSession_ValidToken(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "getsession@test.com",
 		Password: validTestPassword(),
 		Name:     "GetSession",
@@ -951,7 +951,7 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "expire-get@test.com",
 		Password: validTestPassword(),
 		Name:     "ExpireGet",
@@ -981,7 +981,7 @@ func TestGetSession_BannedUser(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "banned-get@test.com",
 		Password: validTestPassword(),
 		Name:     "BannedGet",
@@ -992,7 +992,7 @@ func TestGetSession_BannedUser(t *testing.T) {
 
 	// Promote a second user to admin so BanUser's actor authorization check
 	// has someone to authorize.
-	admin, aerr2 := a.Register(ctx, goauth.RegisterInput{
+	admin, aerr2 := a.Register(ctx, api.RegisterInput{
 		Email: "banner-admin-get@test.com", Password: validTestPassword(), Name: "Admin",
 	})
 	if aerr2 != nil {
@@ -1003,7 +1003,7 @@ func TestGetSession_BannedUser(t *testing.T) {
 	}
 
 	// Ban the user
-	if aerr = a.Services().Admin.BanUser(ctx, service.BanUserInput{UserID: res.User.ID, ActorID: admin.User.ID}); aerr != nil {
+	if aerr = a.Services().Admin.BanUser(ctx, api.BanUserInput{UserID: res.User.ID, ActorID: admin.User.ID}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -1027,7 +1027,7 @@ func TestGetSession_ReturnsFullUserWithRole(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "role-check@test.com",
 		Password: validTestPassword(),
 		Name:     "RoleCheck",
@@ -1064,7 +1064,7 @@ func TestGetSession_AfterLogoutReturnsError(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "revoked-get@test.com",
 		Password: validTestPassword(),
 		Name:     "RevokedGet",
@@ -1099,7 +1099,7 @@ func TestRefreshToken_E2E(t *testing.T) {
 
 	ctx := context.Background()
 
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "grace@example.com",
 		Password: validTestPassword(),
 		Name:     "Grace",
@@ -1195,7 +1195,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 	defer a.Close()
 
 	ctx := context.Background()
-	res, aerr := a.Register(ctx, goauth.RegisterInput{
+	res, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "audit@example.com",
 		Password: validTestPassword(),
 		Name:     "Audit",
@@ -1209,7 +1209,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 
 	// Both a user-agent-carrying event (login) and one with neither parsed_ua
 	// nor metadata (admin-created user) exercise the NULL scan path.
-	if _, aerr := a.Login(ctx, goauth.LoginInput{
+	if _, aerr := a.Login(ctx, api.LoginInput{
 		Email:     "audit@example.com",
 		Password:  validTestPassword(),
 		UserAgent: "TestAgent/1.0",
@@ -1217,7 +1217,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	var events []port.AuditLogEntry
+	var events []api.AuditLogEntry
 	var err error
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -1392,7 +1392,7 @@ func TestTwoFactor_VerifyThenEnable_LaterLoginRequiresTwoFactor(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Services().Auth.Register(ctx, service.RegisterInput{
+	reg, aerr := a.Services().Auth.Register(ctx, api.RegisterInput{
 		Email:    "dana@example.com",
 		Password: validTestPassword(),
 		Name:     "Dana",
@@ -1417,7 +1417,7 @@ func TestTwoFactor_VerifyThenEnable_LaterLoginRequiresTwoFactor(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	login, aerr := a.Services().Auth.Login(ctx, service.LoginInput{
+	login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{
 		Email:    "dana@example.com",
 		Password: validTestPassword(),
 	})
@@ -1455,7 +1455,7 @@ func TestTwoFactor_RegisterWithRequireEmail2FA_ChallengeThenVerify(t *testing.T)
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Services().Auth.Register(ctx, service.RegisterInput{
+	reg, aerr := a.Services().Auth.Register(ctx, api.RegisterInput{
 		Email:    "erin@example.com",
 		Password: validTestPassword(),
 		Name:     "Erin",
@@ -1494,7 +1494,7 @@ func TestTwoFactor_EnableDisable_PersistsToDB(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Register(ctx, goauth.RegisterInput{
+	reg, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "frank@example.com",
 		Password: validTestPassword(),
 		Name:     "Frank",
@@ -1530,7 +1530,7 @@ func TestTwoFactor_AttemptCap_ResendFails_FreshLoginIssuesNewCode(t *testing.T) 
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Register(ctx, goauth.RegisterInput{
+	reg, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "grace@example.com",
 		Password: validTestPassword(),
 		Name:     "Grace",
@@ -1542,7 +1542,7 @@ func TestTwoFactor_AttemptCap_ResendFails_FreshLoginIssuesNewCode(t *testing.T) 
 		t.Fatal(aerr)
 	}
 
-	login, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "grace@example.com", Password: validTestPassword()})
+	login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "grace@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1570,7 +1570,7 @@ func TestTwoFactor_AttemptCap_ResendFails_FreshLoginIssuesNewCode(t *testing.T) 
 
 	// A fresh Login still works — Challenge replaces the dead lineage rather
 	// than refusing (see TwoFactorService.Challenge).
-	login2, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "grace@example.com", Password: validTestPassword()})
+	login2, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "grace@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1604,7 +1604,7 @@ func TestTwoFactor_NoAccountLevelRefusal_AcrossManyLineages(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Register(ctx, goauth.RegisterInput{
+	reg, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "henry@example.com",
 		Password: validTestPassword(),
 		Name:     "Henry",
@@ -1619,7 +1619,7 @@ func TestTwoFactor_NoAccountLevelRefusal_AcrossManyLineages(t *testing.T) {
 	const lineages = 8 // 8 * 5 = 40 recorded failures
 	var lastChallenge string
 	for i := 0; i < lineages; i++ {
-		login, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "henry@example.com", Password: validTestPassword()})
+		login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "henry@example.com", Password: validTestPassword()})
 		if aerr != nil {
 			t.Fatalf("login %d: expected a fresh challenge, not an account-level refusal: %v", i, aerr)
 		}
@@ -1649,7 +1649,7 @@ func TestTwoFactor_ResendCeiling(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Register(ctx, goauth.RegisterInput{
+	reg, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "ivy@example.com",
 		Password: validTestPassword(),
 		Name:     "Ivy",
@@ -1660,7 +1660,7 @@ func TestTwoFactor_ResendCeiling(t *testing.T) {
 	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, ""); aerr != nil {
 		t.Fatal(aerr)
 	}
-	login, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "ivy@example.com", Password: validTestPassword()})
+	login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "ivy@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1683,7 +1683,7 @@ func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Register(ctx, goauth.RegisterInput{
+	reg, aerr := a.Register(ctx, api.RegisterInput{
 		Email:    "jack@example.com",
 		Password: validTestPassword(),
 		Name:     "Jack",
@@ -1694,7 +1694,7 @@ func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
 	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, ""); aerr != nil {
 		t.Fatal(aerr)
 	}
-	login, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "jack@example.com", Password: validTestPassword()})
+	login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "jack@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1752,7 +1752,7 @@ func TestRegister_ConcurrentSameEmail_OneWinsOneGetsEmailAlreadyExists(t *testin
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := a.Register(ctx, goauth.RegisterInput{
+			_, err := a.Register(ctx, api.RegisterInput{
 				Email:    "race@example.com",
 				Password: validTestPassword(),
 				Name:     "Race Condition",
@@ -1789,14 +1789,14 @@ func TestTwoFactor_ChallengeBinding_RequiredByDefault(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	regA, aerr := a.Register(ctx, goauth.RegisterInput{Email: "kate@example.com", Password: validTestPassword(), Name: "Kate"})
+	regA, aerr := a.Register(ctx, api.RegisterInput{Email: "kate@example.com", Password: validTestPassword(), Name: "Kate"})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	if aerr := a.Services().TwoFactor.Enable(ctx, regA.User.ID, validTestPassword(), true, ""); aerr != nil {
 		t.Fatal(aerr)
 	}
-	regB, aerr := a.Register(ctx, goauth.RegisterInput{Email: "leo@example.com", Password: validTestPassword(), Name: "Leo"})
+	regB, aerr := a.Register(ctx, api.RegisterInput{Email: "leo@example.com", Password: validTestPassword(), Name: "Leo"})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1804,13 +1804,13 @@ func TestTwoFactor_ChallengeBinding_RequiredByDefault(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	loginA, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "kate@example.com", Password: validTestPassword()})
+	loginA, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "kate@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	codeA := extractCodeAfter(mailer.lastBody(), "Your code: ")
 
-	loginB, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "leo@example.com", Password: validTestPassword()})
+	loginB, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "leo@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1841,14 +1841,14 @@ func TestTwoFactor_ChallengeBinding_DisabledSkipsCheck(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Services().Auth.Register(ctx, service.RegisterInput{Email: "mona@example.com", Password: validTestPassword(), Name: "Mona"})
+	reg, aerr := a.Services().Auth.Register(ctx, api.RegisterInput{Email: "mona@example.com", Password: validTestPassword(), Name: "Mona"})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, ""); aerr != nil {
 		t.Fatal(aerr)
 	}
-	login, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "mona@example.com", Password: validTestPassword()})
+	login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "mona@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1869,7 +1869,7 @@ func TestTwoFactor_DefaultTwoFactorEnabled_GatedUntilDisabled(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Services().Auth.Register(ctx, service.RegisterInput{Email: "nina@example.com", Password: validTestPassword(), Name: "Nina"})
+	reg, aerr := a.Services().Auth.Register(ctx, api.RegisterInput{Email: "nina@example.com", Password: validTestPassword(), Name: "Nina"})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1885,7 +1885,7 @@ func TestTwoFactor_DefaultTwoFactorEnabled_GatedUntilDisabled(t *testing.T) {
 		t.Fatal("expected the new user to be seeded with two_factor_enabled=true")
 	}
 
-	login, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "nina@example.com", Password: validTestPassword()})
+	login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "nina@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1903,7 +1903,7 @@ func TestTwoFactor_DefaultTwoFactorEnabled_GatedUntilDisabled(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	login2, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "nina@example.com", Password: validTestPassword()})
+	login2, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "nina@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1925,7 +1925,7 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 
 	// Register (also gated under RequireEmail2FA), verify, then promote to
 	// admin directly so AdminLogin can be exercised in isolation.
-	reg, aerr := a.Services().Auth.Register(ctx, service.RegisterInput{Email: "oscar@example.com", Password: validTestPassword(), Name: "Oscar"})
+	reg, aerr := a.Services().Auth.Register(ctx, api.RegisterInput{Email: "oscar@example.com", Password: validTestPassword(), Name: "Oscar"})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1942,7 +1942,7 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	adminLogin, aerr := a.Services().Auth.AdminLogin(ctx, service.LoginInput{Email: "oscar@example.com", Password: validTestPassword()})
+	adminLogin, aerr := a.Services().Auth.AdminLogin(ctx, api.LoginInput{Email: "oscar@example.com", Password: validTestPassword()})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1958,7 +1958,7 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 	}
 
 	// Invite registration is gated the same way as Register.
-	invite, aerr := a.Services().Invite.CreateInvite(ctx, service.CreateInviteInput{Email: "pat@example.com", AdminID: user.ID})
+	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{Email: "pat@example.com", AdminID: user.ID})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1968,7 +1968,7 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	inviteResult, aerr := a.Services().Invite.CompleteInviteRegistration(ctx, service.CompleteInviteInput{
+	inviteResult, aerr := a.Services().Invite.CompleteInviteRegistration(ctx, api.CompleteInviteInput{
 		Code:            knownRaw,
 		Name:            "Pat",
 		Password:        "Inv@lidPwd1",
@@ -1997,12 +1997,12 @@ func TestTwoFactor_Enable_RevokesOtherSessionsByDefault(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Register(ctx, goauth.RegisterInput{Email: "quinn@example.com", Password: validTestPassword(), Name: "Quinn"})
+	reg, aerr := a.Register(ctx, api.RegisterInput{Email: "quinn@example.com", Password: validTestPassword(), Name: "Quinn"})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	// A second session from another device.
-	if _, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "quinn@example.com", Password: validTestPassword(), IP: "10.0.0.2", UserAgent: "second-device"}); aerr != nil {
+	if _, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "quinn@example.com", Password: validTestPassword(), IP: "10.0.0.2", UserAgent: "second-device"}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -2038,11 +2038,11 @@ func TestTwoFactor_Enable_KeepOtherSessionsLeavesBoth(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	reg, aerr := a.Register(ctx, goauth.RegisterInput{Email: "ray@example.com", Password: validTestPassword(), Name: "Ray"})
+	reg, aerr := a.Register(ctx, api.RegisterInput{Email: "ray@example.com", Password: validTestPassword(), Name: "Ray"})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if _, aerr := a.Services().Auth.Login(ctx, service.LoginInput{Email: "ray@example.com", Password: validTestPassword(), IP: "10.0.0.3", UserAgent: "second-device"}); aerr != nil {
+	if _, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "ray@example.com", Password: validTestPassword(), IP: "10.0.0.3", UserAgent: "second-device"}); aerr != nil {
 		t.Fatal(aerr)
 	}
 

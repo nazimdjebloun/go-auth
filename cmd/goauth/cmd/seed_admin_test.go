@@ -8,6 +8,7 @@ import (
 	"time"
 
 	goauth "github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -68,7 +69,7 @@ func (f *fakeUserRepo) Count(_ context.Context, filter port.UserFilter) (int, er
 	return len(f.byEmail), nil
 }
 
-func (f *fakeUserRepo) CountByDay(_ context.Context, _ port.UserFilter) ([]port.DailyCount, error) {
+func (f *fakeUserRepo) CountByDay(_ context.Context, _ port.UserFilter) ([]api.DailyCount, error) {
 	return nil, nil
 }
 func (f *fakeUserRepo) SetPasswordAndVerify(_ context.Context, _, _ string, _ *uint32, _ string) (bool, error) {

@@ -3,7 +3,7 @@ package handler
 import (
 	"net/http"
 
-	"github.com/nazimdjebloun/go-auth/internal/service"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -16,7 +16,7 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Password.ForgotPassword(r.Context(), service.ForgotPasswordInput{Email: body.Email}); err != nil {
+	if err := h.services.Password.ForgotPassword(r.Context(), api.ForgotPasswordInput{Email: body.Email}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -35,7 +35,7 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Password.ResetPassword(r.Context(), service.ResetPasswordInput{
+	if err := h.services.Password.ResetPassword(r.Context(), api.ResetPasswordInput{
 		Code:        body.Code,
 		NewPassword: body.NewPassword,
 	}); err != nil {
@@ -63,7 +63,7 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	input := service.ChangePasswordInput{
+	input := api.ChangePasswordInput{
 		UserID:      user.ID,
 		OldPassword: body.OldPassword,
 		NewPassword: body.NewPassword,
@@ -106,7 +106,7 @@ func (h *Handler) SetPasswordConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Password.ConfirmSetPassword(r.Context(), service.ConfirmSetPasswordInput{
+	if err := h.services.Password.ConfirmSetPassword(r.Context(), api.ConfirmSetPasswordInput{
 		UserID:      body.UserID,
 		Code:        body.Code,
 		NewPassword: body.NewPassword,
@@ -175,7 +175,7 @@ func (h *Handler) ConfirmDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// User ID always comes from the authenticated session — never from the body.
-	if err := h.services.Auth.ConfirmDeleteAccount(r.Context(), service.ConfirmDeleteAccountInput{
+	if err := h.services.Auth.ConfirmDeleteAccount(r.Context(), api.ConfirmDeleteAccountInput{
 		UserID: user.ID,
 		Code:   body.Code,
 	}); err != nil {

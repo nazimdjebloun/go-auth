@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -322,7 +323,7 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 		orderCol = "created_at"
 	}
 	orderDir := "DESC"
-	if filter.OrderDirection == port.SortAscending {
+	if filter.OrderDirection == api.SortAscending {
 		orderDir = "ASC"
 	}
 
@@ -374,7 +375,7 @@ func (r *UserRepository) Count(ctx context.Context, filter port.UserFilter) (int
 // CountByDay returns registrations per day matching filter — Offset/Limit on
 // filter are ignored, the result is naturally bounded by whatever date range
 // filter.CreatedAfter/CreatedBefore narrows it to.
-func (r *UserRepository) CountByDay(ctx context.Context, filter port.UserFilter) ([]port.DailyCount, error) {
+func (r *UserRepository) CountByDay(ctx context.Context, filter port.UserFilter) ([]api.DailyCount, error) {
 	whereClause, args := r.buildWhere(filter)
 
 	var dayExpr string
@@ -398,9 +399,9 @@ func (r *UserRepository) CountByDay(ctx context.Context, filter port.UserFilter)
 		return nil, err
 	}
 
-	var counts []port.DailyCount
+	var counts []api.DailyCount
 	for rows.Next() {
-		var c port.DailyCount
+		var c api.DailyCount
 		var day time.Time
 		if r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
 			// modernc.org/sqlite returns date() as a string, not a time.Time.
@@ -424,7 +425,7 @@ func (r *UserRepository) CountByDay(ctx context.Context, filter port.UserFilter)
 		counts = append(counts, c)
 	}
 	if counts == nil {
-		counts = []port.DailyCount{}
+		counts = []api.DailyCount{}
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -51,30 +52,30 @@ func TestAdminTargetLookupErrors(t *testing.T) {
 		run  func(*AdminService, string) error
 	}{
 		{"ban", func(s *AdminService, a string) error {
-			return s.BanUser(t.Context(), BanUserInput{UserID: "target", ActorID: a})
+			return s.BanUser(t.Context(), api.BanUserInput{UserID: "target", ActorID: a})
 		}},
 		{"unban", func(s *AdminService, a string) error {
-			return s.UnbanUser(t.Context(), UnbanUserInput{UserID: "target", ActorID: a})
+			return s.UnbanUser(t.Context(), api.UnbanUserInput{UserID: "target", ActorID: a})
 		}},
 		{"role", func(s *AdminService, a string) error {
-			return s.UpdateUserRole(t.Context(), UpdateUserRoleInput{UserID: "target", ActorID: a, Role: "user"})
+			return s.UpdateUserRole(t.Context(), api.UpdateUserRoleInput{UserID: "target", ActorID: a, Role: "user"})
 		}},
 		{"delete", func(s *AdminService, a string) error {
-			return s.DeleteUser(t.Context(), DeleteUserInput{UserID: "target", ActorID: a})
+			return s.DeleteUser(t.Context(), api.DeleteUserInput{UserID: "target", ActorID: a})
 		}},
 		{"detail", func(s *AdminService, a string) error {
-			_, err := s.GetUserDetail(t.Context(), GetUserDetailInput{UserID: "target", ActorID: a})
+			_, err := s.GetUserDetail(t.Context(), api.GetUserDetailInput{UserID: "target", ActorID: a})
 			return err
 		}},
 		{"revoke all", func(s *AdminService, a string) error {
-			return s.RevokeUserSessions(t.Context(), RevokeUserSessionsInput{UserID: "target", ActorID: a})
+			return s.RevokeUserSessions(t.Context(), api.RevokeUserSessionsInput{UserID: "target", ActorID: a})
 		}},
 		{"list sessions", func(s *AdminService, a string) error {
-			_, _, err := s.ListUserSessions(t.Context(), AdminListUserSessionsInput{UserID: "target", ActorID: a})
+			_, _, err := s.ListUserSessions(t.Context(), api.AdminListUserSessionsInput{UserID: "target", ActorID: a})
 			return err
 		}},
 		{"revoke session", func(s *AdminService, a string) error {
-			return s.RevokeUserSession(t.Context(), RevokeUserSessionInput{UserID: "target", ActorID: a, SessionID: "session"})
+			return s.RevokeUserSession(t.Context(), api.RevokeUserSessionInput{UserID: "target", ActorID: a, SessionID: "session"})
 		}},
 	}
 	backend := errors.New("database unavailable")

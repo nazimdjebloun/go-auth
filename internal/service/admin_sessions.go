@@ -2,20 +2,14 @@ package service
 
 import (
 	"context"
-	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-// RevokeUserSessionsInput identifies the user whose sessions to revoke.
-type RevokeUserSessionsInput struct {
-	UserID  string
-	ActorID string
-}
-
 // RevokeUserSessions revokes every session for a user.
-func (s *AdminService) RevokeUserSessions(ctx context.Context, input RevokeUserSessionsInput) error {
+func (s *AdminService) RevokeUserSessions(ctx context.Context, input api.RevokeUserSessionsInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
@@ -33,36 +27,10 @@ func (s *AdminService) RevokeUserSessions(ctx context.Context, input RevokeUserS
 	return nil
 }
 
-// AdminListSessionsInput scopes an admin-wide session search — every filter
-// beyond ActorID is optional and composable (e.g. UserID + IP together).
-type AdminListSessionsInput struct {
-	ActorID          string
-	UserID           *string
-	IP               *string
-	Search           *string
-	CreatedAfter     *time.Time
-	CreatedBefore    *time.Time
-	ExpiresAfter     *time.Time
-	ExpiresBefore    *time.Time
-	LastActiveAfter  *time.Time
-	LastActiveBefore *time.Time
-	OrderBy          port.SessionSortField
-	OrderDirection   port.SortDirection
-	Offset           int
-	Limit            int
-}
-
-// AdminListSessionsResult contains sessions and the matching total.
-type AdminListSessionsResult struct {
-	Sessions []domain.Session `json:"sessions"`
-	Limit    int              `json:"limit"`
-	Offset   int              `json:"offset"`
-}
-
 // ListSessions returns active sessions across every user — the
 // incident-response view ("who's logged in right now", "every session from
 // this IP"), as opposed to ListUserSessions which is scoped to one user.
-func (s *AdminService) ListSessions(ctx context.Context, input AdminListSessionsInput) (*AdminListSessionsResult, error) {
+func (s *AdminService) ListSessions(ctx context.Context, input api.AdminListSessionsInput) (*api.AdminListSessionsResult, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -79,10 +47,10 @@ func (s *AdminService) ListSessions(ctx context.Context, input AdminListSessions
 		return nil, domain.ErrInternal
 	}
 
-	return &AdminListSessionsResult{Sessions: sessions, Limit: limit, Offset: input.Offset}, nil
+	return &api.AdminListSessionsResult{Sessions: sessions, Limit: limit, Offset: input.Offset}, nil
 }
 
-func (s *AdminService) sessionFilterFromInput(input AdminListSessionsInput, limit int) port.SessionFilter {
+func (s *AdminService) sessionFilterFromInput(input api.AdminListSessionsInput, limit int) port.SessionFilter {
 	return port.SessionFilter{
 		UserID:           input.UserID,
 		IP:               input.IP,
@@ -102,7 +70,7 @@ func (s *AdminService) sessionFilterFromInput(input AdminListSessionsInput, limi
 
 // CountSessions returns how many sessions match the input's filters
 // (pagination ignored).
-func (s *AdminService) CountSessions(ctx context.Context, input AdminListSessionsInput) (int, error) {
+func (s *AdminService) CountSessions(ctx context.Context, input api.AdminListSessionsInput) (int, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return 0, err
 	}
@@ -117,7 +85,7 @@ func (s *AdminService) CountSessions(ctx context.Context, input AdminListSession
 }
 
 // ListUserSessions returns a page of sessions for a user.
-func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUserSessionsInput) ([]domain.Session, int, error) {
+func (s *AdminService) ListUserSessions(ctx context.Context, input api.AdminListUserSessionsInput) ([]domain.Session, int, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, 0, err
 	}
@@ -135,15 +103,8 @@ func (s *AdminService) ListUserSessions(ctx context.Context, input AdminListUser
 	return sessions, total, nil
 }
 
-// RevokeUserSessionInput identifies one user session to revoke.
-type RevokeUserSessionInput struct {
-	UserID    string
-	SessionID string
-	ActorID   string
-}
-
 // RevokeUserSession revokes one session for a user.
-func (s *AdminService) RevokeUserSession(ctx context.Context, input RevokeUserSessionInput) error {
+func (s *AdminService) RevokeUserSession(ctx context.Context, input api.RevokeUserSessionInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}

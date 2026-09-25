@@ -77,10 +77,12 @@ Full reference for both, including how they interact with everything else: [Conf
 
 `a.Services().Auth.Login` (and `Register`) return raw tokens — no cookies are set, since the service layer never touches `net/http`. If you're writing a custom handler (a different response shape, extra steps before the session is issued) instead of using the built-in handler from `a.Handler("POST /auth/login")`, use these three methods to reproduce the exact cookie behavior the built-in handlers use:
 
+Import `github.com/nazimdjebloun/go-auth/api` for `api.LoginInput` in this example.
+
 ```go
 func myLoginHandler(a *goauth.Auth) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		result, err := a.Services().Auth.Login(r.Context(), goauth.LoginInput{
+		result, err := a.Services().Auth.Login(r.Context(), api.LoginInput{
 			Email:    r.FormValue("email"),
 			Password: r.FormValue("password"),
 		})
@@ -271,7 +273,7 @@ curl -X POST https://api.myapp.com/auth/refresh \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services().Session.Refresh(ctx, refreshToken)
+result, err := auth.Services().Session.RefreshSession(ctx, refreshToken)
 // result.SessionToken / result.RefreshToken are the raw values — set them as cookies yourself
 ```
 

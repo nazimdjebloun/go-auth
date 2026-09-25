@@ -44,6 +44,8 @@ curl -X PUT https://api.myapp.com/auth/name \
 
 #### Programmatic (Go)
 
+Go examples on this page import `github.com/nazimdjebloun/go-auth/api` for operation inputs and results.
+
 ```go
 err := auth.Services().Auth.ChangeName(ctx, userID, "Ada Byron")
 ```
@@ -193,7 +195,7 @@ curl -X POST https://api.myapp.com/auth/account/delete/confirm \
 ```go
 err := auth.Services().Auth.RequestDeleteAccount(ctx, userID)
 
-err = auth.Services().Auth.ConfirmDeleteAccount(ctx, goauth.ConfirmDeleteAccountInput{
+err = auth.Services().Auth.ConfirmDeleteAccount(ctx, api.ConfirmDeleteAccountInput{
     UserID: userID, // always the session's own ID — never take this from client input yourself either
     Code:   "ABCD1234",
 })

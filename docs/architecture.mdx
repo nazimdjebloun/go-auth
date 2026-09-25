@@ -13,8 +13,9 @@ go-auth uses ports and adapters. The `service` package depends on interfaces in 
 | Package | Responsibility |
 |---|---|
 | `domain` | Core types (`User`, `Session`, `Organization`, ...) and every `AuthError`. No dependencies on anything else in the module. |
+| `api` | Transport-neutral inputs and results for programmatic operations, plus shared sort types, audit entries, and daily counts. Import as `github.com/nazimdjebloun/go-auth/api`. |
 | `port` | Interfaces the service layer depends on: `Mailer`, `Hasher`, `TokenGenerator`, `TemplateProvider`, `OAuthProvider`, `TxManager`, and one repository interface per aggregate (`UserRepository`, `SessionRepository`, `OrgRepository`, ...). |
-| `service` | Business logic, split by concern. Depends only on `domain` and `port`. |
+| `service` | Business logic, split by concern. Depends on `api`, `domain`, and `port`. |
 | `middleware` | Cross-cutting HTTP concerns: `AuthMiddleware`/`RequireRole` (session and role gating), `OriginCheck`/`CSRFToken` (CSRF), `RateLimit`, `CORS`, `RequireOrgMember`/`RequireOrgRole` (org access control, resolved from an `{orgID}` path segment), `RequireActiveOrg` (the same role check, resolved from the session's active org instead). The root facade's `RequireOrgScope`/`RequireActiveOrgScope` compose these checks and pass an authorized `OrgScope` directly to application handlers. |
 | `provider` | Built-in OAuth provider adapters (`provider/google`, `provider/github`), each implementing `port.OAuthProvider`. |
 | `ratelimit` | The rate limiter itself: `Config`, the `Store` interface, and the built-in in-memory implementation. |
@@ -28,7 +29,7 @@ go-auth uses ports and adapters. The `service` package depends on interfaces in 
 | `internal/httproutes` | The enabled route registry: pairs canonical patterns with handlers and each route's exact middleware chain. |
 | `internal` | Other unexported packages not part of the public API: `schema` (the embedded SQL statements + the statement splitter), `testutil` (hand-written fakes for the `port` interfaces), and low-level `crypto`/`keyring`/`otp` helpers. |
 
-The dependency direction is strict: `domain` depends on nothing, `port` depends only on `domain`, `service` depends only on `domain` and `port`, and `internal/sqlstore`/`internal/handler`/`middleware`/`provider` depend on `service` and `port` to implement or consume them. `internal/httproutes` composes `internal/handler` with the canonical patterns in `internal/routes`. Nothing in `service` imports `internal/sqlstore` or `internal/handler`; it touches `net/http` only for cookie constants (`http.SameSite`), never for request/response handling.
+The dependency direction is strict: `domain` depends on nothing in this module; `api` depends on `domain`; `port` depends on `api` and `domain`; and `service` depends on `api`, `domain`, and `port`. The root package owns the public `Services` capability interfaces in `services.go` and wires concrete service implementations behind them. `internal/sqlstore` implements repository interfaces; `internal/handler` and `middleware` consume the service operations for HTTP. `internal/httproutes` composes `internal/handler` with the canonical patterns in `internal/routes`. Nothing in `service` imports `internal/sqlstore` or `internal/handler`; it touches `net/http` only for cookie constants (`http.SameSite`), never for request/response handling.
 
 ## The `Auth` struct and `New()`
 
@@ -43,15 +44,15 @@ validation together. `config_defaults.go` preserves defaulting order, while
 2. Opens (or adopts) the database connection based on `DatabaseConfig` and wraps it in `internal/sqlstore.DB`, which implements `port.TxManager`.
 3. Constructs the repositories, mailer, template provider, audit service, and dependent services in that order.
 4. Builds the HTTP adapters and middleware, then the enabled route registry with each route's specific chain.
-5. Starts maintenance and returns an `*Auth` with `Services()` for programmatic calls, `Handler(pattern)` for custom routers, and middleware accessors for application routes.
+5. Starts maintenance and returns an `*Auth` with `Services()` for programmatic calls, `Handler(pattern)` for custom routers, and middleware accessors for application routes. `Services()` returns a value containing operation interfaces; disabled optional capabilities remain nil.
 
 `Auth.Mount(mux *http.ServeMux)` registers the enabled route registry on the mux you give it. It does not add middleware of its own. Each handler already has its full chain baked in from step 4, and CORS preflight (`OPTIONS`) is registered per path when `SecurityConfig.AllowedOrigins` is non-empty. `Handler(pattern)` returns the enabled route's wrapped handler with a small adapter that sets the canonical `Request.Pattern`; it reports `false` for a disabled or unknown route. A custom router must populate `PathValue` for parameterized routes before invoking it.
 
 ## Two ways to drive it
 
-Because `service` never touches `net/http`, every operation is reachable two ways:
+The service operations do not take HTTP requests or write HTTP responses. The supported operations are reachable two ways:
 
-- **Programmatically:** `auth.Services().Auth.Register(ctx, ...)`, `auth.Services().Admin.BanUser(ctx, ...)`, and so on. No cookies, no CSRF, no rate limiting. You get back plain Go values and are responsible for whatever transport you are building (a CLI, a gRPC service, a background job). Every method that takes more than one argument of data takes it as a per-method named input struct (`goauth.LoginInput`, `goauth.RemoveMemberInput`, `goauth.SetActiveOrgInput`, ...). The fields are labeled, so adjacent same-typed IDs cannot be transposed silently.
+- **Programmatically:** `auth.Services().Auth.Register(ctx, api.RegisterInput{...})`, `auth.Services().Admin.BanUser(ctx, api.BanUserInput{...})`, and so on. No cookies, no CSRF, no rate limiting. You get back plain Go values and are responsible for whatever transport you are building (a CLI, a gRPC service, a background job). Operations that use named inputs take types from `api` (for example, `api.LoginInput`, `api.RemoveMemberInput`, and `api.SetActiveOrgInput`); other methods take individual arguments, as their interface signatures show.
 - **Over HTTP:** `auth.Mount(mux)` registers the same operations behind the full middleware chain, with `internal/handler` translating cookies and JSON into service calls.
 
 ## The middleware chain

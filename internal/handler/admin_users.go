@@ -5,15 +5,15 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
 // parseListUsersInput reads the shared /admin/users query params. Offset,
 // Limit, OrderBy and OrderDirection are only meaningful for the list;
 // CountUsers ignores them.
-func parseListUsersInput(r *http.Request, actorID string) (service.AdminListUsersInput, error) {
+func parseListUsersInput(r *http.Request, actorID string) (api.AdminListUsersInput, error) {
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	if limit <= 0 {
@@ -71,10 +71,10 @@ func parseListUsersInput(r *http.Request, actorID string) (service.AdminListUser
 
 	orderBy, orderDirection, err := parseUserSort(r.URL.Query())
 	if err != nil {
-		return service.AdminListUsersInput{}, err
+		return api.AdminListUsersInput{}, err
 	}
 
-	return service.AdminListUsersInput{
+	return api.AdminListUsersInput{
 		ActorID:          actorID,
 		Offset:           offset,
 		Limit:            limit,
@@ -139,7 +139,7 @@ func (h *Handler) BanUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.BanUser(r.Context(), service.BanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.BanUser(r.Context(), api.BanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -154,7 +154,7 @@ func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.UnbanUser(r.Context(), service.UnbanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.UnbanUser(r.Context(), api.UnbanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -175,7 +175,7 @@ func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	if err := h.services.Admin.UpdateUserRole(r.Context(), service.UpdateUserRoleInput{UserID: userID, Role: body.Role, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.UpdateUserRole(r.Context(), api.UpdateUserRoleInput{UserID: userID, Role: body.Role, ActorID: actor.ID}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -190,7 +190,7 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.DeleteUser(r.Context(), service.DeleteUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.DeleteUser(r.Context(), api.DeleteUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -205,7 +205,7 @@ func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.RevokeUserSessions(r.Context(), service.RevokeUserSessionsInput{UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.RevokeUserSessions(r.Context(), api.RevokeUserSessionsInput{UserID: userID, ActorID: actor.ID}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -229,7 +229,7 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.services.Admin.CreateUser(r.Context(), service.CreateUserInput{
+	result, err := h.services.Admin.CreateUser(r.Context(), api.CreateUserInput{
 		ActorID:  actor.ID,
 		Email:    body.Email,
 		Password: body.Password,
@@ -259,7 +259,7 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 		limit = 100
 	}
 
-	sessions, total, aerr := h.services.Admin.ListUserSessions(r.Context(), service.AdminListUserSessionsInput{
+	sessions, total, aerr := h.services.Admin.ListUserSessions(r.Context(), api.AdminListUserSessionsInput{
 		ActorID: actor.ID,
 		UserID:  userID,
 		Offset:  offset,
@@ -281,7 +281,7 @@ func (h *Handler) GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := r.PathValue("id")
 
-	detail, aerr := h.services.Admin.GetUserDetail(r.Context(), service.GetUserDetailInput{UserID: userID, ActorID: actor.ID})
+	detail, aerr := h.services.Admin.GetUserDetail(r.Context(), api.GetUserDetailInput{UserID: userID, ActorID: actor.ID})
 	if aerr != nil {
 		h.writeError(w, aerr)
 		return
@@ -299,7 +299,7 @@ func (h *Handler) AdminRevokeUserSession(w http.ResponseWriter, r *http.Request)
 	userID := r.PathValue("id")
 	sessionID := r.PathValue("sessionId")
 
-	if aerr := h.services.Admin.RevokeUserSession(r.Context(), service.RevokeUserSessionInput{UserID: userID, SessionID: sessionID, ActorID: actor.ID}); aerr != nil {
+	if aerr := h.services.Admin.RevokeUserSession(r.Context(), api.RevokeUserSessionInput{UserID: userID, SessionID: sessionID, ActorID: actor.ID}); aerr != nil {
 		h.writeError(w, aerr)
 		return
 	}

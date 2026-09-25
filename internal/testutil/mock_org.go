@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -222,7 +223,7 @@ func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port
 		default:
 			less = all[i].JoinedAt.Before(all[j].JoinedAt)
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return less
 		}
 		return !less
@@ -293,7 +294,7 @@ func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port
 		default:
 			less = all[i].Name < all[j].Name
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return less
 		}
 		return !less
@@ -384,7 +385,7 @@ func (m *MockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.O
 		default:
 			less = all[i].Name < all[j].Name
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return less
 		}
 		return !less

@@ -6,6 +6,8 @@ date: "2026-09-06"
 
 ## Remote authentication
 
+This API was removed in [v0.2.3](./v0.2.3.mdx#removed). The example below records how v0.2.2 worked; use the current guides for programmatic calls.
+
 - **`middleware.RemoteAuth`** authenticates requests against a *remote* go-auth server instead of a local database. It is the counterpart to `AuthMiddleware` for a second process that fronts your API but doesn't own its data — an admin console, a BFF, a gateway. Such a service has no business holding your application's database credentials, and standing up a second `goauth.Auth` just to reuse its middleware means duplicating the whole auth configuration with nothing keeping the two copies in sync.
 
   It resolves the caller by forwarding their cookies to the upstream `GET /auth/me` and decoding the `domain.User` it returns. Because it stores the user under the same context key `AuthMiddleware` uses, `GetUserFromContext` and `RequireRole` work downstream without knowing which one authenticated the request — an existing handler moves behind it untouched.
@@ -15,7 +17,7 @@ date: "2026-09-06"
   mux.Handle("GET /admin/reports", remote.RequireAdmin(reportsHandler))
   ```
 
-  `RequireAuth`, `RequireRole`, `RequireAdmin`, and a `GetUser(ctx, cookieHeader)` for code outside a middleware chain. Options: `WithRemoteCookieName`, `WithRemoteHTTPClient`, `WithRemoteLogger`. The service needs no database, no secret, and no `goauth.Config`; it never sees a password or any key material. See [Remote Auth](../guides/remote-auth.mdx).
+  `RequireAuth`, `RequireRole`, `RequireAdmin`, and a `GetUser(ctx, cookieHeader)` for code outside a middleware chain. Options: `WithRemoteCookieName`, `WithRemoteHTTPClient`, `WithRemoteLogger`. The service needs no database, no secret, and no `goauth.Config`; it never sees a password or any key material.
 
 - **Three outcomes, not two.** `ErrRemoteNoSession` → `401` (and no upstream call is made, so an unauthenticated flood costs upstream nothing), `ErrRemoteUnauthorized` → `401`, and `ErrRemoteUnavailable` → **`503`**. The last fails closed but is never a claim that the caller is unauthenticated — a `401` there would log users out en masse during an upstream blip and tell the client its credentials are bad when the truth is that we couldn't ask.
 

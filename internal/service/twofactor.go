@@ -10,6 +10,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/otp"
@@ -128,7 +129,7 @@ func (s *TwoFactorService) Enforce(u *domain.User) bool {
 // /auth/2fa/verify's own rate limit binds first, so single-IP throughput is
 // 5 guesses/min either way, and the refusal only added an account-level denial
 // vector. Do not reintroduce it.
-func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*ChallengeResult, error) {
+func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*api.ChallengeResult, error) {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return nil, domain.ErrUserNotFound
@@ -150,7 +151,7 @@ func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*Chall
 			existing.Attempts < maxAttemptsPerChallenge &&
 			existing.ResendCount < maxCodeRefreshesPerChallenge &&
 			!stalePepper(existing.CreatedAt, s.config.PepperRotatedAt) {
-			return &ChallengeResult{
+			return &api.ChallengeResult{
 				ID:           existing.ID,
 				Sent:         false,
 				ExpiresAt:    existing.ExpiresAt,
@@ -168,7 +169,7 @@ func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*Chall
 }
 
 // issue mints a fresh challenge row and mails the code.
-func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*ChallengeResult, error) {
+func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*api.ChallengeResult, error) {
 	if s.mailer == nil {
 		return nil, domain.ErrEmailNotConfigured
 	}
@@ -224,7 +225,7 @@ func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*Chall
 		}
 	}
 
-	return &ChallengeResult{
+	return &api.ChallengeResult{
 		ID:           token.ID,
 		Sent:         true,
 		ExpiresAt:    token.ExpiresAt,
@@ -287,22 +288,13 @@ func (s *TwoFactorService) checkBinding(challengeID, supplied string) bool {
 
 // ─── Verify ─────────────────────────────────────────────────
 
-// TwoFactorVerifyResult is Verify's outcome — the authenticated user, the
-// newly issued session, and the raw tokens that go with it.
-type TwoFactorVerifyResult struct {
-	User         *domain.User
-	Session      *domain.Session
-	SessionToken string
-	RefreshToken string
-}
-
 // Verify exchanges a challenge id and code for a session.
 //
 // The cap is enforced by the guarded writes, not by a pre-read: a read-then-
 // branch would let a concurrent burst all observe the same pre-increment count
 // and all pass the check before any write landed. One consequence is that a
 // correct code arriving on an already-capped lineage is rejected too.
-func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken, code, ip, userAgent string) (*TwoFactorVerifyResult, error) {
+func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken, code, ip, userAgent string) (*api.TwoFactorVerifyResult, error) {
 	if !s.checkBinding(challengeID, bindingToken) {
 		return nil, domain.ErrTwoFactorCodeInvalid
 	}
@@ -374,7 +366,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 		}
 	}
 
-	return &TwoFactorVerifyResult{
+	return &api.TwoFactorVerifyResult{
 		User:         user,
 		Session:      sessResult.Session,
 		SessionToken: sessResult.SessionToken,
@@ -469,7 +461,7 @@ func (s *TwoFactorService) notifySuspicious(ctx context.Context, email string, c
 // is reached the same guard that blocks Verify also blocks further resends.
 // The separate resend ceiling bounds how many times one lineage's code can be
 // refreshed, which also stops this being an email-bombing amplifier.
-func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken string) (*ChallengeResult, error) {
+func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken string) (*api.ChallengeResult, error) {
 	vague := domain.NewError("challenge_not_found", "If the challenge is valid, a new code has been sent")
 
 	if !s.checkBinding(challengeID, bindingToken) {
@@ -528,7 +520,7 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 	}
 
 	// The challenge id is unchanged across a resend, so the binding still holds.
-	return &ChallengeResult{
+	return &api.ChallengeResult{
 		ID:           token.ID,
 		Sent:         true,
 		ExpiresAt:    expiresAt,

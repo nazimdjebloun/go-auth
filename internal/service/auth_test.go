@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
@@ -35,7 +36,7 @@ func TestRegister(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
-	result, err := svc.Register(context.Background(), RegisterInput{
+	result, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test User",
@@ -69,13 +70,13 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
-	checkTestErrors(t).result(svc.Register(context.Background(), RegisterInput{
+	checkTestErrors(t).result(svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test",
 	}))
 
-	_, err := svc.Register(context.Background(), RegisterInput{
+	_, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test 2",
@@ -98,7 +99,7 @@ func TestRegisterWeakPassword(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
-	_, err := svc.Register(context.Background(), RegisterInput{
+	_, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
 		Password: "short",
 		Name:     "Test",
@@ -118,7 +119,7 @@ func TestRegisterInvalidEmail(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
-	_, err := svc.Register(context.Background(), RegisterInput{
+	_, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "not-an-email",
 		Password: "Passw0rd!",
 		Name:     "Test",
@@ -138,7 +139,7 @@ func TestRegisterDefaultRole(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
-	result, err := svc.Register(context.Background(), RegisterInput{
+	result, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "registered@example.com",
 		Password: "Passw0rd!",
 		Name:     "User",
@@ -164,7 +165,7 @@ func TestRegisterInviteOnly(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
 
-	_, err := svc.Register(context.Background(), RegisterInput{
+	_, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test",
@@ -184,7 +185,7 @@ func TestLogin(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
-	regResult, _ := svc.Register(context.Background(), RegisterInput{
+	regResult, _ := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test",
@@ -193,7 +194,7 @@ func TestLogin(t *testing.T) {
 	regResult.User.IsVerified = true
 	checkTestErrors(t).noError(users.Update(context.Background(), regResult.User))
 
-	result, err := svc.Login(context.Background(), LoginInput{
+	result, err := svc.Login(context.Background(), api.LoginInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		IP:       "127.0.0.1",
@@ -219,7 +220,7 @@ func TestLoginWrongPassword(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
-	regResult, _ := svc.Register(context.Background(), RegisterInput{
+	regResult, _ := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test",
@@ -228,7 +229,7 @@ func TestLoginWrongPassword(t *testing.T) {
 	regResult.User.IsVerified = true
 	checkTestErrors(t).noError(users.Update(context.Background(), regResult.User))
 
-	_, err := svc.Login(context.Background(), LoginInput{
+	_, err := svc.Login(context.Background(), api.LoginInput{
 		Email:    "test@example.com",
 		Password: "wrongpassword",
 	})
@@ -247,7 +248,7 @@ func TestLoginNonexistentUser(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
-	_, err := svc.Login(context.Background(), LoginInput{
+	_, err := svc.Login(context.Background(), api.LoginInput{
 		Email:    "nobody@example.com",
 		Password: "Passw0rd!",
 	})
@@ -265,7 +266,7 @@ func TestLogin_OAuthOnlyUsesSameDummyVerificationAsUnknownEmail(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
-	for _, input := range []LoginInput{
+	for _, input := range []api.LoginInput{
 		{Email: "missing@example.com", Password: "CandidatePass1!"},
 		{Email: "oauth-only@example.com", Password: "CandidatePass1!"},
 	} {
@@ -310,7 +311,7 @@ func TestLoginUnverifiedUser_WithVerificationDisabled(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
 
-	regResult, _ := svc.Register(context.Background(), RegisterInput{
+	regResult, _ := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "unverified@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test",
@@ -319,7 +320,7 @@ func TestLoginUnverifiedUser_WithVerificationDisabled(t *testing.T) {
 		t.Fatal("Expected user to remain unverified after register with RequireEmailVerification=false")
 	}
 
-	result, err := svc.Login(context.Background(), LoginInput{
+	result, err := svc.Login(context.Background(), api.LoginInput{
 		Email:    "unverified@example.com",
 		Password: "Passw0rd!",
 	})
@@ -360,7 +361,7 @@ func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
 		UpdatedAt:    time.Now().UTC(),
 	}))
 
-	result, err := svc.Login(context.Background(), LoginInput{
+	result, err := svc.Login(context.Background(), api.LoginInput{
 		Email:    "unverified@example.com",
 		Password: "Passw0rd!",
 	})
@@ -404,7 +405,7 @@ func TestLoginUnverifiedUser_WrongPasswordDoesNotDiscloseAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := svc.Login(context.Background(), LoginInput{
+	result, err := svc.Login(context.Background(), api.LoginInput{
 		Email:    "unverified@example.com",
 		Password: "wrong-password",
 	})
@@ -426,7 +427,7 @@ func TestLogout(t *testing.T) {
 
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
-	result, _ := svc.Register(context.Background(), RegisterInput{
+	result, _ := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
 		Name:     "Test",
@@ -587,7 +588,7 @@ func TestConfirmDeleteAccount_Success(t *testing.T) {
 
 	code := testutil.GetLastVerificationCode(mailer)
 
-	confirmErr := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+	confirmErr := svc.ConfirmDeleteAccount(context.Background(), api.ConfirmDeleteAccountInput{
 		UserID: oauthUser.ID,
 		Code:   code,
 	})
@@ -622,7 +623,7 @@ func TestConfirmDeleteAccount_InvalidCode(t *testing.T) {
 	}
 	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
-	err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+	err := svc.ConfirmDeleteAccount(context.Background(), api.ConfirmDeleteAccountInput{
 		UserID: oauthUser.ID,
 		Code:   "INVALID",
 	})
@@ -666,7 +667,7 @@ func TestConfirmDeleteAccount_ExpiredCode(t *testing.T) {
 		tok.ExpiresAt = time.Now().UTC().Add(-1 * time.Hour)
 	}
 
-	err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+	err := svc.ConfirmDeleteAccount(context.Background(), api.ConfirmDeleteAccountInput{
 		UserID: oauthUser.ID,
 		Code:   code,
 	})
@@ -707,7 +708,7 @@ func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
 
 	code := testutil.GetLastVerificationCode(mailer)
 
-	err1 := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+	err1 := svc.ConfirmDeleteAccount(context.Background(), api.ConfirmDeleteAccountInput{
 		UserID: oauthUser.ID,
 		Code:   code,
 	})
@@ -730,7 +731,7 @@ func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
 		t.Fatalf("RequestDeleteAccount for new user failed: %v", reqErr2)
 	}
 
-	err2 := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+	err2 := svc.ConfirmDeleteAccount(context.Background(), api.ConfirmDeleteAccountInput{
 		UserID: newUser.ID,
 		Code:   code,
 	})
@@ -778,7 +779,7 @@ func TestConfirmDeleteAccount_StalePepperReturnsExpired(t *testing.T) {
 		tok.CreatedAt = time.Now().UTC().Add(-time.Hour)
 	}
 
-	err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+	err := svc.ConfirmDeleteAccount(context.Background(), api.ConfirmDeleteAccountInput{
 		UserID: oauthUser.ID,
 		Code:   code,
 	})
@@ -831,7 +832,7 @@ func TestRequestDeleteAccount_ReplacesStaleLiveCode(t *testing.T) {
 	}
 
 	code := testutil.GetLastVerificationCode(mailer)
-	if err := svc.ConfirmDeleteAccount(context.Background(), ConfirmDeleteAccountInput{
+	if err := svc.ConfirmDeleteAccount(context.Background(), api.ConfirmDeleteAccountInput{
 		UserID: oauthUser.ID,
 		Code:   code,
 	}); err != nil {
@@ -873,7 +874,7 @@ func TestAdminLogin_Success(t *testing.T) {
 	svc := newAdminLoginService(t)
 	createAdminUser(t, svc, "admin@example.com", "Passw0rd!", false)
 
-	result, err := svc.AdminLogin(context.Background(), LoginInput{
+	result, err := svc.AdminLogin(context.Background(), api.LoginInput{
 		Email:    "admin@example.com",
 		Password: "Passw0rd!",
 		IP:       "127.0.0.1",
@@ -911,7 +912,7 @@ func TestAdminLogin_DisableAdminTwoFactor_SkipsChallengeWithNoMailer(t *testing.
 	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, twoFactorSvc)
 	createAdminUser(t, svc, "admin@example.com", "Passw0rd!", false)
 
-	result, err := svc.AdminLogin(context.Background(), LoginInput{
+	result, err := svc.AdminLogin(context.Background(), api.LoginInput{
 		Email:    "admin@example.com",
 		Password: "Passw0rd!",
 		IP:       "127.0.0.1",
@@ -944,7 +945,7 @@ func TestAdminLogin_NonAdmin_GenericError(t *testing.T) {
 		t.Fatalf("failed to create user: %v", err)
 	}
 
-	result, err := svc.AdminLogin(context.Background(), LoginInput{
+	result, err := svc.AdminLogin(context.Background(), api.LoginInput{
 		Email:    "user@example.com",
 		Password: "Passw0rd!",
 	})
@@ -963,7 +964,7 @@ func TestAdminLogin_WrongPassword(t *testing.T) {
 	svc := newAdminLoginService(t)
 	createAdminUser(t, svc, "admin@example.com", "Passw0rd!", false)
 
-	_, err := svc.AdminLogin(context.Background(), LoginInput{
+	_, err := svc.AdminLogin(context.Background(), api.LoginInput{
 		Email:    "admin@example.com",
 		Password: "wrongpassword",
 	})
@@ -979,7 +980,7 @@ func TestAdminLogin_BannedAdmin(t *testing.T) {
 	svc := newAdminLoginService(t)
 	createAdminUser(t, svc, "admin@example.com", "Passw0rd!", true)
 
-	_, err := svc.AdminLogin(context.Background(), LoginInput{
+	_, err := svc.AdminLogin(context.Background(), api.LoginInput{
 		Email:    "admin@example.com",
 		Password: "Passw0rd!",
 	})
@@ -990,7 +991,7 @@ func TestAdminLogin_BannedAdmin(t *testing.T) {
 		t.Fatalf("Expected user_banned, got %s", authErrCode(err))
 	}
 
-	result, err := svc.AdminLogin(context.Background(), LoginInput{
+	result, err := svc.AdminLogin(context.Background(), api.LoginInput{
 		Email:    "admin@example.com",
 		Password: "wrong-password",
 	})
@@ -1005,7 +1006,7 @@ func TestAdminLogin_BannedAdmin(t *testing.T) {
 func TestAdminLogin_NonexistentUser(t *testing.T) {
 	svc := newAdminLoginService(t)
 
-	_, err := svc.AdminLogin(context.Background(), LoginInput{
+	_, err := svc.AdminLogin(context.Background(), api.LoginInput{
 		Email:    "nobody@example.com",
 		Password: "Passw0rd!",
 	})
@@ -1038,7 +1039,7 @@ func TestAdminLogin_UnverifiedAdmin_Succeeds(t *testing.T) {
 	cfg.RequireEmailVerification = true
 	svc.config = cfg
 
-	result, err := svc.AdminLogin(context.Background(), LoginInput{
+	result, err := svc.AdminLogin(context.Background(), api.LoginInput{
 		Email:    "admin-unverified@example.com",
 		Password: "Passw0rd!",
 	})

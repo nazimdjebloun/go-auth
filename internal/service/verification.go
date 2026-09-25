@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/otp"
@@ -164,9 +165,9 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 }
 
 // SendVerification mails a verification code, skipping the send when one is
-// already outstanding. The returned VerificationResult says which happened;
+// already outstanding. The returned api.VerificationResult says which happened;
 // a nil error alone does not mean an email left the building.
-func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) (*VerificationResult, error) {
+func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) (*api.VerificationResult, error) {
 	if s.mailer == nil {
 		return nil, domain.ErrEmailNotConfigured
 	}
@@ -193,12 +194,12 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 						return nil, domain.ErrInternal
 					}
 				} else {
-					return &VerificationResult{Sent: false, ExpiresAt: last.ExpiresAt}, nil
+					return &api.VerificationResult{Sent: false, ExpiresAt: last.ExpiresAt}, nil
 				}
 			} else if s.config.VerificationResendInterval > 0 &&
 				time.Since(last.CreatedAt) < s.config.VerificationResendInterval {
 				// Spent or expired, but minted moments ago: throttle the refresh.
-				return &VerificationResult{Sent: false, ExpiresAt: last.ExpiresAt}, nil
+				return &api.VerificationResult{Sent: false, ExpiresAt: last.ExpiresAt}, nil
 			}
 		}
 	}
@@ -263,11 +264,11 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 		}
 	}
 
-	return &VerificationResult{Sent: true, ExpiresAt: token.ExpiresAt}, nil
+	return &api.VerificationResult{Sent: true, ExpiresAt: token.ExpiresAt}, nil
 }
 
 // ResendVerification sends a user's verification code again.
-func (s *VerificationService) ResendVerification(ctx context.Context, userID string) (*VerificationResult, error) {
+func (s *VerificationService) ResendVerification(ctx context.Context, userID string) (*api.VerificationResult, error) {
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil || user == nil {
 		return nil, domain.ErrUserNotFound
@@ -284,7 +285,7 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 // unauthenticated. Its result must not reach the caller — Sent would report
 // whether an unverified account exists for that address, which is exactly what
 // the flat "if an account exists" reply is there to withhold. See the handler.
-func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) (*VerificationResult, error) {
+func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) (*api.VerificationResult, error) {
 	user, err := s.users.GetByEmail(ctx, email)
 	if err != nil || user == nil {
 		return nil, domain.ErrVerificationEmailSent

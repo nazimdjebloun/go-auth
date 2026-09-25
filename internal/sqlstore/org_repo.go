@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -208,7 +209,7 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 		orderCol = "om.joined_at"
 	}
 	orderDir := "DESC"
-	if filter.OrderDirection == port.SortAscending {
+	if filter.OrderDirection == api.SortAscending {
 		orderDir = "ASC"
 	}
 
@@ -298,7 +299,7 @@ func (r *OrgRepository) ListUserOrgs(ctx context.Context, userID string, filter 
 		orderCol = "o.name"
 	}
 	orderDir := "DESC"
-	if filter.OrderDirection == port.SortAscending {
+	if filter.OrderDirection == api.SortAscending {
 		orderDir = "ASC"
 	}
 
@@ -389,7 +390,7 @@ func (r *OrgRepository) List(ctx context.Context, filter port.OrgFilter) ([]doma
 		orderCol = "o.name"
 	}
 	orderDir := "DESC"
-	if filter.OrderDirection == port.SortAscending {
+	if filter.OrderDirection == api.SortAscending {
 		orderDir = "ASC"
 	}
 
@@ -635,7 +636,7 @@ func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, fil
 		orderCol = "created_at"
 	}
 	orderDir := "DESC"
-	if filter.OrderDirection == port.SortAscending {
+	if filter.OrderDirection == api.SortAscending {
 		orderDir = "ASC"
 	}
 

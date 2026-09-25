@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher/argon2id"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
@@ -83,7 +84,7 @@ func TestWithPasswordHasher_VerifiesAndRehashesLegacyBcryptOnce(t *testing.T) {
 
 	legacy := newAuthWithHasherTestDB(t, db)
 	defer legacy.Close()
-	if _, err := legacy.Register(context.Background(), RegisterInput{
+	if _, err := legacy.Register(context.Background(), api.RegisterInput{
 		Email: email, Password: password, Name: "Legacy User",
 	}); err != nil {
 		t.Fatalf("register with default bcrypt: %v", err)
@@ -104,7 +105,7 @@ func TestWithPasswordHasher_VerifiesAndRehashesLegacyBcryptOnce(t *testing.T) {
 	defer a.Close()
 	probeHashCalls := current.hashCalls
 
-	if _, err := a.Login(context.Background(), LoginInput{Email: email, Password: password}); err != nil {
+	if _, err := a.Login(context.Background(), api.LoginInput{Email: email, Password: password}); err != nil {
 		t.Fatalf("login with legacy bcrypt hash: %v", err)
 	}
 	if current.hashCalls != probeHashCalls+1 {
@@ -120,7 +121,7 @@ func TestWithPasswordHasher_VerifiesAndRehashesLegacyBcryptOnce(t *testing.T) {
 		t.Fatalf("upgraded hash = %q, want argon2id prefix", stored)
 	}
 
-	if _, err := a.Login(context.Background(), LoginInput{Email: email, Password: password}); err != nil {
+	if _, err := a.Login(context.Background(), api.LoginInput{Email: email, Password: password}); err != nil {
 		t.Fatalf("second login with upgraded hash: %v", err)
 	}
 	if current.hashCalls != probeHashCalls+1 {
@@ -137,7 +138,7 @@ func TestWithPasswordHasher_RealArgon2idRehashesBcryptOnLogin(t *testing.T) {
 
 	legacy := newAuthWithHasherTestDB(t, db, WithBcryptCost(4))
 	defer legacy.Close()
-	if _, err := legacy.Register(context.Background(), RegisterInput{
+	if _, err := legacy.Register(context.Background(), api.RegisterInput{
 		Email: email, Password: password, Name: "Argon Migration",
 	}); err != nil {
 		t.Fatalf("register bcrypt user: %v", err)
@@ -153,7 +154,7 @@ func TestWithPasswordHasher_RealArgon2idRehashesBcryptOnLogin(t *testing.T) {
 	a := newAuthWithHasherTestDB(t, db, WithPasswordHasher(argon))
 	defer a.Close()
 
-	if _, err := a.Login(context.Background(), LoginInput{Email: email, Password: password}); err != nil {
+	if _, err := a.Login(context.Background(), api.LoginInput{Email: email, Password: password}); err != nil {
 		t.Fatalf("login with bcrypt row under argon2id current: %v", err)
 	}
 	var upgraded string
@@ -165,7 +166,7 @@ func TestWithPasswordHasher_RealArgon2idRehashesBcryptOnLogin(t *testing.T) {
 		t.Fatalf("upgraded hash = %q, want configured argon2id format", upgraded)
 	}
 
-	if _, err := a.Login(context.Background(), LoginInput{Email: email, Password: password}); err != nil {
+	if _, err := a.Login(context.Background(), api.LoginInput{Email: email, Password: password}); err != nil {
 		t.Fatalf("second login with argon2id row: %v", err)
 	}
 	var afterSecondLogin string
@@ -182,7 +183,7 @@ func TestWithBcryptCost_UsesConfiguredCost(t *testing.T) {
 	a := buildAuth(t, minimalOpts(WithBcryptCost(4))...)
 	defer a.Close()
 
-	result, err := a.Register(context.Background(), RegisterInput{
+	result, err := a.Register(context.Background(), api.RegisterInput{
 		Email: "cost@example.com", Password: "Passw0rd!", Name: "Cost",
 	})
 	if err != nil {
@@ -202,7 +203,7 @@ func TestDefaultPasswordHasher_NewSignupIsNotPeppered(t *testing.T) {
 	a := buildAuth(t, minimalOpts(WithBcryptCost(4))...)
 	defer a.Close()
 
-	result, err := a.Register(context.Background(), RegisterInput{
+	result, err := a.Register(context.Background(), api.RegisterInput{
 		Email: "unpeppered@example.com", Password: password, Name: "Unpeppered",
 	})
 	if err != nil {
@@ -216,7 +217,7 @@ func TestDefaultPasswordHasher_NewSignupIsNotPeppered(t *testing.T) {
 	if err := bcrypt.CompareHashAndPassword(stored, []byte(password)); err != nil {
 		t.Fatalf("default new signup hash does not verify against the raw password: %v", err)
 	}
-	if _, err := a.Login(context.Background(), LoginInput{
+	if _, err := a.Login(context.Background(), api.LoginInput{
 		Email: "unpeppered@example.com", Password: password,
 	}); err != nil {
 		t.Fatalf("default unpeppered signup could not log in: %v", err)
@@ -235,7 +236,7 @@ func TestWithPasswordHasher_Argon2idSignupIsNotPepperedByDefault(t *testing.T) {
 	a := buildAuth(t, minimalOpts(WithPasswordHasher(argon))...)
 	defer a.Close()
 
-	result, err := a.Register(context.Background(), RegisterInput{
+	result, err := a.Register(context.Background(), api.RegisterInput{
 		Email: "unpeppered-argon@example.com", Password: password, Name: "Unpeppered Argon",
 	})
 	if err != nil {
@@ -262,7 +263,7 @@ func TestWithPasswordPepper_NewSignupAndLegacyMigration(t *testing.T) {
 
 	legacy := newAuthWithHasherTestDB(t, db, WithBcryptCost(4))
 	defer legacy.Close()
-	if _, err := legacy.Register(context.Background(), RegisterInput{
+	if _, err := legacy.Register(context.Background(), api.RegisterInput{
 		Email: "legacy-pepper@example.com", Password: password, Name: "Legacy",
 	}); err != nil {
 		t.Fatalf("register unpeppered legacy user: %v", err)
@@ -273,7 +274,7 @@ func TestWithPasswordPepper_NewSignupAndLegacyMigration(t *testing.T) {
 		WithPasswordPepper(PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: pepperSecret}}),
 	)
 	defer pepperedAuth.Close()
-	newUser, err := pepperedAuth.Register(context.Background(), RegisterInput{
+	newUser, err := pepperedAuth.Register(context.Background(), api.RegisterInput{
 		Email: "new-pepper@example.com", Password: password, Name: "Peppered",
 	})
 	if err != nil {
@@ -295,7 +296,7 @@ func TestWithPasswordPepper_NewSignupAndLegacyMigration(t *testing.T) {
 	}
 	assertPeppered("new signup", *newUser.User.PasswordHash)
 
-	if _, err := pepperedAuth.Login(context.Background(), LoginInput{
+	if _, err := pepperedAuth.Login(context.Background(), api.LoginInput{
 		Email: "legacy-pepper@example.com", Password: password,
 	}); err != nil {
 		t.Fatalf("legacy unpeppered login after enabling pepper: %v", err)
@@ -315,7 +316,7 @@ func TestWithPasswordPepper_NewSignupAndLegacyMigration(t *testing.T) {
 		t.Fatalf("upgraded pepper version = %d, want 1", upgradedVersion)
 	}
 
-	if _, err := pepperedAuth.Login(context.Background(), LoginInput{
+	if _, err := pepperedAuth.Login(context.Background(), api.LoginInput{
 		Email: "legacy-pepper@example.com", Password: password,
 	}); err != nil {
 		t.Fatalf("second login after pepper migration: %v", err)
@@ -345,7 +346,7 @@ func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T)
 			Keys:           map[uint32]string{1: key1, 2: key2},
 		}),
 	)
-	registered, err := v1.Register(context.Background(), RegisterInput{
+	registered, err := v1.Register(context.Background(), api.RegisterInput{
 		Email: "rotate@example.com", Password: password, Name: "Rotate",
 	})
 	if err != nil {
@@ -361,7 +362,7 @@ func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T)
 			Keys:           map[uint32]string{1: key1, 2: key2},
 		}),
 	)
-	if _, err := v2.Login(context.Background(), LoginInput{Email: "rotate@example.com", Password: password}); err != nil {
+	if _, err := v2.Login(context.Background(), api.LoginInput{Email: "rotate@example.com", Password: password}); err != nil {
 		t.Fatalf("login and rotate v1 to v2: %v", err)
 	}
 	v2.Close()
@@ -387,7 +388,7 @@ func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T)
 		}),
 	)
 	defer oldNode.Close()
-	if _, err := oldNode.Login(context.Background(), LoginInput{Email: "rotate@example.com", Password: password}); err != nil {
+	if _, err := oldNode.Login(context.Background(), api.LoginInput{Email: "rotate@example.com", Password: password}); err != nil {
 		t.Fatalf("old node failed to verify preloaded v2: %v", err)
 	}
 	var hashAfterOldNode string
@@ -399,7 +400,7 @@ func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T)
 		t.Fatal("old node downgraded a password written with a newer pepper version")
 	}
 
-	if err := oldNode.Services().Password.ChangePassword(context.Background(), ChangePasswordInput{
+	if err := oldNode.Services().Password.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      userID,
 		OldPassword: password,
 		NewPassword: "NewPassw0rd!",
@@ -413,7 +414,7 @@ func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T)
 	if version != 2 {
 		t.Fatalf("old-node password change downgraded pepper version to %d", version)
 	}
-	if _, err := oldNode.Login(context.Background(), LoginInput{Email: "rotate@example.com", Password: "NewPassw0rd!"}); err != nil {
+	if _, err := oldNode.Login(context.Background(), api.LoginInput{Email: "rotate@example.com", Password: "NewPassw0rd!"}); err != nil {
 		t.Fatalf("login after preserved-v2 password change: %v", err)
 	}
 }
@@ -425,7 +426,7 @@ func TestWithPasswordPepper_StartupRejectsMissingDatabaseVersion(t *testing.T) {
 		WithBcryptCost(4),
 		WithPasswordPepper(PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: key1}}),
 	)
-	if _, err := v1.Register(context.Background(), RegisterInput{
+	if _, err := v1.Register(context.Background(), api.RegisterInput{
 		Email: "missing-key@example.com", Password: "Passw0rd!", Name: "Missing",
 	}); err != nil {
 		t.Fatal(err)
@@ -457,7 +458,7 @@ func TestDefaultPasswordHasher_RemainsBcryptCost12(t *testing.T) {
 	a := buildAuth(t, minimalOpts()...)
 	defer a.Close()
 
-	result, err := a.Register(context.Background(), RegisterInput{
+	result, err := a.Register(context.Background(), api.RegisterInput{
 		Email: "default@example.com", Password: "Passw0rd!", Name: "Default",
 	})
 	if err != nil {

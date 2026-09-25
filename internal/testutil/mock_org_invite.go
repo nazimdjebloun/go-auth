@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -117,7 +118,7 @@ func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter 
 		default:
 			less = all[i].CreatedAt.Before(all[j].CreatedAt)
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return less
 		}
 		return !less

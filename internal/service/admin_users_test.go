@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
@@ -16,7 +17,7 @@ func TestAdminListUsers_Empty(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	result, err := svc.ListUsers(context.Background(), AdminListUsersInput{
+	result, err := svc.ListUsers(context.Background(), api.AdminListUsersInput{
 		ActorID: actorID, Limit: 10})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -47,7 +48,7 @@ func TestAdminListUsers_WithData(t *testing.T) {
 		}))
 	}
 
-	result, err := svc.ListUsers(context.Background(), AdminListUsersInput{
+	result, err := svc.ListUsers(context.Background(), api.AdminListUsersInput{
 		ActorID: actorID, Limit: 10})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -74,7 +75,7 @@ func TestAdminBanUser_HappyPath(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: false}
 	checkTestErrors(t).noError(users.Create(context.Background(), user))
 
-	err := svc.BanUser(context.Background(), BanUserInput{UserID: "user-1", ActorID: actorID})
+	err := svc.BanUser(context.Background(), api.BanUserInput{UserID: "user-1", ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -93,7 +94,7 @@ func TestAdminBanUser_NotFound(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	err := svc.BanUser(context.Background(), BanUserInput{UserID: "nonexistent", ActorID: actorID})
+	err := svc.BanUser(context.Background(), api.BanUserInput{UserID: "nonexistent", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -110,7 +111,7 @@ func TestAdminBanUser_AlreadyBanned(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: true}
 	checkTestErrors(t).noError(users.Create(context.Background(), user))
 
-	err := svc.BanUser(context.Background(), BanUserInput{UserID: "user-1", ActorID: actorID})
+	err := svc.BanUser(context.Background(), api.BanUserInput{UserID: "user-1", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -133,7 +134,7 @@ func TestAdminBanUser_RevokesSessions(t *testing.T) {
 	}
 	checkTestErrors(t).noError(sessions.Create(context.Background(), session))
 
-	err := svc.BanUser(context.Background(), BanUserInput{UserID: "user-1", ActorID: actorID})
+	err := svc.BanUser(context.Background(), api.BanUserInput{UserID: "user-1", ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -155,7 +156,7 @@ func TestAdminUnbanUser_HappyPath(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: true, BannedAt: &now}
 	checkTestErrors(t).noError(users.Create(context.Background(), user))
 
-	err := svc.UnbanUser(context.Background(), UnbanUserInput{UserID: "user-1", ActorID: actorID})
+	err := svc.UnbanUser(context.Background(), api.UnbanUserInput{UserID: "user-1", ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -171,7 +172,7 @@ func TestAdminUnbanUser_NotFound(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	err := svc.UnbanUser(context.Background(), UnbanUserInput{UserID: "nonexistent", ActorID: actorID})
+	err := svc.UnbanUser(context.Background(), api.UnbanUserInput{UserID: "nonexistent", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -188,7 +189,7 @@ func TestAdminUnbanUser_NotBanned(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: false}
 	checkTestErrors(t).noError(users.Create(context.Background(), user))
 
-	err := svc.UnbanUser(context.Background(), UnbanUserInput{UserID: "user-1", ActorID: actorID})
+	err := svc.UnbanUser(context.Background(), api.UnbanUserInput{UserID: "user-1", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -207,7 +208,7 @@ func TestAdminUpdateUserRole_HappyPath(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(context.Background(), user))
 
-	err := svc.UpdateUserRole(context.Background(), UpdateUserRoleInput{UserID: "user-1", Role: "admin", ActorID: actorID})
+	err := svc.UpdateUserRole(context.Background(), api.UpdateUserRoleInput{UserID: "user-1", Role: "admin", ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -223,7 +224,7 @@ func TestAdminUpdateUserRole_NotFound(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	err := svc.UpdateUserRole(context.Background(), UpdateUserRoleInput{UserID: "nonexistent", Role: "admin", ActorID: actorID})
+	err := svc.UpdateUserRole(context.Background(), api.UpdateUserRoleInput{UserID: "nonexistent", Role: "admin", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -240,7 +241,7 @@ func TestAdminUpdateUserRole_InvalidRole(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(context.Background(), user))
 
-	err := svc.UpdateUserRole(context.Background(), UpdateUserRoleInput{UserID: "user-1", Role: "superadmin", ActorID: actorID})
+	err := svc.UpdateUserRole(context.Background(), api.UpdateUserRoleInput{UserID: "user-1", Role: "superadmin", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -265,7 +266,7 @@ func TestAdminDeleteUser_HappyPath(t *testing.T) {
 	}
 	checkTestErrors(t).noError(sessions.Create(context.Background(), session))
 
-	err := svc.DeleteUser(context.Background(), DeleteUserInput{UserID: "user-1", ActorID: actorID})
+	err := svc.DeleteUser(context.Background(), api.DeleteUserInput{UserID: "user-1", ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -286,7 +287,7 @@ func TestAdminDeleteUser_NotFound(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	err := svc.DeleteUser(context.Background(), DeleteUserInput{UserID: "nonexistent", ActorID: actorID})
+	err := svc.DeleteUser(context.Background(), api.DeleteUserInput{UserID: "nonexistent", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -302,7 +303,7 @@ func TestAdminCreateUser_HappyPath(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	user, err := svc.CreateUser(context.Background(), CreateUserInput{
+	user, err := svc.CreateUser(context.Background(), api.CreateUserInput{
 		ActorID:  actorID,
 		Email:    "new@example.com",
 		Password: "Passw0rd!",
@@ -331,7 +332,7 @@ func TestAdminCreateUser_AdminRole(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	user, err := svc.CreateUser(context.Background(), CreateUserInput{
+	user, err := svc.CreateUser(context.Background(), api.CreateUserInput{
 		ActorID:  actorID,
 		Email:    "admin@example.com",
 		Password: "Passw0rd!",
@@ -350,14 +351,14 @@ func TestAdminCreateUser_DuplicateEmail(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
-	checkTestErrors(t).result(svc.CreateUser(context.Background(), CreateUserInput{
+	checkTestErrors(t).result(svc.CreateUser(context.Background(), api.CreateUserInput{
 		ActorID:  actorID,
 		Email:    "dup@example.com",
 		Password: "Passw0rd!",
 		Name:     "User 1",
 	}))
 
-	_, err := svc.CreateUser(context.Background(), CreateUserInput{
+	_, err := svc.CreateUser(context.Background(), api.CreateUserInput{
 		ActorID:  actorID,
 		Email:    "dup@example.com",
 		Password: "Passw0rd!",
@@ -376,7 +377,7 @@ func TestAdminCreateUser_InvalidEmail(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	_, err := svc.CreateUser(context.Background(), CreateUserInput{
+	_, err := svc.CreateUser(context.Background(), api.CreateUserInput{
 		ActorID:  actorID,
 		Email:    "not-an-email",
 		Password: "Passw0rd!",
@@ -392,7 +393,7 @@ func TestAdminCreateUser_EmptyName(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	_, err := svc.CreateUser(context.Background(), CreateUserInput{
+	_, err := svc.CreateUser(context.Background(), api.CreateUserInput{
 		ActorID:  actorID,
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
@@ -411,7 +412,7 @@ func TestAdminCreateUser_WeakPassword(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	_, err := svc.CreateUser(context.Background(), CreateUserInput{
+	_, err := svc.CreateUser(context.Background(), api.CreateUserInput{
 		ActorID:  actorID,
 		Email:    "test@example.com",
 		Password: "short",
@@ -427,7 +428,7 @@ func TestAdminCreateUser_TrimmedLowercasedEmail(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	user, err := svc.CreateUser(context.Background(), CreateUserInput{
+	user, err := svc.CreateUser(context.Background(), api.CreateUserInput{
 		ActorID:  actorID,
 		Email:    "  TEST@EXAMPLE.COM  ",
 		Password: "Passw0rd!",
@@ -453,7 +454,7 @@ func TestAdminListUserSessions_HappyPath(t *testing.T) {
 	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-1", UserID: "user-1"}))
 	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-2", UserID: "user-1"}))
 
-	result, _, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
+	result, _, err := svc.ListUserSessions(context.Background(), api.AdminListUserSessionsInput{
 		ActorID: actorID,
 		UserID:  "user-1",
 	})
@@ -470,7 +471,7 @@ func TestAdminListUserSessions_NotFound(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	_, _, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
+	_, _, err := svc.ListUserSessions(context.Background(), api.AdminListUserSessionsInput{
 		ActorID: actorID,
 		UserID:  "nonexistent",
 	})
@@ -497,7 +498,7 @@ func TestAdminListUserSessions_WithOffsetLimit(t *testing.T) {
 		}))
 	}
 
-	result, _, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
+	result, _, err := svc.ListUserSessions(context.Background(), api.AdminListUserSessionsInput{
 		ActorID: actorID,
 		UserID:  "user-1",
 		Offset:  1,
@@ -519,7 +520,7 @@ func TestAdminListUserSessions_EmptyResult(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	checkTestErrors(t).noError(users.Create(context.Background(), user))
 
-	result, _, err := svc.ListUserSessions(context.Background(), AdminListUserSessionsInput{
+	result, _, err := svc.ListUserSessions(context.Background(), api.AdminListUserSessionsInput{
 		ActorID: actorID,
 		UserID:  "user-1",
 	})
@@ -542,7 +543,7 @@ func TestAdminRevokeUserSession_HappyPath(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), user))
 	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-1", UserID: "user-1"}))
 
-	err := svc.RevokeUserSession(context.Background(), RevokeUserSessionInput{UserID: "user-1", SessionID: "sess-1", ActorID: actorID})
+	err := svc.RevokeUserSession(context.Background(), api.RevokeUserSessionInput{UserID: "user-1", SessionID: "sess-1", ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -561,7 +562,7 @@ func TestAdminRevokeUserSession_NotFound(t *testing.T) {
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	checkTestErrors(t).noError(users.Create(context.Background(), user))
 
-	err := svc.RevokeUserSession(context.Background(), RevokeUserSessionInput{UserID: "user-1", SessionID: "nonexistent", ActorID: actorID})
+	err := svc.RevokeUserSession(context.Background(), api.RevokeUserSessionInput{UserID: "user-1", SessionID: "nonexistent", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -575,7 +576,7 @@ func TestAdminRevokeUserSession_UserNotFound(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	err := svc.RevokeUserSession(context.Background(), RevokeUserSessionInput{UserID: "nonexistent", SessionID: "sess-1", ActorID: actorID})
+	err := svc.RevokeUserSession(context.Background(), api.RevokeUserSessionInput{UserID: "nonexistent", SessionID: "sess-1", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -596,7 +597,7 @@ func TestAdminRevokeUserSessions_HappyPath(t *testing.T) {
 	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-1", UserID: "user-1"}))
 	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-2", UserID: "user-1"}))
 
-	err := svc.RevokeUserSessions(context.Background(), RevokeUserSessionsInput{UserID: "user-1", ActorID: actorID})
+	err := svc.RevokeUserSessions(context.Background(), api.RevokeUserSessionsInput{UserID: "user-1", ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -612,7 +613,7 @@ func TestAdminRevokeUserSessions_NotFound(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	err := svc.RevokeUserSessions(context.Background(), RevokeUserSessionsInput{UserID: "nonexistent", ActorID: actorID})
+	err := svc.RevokeUserSessions(context.Background(), api.RevokeUserSessionsInput{UserID: "nonexistent", ActorID: actorID})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -638,7 +639,7 @@ func TestAdminBanUser_ActorNotAdmin_Forbidden(t *testing.T) {
 	target := &domain.User{ID: "user-1", Email: "target@example.com"}
 	checkTestErrors(t).noError(users.Create(context.Background(), target))
 
-	err := svc.BanUser(context.Background(), BanUserInput{UserID: "user-1", ActorID: "not-admin"})
+	err := svc.BanUser(context.Background(), api.BanUserInput{UserID: "user-1", ActorID: "not-admin"})
 	if err != domain.ErrForbidden {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}
@@ -652,7 +653,7 @@ func TestAdminBanUser_ActorMissing_Forbidden(t *testing.T) {
 	target := &domain.User{ID: "user-1", Email: "target@example.com"}
 	checkTestErrors(t).noError(users.Create(context.Background(), target))
 
-	err := svc.BanUser(context.Background(), BanUserInput{UserID: "user-1", ActorID: ""})
+	err := svc.BanUser(context.Background(), api.BanUserInput{UserID: "user-1", ActorID: ""})
 	if err != domain.ErrForbidden {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}
@@ -668,7 +669,7 @@ func TestAdminDeleteUser_ActorNotAdmin_Forbidden(t *testing.T) {
 	target := &domain.User{ID: "user-1", Email: "target@example.com"}
 	checkTestErrors(t).noError(users.Create(context.Background(), target))
 
-	err := svc.DeleteUser(context.Background(), DeleteUserInput{UserID: "user-1", ActorID: "not-admin"})
+	err := svc.DeleteUser(context.Background(), api.DeleteUserInput{UserID: "user-1", ActorID: "not-admin"})
 	if err != domain.ErrForbidden {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}
@@ -682,7 +683,7 @@ func TestAdminCreateUser_ActorNotAdmin_Forbidden(t *testing.T) {
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
-	_, err := svc.CreateUser(context.Background(), CreateUserInput{
+	_, err := svc.CreateUser(context.Background(), api.CreateUserInput{
 		ActorID: "not-admin", Email: "new@example.com", Password: "Passw0rd!", Name: "New",
 	})
 	if err != domain.ErrForbidden {
@@ -702,7 +703,7 @@ func TestAdminListUsers_NeverLoggedIn(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u2", Email: "u2@example.com"}))
 
 	yes := true
-	result, err := svc.ListUsers(context.Background(), AdminListUsersInput{
+	result, err := svc.ListUsers(context.Background(), api.AdminListUsersInput{
 		ActorID: actorID, Limit: 10, NeverLoggedIn: &yes,
 	})
 	if err != nil {
@@ -732,7 +733,7 @@ func TestAdminListUsers_LastLoginBefore(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "active", Email: "active@example.com", LastLoginAt: &stillActive}))
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "never", Email: "never@example.com"}))
 
-	result, err := svc.ListUsers(context.Background(), AdminListUsersInput{
+	result, err := svc.ListUsers(context.Background(), api.AdminListUsersInput{
 		ActorID: actorID, Limit: 10, LastLoginBefore: &cutoff,
 	})
 	if err != nil {
@@ -759,7 +760,7 @@ func TestAdminListUsers_IsBanned(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "ok", Email: "ok@example.com"}))
 
 	yes := true
-	result, err := svc.ListUsers(context.Background(), AdminListUsersInput{
+	result, err := svc.ListUsers(context.Background(), api.AdminListUsersInput{
 		ActorID: actorID, Limit: 10, IsBanned: &yes,
 	})
 	if err != nil {
@@ -770,7 +771,7 @@ func TestAdminListUsers_IsBanned(t *testing.T) {
 	}
 
 	no := false
-	result, err = svc.ListUsers(context.Background(), AdminListUsersInput{
+	result, err = svc.ListUsers(context.Background(), api.AdminListUsersInput{
 		ActorID: actorID, Limit: 10, IsBanned: &no,
 	})
 	if err != nil {
@@ -791,7 +792,7 @@ func TestAdminListUsers_IsVerified(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "pending", Email: "pending@example.com"}))
 
 	no := false
-	result, err := svc.ListUsers(context.Background(), AdminListUsersInput{
+	result, err := svc.ListUsers(context.Background(), api.AdminListUsersInput{
 		ActorID: actorID, Limit: 10, IsVerified: &no,
 	})
 	if err != nil {

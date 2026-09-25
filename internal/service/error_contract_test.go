@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
@@ -26,7 +27,7 @@ func TestSuccessPaths_ReturnTrueNilError(t *testing.T) {
 		svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 		checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u1", Email: "a@example.com"}))
 
-		if err := svc.BanUser(context.Background(), BanUserInput{UserID: "u1", ActorID: actorID}); err != nil {
+		if err := svc.BanUser(context.Background(), api.BanUserInput{UserID: "u1", ActorID: actorID}); err != nil {
 			t.Fatalf("err == nil check failed: got %v (%T)", err, err)
 		}
 	})
@@ -40,7 +41,7 @@ func TestSuccessPaths_ReturnTrueNilError(t *testing.T) {
 		hash, _ := hasher.Hash("OldPassw0rd!")
 		checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u1", Email: "a@example.com", PasswordHash: &hash}))
 
-		err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+		err := svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 			UserID:      "u1",
 			OldPassword: "OldPassw0rd!",
 			NewPassword: "NewPassw0rd!",

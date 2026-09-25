@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
@@ -51,7 +52,7 @@ func TestAccountDeletion_CodeClaimAndRollback(t *testing.T) {
 			svc.AttachAccountDeletion(deletionCoordinator(f))
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			err := svc.ConfirmDeleteAccount(ctx, ConfirmDeleteAccountInput{UserID: f.userID, Code: code})
+			err := svc.ConfirmDeleteAccount(ctx, api.ConfirmDeleteAccountInput{UserID: f.userID, Code: code})
 			if !errors.Is(err, want) {
 				t.Fatalf("got %v, want %v", err, want)
 			}
@@ -97,7 +98,7 @@ func TestAccountDeletion_PasswordAndAdminPaths(t *testing.T) {
 				deletionExec(t, f, `UPDATE users SET role='admin' WHERE id='other'`)
 				svc := NewAdminService(f.users, f.sessions, nil, nil, f.hasher, cfg, nil)
 				svc.AttachAccountDeletion(deletionCoordinator(f))
-				err = svc.DeleteUser(context.Background(), DeleteUserInput{ActorID: "other", UserID: f.userID})
+				err = svc.DeleteUser(context.Background(), api.DeleteUserInput{ActorID: "other", UserID: f.userID})
 			}
 			if !errors.Is(err, domain.ErrCannotRemoveLastOwner) {
 				t.Fatalf("got %v", err)

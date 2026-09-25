@@ -2,8 +2,10 @@ package port
 
 import (
 	"context"
-	"github.com/nazimdjebloun/go-auth/domain"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/api"
+	"github.com/nazimdjebloun/go-auth/domain"
 )
 
 // UserFilter narrows and orders user queries.
@@ -29,8 +31,8 @@ type UserFilter struct {
 	CreatedAfter   *time.Time
 	CreatedBefore  *time.Time
 	Search         *string
-	OrderBy        UserSortField
-	OrderDirection SortDirection
+	OrderBy        api.UserSortField
+	OrderDirection api.SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }
@@ -74,7 +76,7 @@ type UserRepository interface {
 	// CountByDay returns registrations per day matching filter (Offset/Limit
 	// on filter are ignored — the result is naturally bounded by the date
 	// range in filter.CreatedAfter/CreatedBefore).
-	CountByDay(ctx context.Context, filter UserFilter) ([]DailyCount, error)
+	CountByDay(ctx context.Context, filter UserFilter) ([]api.DailyCount, error)
 	// SetPasswordAndVerify atomically consumes a set-password code and sets the
 	// password in one transaction. The token claim is conditional on the
 	// token still being unused and is checked before the password write, so

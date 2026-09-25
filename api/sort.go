@@ -1,4 +1,4 @@
-package port
+package api
 
 // SortDirection controls ascending or descending list order.
 type SortDirection string

@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/nazimdjebloun/go-auth/api"
 )
 
 func TestSortParsersRejectInvalidExplicitValues(t *testing.T) {
@@ -37,12 +37,12 @@ func TestSortParsersRejectInvalidExplicitValues(t *testing.T) {
 
 func TestSortParsersSupplyEstablishedDefaults(t *testing.T) {
 	userField, userDirection, err := parseUserSort(url.Values{})
-	if err != nil || userField != port.UserSortCreatedAt || userDirection != port.SortDescending {
+	if err != nil || userField != api.UserSortCreatedAt || userDirection != api.SortDescending {
 		t.Fatalf("user defaults = (%q, %q, %v)", userField, userDirection, err)
 	}
 
 	memberField, memberDirection, err := parseOrgMemberSort(url.Values{})
-	if err != nil || memberField != port.OrgMemberSortJoinedAt || memberDirection != port.SortAscending {
+	if err != nil || memberField != api.OrgMemberSortJoinedAt || memberDirection != api.SortAscending {
 		t.Fatalf("member defaults = (%q, %q, %v)", memberField, memberDirection, err)
 	}
 }

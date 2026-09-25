@@ -7,6 +7,7 @@ import (
 	"time"
 
 	goauth "github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -19,7 +20,7 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 	defer a.Close()
 	ctx := context.Background()
 
-	loginResult, err := a.Register(ctx, goauth.RegisterInput{Email: "reuse@example.com", Password: "Passw0rd!", Name: "Reuse"})
+	loginResult, err := a.Register(ctx, api.RegisterInput{Email: "reuse@example.com", Password: "Passw0rd!", Name: "Reuse"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +61,7 @@ func TestSession_RefreshCannotReviveIdleSession(t *testing.T) {
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
 	ctx := context.Background()
-	registered, err := a.Register(ctx, goauth.RegisterInput{Email: "idle-refresh@example.com", Password: "Passw0rd!", Name: "Idle"})
+	registered, err := a.Register(ctx, api.RegisterInput{Email: "idle-refresh@example.com", Password: "Passw0rd!", Name: "Idle"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +98,7 @@ func TestSession_RefreshAuditFailureKeepsOldToken(t *testing.T) {
 	}
 	defer a.Close()
 	ctx := context.Background()
-	registered, err := a.Register(ctx, goauth.RegisterInput{Email: "audit-refresh@example.com", Password: "Passw0rd!", Name: "Audit"})
+	registered, err := a.Register(ctx, api.RegisterInput{Email: "audit-refresh@example.com", Password: "Passw0rd!", Name: "Audit"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +125,7 @@ func TestSession_RefreshReuseDetection_RevocationFailurePropagates(t *testing.T)
 	defer a.Close()
 	ctx := context.Background()
 
-	registered, err := a.Register(ctx, goauth.RegisterInput{
+	registered, err := a.Register(ctx, api.RegisterInput{
 		Email: "reuse-revoke-failure@example.com", Password: "Passw0rd!", Name: "Reuse Failure",
 	})
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -33,7 +34,7 @@ func TestInviteRegister(t *testing.T) {
 	}
 	checkTestErrors(t).noError(invites.Create(context.Background(), invite))
 
-	result, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
+	result, err := svc.CompleteInviteRegistration(context.Background(), api.CompleteInviteInput{
 		Code:            raw,
 		Name:            "Invited User",
 		Password:        "Passw0rd!",
@@ -82,7 +83,7 @@ func TestInviteRegisterExpired(t *testing.T) {
 	}
 	checkTestErrors(t).noError(invites.Create(context.Background(), invite))
 
-	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
+	_, err := svc.CompleteInviteRegistration(context.Background(), api.CompleteInviteInput{
 		Code:            raw,
 		Name:            "Invited User",
 		Password:        "Passw0rd!",
@@ -131,7 +132,7 @@ func TestCompleteInviteRegistration_DuplicateEmail(t *testing.T) {
 		CreatedAt: now,
 	}))
 
-	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
+	_, err := svc.CompleteInviteRegistration(context.Background(), api.CompleteInviteInput{
 		Code:            raw,
 		Name:            "Invited User",
 		Password:        "Passw0rd!",
@@ -164,7 +165,7 @@ func TestInviteRegisterPasswordMismatch(t *testing.T) {
 	}
 	checkTestErrors(t).noError(invites.Create(context.Background(), invite))
 
-	_, err := svc.CompleteInviteRegistration(context.Background(), CompleteInviteInput{
+	_, err := svc.CompleteInviteRegistration(context.Background(), api.CompleteInviteInput{
 		Code:            raw,
 		Name:            "Invited User",
 		Password:        "Passw0rd!",
@@ -189,7 +190,7 @@ func TestCreateInvite_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	svc := NewInviteService(users, sessions, invites, hasher, gen, nil, &testutil.MockTxManager{}, defaultTestConfig(), sessSvc, nil)
 	adminID := seedInviteAdmin(users)
 
-	_, err := svc.CreateInvite(context.Background(), CreateInviteInput{
+	_, err := svc.CreateInvite(context.Background(), api.CreateInviteInput{
 		Email:   "invited@example.com",
 		AdminID: adminID,
 	})
@@ -274,15 +275,15 @@ func TestInvite_NonAdminActorIsForbidden(t *testing.T) {
 	ctx := context.Background()
 	calls := map[string]error{
 		"create": func() error {
-			_, e := svc.CreateInvite(ctx, CreateInviteInput{Email: "a@b.co", AdminID: "plain-user"})
+			_, e := svc.CreateInvite(ctx, api.CreateInviteInput{Email: "a@b.co", AdminID: "plain-user"})
 			return e
 		}(),
-		"list":    func() error { _, e := svc.ListInvites(ctx, ListInvitesInput{ActorID: "plain-user"}); return e }(),
-		"count":   func() error { _, e := svc.CountInvites(ctx, ListInvitesInput{ActorID: "plain-user"}); return e }(),
+		"list":    func() error { _, e := svc.ListInvites(ctx, api.ListInvitesInput{ActorID: "plain-user"}); return e }(),
+		"count":   func() error { _, e := svc.CountInvites(ctx, api.ListInvitesInput{ActorID: "plain-user"}); return e }(),
 		"revoke":  svc.RevokeInvite(ctx, inv.ID, "plain-user"),
 		"resend":  svc.ResendInviteEmail(ctx, inv.ID, "plain-user"),
 		"delete":  svc.HardDeleteInvite(ctx, inv.ID, "plain-user"),
-		"noactor": func() error { _, e := svc.ListInvites(ctx, ListInvitesInput{}); return e }(),
+		"noactor": func() error { _, e := svc.ListInvites(ctx, api.ListInvitesInput{}); return e }(),
 	}
 	for name, err := range calls {
 		if authErrCode(err) != "forbidden" {
@@ -298,7 +299,7 @@ func TestCreateInvite_EmailAlreadyRegistered(t *testing.T) {
 		ID: "existing", Email: "taken@example.com", Role: domain.RoleUser,
 	}))
 
-	_, err := svc.CreateInvite(context.Background(), CreateInviteInput{
+	_, err := svc.CreateInvite(context.Background(), api.CreateInviteInput{
 		Email: "taken@example.com", AdminID: adminID,
 	})
 	if authErrCode(err) != "email_already_exists" {
@@ -315,7 +316,7 @@ func TestCreateInvite_DuplicatePendingInviteRejected(t *testing.T) {
 		ExpiresAt: now.Add(time.Hour), CreatedAt: now,
 	}))
 
-	_, err := svc.CreateInvite(context.Background(), CreateInviteInput{
+	_, err := svc.CreateInvite(context.Background(), api.CreateInviteInput{
 		Email: "dup@example.com", AdminID: adminID,
 	})
 	if authErrCode(err) != "invite_already_exists" {
@@ -334,7 +335,7 @@ func TestCreateInvite_ExpiredInviteDoesNotBlockReinvite(t *testing.T) {
 		ExpiresAt: now.Add(-time.Hour), CreatedAt: now.Add(-2 * time.Hour),
 	}))
 
-	_, err := svc.CreateInvite(context.Background(), CreateInviteInput{
+	_, err := svc.CreateInvite(context.Background(), api.CreateInviteInput{
 		Email: "again@example.com", AdminID: adminID,
 	})
 	if authErrCode(err) == "invite_already_exists" {
@@ -370,7 +371,7 @@ func TestBulkRevokeInvites_PartialFailure(t *testing.T) {
 	svc, invites, adminID := newBulkInviteService(users, &testutil.MockMailer{})
 	seedPendingInvite(t, invites, "inv-a", "a@example.com")
 
-	res, err := svc.BulkRevokeInvites(context.Background(), BulkInviteIDsInput{
+	res, err := svc.BulkRevokeInvites(context.Background(), api.BulkInviteIDsInput{
 		InviteIDs: []string{"inv-a", "missing"}, ActorID: adminID,
 	})
 	if err != nil {
@@ -393,7 +394,7 @@ func TestBulkDeleteInvites_RemovesRows(t *testing.T) {
 	seedPendingInvite(t, invites, "inv-a", "a@example.com")
 	seedPendingInvite(t, invites, "inv-b", "b@example.com")
 
-	res, err := svc.BulkDeleteInvites(context.Background(), BulkInviteIDsInput{
+	res, err := svc.BulkDeleteInvites(context.Background(), api.BulkInviteIDsInput{
 		InviteIDs: []string{"inv-a", "inv-b"}, ActorID: adminID,
 	})
 	if err != nil {
@@ -419,7 +420,7 @@ func TestBulkSendInvites_SendsEachAndReportsRejections(t *testing.T) {
 	}))
 	seedPendingInvite(t, invites, "inv-live", "pending@example.com")
 
-	res, err := svc.BulkSendInvites(context.Background(), BulkInviteEmailsInput{
+	res, err := svc.BulkSendInvites(context.Background(), api.BulkInviteEmailsInput{
 		Emails:  []string{"new1@example.com", "new2@example.com", "taken@example.com", "pending@example.com"},
 		ActorID: adminID,
 	})
@@ -455,7 +456,7 @@ func TestBulkInvites_CapsRejectOversizedRequests(t *testing.T) {
 	for i := range tooManyIDs {
 		tooManyIDs[i] = "id"
 	}
-	if _, err := svc.BulkRevokeInvites(context.Background(), BulkInviteIDsInput{
+	if _, err := svc.BulkRevokeInvites(context.Background(), api.BulkInviteIDsInput{
 		InviteIDs: tooManyIDs, ActorID: adminID,
 	}); authErrCode(err) != "invalid_input" {
 		t.Errorf("revoke cap: code = %q, want invalid_input", authErrCode(err))
@@ -466,13 +467,13 @@ func TestBulkInvites_CapsRejectOversizedRequests(t *testing.T) {
 	for i := range tooManyEmails {
 		tooManyEmails[i] = "a@example.com"
 	}
-	if _, err := svc.BulkSendInvites(context.Background(), BulkInviteEmailsInput{
+	if _, err := svc.BulkSendInvites(context.Background(), api.BulkInviteEmailsInput{
 		Emails: tooManyEmails, ActorID: adminID,
 	}); authErrCode(err) != "invalid_input" {
 		t.Errorf("send cap: code = %q, want invalid_input", authErrCode(err))
 	}
 
-	if _, err := svc.BulkRevokeInvites(context.Background(), BulkInviteIDsInput{
+	if _, err := svc.BulkRevokeInvites(context.Background(), api.BulkInviteIDsInput{
 		InviteIDs: nil, ActorID: adminID,
 	}); authErrCode(err) != "invalid_input" {
 		t.Errorf("empty: code = %q, want invalid_input", authErrCode(err))
@@ -489,19 +490,19 @@ func TestBulkInvites_NonAdminForbidden(t *testing.T) {
 
 	checks := map[string]error{
 		"send": func() error {
-			_, e := svc.BulkSendInvites(ctx, BulkInviteEmailsInput{Emails: []string{"a@b.co"}, ActorID: "plain"})
+			_, e := svc.BulkSendInvites(ctx, api.BulkInviteEmailsInput{Emails: []string{"a@b.co"}, ActorID: "plain"})
 			return e
 		}(),
 		"resend": func() error {
-			_, e := svc.BulkResendInvites(ctx, BulkInviteIDsInput{InviteIDs: []string{"x"}, ActorID: "plain"})
+			_, e := svc.BulkResendInvites(ctx, api.BulkInviteIDsInput{InviteIDs: []string{"x"}, ActorID: "plain"})
 			return e
 		}(),
 		"revoke": func() error {
-			_, e := svc.BulkRevokeInvites(ctx, BulkInviteIDsInput{InviteIDs: []string{"x"}, ActorID: "plain"})
+			_, e := svc.BulkRevokeInvites(ctx, api.BulkInviteIDsInput{InviteIDs: []string{"x"}, ActorID: "plain"})
 			return e
 		}(),
 		"delete": func() error {
-			_, e := svc.BulkDeleteInvites(ctx, BulkInviteIDsInput{InviteIDs: []string{"x"}, ActorID: "plain"})
+			_, e := svc.BulkDeleteInvites(ctx, api.BulkInviteIDsInput{InviteIDs: []string{"x"}, ActorID: "plain"})
 			return e
 		}(),
 	}

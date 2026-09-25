@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -59,7 +60,7 @@ func liveBenchAuth(b *testing.B, driver Driver, envVar string) *Auth {
 // The database must already have the schema applied (goauth migrate).
 func BenchmarkLivePostgres_ValidateSession(b *testing.B) {
 	a := liveBenchAuth(b, DriverPostgres, "GOAUTH_POSTGRES_TEST_DSN")
-	res, err := a.Register(context.Background(), RegisterInput{
+	res, err := a.Register(context.Background(), api.RegisterInput{
 		Email:    fmt.Sprintf("pgbench-v-%d@example.com", time.Now().UnixNano()),
 		Password: validTestPassword(),
 		Name:     "Bench",
@@ -82,7 +83,7 @@ func BenchmarkLivePostgres_ValidateSession(b *testing.B) {
 func BenchmarkLivePostgres_RefreshSession(b *testing.B) {
 	a := liveBenchAuth(b, DriverPostgres, "GOAUTH_POSTGRES_TEST_DSN")
 	ctx := context.Background()
-	res, err := a.Register(ctx, RegisterInput{
+	res, err := a.Register(ctx, api.RegisterInput{
 		Email:    fmt.Sprintf("pgbench-r-%d@example.com", time.Now().UnixNano()),
 		Password: validTestPassword(),
 		Name:     "Bench",

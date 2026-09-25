@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
-	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -28,29 +28,10 @@ import (
 // so "the owner deleted their org" and "a platform admin force-deleted it"
 // never look identical in the audit log.
 
-// AdminListOrgsInput contains administrator organization filters.
-type AdminListOrgsInput struct {
-	ActorID        string
-	Search         *string
-	CreatedAfter   *time.Time
-	CreatedBefore  *time.Time
-	OrderBy        port.OrgSortField
-	OrderDirection port.SortDirection
-	Offset         int
-	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
-}
-
-// AdminListOrgsResult contains organizations and the matching total.
-type AdminListOrgsResult struct {
-	Orgs   []domain.Organization `json:"orgs"`
-	Limit  int                   `json:"limit"`
-	Offset int                   `json:"offset"`
-}
-
 // AdminListOrgs lists every organization on the platform, filterable by
 // name/slug search and creation-date range — the cross-org counterpart to
 // ListUserOrgs, which is scoped to one user's memberships.
-func (s *OrgService) AdminListOrgs(ctx context.Context, input AdminListOrgsInput) (*AdminListOrgsResult, error) {
+func (s *OrgService) AdminListOrgs(ctx context.Context, input api.AdminListOrgsInput) (*api.AdminListOrgsResult, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -78,12 +59,12 @@ func (s *OrgService) AdminListOrgs(ctx context.Context, input AdminListOrgsInput
 	if orgs == nil {
 		orgs = []domain.Organization{}
 	}
-	return &AdminListOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
+	return &api.AdminListOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
 }
 
 // CountOrgs returns how many organizations match the input's filters
 // (pagination ignored).
-func (s *OrgService) CountOrgs(ctx context.Context, input AdminListOrgsInput) (int, error) {
+func (s *OrgService) CountOrgs(ctx context.Context, input api.AdminListOrgsInput) (int, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return 0, err
 	}
@@ -95,7 +76,7 @@ func (s *OrgService) CountOrgs(ctx context.Context, input AdminListOrgsInput) (i
 }
 
 // CountMembers returns how many members of the org match the input's filters.
-func (s *OrgService) CountMembers(ctx context.Context, input ListMembersInput) (int, error) {
+func (s *OrgService) CountMembers(ctx context.Context, input api.ListMembersInput) (int, error) {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
 		return 0, err
 	}
@@ -106,24 +87,12 @@ func (s *OrgService) CountMembers(ctx context.Context, input ListMembersInput) (
 }
 
 // CountUserOrgs returns how many orgs the user belongs to that match search/role.
-func (s *OrgService) CountUserOrgs(ctx context.Context, input ListUserOrgsInput) (int, error) {
+func (s *OrgService) CountUserOrgs(ctx context.Context, input api.ListUserOrgsInput) (int, error) {
 	return s.orgs.CountUserOrgs(ctx, input.UserID, port.UserOrgFilter{Search: input.Search, Role: input.Role})
 }
 
-// AdminListUserOrgsInput contains filters for a user's organizations.
-type AdminListUserOrgsInput struct {
-	ActorID        string
-	UserID         string
-	Search         *string
-	Role           *domain.OrgRole
-	OrderBy        port.UserOrgSortField
-	OrderDirection port.SortDirection
-	Offset         int
-	Limit          *int
-}
-
 // AdminListUserOrgs returns a user's organizations to an administrator.
-func (s *OrgService) AdminListUserOrgs(ctx context.Context, input AdminListUserOrgsInput) (*ListUserOrgsResult, error) {
+func (s *OrgService) AdminListUserOrgs(ctx context.Context, input api.AdminListUserOrgsInput) (*api.ListUserOrgsResult, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -156,11 +125,11 @@ func (s *OrgService) AdminListUserOrgs(ctx context.Context, input AdminListUserO
 	if orgs == nil {
 		orgs = []domain.Organization{}
 	}
-	return &ListUserOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
+	return &api.ListUserOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
 }
 
 // AdminCountUserOrgs returns a user's organization count to an administrator.
-func (s *OrgService) AdminCountUserOrgs(ctx context.Context, input AdminListUserOrgsInput) (int, error) {
+func (s *OrgService) AdminCountUserOrgs(ctx context.Context, input api.AdminListUserOrgsInput) (int, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return 0, err
 	}
@@ -170,17 +139,11 @@ func (s *OrgService) AdminCountUserOrgs(ctx context.Context, input AdminListUser
 	return s.orgs.CountUserOrgs(ctx, input.UserID, port.UserOrgFilter{Search: input.Search, Role: input.Role})
 }
 
-// AdminGetOrgInput identifies an organization to return to an administrator.
-type AdminGetOrgInput struct {
-	OrgID   string
-	ActorID string
-}
-
 // AdminGetOrg fetches one organization regardless of the caller's membership
 // in it. Publishes EventAdminOrgViewed: this exposes an org's metadata to
 // platform staff who may not be members, and that access itself is worth an
 // audit trail entry.
-func (s *OrgService) AdminGetOrg(ctx context.Context, input AdminGetOrgInput) (*domain.Organization, error) {
+func (s *OrgService) AdminGetOrg(ctx context.Context, input api.AdminGetOrgInput) (*domain.Organization, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -202,24 +165,12 @@ func (s *OrgService) AdminGetOrg(ctx context.Context, input AdminGetOrgInput) (*
 	return org, nil
 }
 
-// AdminListOrgMembersInput contains administrator member filters.
-type AdminListOrgMembersInput struct {
-	OrgID          string
-	ActorID        string
-	Role           *domain.OrgRole
-	Search         *string
-	OrderBy        port.OrgMemberSortField
-	OrderDirection port.SortDirection
-	Offset         int
-	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
-}
-
 // AdminListOrgMembers lists orgID's members regardless of the caller's own
 // membership in it — the admin-bypass counterpart to ListMembers, which
 // requires the caller to already be a member. Publishes EventAdminOrgViewed
 // for the same reason as AdminGetOrg: this is cross-tenant member data
 // (emails, roles) being exposed to platform staff.
-func (s *OrgService) AdminListOrgMembers(ctx context.Context, input AdminListOrgMembersInput) (*ListMembersResult, error) {
+func (s *OrgService) AdminListOrgMembers(ctx context.Context, input api.AdminListOrgMembersInput) (*api.ListMembersResult, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -253,14 +204,14 @@ func (s *OrgService) AdminListOrgMembers(ctx context.Context, input AdminListOrg
 		}
 	}
 
-	return &ListMembersResult{Members: members, Limit: limit, Offset: input.Offset}, nil
+	return &api.ListMembersResult{Members: members, Limit: limit, Offset: input.Offset}, nil
 }
 
 // AdminCountOrgMembers returns how many of orgID's members match the input's
 // filters, bypassing the membership check (admin oversight). Pagination is
 // ignored. Unlike AdminListOrgMembers it publishes no audit event — it
 // exposes only a count, not member data.
-func (s *OrgService) AdminCountOrgMembers(ctx context.Context, input AdminListOrgMembersInput) (int, error) {
+func (s *OrgService) AdminCountOrgMembers(ctx context.Context, input api.AdminListOrgMembersInput) (int, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return 0, err
 	}
@@ -270,18 +221,12 @@ func (s *OrgService) AdminCountOrgMembers(ctx context.Context, input AdminListOr
 	})
 }
 
-// AdminOrgActionInput identifies an organization and administrator.
-type AdminOrgActionInput struct {
-	OrgID   string
-	ActorID string
-}
-
 // AdminDeleteOrg force-deletes orgID regardless of whether the caller is a
 // member of it. Publishes EventAdminOrgDeleted — distinct from the
 // self-service EventOrgDeleted — with the org's name/slug snapshotted into
 // the event metadata, since the organizations row won't survive the delete
 // for anything to join against later.
-func (s *OrgService) AdminDeleteOrg(ctx context.Context, input AdminOrgActionInput) error {
+func (s *OrgService) AdminDeleteOrg(ctx context.Context, input api.AdminOrgActionInput) error {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
 	}
@@ -296,21 +241,13 @@ func (s *OrgService) AdminDeleteOrg(ctx context.Context, input AdminOrgActionInp
 	return err
 }
 
-// AdminAddMemberInput identifies the member and role an administrator adds.
-type AdminAddMemberInput struct {
-	OrgID   string
-	UserID  string
-	Role    domain.OrgRole
-	ActorID string
-}
-
 // AdminAddMember force-adds userID to orgID with the given role, regardless
 // of the caller's own membership. This is the recovery path for an org
 // whose only owner left or was removed and is otherwise unmanageable by
 // anyone — AdminRemoveMember/AdminUpdateMemberRole alone can't fix that,
 // since both require the target to already be a member. Publishes
 // EventAdminOrgMemberAdded.
-func (s *OrgService) AdminAddMember(ctx context.Context, input AdminAddMemberInput) error {
+func (s *OrgService) AdminAddMember(ctx context.Context, input api.AdminAddMemberInput) error {
 	if !input.Role.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
@@ -325,17 +262,10 @@ func (s *OrgService) AdminAddMember(ctx context.Context, input AdminAddMemberInp
 	})
 }
 
-// AdminRemoveMemberInput identifies the member an administrator removes.
-type AdminRemoveMemberInput struct {
-	OrgID   string
-	UserID  string
-	ActorID string
-}
-
 // AdminRemoveMember force-removes userID from orgID regardless of the
 // caller's own membership. Publishes EventAdminOrgMemberRemoved — distinct
 // from the self-service EventOrgMemberRemoved.
-func (s *OrgService) AdminRemoveMember(ctx context.Context, input AdminRemoveMemberInput) error {
+func (s *OrgService) AdminRemoveMember(ctx context.Context, input api.AdminRemoveMemberInput) error {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
 	}
@@ -348,21 +278,13 @@ func (s *OrgService) AdminRemoveMember(ctx context.Context, input AdminRemoveMem
 	return err
 }
 
-// AdminUpdateMemberRoleInput identifies the role change an administrator makes.
-type AdminUpdateMemberRoleInput struct {
-	OrgID   string
-	UserID  string
-	NewRole domain.OrgRole
-	ActorID string
-}
-
 // AdminUpdateMemberRole force-changes userID's role within orgID, including
 // granting or revoking Owner — the self-service UpdateMemberRole's
 // owner-escalation guard (only an Owner can touch the Owner role) is
 // deliberately not applied here: that guard exists to stop a same-org Admin
 // self-promoting, and doesn't apply to a platform admin acting from outside
 // the org. Publishes EventAdminOrgMemberRoleChanged.
-func (s *OrgService) AdminUpdateMemberRole(ctx context.Context, input AdminUpdateMemberRoleInput) error {
+func (s *OrgService) AdminUpdateMemberRole(ctx context.Context, input api.AdminUpdateMemberRoleInput) error {
 	if !input.NewRole.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
 	"github.com/nazimdjebloun/go-auth/internal/service"
@@ -125,7 +126,7 @@ func (m *mockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 		} else {
 			ci, cj = matched[i].CreatedAt, matched[j].CreatedAt
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return ci.Before(cj)
 		}
 		return ci.After(cj)
@@ -147,7 +148,7 @@ func (m *mockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 
 // CountByDay groups matched users by their CreatedAt day — a small in-memory
 // stand-in for the real GROUP BY date_trunc('day', ...) query.
-func (m *mockUserRepo) CountByDay(_ context.Context, filter port.UserFilter) ([]port.DailyCount, error) {
+func (m *mockUserRepo) CountByDay(_ context.Context, filter port.UserFilter) ([]api.DailyCount, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -165,9 +166,9 @@ func (m *mockUserRepo) CountByDay(_ context.Context, filter port.UserFilter) ([]
 		byDay[day]++
 	}
 
-	counts := make([]port.DailyCount, 0, len(byDay))
+	counts := make([]api.DailyCount, 0, len(byDay))
 	for day, count := range byDay {
-		counts = append(counts, port.DailyCount{Date: day, Count: count})
+		counts = append(counts, api.DailyCount{Date: day, Count: count})
 	}
 	sort.Slice(counts, func(i, j int) bool { return counts[i].Date.Before(counts[j].Date) })
 	return counts, nil
@@ -394,14 +395,14 @@ func pepperVersionNumber(value *uint32) uint32 {
 
 type mockAuditLogRepo struct {
 	mu      sync.Mutex
-	entries []port.AuditLogEntry
+	entries []api.AuditLogEntry
 }
 
 func newMockAuditLogRepo() *mockAuditLogRepo {
 	return &mockAuditLogRepo{}
 }
 
-func (m *mockAuditLogRepo) AddEntry(e port.AuditLogEntry) {
+func (m *mockAuditLogRepo) AddEntry(e api.AuditLogEntry) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.entries = append(m.entries, e)
@@ -419,11 +420,11 @@ func (m *mockAuditLogRepo) Count(_ context.Context, filter port.AuditLogFilter) 
 	return n, nil
 }
 
-func (m *mockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) ([]port.AuditLogEntry, error) {
+func (m *mockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) ([]api.AuditLogEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var matched []port.AuditLogEntry
+	var matched []api.AuditLogEntry
 	for _, e := range m.entries {
 		if auditEntryMatchesFilter(e, filter) {
 			matched = append(matched, e)
@@ -445,7 +446,7 @@ func (m *mockAuditLogRepo) List(_ context.Context, filter port.AuditLogFilter) (
 	return matched[start:end], nil
 }
 
-func (m *mockAuditLogRepo) GetByID(_ context.Context, id string) (*port.AuditLogEntry, error) {
+func (m *mockAuditLogRepo) GetByID(_ context.Context, id string) (*api.AuditLogEntry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, e := range m.entries {
@@ -457,7 +458,7 @@ func (m *mockAuditLogRepo) GetByID(_ context.Context, id string) (*port.AuditLog
 	return nil, nil
 }
 
-func (m *mockAuditLogRepo) CountByDay(_ context.Context, filter port.AuditLogFilter) ([]port.DailyCount, error) {
+func (m *mockAuditLogRepo) CountByDay(_ context.Context, filter port.AuditLogFilter) ([]api.DailyCount, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -470,15 +471,15 @@ func (m *mockAuditLogRepo) CountByDay(_ context.Context, filter port.AuditLogFil
 		byDay[day]++
 	}
 
-	counts := make([]port.DailyCount, 0, len(byDay))
+	counts := make([]api.DailyCount, 0, len(byDay))
 	for day, count := range byDay {
-		counts = append(counts, port.DailyCount{Date: day, Count: count})
+		counts = append(counts, api.DailyCount{Date: day, Count: count})
 	}
 	sort.Slice(counts, func(i, j int) bool { return counts[i].Date.Before(counts[j].Date) })
 	return counts, nil
 }
 
-func auditEntryMatchesFilter(e port.AuditLogEntry, filter port.AuditLogFilter) bool {
+func auditEntryMatchesFilter(e api.AuditLogEntry, filter port.AuditLogFilter) bool {
 	if len(filter.Types) > 0 && !slices.Contains(filter.Types, e.Type) {
 		return false
 	}
@@ -1234,7 +1235,7 @@ func (m *mockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port
 		default:
 			less = all[i].JoinedAt.Before(all[j].JoinedAt)
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return less
 		}
 		return !less
@@ -1300,7 +1301,7 @@ func (m *mockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port
 		default:
 			less = all[i].Name < all[j].Name
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return less
 		}
 		return !less
@@ -1382,7 +1383,7 @@ func (m *mockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.O
 		default:
 			less = all[i].Name < all[j].Name
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return less
 		}
 		return !less
@@ -1564,7 +1565,7 @@ func (m *mockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter 
 		default:
 			less = all[i].CreatedAt.Before(all[j].CreatedAt)
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return less
 		}
 		return !less

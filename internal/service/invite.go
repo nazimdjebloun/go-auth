@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -93,7 +94,7 @@ func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (
 }
 
 // CreateInvite creates an account invitation.
-func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInput) (*domain.Invite, error) {
+func (s *InviteService) CreateInvite(ctx context.Context, input api.CreateInviteInput) (*domain.Invite, error) {
 	if err := requireAdminRole(ctx, s.users, input.AdminID); err != nil {
 		return nil, err
 	}
@@ -181,7 +182,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input CreateInviteInpu
 }
 
 // CompleteInviteRegistration registers a user from an invitation.
-func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input CompleteInviteInput) (*CompleteInviteResult, error) {
+func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input api.CompleteInviteInput) (*api.CompleteInviteResult, error) {
 	if !s.config.EnableInvite {
 		return nil, domain.ErrMethodDisabled
 	}
@@ -287,14 +288,13 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 			return nil, aerr
 		}
 		s.log.Info("invite registered, two-factor required", "user_id", user.ID, "invite_id", invite.ID)
-		return &CompleteInviteResult{
+		return api.NewCompleteInviteResult(api.CompleteInviteResult{
 			User:               user,
 			RequiresTwoFactor:  true,
 			CodeSent:           challenge.Sent,
 			TwoFactorChallenge: challenge.ID,
 			TwoFactorExpiresAt: challenge.ExpiresAt,
-			bindingToken:       challenge.BindingToken,
-		}, nil
+		}, challenge.BindingToken), nil
 	}
 
 	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
@@ -305,7 +305,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 
 	s.log.Info("invite registered", "user_id", user.ID, "email", user.Email, "invite_id", invite.ID)
 
-	return &CompleteInviteResult{
+	return &api.CompleteInviteResult{
 		User:         user,
 		Session:      sessResult.Session,
 		SessionToken: sessResult.SessionToken,
@@ -313,7 +313,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input Co
 	}, nil
 }
 
-func inviteFilterFromInput(input ListInvitesInput) port.InviteFilter {
+func inviteFilterFromInput(input api.ListInvitesInput) port.InviteFilter {
 	var search *string
 	if input.Search != "" {
 		search = &input.Search
@@ -333,7 +333,7 @@ func inviteFilterFromInput(input ListInvitesInput) port.InviteFilter {
 }
 
 // ListInvites returns account invitations.
-func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput) ([]domain.Invite, error) {
+func (s *InviteService) ListInvites(ctx context.Context, input api.ListInvitesInput) ([]domain.Invite, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -347,7 +347,7 @@ func (s *InviteService) ListInvites(ctx context.Context, input ListInvitesInput)
 
 // CountInvites returns how many invites match the input's filters (pagination
 // ignored).
-func (s *InviteService) CountInvites(ctx context.Context, input ListInvitesInput) (int, error) {
+func (s *InviteService) CountInvites(ctx context.Context, input api.ListInvitesInput) (int, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return 0, err
 	}
@@ -481,36 +481,8 @@ const (
 	bulkEmailSendTimeout = 10 * time.Second
 )
 
-// BulkInviteIDsInput is the input for the ID-keyed bulk actions.
-type BulkInviteIDsInput struct {
-	InviteIDs []string
-	ActorID   string
-}
-
-// BulkInviteEmailsInput is the input for bulk send, which is keyed by address
-// rather than by ID — the invites don't exist yet.
-type BulkInviteEmailsInput struct {
-	Emails  []string
-	ActorID string
-}
-
-// BulkInviteFailure names the invite (by ID, or by email for a send) that
-// didn't succeed, with the same stable code a single call would have returned.
-type BulkInviteFailure struct {
-	InviteID string `json:"inviteId,omitempty"`
-	Email    string `json:"email,omitempty"`
-	Code     string `json:"code"`
-	Message  string `json:"message"`
-}
-
-// BulkInviteResult reports per-item outcome, not overall success.
-type BulkInviteResult struct {
-	Succeeded []string            `json:"succeeded"`
-	Failed    []BulkInviteFailure `json:"failed"`
-}
-
-func inviteFailure(id, email string, err error) BulkInviteFailure {
-	f := BulkInviteFailure{InviteID: id, Email: email, Code: "internal_error", Message: "Something went wrong"}
+func inviteFailure(id, email string, err error) api.BulkInviteFailure {
+	f := api.BulkInviteFailure{InviteID: id, Email: email, Code: "internal_error", Message: "Something went wrong"}
 	var ae *domain.AuthError
 	if errors.As(err, &ae) {
 		f.Code, f.Message = ae.Code, ae.Message
@@ -529,14 +501,14 @@ func validateBulkIDs(ids []string) error {
 }
 
 // BulkRevokeInvites revokes each invite, reporting per-invite outcome.
-func (s *InviteService) BulkRevokeInvites(ctx context.Context, input BulkInviteIDsInput) (*BulkInviteResult, error) {
+func (s *InviteService) BulkRevokeInvites(ctx context.Context, input api.BulkInviteIDsInput) (*api.BulkInviteResult, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
 	}
 	if err := validateBulkIDs(input.InviteIDs); err != nil {
 		return nil, err
 	}
-	result := &BulkInviteResult{Succeeded: []string{}, Failed: []BulkInviteFailure{}}
+	result := &api.BulkInviteResult{Succeeded: []string{}, Failed: []api.BulkInviteFailure{}}
 	for _, id := range input.InviteIDs {
 		if err := s.RevokeInvite(ctx, id, input.ActorID); err != nil {
 			result.Failed = append(result.Failed, inviteFailure(id, "", err))
@@ -550,14 +522,14 @@ func (s *InviteService) BulkRevokeInvites(ctx context.Context, input BulkInviteI
 // BulkDeleteInvites deletes each invite outright. It does not revoke first:
 // the row is gone either way, and the audit trail lives in the audit log, not
 // in a status on a deleted row.
-func (s *InviteService) BulkDeleteInvites(ctx context.Context, input BulkInviteIDsInput) (*BulkInviteResult, error) {
+func (s *InviteService) BulkDeleteInvites(ctx context.Context, input api.BulkInviteIDsInput) (*api.BulkInviteResult, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
 	}
 	if err := validateBulkIDs(input.InviteIDs); err != nil {
 		return nil, err
 	}
-	result := &BulkInviteResult{Succeeded: []string{}, Failed: []BulkInviteFailure{}}
+	result := &api.BulkInviteResult{Succeeded: []string{}, Failed: []api.BulkInviteFailure{}}
 	for _, id := range input.InviteIDs {
 		if err := s.HardDeleteInvite(ctx, id, input.ActorID); err != nil {
 			result.Failed = append(result.Failed, inviteFailure(id, "", err))
@@ -570,7 +542,7 @@ func (s *InviteService) BulkDeleteInvites(ctx context.Context, input BulkInviteI
 
 // runBulkEmail fans `items` across a small worker pool, collecting each
 // outcome. Order of the result slices follows completion, not input.
-func runBulkEmail(ctx context.Context, items []string, work func(context.Context, string) error) *BulkInviteResult {
+func runBulkEmail(ctx context.Context, items []string, work func(context.Context, string) error) *api.BulkInviteResult {
 	type outcome struct {
 		item string
 		err  error
@@ -593,7 +565,7 @@ func runBulkEmail(ctx context.Context, items []string, work func(context.Context
 	wg.Wait()
 	close(results)
 
-	out := &BulkInviteResult{Succeeded: []string{}, Failed: []BulkInviteFailure{}}
+	out := &api.BulkInviteResult{Succeeded: []string{}, Failed: []api.BulkInviteFailure{}}
 	for r := range results {
 		if r.err != nil {
 			out.Failed = append(out.Failed, inviteFailure("", r.item, r.err))
@@ -607,7 +579,7 @@ func runBulkEmail(ctx context.Context, items []string, work func(context.Context
 // BulkSendInvites creates and emails one invite per address. Addresses that
 // already have an account, or already have a live invite, come back in Failed
 // with the same codes a single CreateInvite would have returned.
-func (s *InviteService) BulkSendInvites(ctx context.Context, input BulkInviteEmailsInput) (*BulkInviteResult, error) {
+func (s *InviteService) BulkSendInvites(ctx context.Context, input api.BulkInviteEmailsInput) (*api.BulkInviteResult, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -618,7 +590,7 @@ func (s *InviteService) BulkSendInvites(ctx context.Context, input BulkInviteEma
 		return nil, domain.NewError("invalid_input", fmt.Sprintf("at most %d emails per bulk request", maxBulkInviteEmails))
 	}
 	return runBulkEmail(ctx, input.Emails, func(c context.Context, email string) error {
-		_, err := s.CreateInvite(c, CreateInviteInput{Email: email, AdminID: input.ActorID})
+		_, err := s.CreateInvite(c, api.CreateInviteInput{Email: email, AdminID: input.ActorID})
 		return err
 	}), nil
 }
@@ -626,7 +598,7 @@ func (s *InviteService) BulkSendInvites(ctx context.Context, input BulkInviteEma
 // BulkResendInvites rotates the code and re-sends each invite's email. Keyed
 // by invite ID, but capped and fanned out like a send because it is one SMTP
 // round-trip per item.
-func (s *InviteService) BulkResendInvites(ctx context.Context, input BulkInviteIDsInput) (*BulkInviteResult, error) {
+func (s *InviteService) BulkResendInvites(ctx context.Context, input api.BulkInviteIDsInput) (*api.BulkInviteResult, error) {
 	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return nil, err
 	}

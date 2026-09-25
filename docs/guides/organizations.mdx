@@ -6,7 +6,7 @@ icon: "Building2"
 
 # Organizations
 
-Multi-tenancy: users can belong to more than one organization, hold a different role in each, and scope a session to one of them at a time. Disabled by default — with `WithOrganizations` unset (or `Enable: false`), none of the routes on this page are mounted at all, and `h.services.Org` is `nil`.
+Multi-tenancy: users can belong to more than one organization, hold a different role in each, and scope a session to one of them at a time. Disabled by default — with `WithOrganizations` unset (or `Enable: false`), none of the routes on this page are mounted at all, and `auth.Services().Org` is `nil`.
 
 For state-changing requests, every curl example below needs the same `-H "Origin: https://myapp.com"` treatment as [Authentication](./authentication.mdx#origin-checking) — omitted from most snippets below for brevity, but required in practice.
 
@@ -97,8 +97,10 @@ curl -X POST https://api.myapp.com/auth/orgs \
 
 #### Programmatic (Go)
 
+Go examples on this page import `github.com/nazimdjebloun/go-auth/api` for operation inputs and results.
+
 ```go
-org, err := auth.Services().Org.CreateOrg(ctx, goauth.CreateOrgInput{
+org, err := auth.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
     Name:    "Acme Inc",
     Slug:    "acme",
     OwnerID: userID,
@@ -167,13 +169,14 @@ curl "https://api.myapp.com/auth/orgs/count?search=acme" -b cookies.txt -c cooki
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services().Org.ListUserOrgs(ctx, goauth.ListUserOrgsInput{
+result, err := auth.Services().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{
     UserID: userID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
-    OrderBy: goauth.UserOrgSortCreatedAt, OrderDirection: goauth.SortDescending,
+    OrderBy: api.UserOrgSortCreatedAt, OrderDirection: api.SortDescending,
 })
 // result.Orgs, result.Limit, result.Offset
 
-n, err := auth.Services().Org.CountUserOrgs(ctx, goauth.ListUserOrgsInput{
+search := "acme"
+n, err := auth.Services().Org.CountUserOrgs(ctx, api.ListUserOrgsInput{
     UserID: userID, Search: &search,
 })
 ```
@@ -182,7 +185,7 @@ n, err := auth.Services().Org.CountUserOrgs(ctx, goauth.ListUserOrgsInput{
 
 ```go
 role := domain.OrgRoleOwner
-owned, err := auth.Services().Org.ListUserOrgs(ctx, goauth.ListUserOrgsInput{
+owned, err := auth.Services().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{
     UserID: userID, Role: &role,
 })
 ```
@@ -215,7 +218,7 @@ curl https://api.myapp.com/auth/orgs/a1b2... -b cookies.txt -c cookies.txt
 #### Programmatic (Go)
 
 ```go
-org, err := auth.Services().Org.GetByID(ctx, goauth.GetOrgInput{OrgID: orgID, ActorID: callerUserID})
+org, err := auth.Services().Org.GetByID(ctx, api.GetOrgInput{OrgID: orgID, ActorID: callerUserID})
 ```
 
 ---
@@ -266,9 +269,10 @@ curl -X PUT https://api.myapp.com/auth/orgs/a1b2... \
 
 ```go
 newName := "Acme Incorporated"
-org, err := auth.Services().Org.UpdateOrg(ctx, goauth.UpdateOrgInput{
-    OrgID: orgID,
-    Name:  &newName, // nil Slug leaves the slug unchanged
+org, err := auth.Services().Org.UpdateOrg(ctx, api.UpdateOrgInput{
+    OrgID:   orgID,
+    ActorID: callerUserID,
+    Name:    &newName, // nil Slug leaves the slug unchanged
 })
 ```
 
@@ -303,7 +307,7 @@ curl -X DELETE https://api.myapp.com/auth/orgs/a1b2... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Org.DeleteOrg(ctx, goauth.DeleteOrgInput{OrgID: orgID, ActorID: callerUserID})
+err := auth.Services().Org.DeleteOrg(ctx, api.DeleteOrgInput{OrgID: orgID, ActorID: callerUserID})
 ```
 
 ---
@@ -363,13 +367,15 @@ curl "https://api.myapp.com/auth/orgs/a1b2.../members/count?role=admin&search=ja
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services().Org.ListMembers(ctx, goauth.ListMembersInput{
+result, err := auth.Services().Org.ListMembers(ctx, api.ListMembersInput{
     OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
-    OrderBy: goauth.OrgMemberSortName, OrderDirection: goauth.SortAscending,
+    OrderBy: api.OrgMemberSortName, OrderDirection: api.SortAscending,
 })
 // result.Members, result.Limit, result.Offset
 
-n, err := auth.Services().Org.CountMembers(ctx, goauth.ListMembersInput{
+role := domain.OrgRoleAdmin
+search := "jane"
+n, err := auth.Services().Org.CountMembers(ctx, api.ListMembersInput{
     OrgID: orgID, ActorID: callerUserID, Role: &role, Search: &search,
 })
 ```
@@ -418,11 +424,11 @@ curl -X POST https://api.myapp.com/auth/orgs/a1b2.../leave \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Org.RemoveMember(ctx, goauth.RemoveMemberInput{
+err := auth.Services().Org.RemoveMember(ctx, api.RemoveMemberInput{
     OrgID: orgID, UserID: targetUserID, ActorID: callerUserID,
 })
 // leaving is the same call with your own ID as UserID (the actor is you):
-err = auth.Services().Org.LeaveOrg(ctx, goauth.LeaveOrgInput{OrgID: orgID, UserID: callerUserID})
+err = auth.Services().Org.LeaveOrg(ctx, api.LeaveOrgInput{OrgID: orgID, UserID: callerUserID})
 ```
 
 ---
@@ -463,7 +469,7 @@ curl -X PATCH https://api.myapp.com/auth/orgs/a1b2.../members/b3f1.../role \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Org.UpdateMemberRole(ctx, goauth.UpdateMemberRoleInput{
+err := auth.Services().Org.UpdateMemberRole(ctx, api.UpdateMemberRoleInput{
     OrgID:   orgID,
     UserID:  targetUserID,
     NewRole: domain.OrgRoleAdmin,
@@ -552,7 +558,7 @@ curl -X PUT https://api.myapp.com/auth/orgs/active \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Org.SetActiveOrg(ctx, goauth.SetActiveOrgInput{SessionID: sessionID, UserID: userID, OrgID: orgID})
+err := auth.Services().Org.SetActiveOrg(ctx, api.SetActiveOrgInput{SessionID: sessionID, UserID: userID, OrgID: orgID})
 ```
 
 ---
@@ -583,7 +589,7 @@ curl -X DELETE https://api.myapp.com/auth/orgs/active \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Org.ClearActiveOrg(ctx, goauth.ClearActiveOrgInput{SessionID: sessionID})
+err := auth.Services().Org.ClearActiveOrg(ctx, api.ClearActiveOrgInput{SessionID: sessionID})
 ```
 
 ---
@@ -639,7 +645,7 @@ curl -X POST https://api.myapp.com/auth/orgs/a1b2.../invites \
 #### Programmatic (Go)
 
 ```go
-invite, err := auth.Services().OrgInvite.CreateOrgInvite(ctx, goauth.CreateOrgInviteInput{
+invite, err := auth.Services().OrgInvite.CreateOrgInvite(ctx, api.CreateOrgInviteInput{
     OrgID:     orgID,
     Email:     "new-hire@example.com",
     Role:      domain.OrgRoleMember,
@@ -684,7 +690,7 @@ curl -X POST https://api.myapp.com/auth/orgs/invites/accept \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().OrgInvite.AcceptInvite(ctx, goauth.AcceptInviteInput{
+err := auth.Services().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
     UserID:  callerUserID,
     RawCode: code,
 })
@@ -747,14 +753,15 @@ curl "https://api.myapp.com/auth/orgs/a1b2.../invites/count?status=pending&searc
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services().OrgInvite.ListOrgInvites(ctx, goauth.ListOrgInvitesInput{
+status := "pending"
+result, err := auth.Services().OrgInvite.ListOrgInvites(ctx, api.ListOrgInvitesInput{
     OrgID: orgID, ActorID: callerUserID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
-    Status: statusPtr("pending"), OrderBy: goauth.OrgInviteSortCreatedAt, OrderDirection: goauth.SortDescending,
+    Status: &status, OrderBy: api.OrgInviteSortCreatedAt, OrderDirection: api.SortDescending,
 })
 // result.Invites, result.Limit, result.Offset
 
-n, err := auth.Services().OrgInvite.CountOrgInvites(ctx, goauth.ListOrgInvitesInput{
-    OrgID: orgID, ActorID: callerUserID, Status: statusPtr("pending"),
+n, err := auth.Services().OrgInvite.CountOrgInvites(ctx, api.ListOrgInvitesInput{
+    OrgID: orgID, ActorID: callerUserID, Status: &status,
 })
 ```
 
@@ -797,8 +804,8 @@ curl -X DELETE https://api.myapp.com/auth/orgs/a1b2.../invites/c4d5... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().OrgInvite.ResendOrgInviteEmail(ctx, inviteID)
-err = auth.Services().OrgInvite.DeleteOrgInvite(ctx, inviteID)
+err := auth.Services().OrgInvite.ResendOrgInviteEmail(ctx, orgID, inviteID, callerUserID)
+err = auth.Services().OrgInvite.DeleteOrgInvite(ctx, orgID, inviteID, callerUserID)
 ```
 
 ---

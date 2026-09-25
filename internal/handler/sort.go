@@ -3,8 +3,8 @@ package handler
 import (
 	"net/url"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/port"
 )
 
 func sortQueryValue(query url.Values, name string) (string, bool) {
@@ -18,113 +18,113 @@ func sortQueryValue(query url.Values, name string) (string, bool) {
 	return values[0], true
 }
 
-func parseSortDirection(query url.Values, fallback port.SortDirection) (port.SortDirection, error) {
+func parseSortDirection(query url.Values, fallback api.SortDirection) (api.SortDirection, error) {
 	raw, supplied := sortQueryValue(query, "orderDirection")
 	if !supplied {
 		return fallback, nil
 	}
-	switch port.SortDirection(raw) {
-	case port.SortAscending, port.SortDescending:
-		return port.SortDirection(raw), nil
+	switch api.SortDirection(raw) {
+	case api.SortAscending, api.SortDescending:
+		return api.SortDirection(raw), nil
 	default:
 		return "", domain.NewError("invalid_input", "orderDirection must be asc or desc")
 	}
 }
 
-func parseUserSort(query url.Values) (port.UserSortField, port.SortDirection, error) {
-	orderBy := port.UserSortCreatedAt
+func parseUserSort(query url.Values) (api.UserSortField, api.SortDirection, error) {
+	orderBy := api.UserSortCreatedAt
 	if raw, supplied := sortQueryValue(query, "orderBy"); supplied {
-		switch port.UserSortField(raw) {
-		case port.UserSortCreatedAt, port.UserSortUpdatedAt:
-			orderBy = port.UserSortField(raw)
+		switch api.UserSortField(raw) {
+		case api.UserSortCreatedAt, api.UserSortUpdatedAt:
+			orderBy = api.UserSortField(raw)
 		default:
 			return "", "", domain.NewError("invalid_input", "orderBy must be created_at or updated_at")
 		}
 	}
-	direction, err := parseSortDirection(query, port.SortDescending)
+	direction, err := parseSortDirection(query, api.SortDescending)
 	return orderBy, direction, err
 }
 
-func parseSessionSort(query url.Values) (port.SessionSortField, port.SortDirection, error) {
-	orderBy := port.SessionSortCreatedAt
+func parseSessionSort(query url.Values) (api.SessionSortField, api.SortDirection, error) {
+	orderBy := api.SessionSortCreatedAt
 	if raw, supplied := sortQueryValue(query, "orderBy"); supplied {
-		switch port.SessionSortField(raw) {
-		case port.SessionSortCreatedAt, port.SessionSortExpiresAt, port.SessionSortLastActiveAt:
-			orderBy = port.SessionSortField(raw)
+		switch api.SessionSortField(raw) {
+		case api.SessionSortCreatedAt, api.SessionSortExpiresAt, api.SessionSortLastActiveAt:
+			orderBy = api.SessionSortField(raw)
 		default:
 			return "", "", domain.NewError("invalid_input", "orderBy must be created_at, expires_at, or last_active_at")
 		}
 	}
-	direction, err := parseSortDirection(query, port.SortDescending)
+	direction, err := parseSortDirection(query, api.SortDescending)
 	return orderBy, direction, err
 }
 
-func parseInviteSort(query url.Values) (port.InviteSortField, port.SortDirection, error) {
-	orderBy := port.InviteSortCreatedAt
+func parseInviteSort(query url.Values) (api.InviteSortField, api.SortDirection, error) {
+	orderBy := api.InviteSortCreatedAt
 	if raw, supplied := sortQueryValue(query, "orderBy"); supplied {
-		switch port.InviteSortField(raw) {
-		case port.InviteSortCreatedAt, port.InviteSortExpiresAt, port.InviteSortEmail, port.InviteSortStatus:
-			orderBy = port.InviteSortField(raw)
+		switch api.InviteSortField(raw) {
+		case api.InviteSortCreatedAt, api.InviteSortExpiresAt, api.InviteSortEmail, api.InviteSortStatus:
+			orderBy = api.InviteSortField(raw)
 		default:
 			return "", "", domain.NewError("invalid_input", "orderBy must be created_at, expires_at, email, or status")
 		}
 	}
-	direction, err := parseSortDirection(query, port.SortDescending)
+	direction, err := parseSortDirection(query, api.SortDescending)
 	return orderBy, direction, err
 }
 
-func parseOrgMemberSort(query url.Values) (port.OrgMemberSortField, port.SortDirection, error) {
-	orderBy := port.OrgMemberSortJoinedAt
+func parseOrgMemberSort(query url.Values) (api.OrgMemberSortField, api.SortDirection, error) {
+	orderBy := api.OrgMemberSortJoinedAt
 	if raw, supplied := sortQueryValue(query, "orderBy"); supplied {
-		switch port.OrgMemberSortField(raw) {
-		case port.OrgMemberSortJoinedAt, port.OrgMemberSortRole, port.OrgMemberSortName, port.OrgMemberSortEmail:
-			orderBy = port.OrgMemberSortField(raw)
+		switch api.OrgMemberSortField(raw) {
+		case api.OrgMemberSortJoinedAt, api.OrgMemberSortRole, api.OrgMemberSortName, api.OrgMemberSortEmail:
+			orderBy = api.OrgMemberSortField(raw)
 		default:
 			return "", "", domain.NewError("invalid_input", "orderBy must be joined_at, role, name, or email")
 		}
 	}
-	direction, err := parseSortDirection(query, port.SortAscending)
+	direction, err := parseSortDirection(query, api.SortAscending)
 	return orderBy, direction, err
 }
 
-func parseUserOrgSort(query url.Values) (port.UserOrgSortField, port.SortDirection, error) {
-	orderBy := port.UserOrgSortName
+func parseUserOrgSort(query url.Values) (api.UserOrgSortField, api.SortDirection, error) {
+	orderBy := api.UserOrgSortName
 	if raw, supplied := sortQueryValue(query, "orderBy"); supplied {
-		switch port.UserOrgSortField(raw) {
-		case port.UserOrgSortName, port.UserOrgSortCreatedAt, port.UserOrgSortMemberCount:
-			orderBy = port.UserOrgSortField(raw)
+		switch api.UserOrgSortField(raw) {
+		case api.UserOrgSortName, api.UserOrgSortCreatedAt, api.UserOrgSortMemberCount:
+			orderBy = api.UserOrgSortField(raw)
 		default:
 			return "", "", domain.NewError("invalid_input", "orderBy must be name, created_at, or member_count")
 		}
 	}
-	direction, err := parseSortDirection(query, port.SortAscending)
+	direction, err := parseSortDirection(query, api.SortAscending)
 	return orderBy, direction, err
 }
 
-func parseOrgSort(query url.Values) (port.OrgSortField, port.SortDirection, error) {
-	orderBy := port.OrgSortName
+func parseOrgSort(query url.Values) (api.OrgSortField, api.SortDirection, error) {
+	orderBy := api.OrgSortName
 	if raw, supplied := sortQueryValue(query, "orderBy"); supplied {
-		switch port.OrgSortField(raw) {
-		case port.OrgSortName, port.OrgSortCreatedAt, port.OrgSortMemberCount:
-			orderBy = port.OrgSortField(raw)
+		switch api.OrgSortField(raw) {
+		case api.OrgSortName, api.OrgSortCreatedAt, api.OrgSortMemberCount:
+			orderBy = api.OrgSortField(raw)
 		default:
 			return "", "", domain.NewError("invalid_input", "orderBy must be name, created_at, or member_count")
 		}
 	}
-	direction, err := parseSortDirection(query, port.SortAscending)
+	direction, err := parseSortDirection(query, api.SortAscending)
 	return orderBy, direction, err
 }
 
-func parseOrgInviteSort(query url.Values) (port.OrgInviteSortField, port.SortDirection, error) {
-	orderBy := port.OrgInviteSortCreatedAt
+func parseOrgInviteSort(query url.Values) (api.OrgInviteSortField, api.SortDirection, error) {
+	orderBy := api.OrgInviteSortCreatedAt
 	if raw, supplied := sortQueryValue(query, "orderBy"); supplied {
-		switch port.OrgInviteSortField(raw) {
-		case port.OrgInviteSortCreatedAt, port.OrgInviteSortExpiresAt, port.OrgInviteSortEmail, port.OrgInviteSortRole:
-			orderBy = port.OrgInviteSortField(raw)
+		switch api.OrgInviteSortField(raw) {
+		case api.OrgInviteSortCreatedAt, api.OrgInviteSortExpiresAt, api.OrgInviteSortEmail, api.OrgInviteSortRole:
+			orderBy = api.OrgInviteSortField(raw)
 		default:
 			return "", "", domain.NewError("invalid_input", "orderBy must be created_at, expires_at, email, or role")
 		}
 	}
-	direction, err := parseSortDirection(query, port.SortDescending)
+	direction, err := parseSortDirection(query, api.SortDescending)
 	return orderBy, direction, err
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/internal/httproutes"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -20,7 +21,7 @@ type Auth struct {
 	cfg      Config
 	pool     *pgxpool.Pool
 	db       *sqlstore.DB
-	services Services
+	services serviceSet
 	routes   []httproutes.Entry
 
 	// cookies is the resolved session/refresh cookie scope, built once in
@@ -42,25 +43,42 @@ type Auth struct {
 	maintenance    *maintenanceRunner
 }
 
-// Services groups the configured authentication services.
-type Services struct {
-	Auth      *AuthService
-	Password  *PasswordService
-	Session   *SessionService
-	Verify    *VerificationService
-	Invite    *InviteService
-	Admin     *AdminService
-	OAuth     *OAuthService
-	Org       *OrgService
-	OrgInvite *OrgInviteService
-	TwoFactor *TwoFactorService
+// serviceSet keeps the concrete instances needed by internal HTTP wiring.
+// The public Services value exposes their operation methods through interfaces.
+type serviceSet struct {
+	Auth      *service.AuthService
+	Password  *service.PasswordService
+	Session   *service.SessionService
+	Verify    *service.VerificationService
+	Invite    *service.InviteService
+	Admin     *service.AdminService
+	OAuth     *service.OAuthService
+	Org       *service.OrgService
+	OrgInvite *service.OrgInviteService
+	TwoFactor *service.TwoFactorService
 	AuditLog  port.AuditLogRepository
 }
 
-// Services returns a copy of the configured service references. Reassigning a
-// field on the returned value does not change this Auth instance's wiring.
+// Services returns a copy of the configured programmatic capabilities.
+// Reassigning a field on the returned value does not change this Auth instance.
+// Optional capabilities remain nil when their features are unavailable.
 func (a *Auth) Services() Services {
-	return a.services
+	s := Services{
+		Auth: a.services.Auth, Password: a.services.Password,
+		Session: a.services.Session, Verify: a.services.Verify,
+		Invite: a.services.Invite, Admin: a.services.Admin,
+		TwoFactor: a.services.TwoFactor, AuditLog: a.services.AuditLog,
+	}
+	if a.services.OAuth != nil {
+		s.OAuth = a.services.OAuth
+	}
+	if a.services.Org != nil {
+		s.Org = a.services.Org
+	}
+	if a.services.OrgInvite != nil {
+		s.OrgInvite = a.services.OrgInvite
+	}
+	return s
 }
 
 const startupDatabaseTimeout = 10 * time.Second

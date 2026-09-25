@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -11,7 +12,7 @@ import (
 // resolveEmailsForEntries batch-looks-up every distinct actor/target ID
 // across a page of audit entries in one query, rather than one query per
 // row — a page can reference up to 2*len(entries) distinct users.
-func (s *AdminService) resolveEmailsForEntries(ctx context.Context, entries []port.AuditLogEntry) ([]AdminAuditLogEntry, error) {
+func (s *AdminService) resolveEmailsForEntries(ctx context.Context, entries []api.AuditLogEntry) ([]api.AdminAuditLogEntry, error) {
 	idSet := make(map[string]struct{})
 	for _, e := range entries {
 		if e.ActorID != nil {
@@ -38,9 +39,9 @@ func (s *AdminService) resolveEmailsForEntries(ctx context.Context, entries []po
 		}
 	}
 
-	enriched := make([]AdminAuditLogEntry, len(entries))
+	enriched := make([]api.AdminAuditLogEntry, len(entries))
 	for i, e := range entries {
-		enriched[i] = AdminAuditLogEntry{AuditLogEntry: e}
+		enriched[i] = api.AdminAuditLogEntry{AuditLogEntry: e}
 		if e.ActorID != nil {
 			if email, ok := emailByID[*e.ActorID]; ok {
 				enriched[i].ActorEmail = &email
@@ -79,7 +80,7 @@ func (s *AdminService) resolveUserEmail(ctx context.Context, email *string) (*st
 // (the latter just pre-sets TargetUserID). Empty results, not an error, if
 // audit logging was never turned on (WithAudit(Enabled: true)) — the table
 // simply has no rows in that case.
-func (s *AdminService) ListAuditLogs(ctx context.Context, input AdminListAuditLogsInput) (*AdminListAuditLogsResult, error) {
+func (s *AdminService) ListAuditLogs(ctx context.Context, input api.AdminListAuditLogsInput) (*api.AdminListAuditLogsResult, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -108,13 +109,13 @@ func (s *AdminService) ListAuditLogs(ctx context.Context, input AdminListAuditLo
 		return nil, err
 	}
 
-	return &AdminListAuditLogsResult{Events: enriched, Limit: limit, Offset: input.Offset}, nil
+	return &api.AdminListAuditLogsResult{Events: enriched, Limit: limit, Offset: input.Offset}, nil
 }
 
 // auditFilterFromInput resolves any actor/target emails to IDs and builds the
 // repository filter (without Offset/Limit) shared by ListAuditLogs and
 // CountAuditLogs.
-func (s *AdminService) auditFilterFromInput(ctx context.Context, input AdminListAuditLogsInput) (port.AuditLogFilter, error) {
+func (s *AdminService) auditFilterFromInput(ctx context.Context, input api.AdminListAuditLogsInput) (port.AuditLogFilter, error) {
 	eventActorID := input.EventActorID
 	if input.EventActorEmail != nil {
 		resolved, err := s.resolveUserEmail(ctx, input.EventActorEmail)
@@ -150,7 +151,7 @@ func (s *AdminService) auditFilterFromInput(ctx context.Context, input AdminList
 
 // CountAuditLogs returns how many audit entries match the input's filters
 // (pagination ignored).
-func (s *AdminService) CountAuditLogs(ctx context.Context, input AdminListAuditLogsInput) (int, error) {
+func (s *AdminService) CountAuditLogs(ctx context.Context, input api.AdminListAuditLogsInput) (int, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return 0, err
 	}

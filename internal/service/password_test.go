@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
@@ -132,7 +133,7 @@ func TestForgotPassword_ExistingUser(t *testing.T) {
 		UpdatedAt:    time.Now().UTC(),
 	}))
 
-	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	err := svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "test@example.com"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -156,7 +157,7 @@ func TestForgotPassword_NonexistentUser(t *testing.T) {
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
 	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, txManager, cfg)
 
-	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "nobody@example.com"})
+	err := svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "nobody@example.com"})
 	if err != nil {
 		t.Fatalf("should not reveal email existence, got error: %v", err)
 	}
@@ -197,7 +198,7 @@ func TestForgotPassword_NilMailer(t *testing.T) {
 	// A misconfigured mailer must be visible, not indistinguishable from a
 	// working one that quietly sent nothing — same reasoning as every other
 	// email-sending flow in this package.
-	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"})
+	err := svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "test@example.com"})
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
@@ -216,7 +217,7 @@ func TestForgotPassword_NilMailer_NonexistentUserMatchesExistingUser(t *testing.
 	sessions := testutil.NewMockSessionRepo()
 	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, defaultTestConfig())
 
-	err := svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "nobody@example.com"})
+	err := svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "nobody@example.com"})
 	if authErrCode(err) != "email_not_configured" {
 		t.Fatalf("Code = %q, want email_not_configured", authErrCode(err))
 	}
@@ -262,14 +263,14 @@ func TestResetPassword_HappyPath(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}))
-	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"}))
+	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "test@example.com"}))
 
 	code := extractResetToken(mailer)
 	if code == "" {
 		t.Fatal("expected token in email")
 	}
 
-	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+	err := svc.ResetPassword(context.Background(), api.ResetPasswordInput{
 		Code:        code,
 		NewPassword: "NewPass1!",
 	})
@@ -334,7 +335,7 @@ func TestResetPassword_NewerPepperVersionWithoutKeyFailsClosed(t *testing.T) {
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
 	svc := NewPasswordService(users, tokens, pipeline, &testutil.MockTokenGen{Length: 32}, nil, sessions, &testutil.MockTxManager{}, cfg)
 
-	err = svc.ResetPassword(context.Background(), ResetPasswordInput{Code: code, NewPassword: "NewPass1!"})
+	err = svc.ResetPassword(context.Background(), api.ResetPasswordInput{Code: code, NewPassword: "NewPass1!"})
 	if !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("reset downgrade error = %v, want internal_error", err)
 	}
@@ -369,7 +370,7 @@ func TestResetPassword_InvalidCode(t *testing.T) {
 	mailer := &testutil.MockMailer{}
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
-	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+	err := svc.ResetPassword(context.Background(), api.ResetPasswordInput{
 		Code:        "INVALID",
 		NewPassword: "NewPass1!",
 	})
@@ -397,7 +398,7 @@ func TestResetPassword_ExpiredCode(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}))
-	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"}))
+	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "test@example.com"}))
 	code := extractResetToken(mailer)
 
 	// Expire the token
@@ -405,7 +406,7 @@ func TestResetPassword_ExpiredCode(t *testing.T) {
 		tok.ExpiresAt = time.Now().UTC().Add(-1 * time.Hour)
 	}
 
-	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+	err := svc.ResetPassword(context.Background(), api.ResetPasswordInput{
 		Code:        code,
 		NewPassword: "NewPass1!",
 	})
@@ -433,11 +434,11 @@ func TestResetPassword_AlreadyUsedCode(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}))
-	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"}))
+	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "test@example.com"}))
 	code := extractResetToken(mailer)
 
 	// First reset
-	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+	err := svc.ResetPassword(context.Background(), api.ResetPasswordInput{
 		Code:        code,
 		NewPassword: "NewPass1!",
 	})
@@ -446,7 +447,7 @@ func TestResetPassword_AlreadyUsedCode(t *testing.T) {
 	}
 
 	// Second reset with same code
-	err = svc.ResetPassword(context.Background(), ResetPasswordInput{
+	err = svc.ResetPassword(context.Background(), api.ResetPasswordInput{
 		Code:        code,
 		NewPassword: "NewPass2!",
 	})
@@ -474,10 +475,10 @@ func TestResetPassword_WeakPassword(t *testing.T) {
 		CreatedAt:    time.Now().UTC(),
 		UpdatedAt:    time.Now().UTC(),
 	}))
-	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), ForgotPasswordInput{Email: "test@example.com"}))
+	checkTestErrors(t).noError(svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "test@example.com"}))
 	code := extractResetToken(mailer)
 
-	err := svc.ResetPassword(context.Background(), ResetPasswordInput{
+	err := svc.ResetPassword(context.Background(), api.ResetPasswordInput{
 		Code:        code,
 		NewPassword: "short",
 	})
@@ -508,7 +509,7 @@ func TestChangePassword_HappyPath(t *testing.T) {
 		ExpiresAt: time.Now().UTC().Add(time.Minute),
 	}))
 
-	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+	err := svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      "user-1",
 		OldPassword: "OldPass1!",
 		NewPassword: "NewPass1!",
@@ -564,7 +565,7 @@ func TestChangePassword_ConcurrentV3WriteWinsOverV2Node(t *testing.T) {
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
 	svc := NewPasswordService(users, testutil.NewMockTokenRepo(), pipeline, &testutil.MockTokenGen{Length: 32}, nil, sessions, &testutil.MockTxManager{}, cfg)
 
-	err = svc.ChangePassword(context.Background(), ChangePasswordInput{
+	err = svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      user.ID,
 		OldPassword: "OldPass1!",
 		NewPassword: "RequestedPass1!",
@@ -609,7 +610,7 @@ func TestChangePassword_WrongOldPassword(t *testing.T) {
 		UpdatedAt:    time.Now().UTC(),
 	}))
 
-	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+	err := svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      "user-1",
 		OldPassword: "WrongPass1!",
 		NewPassword: "NewPass1!",
@@ -636,7 +637,7 @@ func TestChangePassword_NoPasswordSet(t *testing.T) {
 		UpdatedAt: time.Now().UTC(),
 	}))
 
-	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+	err := svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      "oauth-user",
 		OldPassword: "",
 		NewPassword: "NewPass1!",
@@ -666,7 +667,7 @@ func TestChangePassword_WeakNewPassword(t *testing.T) {
 		UpdatedAt:    time.Now().UTC(),
 	}))
 
-	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+	err := svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      "user-1",
 		OldPassword: "OldPass1!",
 		NewPassword: "short",
@@ -683,7 +684,7 @@ func TestChangePassword_NonexistentUser(t *testing.T) {
 	mailer := &testutil.MockMailer{}
 	svc := newTestPasswordService(users, tokens, hasher, mailer)
 
-	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+	err := svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      "nonexistent",
 		OldPassword: "OldPass1!",
 		NewPassword: "NewPass1!",
@@ -719,7 +720,7 @@ func TestChangePassword_RevokesOtherSessions(t *testing.T) {
 	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-1", UserID: "user-1"}))
 	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-2", UserID: "user-1"}))
 
-	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+	err := svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      "user-1",
 		OldPassword: "OldPass1!",
 		NewPassword: "NewPass1!",
@@ -757,7 +758,7 @@ func TestChangePassword_KeepsExceptSession(t *testing.T) {
 	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-keep", UserID: "user-1"}))
 	checkTestErrors(t).noError(sessions.Create(context.Background(), &domain.Session{ID: "sess-revoke", UserID: "user-1"}))
 
-	err := svc.ChangePassword(context.Background(), ChangePasswordInput{
+	err := svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:          "user-1",
 		OldPassword:     "OldPass1!",
 		NewPassword:     "NewPass1!",
@@ -860,7 +861,7 @@ func TestConfirmSetPassword_HappyPath(t *testing.T) {
 		t.Fatal("expected code in email")
 	}
 
-	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+	err := svc.ConfirmSetPassword(context.Background(), api.ConfirmSetPasswordInput{
 		UserID:      "oauth-user",
 		Code:        code,
 		NewPassword: "NewPass1!",
@@ -892,7 +893,7 @@ func TestConfirmSetPassword_InvalidCode(t *testing.T) {
 		UpdatedAt: time.Now().UTC(),
 	}))
 
-	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+	err := svc.ConfirmSetPassword(context.Background(), api.ConfirmSetPasswordInput{
 		UserID:      "oauth-user",
 		Code:        "INVALID",
 		NewPassword: "NewPass1!",
@@ -922,7 +923,7 @@ func TestConfirmSetPassword_AlreadyHasPassword(t *testing.T) {
 		UpdatedAt:    time.Now().UTC(),
 	}))
 
-	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+	err := svc.ConfirmSetPassword(context.Background(), api.ConfirmSetPasswordInput{
 		UserID:      "user-1",
 		Code:        "any",
 		NewPassword: "NewPass1!",
@@ -959,7 +960,7 @@ func TestConfirmSetPassword_ConsumedConcurrently(t *testing.T) {
 		t.Fatal("expected code in email")
 	}
 
-	if err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+	if err := svc.ConfirmSetPassword(context.Background(), api.ConfirmSetPasswordInput{
 		UserID:      "oauth-user",
 		Code:        code,
 		NewPassword: "NewPass1!",
@@ -974,7 +975,7 @@ func TestConfirmSetPassword_ConsumedConcurrently(t *testing.T) {
 	user.PasswordPepperVersion = nil
 	checkTestErrors(t).noError(users.Update(context.Background(), user))
 
-	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+	err := svc.ConfirmSetPassword(context.Background(), api.ConfirmSetPasswordInput{
 		UserID:      "oauth-user",
 		Code:        code,
 		NewPassword: "OtherPass2@",
@@ -1022,7 +1023,7 @@ func TestConfirmSetPassword_StalePepperReturnsExpired(t *testing.T) {
 		tok.CreatedAt = time.Now().UTC().Add(-time.Hour)
 	}
 
-	err := svc.ConfirmSetPassword(context.Background(), ConfirmSetPasswordInput{
+	err := svc.ConfirmSetPassword(context.Background(), api.ConfirmSetPasswordInput{
 		UserID:      "oauth-user",
 		Code:        code,
 		NewPassword: "NewPass1!",

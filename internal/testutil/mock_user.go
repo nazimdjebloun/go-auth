@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -113,7 +114,7 @@ func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 		} else {
 			ci, cj = matched[i].CreatedAt, matched[j].CreatedAt
 		}
-		if filter.OrderDirection == port.SortAscending {
+		if filter.OrderDirection == api.SortAscending {
 			return ci.Before(cj)
 		}
 		return ci.After(cj)
@@ -154,7 +155,7 @@ func (m *MockUserRepo) Count(_ context.Context, filter port.UserFilter) (int, er
 
 // CountByDay groups matched users by their CreatedAt day — a small in-memory
 // stand-in for the real GROUP BY date_trunc('day', ...) query.
-func (m *MockUserRepo) CountByDay(_ context.Context, filter port.UserFilter) ([]port.DailyCount, error) {
+func (m *MockUserRepo) CountByDay(_ context.Context, filter port.UserFilter) ([]api.DailyCount, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -172,9 +173,9 @@ func (m *MockUserRepo) CountByDay(_ context.Context, filter port.UserFilter) ([]
 		byDay[day]++
 	}
 
-	counts := make([]port.DailyCount, 0, len(byDay))
+	counts := make([]api.DailyCount, 0, len(byDay))
 	for day, count := range byDay {
-		counts = append(counts, port.DailyCount{Date: day, Count: count})
+		counts = append(counts, api.DailyCount{Date: day, Count: count})
 	}
 	sort.Slice(counts, func(i, j int) bool { return counts[i].Date.Before(counts[j].Date) })
 	return counts, nil

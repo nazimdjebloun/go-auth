@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
 // ListUsers returns users matching the input filters.
-func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput) (*AdminListUsersResult, error) {
+func (s *AdminService) ListUsers(ctx context.Context, input api.AdminListUsersInput) (*api.AdminListUsersResult, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -44,7 +45,7 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 		return nil, domain.ErrInternal
 	}
 
-	return &AdminListUsersResult{
+	return &api.AdminListUsersResult{
 		Users:  users,
 		Limit:  limit,
 		Offset: input.Offset,
@@ -54,7 +55,7 @@ func (s *AdminService) ListUsers(ctx context.Context, input AdminListUsersInput)
 // CountUsers returns how many users match the input's filters (pagination and
 // ordering are ignored). Split from ListUsers so a paginated UI doesn't pay
 // for a COUNT(*) on every page.
-func (s *AdminService) CountUsers(ctx context.Context, input AdminListUsersInput) (int, error) {
+func (s *AdminService) CountUsers(ctx context.Context, input api.AdminListUsersInput) (int, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return 0, err
 	}
@@ -81,24 +82,8 @@ func (s *AdminService) CountUsers(ctx context.Context, input AdminListUsersInput
 // unbounded aggregation.
 const maxStatsRangeDays = 400
 
-// AdminStats is a snapshot of platform-wide counts for an admin dashboard.
-type AdminStats struct {
-	TotalUsers            int `json:"totalUsers"`
-	VerifiedUsers         int `json:"verifiedUsers"`
-	BannedUsers           int `json:"bannedUsers"`
-	TwoFactorEnabledUsers int `json:"twoFactorEnabledUsers"`
-	NeverLoggedInUsers    int `json:"neverLoggedInUsers"`
-	ActiveSessions        int `json:"activeSessions"`
-}
-
-// BanUserInput identifies the user to ban.
-type BanUserInput struct {
-	UserID  string
-	ActorID string
-}
-
 // BanUser bans a user.
-func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
+func (s *AdminService) BanUser(ctx context.Context, input api.BanUserInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
@@ -145,14 +130,8 @@ func (s *AdminService) BanUser(ctx context.Context, input BanUserInput) error {
 	return nil
 }
 
-// UnbanUserInput identifies the user to unban.
-type UnbanUserInput struct {
-	UserID  string
-	ActorID string
-}
-
 // UnbanUser unbans a user.
-func (s *AdminService) UnbanUser(ctx context.Context, input UnbanUserInput) error {
+func (s *AdminService) UnbanUser(ctx context.Context, input api.UnbanUserInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
@@ -182,15 +161,8 @@ func (s *AdminService) UnbanUser(ctx context.Context, input UnbanUserInput) erro
 	return nil
 }
 
-// UpdateUserRoleInput identifies a user and their new role.
-type UpdateUserRoleInput struct {
-	UserID  string
-	Role    string
-	ActorID string
-}
-
 // UpdateUserRole changes a user's role.
-func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleInput) error {
+func (s *AdminService) UpdateUserRole(ctx context.Context, input api.UpdateUserRoleInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
@@ -238,14 +210,8 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input UpdateUserRoleI
 	return nil
 }
 
-// DeleteUserInput identifies the user to delete.
-type DeleteUserInput struct {
-	UserID  string
-	ActorID string
-}
-
 // DeleteUser deletes a user account.
-func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) error {
+func (s *AdminService) DeleteUser(ctx context.Context, input api.DeleteUserInput) error {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return err
 	}
@@ -285,7 +251,7 @@ func (s *AdminService) DeleteUser(ctx context.Context, input DeleteUserInput) er
 }
 
 // CreateUser creates a user.
-func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*domain.User, error) {
+func (s *AdminService) CreateUser(ctx context.Context, input api.CreateUserInput) (*domain.User, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -345,25 +311,8 @@ func (s *AdminService) CreateUser(ctx context.Context, input CreateUserInput) (*
 	return user, nil
 }
 
-// AdminUserDetail contains a user and related administrator data.
-type AdminUserDetail struct {
-	User               domain.User `json:"user"`
-	ActiveSessionCount int         `json:"activeSessionCount"`
-	// HasPassword is whether the account can sign in with a password at all —
-	// false for an OAuth-only account that never set one. The hash itself is
-	// never exposed (domain.User.PasswordHash is json:"-").
-	HasPassword bool                     `json:"hasPassword"`
-	Providers   []domain.ProviderAccount `json:"providers"`
-}
-
-// GetUserDetailInput identifies the user to return.
-type GetUserDetailInput struct {
-	UserID  string
-	ActorID string
-}
-
 // GetUserDetail returns a user's administrative details.
-func (s *AdminService) GetUserDetail(ctx context.Context, input GetUserDetailInput) (*AdminUserDetail, error) {
+func (s *AdminService) GetUserDetail(ctx context.Context, input api.GetUserDetailInput) (*api.AdminUserDetail, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
 	}
@@ -384,7 +333,7 @@ func (s *AdminService) GetUserDetail(ctx context.Context, input GetUserDetailInp
 		return nil, domain.ErrInternal
 	}
 
-	return &AdminUserDetail{
+	return &api.AdminUserDetail{
 		User:               *user,
 		ActiveSessionCount: activeSessionCount,
 		HasPassword:        user.HasPassword(),

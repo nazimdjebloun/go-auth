@@ -2,16 +2,18 @@ package port
 
 import (
 	"context"
-	"github.com/nazimdjebloun/go-auth/domain"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/api"
+	"github.com/nazimdjebloun/go-auth/domain"
 )
 
 // InviteFilter narrows and orders platform invite queries.
 type InviteFilter struct {
 	Search         *string
 	Status         *string
-	OrderBy        InviteSortField
-	OrderDirection SortDirection
+	OrderBy        api.InviteSortField
+	OrderDirection api.SortDirection
 	Offset         int
 	Limit          int
 }

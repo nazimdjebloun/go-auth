@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
@@ -44,7 +45,7 @@ func ContextWithSession(ctx context.Context, session *domain.Session) context.Co
 // the library's SessionService.
 type SessionAuthenticator interface {
 	ValidateWithUser(ctx context.Context, token string) (*domain.Session, *domain.User, error)
-	RefreshSession(ctx context.Context, rawRefreshToken string) (*domain.SessionResult, error)
+	RefreshSession(ctx context.Context, rawRefreshToken string) (*api.SessionResult, error)
 	Touch(ctx context.Context, token string, lastActiveAt time.Time) error
 }
 

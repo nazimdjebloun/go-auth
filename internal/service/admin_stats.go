@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -12,13 +13,13 @@ import (
 
 // GetStats returns platform-wide counts for the admin dashboard — one Count
 // call per field, each an exact COUNT(*), not an estimate.
-func (s *AdminService) GetStats(ctx context.Context, actorID string) (*AdminStats, error) {
+func (s *AdminService) GetStats(ctx context.Context, actorID string) (*api.AdminStats, error) {
 	if err := s.requireAdmin(ctx, actorID); err != nil {
 		return nil, err
 	}
 
 	yes := true
-	stats := &AdminStats{}
+	stats := &api.AdminStats{}
 
 	total, err := s.users.Count(ctx, port.UserFilter{})
 	if err != nil {
@@ -65,14 +66,7 @@ func (s *AdminService) GetStats(ctx context.Context, actorID string) (*AdminStat
 	return stats, nil
 }
 
-// StatsRangeInput scopes a day-bucketed analytics query to [From, To].
-type StatsRangeInput struct {
-	ActorID string
-	From    time.Time
-	To      time.Time
-}
-
-func (input StatsRangeInput) validate() error {
+func validateStatsRangeInput(input api.StatsRangeInput) error {
 	if input.From.IsZero() || input.To.IsZero() {
 		return domain.NewError("invalid_input", "from and to are required")
 	}
@@ -87,11 +81,11 @@ func (input StatsRangeInput) validate() error {
 
 // GetRegistrationTrend returns registrations per day over [From, To], for a
 // registrations-over-time chart.
-func (s *AdminService) GetRegistrationTrend(ctx context.Context, input StatsRangeInput) ([]port.DailyCount, error) {
+func (s *AdminService) GetRegistrationTrend(ctx context.Context, input api.StatsRangeInput) ([]api.DailyCount, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
 	}
-	if err := input.validate(); err != nil {
+	if err := validateStatsRangeInput(input); err != nil {
 		return nil, err
 	}
 	counts, err := s.users.CountByDay(ctx, port.UserFilter{CreatedAfter: &input.From, CreatedBefore: &input.To})
@@ -102,25 +96,16 @@ func (s *AdminService) GetRegistrationTrend(ctx context.Context, input StatsRang
 	return counts, nil
 }
 
-// LoginActivityInput scopes a login-activity heatmap query. UserID nil means
-// a global heatmap (every user's successful logins); set, it's one user's.
-type LoginActivityInput struct {
-	ActorID string
-	UserID  *string
-	From    time.Time
-	To      time.Time
-}
-
 // GetLoginActivity returns successful-login counts per day over [From, To] —
 // the data behind a GitHub-commit-style login heatmap, global or per-user.
 // Counts domain.EventLoginSuccess only (email/password logins); OAuth and
 // admin logins are a separate audit event type and aren't folded in here.
-func (s *AdminService) GetLoginActivity(ctx context.Context, input LoginActivityInput) ([]port.DailyCount, error) {
+func (s *AdminService) GetLoginActivity(ctx context.Context, input api.LoginActivityInput) ([]api.DailyCount, error) {
 	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
 		return nil, err
 	}
-	rangeInput := StatsRangeInput{ActorID: input.ActorID, From: input.From, To: input.To}
-	if err := rangeInput.validate(); err != nil {
+	rangeInput := api.StatsRangeInput{ActorID: input.ActorID, From: input.From, To: input.To}
+	if err := validateStatsRangeInput(rangeInput); err != nil {
 		return nil, err
 	}
 	counts, err := s.auditLogs.CountByDay(ctx, port.AuditLogFilter{
@@ -134,50 +119,4 @@ func (s *AdminService) GetLoginActivity(ctx context.Context, input LoginActivity
 		return nil, domain.ErrInternal
 	}
 	return counts, nil
-}
-
-// AdminListAuditLogsInput scopes an audit-log query. ActorID is the calling
-// admin (for requireAdmin), distinct from EventActorID/EventActorEmail,
-// which filter the logged events themselves.
-type AdminListAuditLogsInput struct {
-	ActorID string
-
-	EventTypes []string
-	// EventActorID/EventActorEmail filter by who performed the logged
-	// action. If both are set, EventActorEmail wins — it's resolved to a
-	// user ID first and that replaces EventActorID.
-	EventActorID    *string
-	EventActorEmail *string
-	// TargetUserID/TargetEmail filter by who the logged action was done
-	// to, same email-wins-if-both rule as the actor pair above.
-	TargetUserID *string
-	TargetEmail  *string
-	SessionID    *string
-	OrgID        *string
-	DeviceType   *string
-	IP           *string
-	Success      *bool
-	Search       *string
-	FromDate     *time.Time
-	ToDate       *time.Time
-	Offset       int
-	Limit        int
-}
-
-// AdminAuditLogEntry adds resolved actor/target emails to a raw audit row —
-// the row itself only stores IDs, and an admin reading a log wants to know
-// *who*, not just a UUID. Both are nil if the corresponding *_id is nil, or
-// if that user no longer exists (deleted since the event was recorded) —
-// the row's IDs are the durable record either way.
-type AdminAuditLogEntry struct {
-	port.AuditLogEntry
-	ActorEmail  *string `json:"actorEmail,omitempty"`
-	TargetEmail *string `json:"targetEmail,omitempty"`
-}
-
-// AdminListAuditLogsResult contains audit entries and the matching total.
-type AdminListAuditLogsResult struct {
-	Events []AdminAuditLogEntry `json:"events"`
-	Limit  int                  `json:"limit"`
-	Offset int                  `json:"offset"`
 }

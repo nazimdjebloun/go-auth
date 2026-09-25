@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/crypto"
@@ -113,15 +114,8 @@ func (s *OAuthService) getProvider(name string) (port.OAuthProvider, error) {
 	return p, nil
 }
 
-// OAuthInitiation gives the HTTP layer the authorization URL and the state to
-// bind to the initiating browser in an HttpOnly cookie.
-type OAuthInitiation struct {
-	URL   string
-	State string
-}
-
 // Initiate starts an OAuth login flow.
-func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*OAuthInitiation, error) {
+func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*api.OAuthInitiation, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
 		return nil, err
@@ -150,14 +144,14 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*OAut
 	}
 
 	codeChallenge := codeChallengeS256(codeVerifier)
-	return &OAuthInitiation{URL: p.AuthURL(stateRaw, codeChallenge), State: stateRaw}, nil
+	return &api.OAuthInitiation{URL: p.AuthURL(stateRaw, codeChallenge), State: stateRaw}, nil
 }
 
 // InitiateLink starts an OAuth link flow for an authenticated user.
 // The state stores the initiating session's token hash in its otherwise unused
 // Email field, so callback must present that same live session. OAuth state
 // rows never represent an email address.
-func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID, sessionTokenHash string) (*OAuthInitiation, error) {
+func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID, sessionTokenHash string) (*api.OAuthInitiation, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
 		return nil, err
@@ -191,29 +185,11 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID, s
 	}
 
 	codeChallenge := codeChallengeS256(codeVerifier)
-	return &OAuthInitiation{URL: p.AuthURL(stateRaw, codeChallenge), State: stateRaw}, nil
-}
-
-// OAuthCallbackResult contains the session or link result of an OAuth callback.
-// Callback handles the OAuth callback for both login and link flows.
-// OAuthCallbackResult is Callback's outcome. SessionToken/RefreshToken are
-// set on a successful login or registration; RequiresVerification and
-// VerifyEmail are set instead when the new/existing account still needs
-// email verification before a session is issued; a linking callback (state
-// token carries a UserID) sets only IsLink and leaves every other field
-// zero — the caller already has a valid session from before the link
-// started and must not touch it (no new session is created or returned).
-type OAuthCallbackResult struct {
-	SessionToken         string
-	RefreshToken         string
-	IsNewUser            bool
-	RequiresVerification bool
-	VerifyEmail          string
-	IsLink               bool
+	return &api.OAuthInitiation{URL: p.AuthURL(stateRaw, codeChallenge), State: stateRaw}, nil
 }
 
 // Callback completes an OAuth login or account link.
-func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, browserState, rawSessionToken, ip, userAgent string) (*OAuthCallbackResult, error) {
+func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, browserState, rawSessionToken, ip, userAgent string) (*api.OAuthCallbackResult, error) {
 	p, err := s.getProvider(providerName)
 	if err != nil {
 		return nil, err
@@ -297,7 +273,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 				s.log.Error("oauth link audit record failed", "err", err, "user_id", *userID)
 			}
 		}
-		return &OAuthCallbackResult{IsLink: true}, nil
+		return &api.OAuthCallbackResult{IsLink: true}, nil
 	}
 
 	if existing != nil {
@@ -327,7 +303,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 			if _, err := s.verifySvc.SendVerification(ctx, user); err != nil {
 				return nil, err
 			}
-			return &OAuthCallbackResult{RequiresVerification: true, VerifyEmail: user.Email}, nil
+			return &api.OAuthCallbackResult{RequiresVerification: true, VerifyEmail: user.Email}, nil
 		}
 
 		sessResult, sessionErr := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
@@ -341,7 +317,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 				return nil, err
 			}
 		}
-		return &OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken}, nil
+		return &api.OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken}, nil
 	}
 
 	if !s.config.EnableOAuth {
@@ -405,7 +381,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		if _, err := s.verifySvc.SendVerification(ctx, newUser); err != nil {
 			return nil, err
 		}
-		return &OAuthCallbackResult{IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email}, nil
+		return &api.OAuthCallbackResult{IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email}, nil
 	}
 
 	sessResult, sessionErr := s.sessionSvc.Create(ctx, newUser.ID, ip, userAgent)
@@ -414,7 +390,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return nil, domain.ErrInternal
 	}
 
-	return &OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken, IsNewUser: true}, nil
+	return &api.OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken, IsNewUser: true}, nil
 }
 
 // Unlink removes a linked OAuth provider.

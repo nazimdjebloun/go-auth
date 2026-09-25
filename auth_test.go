@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/internal/httproutes"
 	"github.com/nazimdjebloun/go-auth/internal/routes"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
@@ -33,6 +34,23 @@ func TestHandlerRegistryRespectsFeatureGates(t *testing.T) {
 		if h, ok := a.Handler(pattern); ok || h != nil {
 			t.Errorf("disabled or unknown route %q is available", pattern)
 		}
+	}
+}
+
+func TestServicesPreservesDisabledCapabilities(t *testing.T) {
+	a := buildAuth(t, minimalOpts()...)
+	defer a.Close()
+
+	services := a.Services()
+	if services.OAuth != nil || services.Org != nil || services.OrgInvite != nil {
+		t.Fatalf("disabled capabilities must be nil: OAuth=%v Org=%v OrgInvite=%v", services.OAuth, services.Org, services.OrgInvite)
+	}
+	if services.Auth == nil || services.Session == nil {
+		t.Fatal("enabled capabilities are nil")
+	}
+	services.Auth = nil
+	if a.Services().Auth == nil {
+		t.Fatal("mutating the returned Services value changed Auth wiring")
 	}
 }
 
@@ -142,16 +160,13 @@ func TestSetSessionCookies(t *testing.T) {
 	}
 }
 
-// TestRegister_PersistsIPAndUserAgent guards against RegisterInput and
-// LoginInput drifting apart again: before RegisterInput was aliased to
-// service.RegisterInput, it had no IP/UserAgent fields at all, so a
-// programmatic (non-HTTP) Register call silently produced a session with an
-// empty IP and user agent, regardless of what the caller passed.
+// TestRegister_PersistsIPAndUserAgent guards the programmatic registration
+// path's propagation of client metadata into the issued session.
 func TestRegister_PersistsIPAndUserAgent(t *testing.T) {
 	a := buildAuth(t, minimalOpts()...)
 	defer a.Close()
 
-	res, aerr := a.Register(context.Background(), RegisterInput{
+	res, aerr := a.Register(context.Background(), api.RegisterInput{
 		Email:     "ada@example.com",
 		Password:  validTestPassword(),
 		Name:      "Ada",
@@ -172,14 +187,14 @@ func TestRegister_PersistsIPAndUserAgent(t *testing.T) {
 	}
 }
 
-// TestLogin_PersistsIPAndUserAgent is the Login counterpart — LoginInput
+// TestLogin_PersistsIPAndUserAgent is the Login counterpart — api.LoginInput
 // already carried IP/UserAgent before the aliasing change, so this locks in
 // behavior that already worked rather than guarding a regression.
 func TestLogin_PersistsIPAndUserAgent(t *testing.T) {
 	a := buildAuth(t, minimalOpts()...)
 	defer a.Close()
 
-	if _, aerr := a.Register(context.Background(), RegisterInput{
+	if _, aerr := a.Register(context.Background(), api.RegisterInput{
 		Email:    "bob@example.com",
 		Password: validTestPassword(),
 		Name:     "Bob",
@@ -187,7 +202,7 @@ func TestLogin_PersistsIPAndUserAgent(t *testing.T) {
 		t.Fatalf("Register: %v", aerr)
 	}
 
-	res, aerr := a.Login(context.Background(), LoginInput{
+	res, aerr := a.Login(context.Background(), api.LoginInput{
 		Email:     "bob@example.com",
 		Password:  validTestPassword(),
 		IP:        "198.51.100.9",

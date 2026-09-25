@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -113,24 +114,10 @@ func (s *OrgInviteService) requireRole(ctx context.Context, orgID, actorID strin
 
 // ─── Input types ────────────────────────────────────────────────────
 
-// CreateOrgInviteInput contains values used to invite an organization member.
-type CreateOrgInviteInput struct {
-	OrgID     string
-	Email     string
-	Role      domain.OrgRole
-	InvitedBy string
-}
-
-// AcceptInviteInput contains values used to accept an organization invitation.
-type AcceptInviteInput struct {
-	UserID  string
-	RawCode string
-}
-
 // ─── CreateOrgInvite ────────────────────────────────────────────────
 
 // CreateOrgInvite creates an organization invitation.
-func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgInviteInput) (*domain.OrgInvite, error) {
+func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input api.CreateOrgInviteInput) (*domain.OrgInvite, error) {
 	if !input.Role.IsValid() {
 		return nil, domain.ErrInvalidOrgRole
 	}
@@ -196,7 +183,7 @@ func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input CreateOrgI
 // ─── AcceptInvite ───────────────────────────────────────────────────
 
 // AcceptInvite accepts an organization invitation.
-func (s *OrgInviteService) AcceptInvite(ctx context.Context, input AcceptInviteInput) error {
+func (s *OrgInviteService) AcceptInvite(ctx context.Context, input api.AcceptInviteInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil || user == nil {
 		return domain.ErrForbidden
@@ -263,29 +250,9 @@ func (s *OrgInviteService) AcceptInvite(ctx context.Context, input AcceptInviteI
 
 // ─── ListOrgInvites ─────────────────────────────────────────────────
 
-// ListOrgInvitesInput contains filters for an organization's invitations.
-type ListOrgInvitesInput struct {
-	OrgID          string
-	ActorID        string
-	Role           *domain.OrgRole
-	Status         *string
-	Search         *string
-	OrderBy        port.OrgInviteSortField
-	OrderDirection port.SortDirection
-	Offset         int
-	Limit          *int // nil = default 20; explicit 0 = unlimited; else capped at 100
-}
-
-// ListOrgInvitesResult contains invitations and the matching total.
-type ListOrgInvitesResult struct {
-	Invites []domain.OrgInvite `json:"invites"`
-	Limit   int                `json:"limit"`
-	Offset  int                `json:"offset"`
-}
-
 // orgInviteFilterFromInput builds the repository filter shared by
 // ListOrgInvites and CountOrgInvites. limit is only meaningful for the list.
-func orgInviteFilterFromInput(input ListOrgInvitesInput, limit int) port.OrgInviteFilter {
+func orgInviteFilterFromInput(input api.ListOrgInvitesInput, limit int) port.OrgInviteFilter {
 	return port.OrgInviteFilter{
 		Role:           input.Role,
 		Status:         input.Status,
@@ -298,7 +265,7 @@ func orgInviteFilterFromInput(input ListOrgInvitesInput, limit int) port.OrgInvi
 }
 
 // ListOrgInvites returns an organization's invitations.
-func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input ListOrgInvitesInput) (*ListOrgInvitesResult, error) {
+func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input api.ListOrgInvitesInput) (*api.ListOrgInvitesResult, error) {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return nil, err
 	}
@@ -318,13 +285,13 @@ func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input ListOrgInvi
 	if invites == nil {
 		invites = []domain.OrgInvite{}
 	}
-	return &ListOrgInvitesResult{Invites: invites, Limit: limit, Offset: input.Offset}, nil
+	return &api.ListOrgInvitesResult{Invites: invites, Limit: limit, Offset: input.Offset}, nil
 }
 
 // CountOrgInvites returns how many of the org's invites match the input's
 // filters (pagination ignored). Split from ListOrgInvites so a paginated
 // invite table doesn't run a COUNT(*) on every page.
-func (s *OrgInviteService) CountOrgInvites(ctx context.Context, input ListOrgInvitesInput) (int, error) {
+func (s *OrgInviteService) CountOrgInvites(ctx context.Context, input api.ListOrgInvitesInput) (int, error) {
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return 0, err
 	}

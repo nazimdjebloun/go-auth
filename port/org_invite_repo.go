@@ -2,6 +2,8 @@ package port
 
 import (
 	"context"
+
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
@@ -12,8 +14,8 @@ type OrgInviteFilter struct {
 	Role           *domain.OrgRole
 	Status         *string // "pending" or "expired"; nil means both
 	Search         *string // matches invite email
-	OrderBy        OrgInviteSortField
-	OrderDirection SortDirection
+	OrderBy        api.OrgInviteSortField
+	OrderDirection api.SortDirection
 	Offset         int
 	Limit          int // 0 means unlimited
 }

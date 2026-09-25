@@ -2,8 +2,9 @@ package port
 
 import (
 	"context"
-	"encoding/json"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/api"
 )
 
 // AuditLogFilter narrows audit-log queries.
@@ -32,36 +33,14 @@ type AuditLogFilter struct {
 	Limit    int
 }
 
-// AuditLogEntry had no JSON tags until this comment's change — every field
-// marshaled under its bare Go name ("ActorID", "CreatedAt", ...), not the
-// camelCase the docs and the dashboard client always assumed. Pre-release,
-// so fixing the mismatch outright rather than carrying it forward.
-type AuditLogEntry struct {
-	ID            string          `json:"id"`
-	Type          string          `json:"type"`
-	Severity      string          `json:"severity"`
-	Success       bool            `json:"success"`
-	ActorID       *string         `json:"actorId,omitempty"`
-	TargetUserID  *string         `json:"targetUserId,omitempty"`
-	SessionID     *string         `json:"sessionId,omitempty"`
-	OrgID         *string         `json:"orgId,omitempty"`
-	IP            string          `json:"ip,omitempty"`
-	UserAgent     string          `json:"userAgent,omitempty"`
-	ParsedUA      json.RawMessage `json:"parsedUA,omitempty"`
-	RequestID     string          `json:"requestId,omitempty"`
-	CorrelationID string          `json:"correlationId,omitempty"`
-	Metadata      json.RawMessage `json:"metadata,omitempty"`
-	CreatedAt     time.Time       `json:"createdAt"`
-}
-
 // AuditLogRepository reads persisted audit events.
 type AuditLogRepository interface {
 	// List returns a page of audit entries; use Count for the total.
-	List(ctx context.Context, filter AuditLogFilter) ([]AuditLogEntry, error)
+	List(ctx context.Context, filter AuditLogFilter) ([]api.AuditLogEntry, error)
 	// Count returns how many audit entries match filter (Offset/Limit ignored).
 	Count(ctx context.Context, filter AuditLogFilter) (int, error)
-	GetByID(ctx context.Context, id string) (*AuditLogEntry, error)
+	GetByID(ctx context.Context, id string) (*api.AuditLogEntry, error)
 	// CountByDay returns event counts per day matching filter (Offset/Limit
 	// on filter are ignored, same reasoning as UserRepository.CountByDay).
-	CountByDay(ctx context.Context, filter AuditLogFilter) ([]DailyCount, error)
+	CountByDay(ctx context.Context, filter AuditLogFilter) ([]api.DailyCount, error)
 }

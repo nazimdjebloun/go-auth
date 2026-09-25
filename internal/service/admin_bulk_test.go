@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
@@ -18,7 +19,7 @@ func TestBulkBanUsers_PartialFailure(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"}))
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com"}))
 
-	result, err := svc.BulkBanUsers(context.Background(), BulkUserActionInput{
+	result, err := svc.BulkBanUsers(context.Background(), api.BulkUserActionInput{
 		UserIDs: []string{"user-1", "user-2", "nonexistent"}, ActorID: actorID,
 	})
 	if err != nil {
@@ -42,7 +43,7 @@ func TestBulkBanUsers_EmptyInput_Error(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	svc, actorID := newTestAdminService(users, sessions, &testutil.MockHasher{})
 
-	_, err := svc.BulkBanUsers(context.Background(), BulkUserActionInput{UserIDs: nil, ActorID: actorID})
+	_, err := svc.BulkBanUsers(context.Background(), api.BulkUserActionInput{UserIDs: nil, ActorID: actorID})
 	if authErrCode(err) != "invalid_input" {
 		t.Fatalf("expected invalid_input, got %v", err)
 	}
@@ -57,7 +58,7 @@ func TestBulkBanUsers_TooMany_Error(t *testing.T) {
 	for i := range ids {
 		ids[i] = "user-" + string(rune('a'+i%26))
 	}
-	_, err := svc.BulkBanUsers(context.Background(), BulkUserActionInput{UserIDs: ids, ActorID: actorID})
+	_, err := svc.BulkBanUsers(context.Background(), api.BulkUserActionInput{UserIDs: ids, ActorID: actorID})
 	if authErrCode(err) != "invalid_input" {
 		t.Fatalf("expected invalid_input, got %v", err)
 	}
@@ -71,7 +72,7 @@ func TestBulkBanUsers_ActorNotAdmin_Forbidden(t *testing.T) {
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
-	_, err := svc.BulkBanUsers(context.Background(), BulkUserActionInput{UserIDs: []string{"user-1"}, ActorID: "not-admin"})
+	_, err := svc.BulkBanUsers(context.Background(), api.BulkUserActionInput{UserIDs: []string{"user-1"}, ActorID: "not-admin"})
 	if err != domain.ErrForbidden {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}
@@ -86,7 +87,7 @@ func TestBulkUnbanUsers_HappyPath(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com", IsBanned: true, BannedAt: &now}))
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com", IsBanned: true, BannedAt: &now}))
 
-	result, err := svc.BulkUnbanUsers(context.Background(), BulkUserActionInput{
+	result, err := svc.BulkUnbanUsers(context.Background(), api.BulkUserActionInput{
 		UserIDs: []string{"user-1", "user-2"}, ActorID: actorID,
 	})
 	if err != nil {
@@ -104,7 +105,7 @@ func TestBulkDeleteUsers_HappyPath(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"}))
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-2", Email: "u2@example.com"}))
 
-	result, err := svc.BulkDeleteUsers(context.Background(), BulkUserActionInput{
+	result, err := svc.BulkDeleteUsers(context.Background(), api.BulkUserActionInput{
 		UserIDs: []string{"user-1", "user-2"}, ActorID: actorID,
 	})
 	if err != nil {
@@ -125,7 +126,7 @@ func TestBulkRevokeUserSessions_HappyPath(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "user-1", Email: "u1@example.com"}))
 	seedSession(t, sessions, "s1", "user-1", "1.1.1.1")
 
-	result, err := svc.BulkRevokeUserSessions(context.Background(), BulkUserActionInput{
+	result, err := svc.BulkRevokeUserSessions(context.Background(), api.BulkUserActionInput{
 		UserIDs: []string{"user-1"}, ActorID: actorID,
 	})
 	if err != nil {

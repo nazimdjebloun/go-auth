@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 )
@@ -30,7 +31,7 @@ func TestAdminListSessions_HappyPath(t *testing.T) {
 	seedSession(t, sessions, "s1", "user-1", "1.1.1.1")
 	seedSession(t, sessions, "s2", "user-2", "2.2.2.2")
 
-	result, err := svc.ListSessions(context.Background(), AdminListSessionsInput{ActorID: actorID})
+	result, err := svc.ListSessions(context.Background(), api.AdminListSessionsInput{ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -48,7 +49,7 @@ func TestAdminListSessions_FilterByUserID(t *testing.T) {
 	seedSession(t, sessions, "s2", "user-2", "2.2.2.2")
 
 	userID := "user-1"
-	result, err := svc.ListSessions(context.Background(), AdminListSessionsInput{ActorID: actorID, UserID: &userID})
+	result, err := svc.ListSessions(context.Background(), api.AdminListSessionsInput{ActorID: actorID, UserID: &userID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -66,7 +67,7 @@ func TestAdminListSessions_FilterByIP(t *testing.T) {
 	seedSession(t, sessions, "s2", "user-2", "2.2.2.2")
 
 	ip := "2.2.2.2"
-	result, err := svc.ListSessions(context.Background(), AdminListSessionsInput{ActorID: actorID, IP: &ip})
+	result, err := svc.ListSessions(context.Background(), api.AdminListSessionsInput{ActorID: actorID, IP: &ip})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -83,7 +84,7 @@ func TestAdminListSessions_ActorNotAdmin_Forbidden(t *testing.T) {
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
-	_, err := svc.ListSessions(context.Background(), AdminListSessionsInput{ActorID: "not-admin"})
+	_, err := svc.ListSessions(context.Background(), api.AdminListSessionsInput{ActorID: "not-admin"})
 	if err != domain.ErrForbidden {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}

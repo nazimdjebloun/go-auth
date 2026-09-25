@@ -100,9 +100,9 @@ your application's `go.mod` pins; from a source checkout, use
 Email verification marks the address verified and then requires a separate
 sign-in; it does not issue session cookies. OAuth initiation sets a short-lived
 browser state cookie that must return on the callback. Provider linking also
-requires the same live session at the callback. If you call `Services.OAuth`
-directly, use the returned `OAuthInitiation.State` to bind the flow to the
-initiating browser and pass that value to `Callback`.
+requires the same live session at the callback. If you call `auth.Services().OAuth`
+directly, use the `State` field of the returned `api.OAuthInitiation` to bind
+the flow to the initiating browser and pass that value to `Callback`.
 
 For production, configure SMTP with `WithEmail` or provide a custom
 `port.Mailer`. A mailer is required whenever an enabled feature sends email;
@@ -153,8 +153,10 @@ rollout procedure and failure model.
 
 `Auth` exposes facade methods for core operations:
 
+Import the operation types from `github.com/nazimdjebloun/go-auth/api`.
+
 ```go
-result, err := auth.Login(ctx, goauth.LoginInput{
+result, err := auth.Login(ctx, api.LoginInput{
 	Email:     email,
 	Password:  password,
 	IP:        clientIP,
@@ -163,17 +165,16 @@ result, err := auth.Login(ctx, goauth.LoginInput{
 ```
 
 The complete service surface is available under `auth.Services()` for applications
-that provide their own transport. Before this restructure it was an exported
-field; change `auth.Services.Auth.Login(...)` to `auth.Services().Auth.Login(...)`.
-The returned bundle is a value, so reassigning one of its fields does not change
-the instance's wiring. `Auth.Mount` remains the simplest way to use
-the built-in handlers, cookies, CSRF checks, and route middleware.
+that provide their own transport. The returned bundle is a value, so reassigning
+one of its fields does not change the instance's wiring. `Auth.Mount` remains
+the simplest way to use the built-in handlers, cookies, CSRF checks, and route
+middleware.
 
-For a custom router, use `handler, ok := auth.Handler("POST /auth/login")`
-instead of the old `auth.Handlers.Login` field. The returned handler has its
-middleware already applied and sets the canonical request pattern for rate
-limiting. For routes with `{parameter}` path segments, your router must populate
-the corresponding `PathValue`s. Disabled and unknown routes return `ok == false`.
+For a custom router, use `handler, ok := auth.Handler("POST /auth/login")`.
+The returned handler has its middleware already applied and sets the canonical
+request pattern for rate limiting. For routes with `{parameter}` path segments,
+your router must populate the corresponding `PathValue`s. Disabled and unknown
+routes return `ok == false`.
 
 ## Documentation
 

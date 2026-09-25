@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -180,7 +181,7 @@ func (r *InviteRepository) List(ctx context.Context, filter port.InviteFilter) (
 		orderCol = "created_at"
 	}
 	orderDir := "DESC"
-	if filter.OrderDirection == port.SortAscending {
+	if filter.OrderDirection == api.SortAscending {
 		orderDir = "ASC"
 	}
 
