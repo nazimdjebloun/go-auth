@@ -40,7 +40,7 @@ That email is fixed HTML-and-text content with no app name, links, or configurab
 |---|---|---|---|
 | Admin email | — | `ADMIN_EMAIL` | Prompted for interactively if unset and stdin is a TTY; a hard error otherwise. |
 | Admin password | — | `ADMIN_PASSWORD` | Validated against the default password policy if set. Otherwise prompted (hidden input) with fallback to a strong auto-generated password, printed once and never shown again. |
-| SMTP config | `--smtp-host`, `--smtp-port`, `--smtp-from`, `--smtp-user`, `--smtp-pass`, `--smtp-tls` | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASS`, `SMTP_TLS` | Required unless `--env dev` (see below) or `--skip-mailer-check`. |
+| SMTP config | `--smtp-host`, `--smtp-port`, `--smtp-from`, `--smtp-user`, `--smtp-pass`, `--smtp-tls` | `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM`, `SMTP_USER`, `SMTP_PASS`, `SMTP_TLS` | Required unless `--env dev` (see below) or `--skip-mailer-check`. The port defaults to 587; an explicit flag overrides `SMTP_PORT`. Invalid or out-of-range ports fail before seeding. |
 | Force non-interactive | `--non-interactive` | — | Missing `ADMIN_EMAIL` fails immediately instead of prompting — for CI. |
 | Skip the mailer send | `--skip-mailer-check` | — | Still builds a mailer if SMTP config is present; just doesn't require the send to succeed. Prints a loud warning either way. |
 | Allow a second admin | `--force` | — | Without it, seeding refuses outright if any `role: admin` row already exists. |

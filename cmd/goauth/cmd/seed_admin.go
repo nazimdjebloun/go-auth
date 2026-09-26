@@ -76,7 +76,10 @@ func runSeedAdminCmd(cmd *cobra.Command, _ []string) {
 		abort(err)
 	}
 
-	smtp := resolveSMTPConfig(cmd)
+	smtp, err := resolveSMTPConfig(cmd)
+	if err != nil {
+		abort(err)
+	}
 
 	isTTY := term.IsTerminal(int(os.Stdin.Fd()))
 
@@ -295,8 +298,22 @@ type smtpConfig struct {
 	TLS  goauth.TLSMode
 }
 
-func resolveSMTPConfig(cmd *cobra.Command) smtpConfig {
-	port, _ := strconv.Atoi(flagOrEnv(cmd, "smtp-port", "SMTP_PORT"))
+func resolveSMTPConfig(cmd *cobra.Command) (smtpConfig, error) {
+	port, err := cmd.Flags().GetInt("smtp-port")
+	if err != nil {
+		return smtpConfig{}, fmt.Errorf("seed-admin: reading --smtp-port: %w", err)
+	}
+	if !cmd.Flags().Changed("smtp-port") {
+		if value := os.Getenv("SMTP_PORT"); value != "" {
+			port, err = strconv.Atoi(value)
+			if err != nil {
+				return smtpConfig{}, fmt.Errorf("seed-admin: invalid SMTP_PORT %q: %w", value, err)
+			}
+		}
+	}
+	if port < 1 || port > 65535 {
+		return smtpConfig{}, fmt.Errorf("seed-admin: SMTP port must be between 1 and 65535, got %d", port)
+	}
 	return smtpConfig{
 		Host: flagOrEnv(cmd, "smtp-host", "SMTP_HOST"),
 		Port: port,
@@ -304,7 +321,7 @@ func resolveSMTPConfig(cmd *cobra.Command) smtpConfig {
 		User: flagOrEnv(cmd, "smtp-user", "SMTP_USER"),
 		Pass: flagOrEnv(cmd, "smtp-pass", "SMTP_PASS"),
 		TLS:  parseTLSMode(flagOrEnv(cmd, "smtp-tls", "SMTP_TLS")),
-	}
+	}, nil
 }
 
 func parseTLSMode(v string) goauth.TLSMode {

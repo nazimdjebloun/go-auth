@@ -12,6 +12,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/mailer"
 	"github.com/nazimdjebloun/go-auth/port"
+	"github.com/spf13/cobra"
 )
 
 // ─── fakes ──────────────────────────────────────────────────
@@ -260,6 +261,52 @@ func TestGeneratePassword_SatisfiesStrictPolicy(t *testing.T) {
 }
 
 // ─── mailer resolution ───────────────────────────────────────
+
+func TestResolveSMTPConfig_PortPrecedenceAndValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		envPort string
+		flag    string
+		want    int
+		wantErr string
+	}{
+		{name: "default", want: 587},
+		{name: "environment", envPort: "2525", want: 2525},
+		{name: "explicit flag", flag: "465", want: 465},
+		{name: "flag overrides environment", envPort: "invalid", flag: "465", want: 465},
+		{name: "invalid environment", envPort: "invalid", wantErr: "invalid SMTP_PORT"},
+		{name: "zero environment", envPort: "0", wantErr: "between 1 and 65535"},
+		{name: "out of range flag", flag: "65536", wantErr: "between 1 and 65535"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("SMTP_PORT", tc.envPort)
+			cmd := &cobra.Command{}
+			cmd.Flags().Int("smtp-port", 587, "")
+			for _, name := range []string{"smtp-host", "smtp-from", "smtp-user", "smtp-pass", "smtp-tls"} {
+				cmd.Flags().String(name, "", "")
+			}
+			if tc.flag != "" {
+				if err := cmd.Flags().Set("smtp-port", tc.flag); err != nil {
+					t.Fatal(err)
+				}
+			}
+			config, err := resolveSMTPConfig(cmd)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("resolveSMTPConfig error = %v, want %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("resolveSMTPConfig: %v", err)
+			}
+			if config.Port != tc.want {
+				t.Fatalf("SMTP port = %d, want %d", config.Port, tc.want)
+			}
+		})
+	}
+}
 
 func TestResolveMailer_DevNoSMTP_UsesLogMailer(t *testing.T) {
 	m, err := resolveMailer(goauth.EnvironmentDev, smtpConfig{}, false)
