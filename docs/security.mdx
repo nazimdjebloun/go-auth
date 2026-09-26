@@ -115,6 +115,7 @@ Every endpoint that reads or mutates a specific resource by ID checks ownership,
 
 - **Sessions**: revoking a session by ID returns the same `session_not_found` whether it does not exist or belongs to someone else, so one user cannot distinguish "no such session" from "that is not yours" by probing IDs.
 - **Organizations**: every `/auth/orgs/{orgID}/*` route requires membership in that specific org, and mutating routes additionally require a minimum role (`admin` to manage members/invites/settings, `owner` to delete the org or touch another owner). Demoting or removing the last owner is blocked outright (`cannot_remove_last_owner`), the same way admin management blocks removing the last admin (`last_admin`).
+- **Active organization**: selecting an active org locks the membership until the session update commits. Concurrent removal or role change then clears or updates the session scope before its own transaction commits, so a delayed selection cannot restore an old role.
 - **Admin**: every `/admin/*` route requires `role: admin`, checked after authentication, not instead of it.
 
 ## Audit logging

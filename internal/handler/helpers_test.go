@@ -1172,6 +1172,10 @@ func (m *mockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*d
 	return &cp, nil
 }
 
+func (m *mockOrgRepo) LockMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
+	return m.GetMembership(ctx, orgID, userID)
+}
+
 func (m *mockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, error) {
 	m.mu.Lock()
 	var all []domain.OrgMemberDetail

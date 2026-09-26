@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -152,8 +153,30 @@ func (r *OrgRepository) UpdateMemberRole(ctx context.Context, orgID, userID stri
 
 // GetMembership returns a user's organization membership or nil when absent.
 func (r *OrgRepository) GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
+	return scanMembership(r.db.QueryRowContext(ctx, orgGetMembershipQuery, orgID, userID))
+}
+
+// LockMembership holds the membership row until the surrounding transaction
+// commits, serializing active-org selection with removal and role changes.
+func (r *OrgRepository) LockMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
+	if _, ok := txFromContext(ctx); !ok {
+		return nil, errors.New("lock membership requires a transaction")
+	}
+	if r.db.Driver() == "sqlite" || r.db.Driver() == "sqlite3" {
+		// SQLite has no SELECT FOR UPDATE. A no-op write takes its writer lock
+		// before the role is read, so another writer cannot change membership
+		// before the session update commits.
+		if _, err := r.db.ExecContext(ctx, orgLockMembershipSQLiteQuery, orgID, userID); err != nil {
+			return nil, err
+		}
+		return r.GetMembership(ctx, orgID, userID)
+	}
+	return scanMembership(r.db.QueryRowContext(ctx, orgLockMembershipQuery, orgID, userID))
+}
+
+func scanMembership(row *sql.Row) (*domain.OrgMember, error) {
 	m := &domain.OrgMember{}
-	err := r.db.QueryRowContext(ctx, orgGetMembershipQuery, orgID, userID).Scan(
+	err := row.Scan(
 		&m.OrgID, &m.UserID, &m.Role, &m.JoinedAt,
 	)
 	if err == sql.ErrNoRows {

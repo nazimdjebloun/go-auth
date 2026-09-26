@@ -15,7 +15,7 @@ direct service APIs.
   account password setup
 - Optional email 2FA and mandatory admin-login 2FA by default
 - Multi-tenant organizations, roles, invitations, and active-organization
-  sessions
+  sessions whose scope stays synchronized with membership changes
 - Administrative user, session, organization, invitation, and audit-log APIs
 - CSRF protection, route-specific rate limiting, and enumeration-resistant
   credential flows

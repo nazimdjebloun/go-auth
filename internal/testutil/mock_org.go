@@ -151,6 +151,11 @@ func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*d
 	return &cp, nil
 }
 
+// LockMembership mirrors the transaction-scoped lookup for service tests.
+func (m *MockOrgRepo) LockMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
+	return m.GetMembership(ctx, orgID, userID)
+}
+
 // CountMembers returns the number of matching organization members.
 func (m *MockOrgRepo) CountMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) (int, error) {
 	f := filter

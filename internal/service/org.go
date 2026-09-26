@@ -710,15 +710,16 @@ func (s *OrgService) ListMembers(ctx context.Context, input api.ListMembersInput
 
 // SetActiveOrg selects a session's active organization.
 func (s *OrgService) SetActiveOrg(ctx context.Context, input api.SetActiveOrgInput) error {
-	member, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
-	if err != nil {
-		return err
-	}
-	if member == nil {
-		return domain.ErrOrgMemberNotFound
-	}
-
-	return s.sessions.SetActiveOrg(ctx, input.SessionID, input.OrgID, member.Role)
+	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		member, err := s.orgs.LockMembership(txCtx, input.OrgID, input.UserID)
+		if err != nil {
+			return err
+		}
+		if member == nil {
+			return domain.ErrOrgMemberNotFound
+		}
+		return s.sessions.SetActiveOrg(txCtx, input.SessionID, input.OrgID, member.Role)
+	})
 }
 
 // ClearActiveOrg clears a session's active organization.

@@ -2,6 +2,7 @@ package sqlstore
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -43,6 +44,108 @@ func orgMemberRole(t *testing.T, db *DB, orgID, userID string) (string, bool) {
 		return "", false
 	}
 	return role, true
+}
+
+func TestLockMembership_SerializesMemberChanges(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		remainingRole domain.OrgRole
+		change        func(context.Context, *OrgRepository) (bool, error)
+	}{
+		{
+			name:          "role change",
+			remainingRole: domain.OrgRoleAdmin,
+			change: func(ctx context.Context, repo *OrgRepository) (bool, error) {
+				return repo.UpdateMemberRole(ctx, "o1", "u1", domain.OrgRoleMember, domain.OrgRoleAdmin)
+			},
+		},
+		{
+			name: "removal",
+			change: func(ctx context.Context, repo *OrgRepository) (bool, error) {
+				return repo.RemoveMember(ctx, "o1", "u1", domain.OrgRoleMember)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db := newSQLiteTestDB(t)
+			createOrgMembersTable(t, db)
+			seedOrgMember(t, db, "o1", "u1", domain.OrgRoleMember)
+			repo := NewOrgRepository(db)
+			var seq int
+			var name, dbPath string
+			if err := db.QueryRow("PRAGMA database_list").Scan(&seq, &name, &dbPath); err != nil {
+				t.Fatal(err)
+			}
+			mutationDB, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(100)")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = mutationDB.Close() })
+			mutationRepo := NewOrgRepository(NewDB(mutationDB, "sqlite"))
+
+			if _, err := repo.LockMembership(context.Background(), "o1", "u1"); err == nil {
+				t.Fatal("locking outside a transaction must fail")
+			}
+
+			locked := make(chan error, 1)
+			release := make(chan struct{})
+			finished := make(chan error, 1)
+			go func() {
+				finished <- db.WithTx(context.Background(), func(txCtx context.Context) error {
+					member, err := repo.LockMembership(txCtx, "o1", "u1")
+					if err == nil && (member == nil || member.Role != domain.OrgRoleMember) {
+						err = errors.New("locked membership did not return the current role")
+					}
+					locked <- err
+					if err != nil {
+						return err
+					}
+					<-release
+					return nil
+				})
+			}()
+			if err := <-locked; err != nil {
+				close(release)
+				<-finished
+				t.Fatal(err)
+			}
+
+			// A membership write must not commit while active-org selection
+			// holds its lock. Without the lock it would succeed immediately.
+			attemptCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			changed, err := tc.change(attemptCtx, mutationRepo)
+			cancel()
+			if err == nil {
+				close(release)
+				<-finished
+				t.Fatalf("membership write completed before selection committed: changed=%v", changed)
+			}
+			close(release)
+			if err := <-finished; err != nil {
+				t.Fatal(err)
+			}
+
+			changed, err = tc.change(context.Background(), repo)
+			if err != nil || !changed {
+				t.Fatalf("membership change after commit: changed=%v err=%v", changed, err)
+			}
+			var current *domain.OrgMember
+			if err := db.WithTx(context.Background(), func(txCtx context.Context) error {
+				var lockErr error
+				current, lockErr = repo.LockMembership(txCtx, "o1", "u1")
+				return lockErr
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.remainingRole == "" {
+				if current != nil {
+					t.Fatalf("removed membership was locked again: %+v", current)
+				}
+			} else if current == nil || current.Role != tc.remainingRole {
+				t.Fatalf("locked membership role = %v, want %q", current, tc.remainingRole)
+			}
+		})
+	}
 }
 
 func TestRemoveMember_RequiresExpectedRole(t *testing.T) {

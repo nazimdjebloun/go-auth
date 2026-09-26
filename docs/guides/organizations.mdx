@@ -487,6 +487,8 @@ See [Change member role](./client/organizations.mdx#change-member-role) for the 
 
 A session can be scoped to one org at a time — stored as `sessions.active_org_id`/`active_org_role` (see [Schemas → sessions](../schemas.mdx#sessions)), returned on every session-listing response from [Sessions](./sessions.mdx#listing-sessions). Your app reads it to decide which org's data the current request should see.
 
+Setting an active org locks the membership while writing the session. If a member is removed or their role changes at the same time, that change clears or updates the active session scope after the selection commits. A selection started after the membership change commits reads the new role or returns `org_member_not_found`.
+
 ### Tenant-safe application handlers
 
 For routes that query tenant-owned application data, use `RequireActiveOrgScope`. It authenticates the request, checks that the session has an active organization with at least the required role, and invokes the handler with a non-empty `goauth.OrgScope` only after those checks succeed:

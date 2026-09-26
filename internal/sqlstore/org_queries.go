@@ -19,8 +19,10 @@ const (
 
 	orgUpdateMemberRoleQuery = `UPDATE organization_members SET role = $1 WHERE org_id = $2 AND user_id = $3 AND role = $4`
 
-	orgGetMembershipQuery   = `SELECT org_id, user_id, role, joined_at FROM organization_members WHERE org_id = $1 AND user_id = $2`
-	orgUserMembershipsQuery = `SELECT org_id, role FROM organization_members WHERE user_id = $1 ORDER BY joined_at`
+	orgGetMembershipQuery        = `SELECT org_id, user_id, role, joined_at FROM organization_members WHERE org_id = $1 AND user_id = $2`
+	orgLockMembershipQuery       = orgGetMembershipQuery + ` FOR UPDATE`
+	orgLockMembershipSQLiteQuery = `UPDATE organization_members SET role = role WHERE org_id = $1 AND user_id = $2`
+	orgUserMembershipsQuery      = `SELECT org_id, role FROM organization_members WHERE user_id = $1 ORDER BY joined_at`
 
 	// orgMemberSelectCols and orgSelectColsAliased back ListMembers and
 	// ListUserOrgs respectively — both build their WHERE/ORDER BY/LIMIT

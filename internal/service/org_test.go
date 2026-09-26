@@ -883,6 +883,41 @@ func TestSetActiveOrg_NotMember(t *testing.T) {
 	}
 }
 
+type activeOrgMembershipSpy struct{ *testutil.MockOrgRepo }
+
+func (r *activeOrgMembershipSpy) GetMembership(context.Context, string, string) (*domain.OrgMember, error) {
+	return &domain.OrgMember{Role: domain.OrgRoleOwner}, nil
+}
+
+func (r *activeOrgMembershipSpy) LockMembership(context.Context, string, string) (*domain.OrgMember, error) {
+	return &domain.OrgMember{Role: domain.OrgRoleMember}, nil
+}
+
+type activeOrgSessionSpy struct {
+	*testutil.MockSessionRepo
+	role domain.OrgRole
+}
+
+func (s *activeOrgSessionSpy) SetActiveOrg(_ context.Context, _, _ string, role domain.OrgRole) error {
+	s.role = role
+	return nil
+}
+
+func TestSetActiveOrg_UsesLockedMembershipRole(t *testing.T) {
+	orgs := &activeOrgMembershipSpy{MockOrgRepo: testutil.NewMockOrgRepo()}
+	sessions := &activeOrgSessionSpy{MockSessionRepo: testutil.NewMockSessionRepo()}
+	svc := NewOrgService(orgs, testutil.NewMockUserRepo(), sessions, &testutil.MockTxManager{}, OrgServiceConfig{})
+
+	if err := svc.SetActiveOrg(context.Background(), api.SetActiveOrgInput{
+		SessionID: "session-1", UserID: "user-1", OrgID: "org-1",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if sessions.role != domain.OrgRoleMember {
+		t.Fatalf("session used stale membership role %q", sessions.role)
+	}
+}
+
 func TestClearActiveOrg_Success(t *testing.T) {
 	svc := newTestOrgService()
 	ctx := context.Background()

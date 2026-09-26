@@ -76,6 +76,10 @@ type OrgCRUD interface {
 	// for value-identical writes, so it cannot distinguish them).
 	UpdateMemberRole(ctx context.Context, orgID, userID string, expectRole, newRole domain.OrgRole) (bool, error)
 	GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error)
+	// LockMembership reads the current role while preventing a concurrent
+	// removal or role change until the caller's transaction commits. It must
+	// be called inside TxManager.WithTx.
+	LockMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error)
 	// ListMembers returns a page of an org's members; use CountMembers for the total.
 	ListMembers(ctx context.Context, orgID string, filter OrgMemberFilter) ([]domain.OrgMemberDetail, error)
 	CountMembers(ctx context.Context, orgID string, filter OrgMemberFilter) (int, error)
