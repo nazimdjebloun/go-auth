@@ -223,6 +223,34 @@ func TestForgotPassword_NilMailer_NonexistentUserMatchesExistingUser(t *testing.
 	}
 }
 
+func TestForgotPassword_DeliveryFailureDoesNotRevealAccount(t *testing.T) {
+	users := testutil.NewMockUserRepo()
+	tokens := testutil.NewMockTokenRepo()
+	hasher := &testutil.MockHasher{}
+	mailer := &testutil.MockMailer{SendFn: func(context.Context, string, string, string, string) error {
+		return errors.New("test: mail delivery unavailable")
+	}}
+	svc := newTestPasswordService(users, tokens, hasher, mailer)
+	hash, err := hasher.Hash("OldPass1!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := users.Create(context.Background(), &domain.User{
+		ID: "user-1", Email: "existing@example.com", PasswordHash: &hash,
+		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, email := range []string{"existing@example.com", "unknown@example.com"} {
+		if err := svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: email}); err != nil {
+			t.Fatalf("ForgotPassword(%q) = %v, want generic success", email, err)
+		}
+	}
+	if len(mailer.Calls) != 1 {
+		t.Fatalf("mail attempts = %d, want one for the existing account", len(mailer.Calls))
+	}
+}
+
 func TestRequestSetPassword_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	users := testutil.NewMockUserRepo()
 	tokens := testutil.NewMockTokenRepo()

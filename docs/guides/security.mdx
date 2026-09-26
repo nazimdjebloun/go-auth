@@ -247,10 +247,12 @@ Public flow for a user who's locked out entirely — no session involved on eith
 
 ### Request a reset — `POST /auth/forgot-password`
 
-**Request body**: `{ "email": "..." }`. Always returns the same generic success message, whether or not the account exists.
+**Request body**: `{ "email": "..." }`. With a mailer configured, returns the same generic success message for unknown, passwordless, and password-bearing accounts. Only an account with an existing password receives a reset link; an OAuth-only account must use its provider to sign in before using the set-password flow above.
+
+Token storage, template, audit, and mail delivery failures are logged but also return the generic response. If no mailer is configured, every address instead receives `email_not_configured`.
 
 <Callout type="info" title="Timing-safe on purpose">
-  When the email doesn't match any account, the handler still runs two dummy token-generation calls before returning — so the response takes roughly the same time either way. Without that, an attacker could tell which emails are registered just by measuring response latency.
+  When the email doesn't match a password-bearing account, the service still generates a token, performs rollback-only token cleanup and insertion, and renders the email template before returning. This keeps the local work similar without sending an email or leaving a token row behind.
 </Callout>
 
 #### curl

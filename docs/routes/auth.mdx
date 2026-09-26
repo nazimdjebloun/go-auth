@@ -197,7 +197,7 @@ Changes the caller's display name. `Auth:` Session.
 
 POST /auth/forgot-password
 
-Starts the reset flow. Deliberately account-blind: the response is identical whether the email exists or not. `Auth:` Public.
+Starts the reset flow for accounts with an existing password. The response is identical for unknown, passwordless, and password-bearing accounts, including when token storage or mail delivery fails. Only an account with an existing password can receive a reset link. `Auth:` Public.
 
 **Request body:**
 
@@ -211,7 +211,7 @@ Starts the reset flow. Deliberately account-blind: the response is identical whe
 { "message": "If an account exists with this email, a reset link has been sent." }
 ```
 
-**Errors:** `email_failed` (`500`, mailer could not send).
+**Errors:** `email_not_configured` (`500`, no mailer configured; returned for every submitted address). Delivery and storage failures are logged and return the generic success response.
 
 ### Reset password
 
@@ -234,7 +234,7 @@ Consumes the reset code and sets the new password. All other sessions for the us
 { "message": "Password reset successfully" }
 ```
 
-**Errors:** `reset_token_invalid`, `reset_token_expired` (`410`), `reset_token_already_used` (`410`), `user_not_found` (`404`, account deleted after the code was issued), `password_update_conflict` (concurrent use; retry), `weak_password`.
+**Errors:** `reset_token_invalid` (including a token for an account that no longer has a password), `reset_token_expired` (`410`), `reset_token_already_used` (`410`), `user_not_found` (`404`, account deleted after the code was issued), `password_update_conflict` (concurrent use; retry), `weak_password`.
 
 ### Change password
 

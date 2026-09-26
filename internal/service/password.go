@@ -75,7 +75,12 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPa
 	}
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
-	if err != nil || user == nil {
+	if err != nil {
+		s.log.Error("forgot-password account lookup failed", "err", err)
+		s.burnForgotPasswordDummy(ctx)
+		return nil
+	}
+	if user == nil || !user.HasPassword() {
 		s.burnForgotPasswordDummy(ctx)
 		return nil
 	}
@@ -83,7 +88,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPa
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate token", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
+		return nil
 	}
 
 	now := time.Now().UTC()
@@ -101,7 +106,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPa
 		return s.writePasswordResetToken(txCtx, user.ID, token)
 	}); err != nil {
 		s.log.Error("failed to replace reset token", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
+		return nil
 	}
 
 	url := s.config.BaseURL + "/reset-password?token=" + raw
@@ -112,19 +117,19 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPa
 	})
 	if err != nil {
 		s.log.Error("failed to render reset email template", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
+		return nil
 	}
 
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send reset email", "err", err, "user_id", user.ID)
-		return domain.NewError("email_failed", "Failed to send reset email")
+		return nil
 	}
 
 	s.log.Info("password reset requested", "user_id", user.ID)
 
 	if s.audit != nil {
 		if err := s.audit.Record(ctx, audit.NewPasswordResetRequestedEvent(user.Email, nil, "")); err != nil {
-			return err
+			s.log.Error("failed to record password reset request", "err", err, "user_id", user.ID)
 		}
 	}
 
@@ -221,6 +226,9 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 	user, err := s.users.GetByID(ctx, *token.UserID)
 	if err != nil || user == nil {
 		return domain.ErrUserNotFound
+	}
+	if !user.HasPassword() {
+		return domain.ErrResetTokenInvalid
 	}
 
 	hash, pepperVersion, err := hashPasswordAtLeast(s.hasher, input.NewPassword, user.PasswordPepperVersion)

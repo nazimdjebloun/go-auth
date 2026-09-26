@@ -113,7 +113,7 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 
 | Code | Status | Message | Hint |
 |---|---|---|---|
-| `reset_token_invalid` | 400 | Invalid password reset token | |
+| `reset_token_invalid` | 400 | Invalid password reset token | Also returned if the account behind a previously issued reset token no longer has a password. |
 | `reset_token_expired` | 410 | Password reset token has expired | |
 | `reset_token_already_used` | 410 | Password reset token has already been used | |
 | `wrong_password` | 400 | Password is incorrect / Current password is incorrect | Used both by delete-account and change-password. |
@@ -122,8 +122,8 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 | `already_set` | 400 | User already has a password | The reverse case: calling set-password when one already exists. |
 | `invalid_code` | 400 | Invalid set password code | |
 | `code_used` | 400 | Set password code has already been used | |
-| `email_not_configured` | 500 | Email sender is not configured | Only reachable on the confirm-delete-account flow, which requires a mailer explicitly. |
-| `email_failed` | 500 | Failed to send reset email / Failed to send email | The token was created but delivery failed at the transport level (SMTP error, provider API error). |
+| `email_not_configured` | 500 | Email sender is not configured | Also returned by forgot-password for every submitted address when no mailer is configured. |
+| `email_failed` | 500 | Failed to send email | Used by other email flows. Forgot-password logs delivery failures and returns its generic response. |
 
 ## Account (name, deletion, email verification)
 

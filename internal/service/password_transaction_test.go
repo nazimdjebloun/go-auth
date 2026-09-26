@@ -20,6 +20,20 @@ import (
 )
 
 var errInjectedSessionRevocation = errors.New("test: injected session revocation failure")
+var errInjectedRecoveryLookup = errors.New("test: injected recovery lookup failure")
+var errInjectedRecoveryTokenWrite = errors.New("test: injected recovery token write failure")
+
+type failingRecoveryUserLookup struct{ port.UserRepository }
+
+func (r *failingRecoveryUserLookup) GetByEmail(context.Context, string) (*domain.User, error) {
+	return nil, errInjectedRecoveryLookup
+}
+
+type failingRecoveryTokenWrite struct{ port.TokenRepository }
+
+func (r *failingRecoveryTokenWrite) DeleteUnusedByUserAndType(context.Context, string, domain.TokenType) error {
+	return errInjectedRecoveryTokenWrite
+}
 
 type failingPasswordSessionRevoker struct {
 	port.SessionRevoker
@@ -277,6 +291,67 @@ func TestForgotPassword_DummyInsertIsRolledBack(t *testing.T) {
 	}
 	if len(mailer.Calls) != 0 {
 		t.Fatalf("dummy request sent %d emails, want none", len(mailer.Calls))
+	}
+}
+
+func TestForgotPassword_PasswordlessAccountDoesNotReceiveUnusableResetLink(t *testing.T) {
+	f := newPasswordTransactionFixture(t)
+	ctx := context.Background()
+	if _, err := f.db.ExecContext(ctx, "UPDATE users SET password_hash = NULL WHERE id = $1", f.userID); err != nil {
+		t.Fatal(err)
+	}
+	mailer := &testutil.MockMailer{}
+	svc := NewPasswordService(f.users, f.tokens, f.hasher,
+		&testutil.MockTokenGen{Length: 32}, mailer, f.sessions, f.db, defaultTestConfig())
+	var before int
+	if err := f.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM verification_tokens").Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ForgotPassword(ctx, api.ForgotPasswordInput{Email: "password-transaction@example.com"}); err != nil {
+		t.Fatalf("ForgotPassword error = %v, want generic success", err)
+	}
+	if len(mailer.Calls) != 0 {
+		t.Fatal("passwordless account received a reset link it cannot use")
+	}
+	var after int
+	if err := f.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM verification_tokens").Scan(&after); err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("reset token rows = %d, want %d after dummy rollback", after, before)
+	}
+	if err := svc.ResetPassword(ctx, api.ResetPasswordInput{Code: f.code, NewPassword: "NewPass1!"}); !errors.Is(err, domain.ErrResetTokenInvalid) {
+		t.Fatalf("ResetPassword for passwordless account = %v, want reset_token_invalid", err)
+	}
+}
+
+func TestForgotPassword_LookupFailureKeepsGenericResponse(t *testing.T) {
+	f := newPasswordTransactionFixture(t)
+	ctx := context.Background()
+	mailer := &testutil.MockMailer{}
+	svc := NewPasswordService(&failingRecoveryUserLookup{UserRepository: f.users}, f.tokens,
+		f.hasher, &testutil.MockTokenGen{Length: 32}, mailer, f.sessions, f.db, defaultTestConfig())
+	if err := svc.ForgotPassword(ctx, api.ForgotPasswordInput{Email: "password-transaction@example.com"}); err != nil {
+		t.Fatalf("ForgotPassword lookup failure = %v, want generic success", err)
+	}
+	if len(mailer.Calls) != 0 {
+		t.Fatal("lookup failure sent a reset email")
+	}
+}
+
+func TestForgotPassword_StorageFailureDoesNotRevealAccount(t *testing.T) {
+	f := newPasswordTransactionFixture(t)
+	ctx := context.Background()
+	mailer := &testutil.MockMailer{}
+	svc := NewPasswordService(f.users, &failingRecoveryTokenWrite{TokenRepository: f.tokens},
+		f.hasher, &testutil.MockTokenGen{Length: 32}, mailer, f.sessions, f.db, defaultTestConfig())
+	for _, email := range []string{"password-transaction@example.com", "unknown@example.com"} {
+		if err := svc.ForgotPassword(ctx, api.ForgotPasswordInput{Email: email}); err != nil {
+			t.Fatalf("ForgotPassword(%q) storage failure = %v, want generic success", email, err)
+		}
+	}
+	if len(mailer.Calls) != 0 {
+		t.Fatal("storage failure sent a reset email")
 	}
 }
 

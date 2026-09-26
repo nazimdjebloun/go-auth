@@ -11,8 +11,8 @@ direct service APIs.
 
 - Email/password and OAuth registration and login
 - Session and refresh-token rotation, idle expiry, and absolute lifetime limits
-- Password recovery, password changes, email verification, and OAuth-only
-  account password setup
+- Password recovery for accounts with an existing password, password changes,
+  email verification, and OAuth-only account password setup after sign-in
 - Optional email 2FA and mandatory admin-login 2FA by default
 - Multi-tenant organizations, roles, invitations, and active-organization
   sessions whose scope stays synchronized with membership changes
