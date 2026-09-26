@@ -16,7 +16,6 @@ const (
 	// EventLoginSuccess and the following values identify authentication events.
 	EventLoginSuccess      EventType = "login.success"
 	EventLoginFailed       EventType = "login.failed"
-	EventLoginLocked       EventType = "login.locked"
 	EventLogout            EventType = "logout"
 	EventAdminLoginSuccess EventType = "admin.login.success"
 	EventAdminLoginFailed  EventType = "admin.login.failed"

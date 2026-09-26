@@ -129,20 +129,6 @@ func NewLoginFailedEvent(email string, ip net.IP, ua string) Event {
 	}
 }
 
-// NewLoginLockedEvent returns a locked-login audit event.
-func NewLoginLockedEvent(email string, ip net.IP, ua string) Event {
-	return Event{
-		ID:        generateID(),
-		Type:      EventLoginLocked,
-		Severity:  SeverityWarning,
-		Success:   false,
-		IP:        ip,
-		UserAgent: ua,
-		Metadata:  emailMetadata(email),
-		CreatedAt: time.Now().UTC(),
-	}
-}
-
 // NewNameChangedEvent records a self-service profile name change. The actor
 // is the user whose name changed — there is no admin in this path.
 func NewNameChangedEvent(userID string) Event {

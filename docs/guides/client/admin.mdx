@@ -127,7 +127,7 @@ const { events } = await adminApi.listAuditLogs({ event_type: "login.failed", li
 const { count } = await adminApi.countAuditLogs({ event_type: "login.failed" });
 
 // event_type takes a comma-separated list — matches any of them
-const failures = await adminApi.listAuditLogs({ event_type: "login.failed,login.locked" });
+const failures = await adminApi.listAuditLogs({ event_type: "login.failed,admin.login.failed" });
 
 // actorEmail/targetEmail resolve to a user ID server-side — no need to
 // already know the UUID. 404 user_not_found if no user has that email.

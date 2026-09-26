@@ -8,7 +8,6 @@ func TestEmailOnlyEventsKeepActorIDDatabaseSafe(t *testing.T) {
 		event Event
 	}{
 		{"login failed", NewLoginFailedEvent("a@example.com", nil, "")},
-		{"login locked", NewLoginLockedEvent("a@example.com", nil, "")},
 		{"admin login failed", NewAdminLoginFailedEvent("a@example.com", nil, "")},
 		{"verification sent", NewEmailVerificationSentEvent("a@example.com")},
 		{"password reset requested", NewPasswordResetRequestedEvent("a@example.com", nil, "")},
