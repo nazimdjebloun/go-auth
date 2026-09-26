@@ -355,6 +355,7 @@ func (s *Service) Stop(ctx context.Context) error {
 }
 
 func (s *Service) startRetentionCleanup(ctx context.Context) {
+	defer s.wg.Done()
 	ticker := time.NewTicker(24 * time.Hour)
 	defer ticker.Stop()
 	for {

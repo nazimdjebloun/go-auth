@@ -452,6 +452,18 @@ func TestStart_PropagatesTableCheckError(t *testing.T) {
 	}
 }
 
+func TestStop_WaitsForRetentionWorker(t *testing.T) {
+	s := NewService(ServiceConfig{RetentionDays: 30}, nil, &mockRecordStore{}, nil, nil)
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := s.Stop(ctx); err != nil {
+		t.Fatalf("Stop with retention enabled: %v", err)
+	}
+}
+
 func TestRetryWindowFor_CapDominated(t *testing.T) {
 	// The backoff ceiling, not MaxAttempts, sets the window: doubling
 	// attempts from 10 must not grow it by more than the capped hour.
