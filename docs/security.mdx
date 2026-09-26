@@ -124,6 +124,8 @@ When enabled, security-critical transactional paths (registration, successful lo
 
 Password reset and password change also invalidate unused email 2FA login challenges in the same transaction as the password and session changes.
 
+Admin bans commit the ban, session deletion, and audit record together; unbanning and disabling 2FA commit their state change and audit record together. Enabling 2FA commits the enabled flag, any requested deletion of other sessions, and its audit record together. A failed revocation or audit write rolls back the state change.
+
 ## Secrets
 
 `WithSecret` supplies the required application-wide root secret and must be at least 32 bytes (`NewConfig` rejects anything shorter, since HMAC-SHA256 wants a full-strength key). It is never used directly as key material: HKDF-SHA256 derives four independent subkeys with distinct purpose strings: CSRF signing, 2FA challenge binding, OAuth token encryption, and OTP pepper. A compromise of one derived purpose's key does not hand over the others. Nothing about the secret or its derived keys is logged or exposed via any endpoint.

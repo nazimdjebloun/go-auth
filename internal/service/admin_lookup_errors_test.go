@@ -124,3 +124,43 @@ func TestAdminTargetLookupErrors(t *testing.T) {
 		})
 	}
 }
+
+// adminGuardErrorRepo makes the guard itself fail. It stands in for the
+// locking read that reports a target deleted after the initial lookup.
+type adminGuardErrorRepo struct {
+	*adminLookupFailureRepo
+	guardErr error
+}
+
+func (r *adminGuardErrorRepo) WithAdminGuard(context.Context, func(context.Context) error) error {
+	return r.guardErr
+}
+
+// BanUser must tell a vanished target apart from a broken database: the
+// guard's own not-found is authoritative and maps to 404, while any other
+// guard failure stays internal so an infrastructure fault is never
+// disguised as absence.
+func TestBanUser_GuardErrorMapping(t *testing.T) {
+	tests := []struct {
+		name  string
+		guard error
+		want  error
+	}{
+		{"vanished target stays not found", fmt.Errorf("guard: %w", domain.ErrUserNotFound), domain.ErrUserNotFound},
+		{"backend failure stays internal", errors.New("database unavailable"), domain.ErrInternal},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			users := testutil.NewMockUserRepo()
+			svc, actor := newTestAdminService(users, testutil.NewMockSessionRepo(), &testutil.MockHasher{})
+			svc.users = &adminGuardErrorRepo{
+				adminLookupFailureRepo: &adminLookupFailureRepo{UserRepository: users, afterGuard: true},
+				guardErr:               tt.guard,
+			}
+			err := svc.BanUser(t.Context(), api.BanUserInput{UserID: "target", ActorID: actor})
+			if !errors.Is(err, tt.want) {
+				t.Fatalf("BanUser error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}

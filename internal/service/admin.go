@@ -29,6 +29,12 @@ type AdminService struct {
 	log        *slog.Logger
 	audit      AuditPublisher
 
+	// txManager makes a state change and its audit record one transaction on
+	// the paths that have no guard of their own (unbanning). Attached by the
+	// library's wiring; a nil manager keeps the legacy autocommit behavior
+	// that mock-built services rely on.
+	txManager port.TxManager
+
 	// deletion carries the transactional account-deletion invariants. It is
 	// attached by the library's wiring; see AccountDeletion for why it can
 	// legitimately be nil (mock-built services).
@@ -40,6 +46,13 @@ type AdminService struct {
 // safe to call once, before the service handles requests.
 func (s *AdminService) AttachAccountDeletion(d *AccountDeletion) {
 	s.deletion = d
+}
+
+// AttachTxManager makes unbanning commit its state change together with its
+// audit record. Called by the library's own construction; safe to call once,
+// before the service handles requests.
+func (s *AdminService) AttachTxManager(tm port.TxManager) {
+	s.txManager = tm
 }
 
 // NewAdminService returns an administrator service.

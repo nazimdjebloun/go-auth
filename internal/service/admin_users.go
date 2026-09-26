@@ -100,8 +100,32 @@ func (s *AdminService) BanUser(ctx context.Context, input api.BanUserInput) erro
 	// Ban atomically with the last-usable-admin invariant. The guard is
 	// part of the UserRepository contract, so there is no count-then-write
 	// path — a count cannot serialize against a concurrent demotion.
-	banned, err := s.users.BanWithAdminGuard(ctx, input.UserID, true, &now, now)
+	var banned bool
+	err = s.users.WithAdminGuard(ctx, func(txCtx context.Context) error {
+		var err error
+		banned, err = s.users.BanWithAdminGuard(txCtx, input.UserID, true, &now, now)
+		if err != nil || !banned {
+			return err
+		}
+		if err := s.sessionSvc.RevokeAll(txCtx, input.UserID); err != nil {
+			return err
+		}
+		if s.audit != nil {
+			return s.audit.Record(txCtx, audit.NewAdminEvent(audit.EventAdminUserBanned, input.ActorID, input.UserID))
+		}
+		return nil
+	})
 	if err != nil {
+		// The guard reports a target that vanished between the initial lookup
+		// and the locking read — a concurrent admin deletion, not a failed
+		// read. Re-read through this service's repository so an infrastructure
+		// failure keeps its cause instead of being flattened to not-found.
+		if errors.Is(err, domain.ErrUserNotFound) {
+			if _, gerr := s.targetUser(ctx, input.UserID); gerr != nil {
+				return gerr
+			}
+			return domain.ErrUserNotFound
+		}
 		s.log.Error("failed to ban user", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal
 	}
@@ -114,19 +138,7 @@ func (s *AdminService) BanUser(ctx context.Context, input api.BanUserInput) erro
 		return domain.NewError("last_admin", "Cannot ban the last admin")
 	}
 
-	if err := s.sessionSvc.RevokeAll(ctx, input.UserID); err != nil {
-		s.log.Error("failed to revoke sessions after ban", "err", err, "user_id", input.UserID)
-		return domain.ErrInternal
-	}
-
 	s.log.Info("user banned", "user_id", input.UserID)
-
-	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewAdminEvent(audit.EventAdminUserBanned, input.ActorID, input.UserID)); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -145,19 +157,30 @@ func (s *AdminService) UnbanUser(ctx context.Context, input api.UnbanUserInput) 
 	}
 
 	now := time.Now().UTC()
-	if err := s.users.SetBanStatus(ctx, input.UserID, false, nil, now); err != nil {
+	// No admin guard here: unbanning only adds a usable admin, so it cannot
+	// break the last-usable-admin invariant BanUser serializes on. The audit
+	// record still shares the transaction, so an audit failure under
+	// fail-closed leaves the account banned rather than silently unbanned.
+	apply := func(txCtx context.Context) error {
+		if err := s.users.SetBanStatus(txCtx, input.UserID, false, nil, now); err != nil {
+			return err
+		}
+		if s.audit != nil {
+			return s.audit.Record(txCtx, audit.NewAdminEvent(audit.EventAdminUserUnbanned, input.ActorID, input.UserID))
+		}
+		return nil
+	}
+	if s.txManager != nil {
+		err = s.txManager.WithTx(ctx, apply)
+	} else {
+		err = apply(ctx)
+	}
+	if err != nil {
 		s.log.Error("failed to unban user", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal
 	}
 
 	s.log.Info("user unbanned", "user_id", input.UserID)
-
-	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewAdminEvent(audit.EventAdminUserUnbanned, input.ActorID, input.UserID)); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 

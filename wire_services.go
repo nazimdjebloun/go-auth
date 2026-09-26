@@ -147,6 +147,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		ratelimit.WithStoreLogger(cfg.logger),
 	)
 	twoFactorSvc := service.NewTwoFactorService(userRepo, sessionRepo, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
+	twoFactorSvc.AttachTxManager(sqlDB)
 
 	authSvc := service.NewAuthService(userRepo, sessionRepo, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
 	// Register commits the user row and its audit record in one
@@ -156,6 +157,9 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepo, sqlDB, serviceCfg)
 	inviteSvc := service.NewInviteService(userRepo, sessionRepo, inviteRepo, hasherImpl, genImpl, mailer, sqlDB, serviceCfg, sessSvc, twoFactorSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepo, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
+	// Unbanning must commit its audit record with the state change; bans and
+	// role changes already get that from the admin guard's own transaction.
+	adminSvc.AttachTxManager(sqlDB)
 
 	var oauthSvc *service.OAuthService
 	if len(oauthProviders) > 0 {

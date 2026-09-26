@@ -60,7 +60,14 @@ type TwoFactorService struct {
 	log        *slog.Logger
 	audit      AuditPublisher
 	sessionSvc *SessionService
+	txManager  port.TxManager
 	now        func() time.Time
+}
+
+// AttachTxManager makes 2FA activation, session revocation, and its audit
+// record one transaction. The library wiring calls this before serving requests.
+func (s *TwoFactorService) AttachTxManager(tm port.TxManager) {
+	s.txManager = tm
 }
 
 // NewTwoFactorService returns a two-factor service.
@@ -545,26 +552,33 @@ func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, 
 		return nil
 	}
 
-	if err := s.users.SetTwoFactorEnabled(ctx, user.ID, true, s.now().UTC()); err != nil {
-		s.log.Error("failed to enable 2fa", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
-	}
-
 	// Borrow ChangePassword's call, not its control flow: there, an empty
 	// except-id means "revoke everything including the caller". Here opting out
 	// must skip revocation entirely, or keepOtherSessions would log the user
 	// out of the very session making the request.
-	if !keepOtherSessions && callerSessionID != "" {
-		if err := s.sessions.DeleteAllForUserExcept(ctx, user.ID, callerSessionID); err != nil {
-			s.log.Error("failed to revoke sessions", "err", err, "user_id", user.ID)
-			return domain.ErrInternal
-		}
-	}
-
-	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewTwoFactorEnabledEvent(user.ID)); err != nil {
+	apply := func(txCtx context.Context) error {
+		if err := s.users.SetTwoFactorEnabled(txCtx, user.ID, true, s.now().UTC()); err != nil {
 			return err
 		}
+		if !keepOtherSessions && callerSessionID != "" {
+			if err := s.sessions.DeleteAllForUserExcept(txCtx, user.ID, callerSessionID); err != nil {
+				return err
+			}
+		}
+		if s.audit != nil {
+			return s.audit.Record(txCtx, audit.NewTwoFactorEnabledEvent(user.ID))
+		}
+		return nil
+	}
+	var err error
+	if s.txManager != nil {
+		err = s.txManager.WithTx(ctx, apply)
+	} else {
+		err = apply(ctx)
+	}
+	if err != nil {
+		s.log.Error("failed to enable 2fa", "err", err, "user_id", user.ID)
+		return domain.ErrInternal
 	}
 	return nil
 }
@@ -580,15 +594,26 @@ func (s *TwoFactorService) Disable(ctx context.Context, userID, password string)
 		return nil
 	}
 
-	if err := s.users.SetTwoFactorEnabled(ctx, user.ID, false, s.now().UTC()); err != nil {
-		s.log.Error("failed to disable 2fa", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
-	}
-
-	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewTwoFactorDisabledEvent(user.ID)); err != nil {
+	// The flag and its audit record commit together, mirroring Enable: an
+	// audit failure under fail-closed must not leave 2FA silently off.
+	apply := func(txCtx context.Context) error {
+		if err := s.users.SetTwoFactorEnabled(txCtx, user.ID, false, s.now().UTC()); err != nil {
 			return err
 		}
+		if s.audit != nil {
+			return s.audit.Record(txCtx, audit.NewTwoFactorDisabledEvent(user.ID))
+		}
+		return nil
+	}
+	var err error
+	if s.txManager != nil {
+		err = s.txManager.WithTx(ctx, apply)
+	} else {
+		err = apply(ctx)
+	}
+	if err != nil {
+		s.log.Error("failed to disable 2fa", "err", err, "user_id", user.ID)
+		return domain.ErrInternal
 	}
 	return nil
 }
