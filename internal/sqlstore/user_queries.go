@@ -24,7 +24,7 @@ var (
 
 	userSetPasswordQuery = sqlText(`
 		UPDATE users SET password_hash=$1, password_pepper_version=$2, is_verified=true, verified_at=$3, updated_at=$4
-		WHERE id=$5`)
+		WHERE id=$5 AND password_hash IS NULL`)
 
 	userUpdatePasswordHashQuery = sqlText(`
 		UPDATE users SET password_hash=$1, password_pepper_version=$2, updated_at=$3

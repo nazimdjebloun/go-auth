@@ -151,8 +151,14 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string
 		return false, nil
 	}
 
-	if _, err = tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, pepperVersion, now, now, userID); err != nil {
+	updated, err := affected(tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, pepperVersion, now, now, userID))
+	if err != nil {
 		return false, err
+	}
+	if !updated {
+		// A different code or credential writer won the race. Rolling back
+		// also restores this code so the transaction has no partial effect.
+		return false, nil
 	}
 
 	return true, tx.Commit()

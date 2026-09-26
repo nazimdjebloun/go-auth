@@ -81,7 +81,8 @@ type UserRepository interface {
 	// password in one transaction. The token claim is conditional on the
 	// token still being unused and is checked before the password write, so
 	// two concurrent confirms cannot both consume the code. Returns false
-	// when the code was already consumed (the password is left untouched);
+	// when the code was already consumed or the user acquired a password
+	// concurrently. A false result leaves the code and password untouched;
 	// true means the password was set.
 	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error)
 	SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error

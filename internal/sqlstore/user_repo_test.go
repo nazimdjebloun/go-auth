@@ -107,6 +107,9 @@ func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
 	if _, err := db.Exec("INSERT INTO verification_tokens (id) VALUES (?)", "tok-1"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := db.Exec("INSERT INTO verification_tokens (id) VALUES (?)", "tok-2"); err != nil {
+		t.Fatal(err)
+	}
 
 	repo := NewUserRepository(db)
 	ctx := context.Background()
@@ -128,6 +131,16 @@ func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
 	}
 	if claimed {
 		t.Fatal("second confirm claimed an already-used token")
+	}
+
+	// A separately issued code can also be live when requests race. Its
+	// claim must roll back if the password was installed by the first code.
+	claimed, err = repo.SetPasswordAndVerify(ctx, "u1", "hash-C", nil, "tok-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed {
+		t.Fatal("a distinct code replaced an existing password")
 	}
 
 	var storedHash string
@@ -152,6 +165,15 @@ func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
 	}
 	if usedCount != 1 {
 		t.Fatalf("used token rows = %d, want exactly 1", usedCount)
+	}
+	var secondCodeUsed bool
+	if err := db.QueryRowContext(ctx,
+		"SELECT used_at IS NOT NULL FROM verification_tokens WHERE id = ?", "tok-2",
+	).Scan(&secondCodeUsed); err != nil {
+		t.Fatal(err)
+	}
+	if secondCodeUsed {
+		t.Fatal("losing distinct code was consumed despite the rolled-back password write")
 	}
 }
 

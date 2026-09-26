@@ -373,8 +373,9 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.Conf
 	// stored as HMAC-SHA256(OTPPepper, code). The request carries the user ID,
 	// so the candidate is fetched by user+type and compared here in app code
 	// with hmac.Equal (verifyOTP) — never a SQL `=` lookup over the MAC, never
-	// bcrypt. Only one live set-password token exists per user (request clears
-	// unused first), so the latest row is the candidate.
+	// bcrypt. Request clears unused codes before creating a new one, and the
+	// latest row is the candidate. Concurrent requests can leave distinct
+	// live codes; the guarded password write still permits only one winner.
 	if len(s.config.OTPPepper) == 0 {
 		s.log.Error("set-password confirm refused: no OTP pepper derived — refusing")
 		return domain.ErrInternal
@@ -423,9 +424,8 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.Conf
 		return domain.ErrInternal
 	}
 	if !claimed {
-		// Lost the race: a concurrent confirm consumed the same code
-		// between this request's pre-check and its claim. Same response as
-		// the pre-check above — the loser must request a fresh code.
+		// The code was consumed or another credential write won after the
+		// pre-check. The repository rolled back this attempt.
 		return domain.ErrSetPasswordCodeUsed
 	}
 

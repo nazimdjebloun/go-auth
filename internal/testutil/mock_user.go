@@ -386,6 +386,9 @@ func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 	if m.claimedSetPassTokens[tokenID] {
 		return false, nil
 	}
+	if u.PasswordHash != nil {
+		return false, nil
+	}
 	now := time.Now().UTC()
 	u.PasswordHash = &passwordHash
 	u.PasswordPepperVersion = cloneUint32Pointer(pepperVersion)

@@ -149,6 +149,8 @@ For code-confirmed account deletion through the coordinator wired by `goauth.New
 
 `New()` validates distinct stored versions whenever a keyring is configured. The database ping and stored-version query share a 10-second startup deadline, so an unavailable database fails construction instead of leaving startup blocked indefinitely. Never replace key material under an existing version. Losing a referenced key locks out those rows; if a pepper is compromised, forced password resets may still be appropriate because rotating it cannot revoke an attacker's copy of the leaked database and old key. `PepperRotatedAt` cannot solve that: a timestamp can classify a short-lived OTP as stale but cannot recreate password-verification key material. See [OWASP's password pepper guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#peppering) before opting in.
 
+Set-password confirmation also requires the stored password hash to be NULL when writing. If a distinct live code or another credential write installed a password first, the losing confirmation rolls back its code claim and leaves that password unchanged.
+
 ## Secret rotation and the OTP pepper timestamp
 
 Codes issued before a rotation were hashed with an HMAC under a pepper that no longer exists, so they can never verify without special handling and would otherwise fail as `invalid_code`, indistinguishable from a typo. Pair every secret rotation with `WithPepperRotatedAt`, set to the moment the new secret went live:
