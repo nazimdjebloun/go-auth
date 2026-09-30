@@ -29,6 +29,12 @@ type InviteRepository interface {
 	// Count returns how many invites match filter (Offset/Limit ignored).
 	Count(ctx context.Context, filter InviteFilter) (int, error)
 	Update(ctx context.Context, invite *domain.Invite) error
+	// Revoke changes only a pending/expired invite to revoked. It never
+	// replaces a code or overwrites an accepted invite.
+	Revoke(ctx context.Context, id string) (bool, error)
+	// RotateCode refreshes a pending/expired invite only while its code still
+	// matches expectedCode. Accepted/revoked invites cannot become pending.
+	RotateCode(ctx context.Context, id, expectedCode, newCode string, expiresAt time.Time) (bool, error)
 	Delete(ctx context.Context, id string) error
 	// ClaimInvite atomically sets status to 'accepted' only if currently 'pending'.
 	// Returns true if the invite was claimed, false if already accepted/revoked/expired.

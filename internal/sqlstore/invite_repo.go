@@ -150,8 +150,8 @@ func (r *InviteRepository) buildInviteWhere(filter port.InviteFilter, now time.T
 // deriveInviteStatus reports a pending-but-past-due invite as expired.
 //
 // Applied on the admin list read only, deliberately: GetByCode/GetByID feed
-// the accept flow, which distinguishes "revoked" from "expired" itself and
-// writes the terminal status. Deriving there would turn ErrInviteExpired into
+// the accept flow, which distinguishes "revoked" from "expired" itself.
+// Deriving there would turn ErrInviteExpired into
 // ErrInviteNotFound.
 func deriveInviteStatus(inv *domain.Invite, now time.Time) {
 	if inv.Status == domain.InvitePending && now.After(inv.ExpiresAt) {

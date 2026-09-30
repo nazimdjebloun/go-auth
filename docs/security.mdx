@@ -119,6 +119,8 @@ Deployment topology determines the CSRF configuration. Same origin needs no addi
 
 ## Access control
 
+Signup invite resend uses a conditional code rotation restricted to pending/expired rows, and revocation changes only the current state. Accepted and revoked invitations are terminal for resend; expiry reads do not persist snapshots. A stale resend cannot re-enable a revoked invite, and it sends no email when the conditional update loses a race.
+
 Organization self-service checks and locks the current actor membership inside the mutation transaction. Adding an Owner requires an Owner; removing another Owner likewise requires an Owner, even when other Owners remain. A member can still leave their own organization subject to the last-owner guard. Role changes lock both actor and target before deciding whether owner authority is required. Platform-admin override methods retain their separate authorization.
 
 Every endpoint that reads or mutates a specific resource by ID checks ownership, not just authentication:

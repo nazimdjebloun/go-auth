@@ -15,6 +15,10 @@ const (
 
 	inviteDeleteQuery = `DELETE FROM invites WHERE id = $1`
 
+	inviteRevokeQuery     = `UPDATE invites SET status = 'revoked' WHERE id = $1 AND status IN ('pending', 'expired')`
+	inviteRotateCodeQuery = `UPDATE invites SET code = $1, expires_at = $2, status = 'pending'
+		WHERE id = $3 AND code = $4 AND status IN ('pending', 'expired')`
+
 	// The expiry predicate makes the claim honor its documented contract
 	// (false when already accepted, revoked, OR expired): an invite that
 	// lapses between the service's pre-check and this statement still loses

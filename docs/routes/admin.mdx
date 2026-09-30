@@ -828,6 +828,7 @@ GET /admin/invites/count
 DELETE /admin/invites/\{id\}
 
 Soft-cancels (`status: "revoked"`). The row stays visible in lists; redeeming it fails with `invite_already_used`. No body.
+Accepted invites cannot be revoked and return `invite_already_used`; revoking an already revoked invite succeeds without changing its code.
 
 **Path params:**
 
@@ -849,6 +850,8 @@ Soft-cancels (`status: "revoked"`). The row stays visible in lists; redeeming it
 
 POST /admin/invites/\{id\}/resend
 
+Only pending or expired invitations can be resent. Resend rotates the current code and renews expiry; accepted/revoked invitations or a concurrent code rotation return `invite_already_used`. A rejected resend sends no email.
+
 Mails a fresh code; the old one stops working. No body.
 
 **Path params:**
@@ -863,7 +866,7 @@ Mails a fresh code; the old one stops working. No body.
 { "message": "Invite resent" }
 ```
 
-**Errors**: `invite_not_found`, `email_failed`.
+**Errors**: `invite_not_found`, `invite_already_used`, `email_failed`.
 
 ---
 

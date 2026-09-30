@@ -1181,7 +1181,7 @@ await apiRequest(API_BASE, "PATCH", "/admin/orgs/org-123/members/b3f1.../role", 
 
 Admin-issued, invite-only signup: an admin creates an invite for an email address, and the recipient completes registration with it via `POST /auth/invite/register` — covered in [Authentication → Register via invite](./authentication.mdx#register-via-invite--requires-enableinvite-true). This is a different feature from organization invites — see [Organizations → Invites](./organizations.mdx#invites) for those. These routes only exist when `RegistrationConfig.EnableInvite: true`; otherwise they 404.
 
-An invite's `status` is one of `pending`, `accepted`, `revoked`, or `expired` (the last one is set lazily — a pending invite past its `expiresAt` reports `invite_expired` the next time something reads it, rather than a background job flipping the status).
+An invite's `status` is one of `pending`, `accepted`, `revoked`, or `expired`. Admin listings derive `expired` from a pending row's `expiresAt`; token reads report expiry without writing an old snapshot back to the database.
 
 ### Create an invite — `POST /admin/invites`
 
@@ -1328,6 +1328,8 @@ await apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}`);
 ---
 
 ### Resend an invite — `POST /admin/invites/{id}/resend`
+
+Only pending or expired invites can be resent. Accepted/revoked invites and a lost code-rotation race return `invite_already_used` without sending email. Resend cannot undo revocation or acceptance.
 
 Generates a **new** code and pushes `expiresAt` out by another `InviteTTL` — the previously emailed code stops working once this succeeds, so this is "issue a fresh one," not "re-send the same email."
 

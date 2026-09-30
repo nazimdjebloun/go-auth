@@ -83,10 +83,8 @@ func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (
 	}
 
 	if time.Now().UTC().After(invite.ExpiresAt) {
-		invite.Status = domain.InviteExpired
-		if err := s.invites.Update(ctx, invite); err != nil {
-			return nil, fmt.Errorf("expire invite: %w", err)
-		}
+		// Read-only classification: persisting an old snapshot here could
+		// overwrite a concurrent revocation, acceptance, or code rotation.
 		return nil, domain.ErrInviteExpired
 	}
 
@@ -406,15 +404,27 @@ func (s *InviteService) RevokeInvite(ctx context.Context, inviteID, actorID stri
 		return domain.ErrInviteNotFound
 	}
 
-	invite.Status = domain.InviteRevoked
-	if err := s.invites.Update(ctx, invite); err != nil {
-		s.log.Error("failed to revoke invite", "err", err, "invite_id", inviteID)
-		return domain.ErrInternal
+	if invite.Status == domain.InviteRevoked {
+		return nil
 	}
-	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteRevoked, actorID, invite.ID, invite.Email)); err != nil {
+	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		changed, err := s.invites.Revoke(txCtx, inviteID)
+		if err != nil {
 			return err
 		}
+		if !changed {
+			return domain.ErrInviteAlreadyUsed
+		}
+		if s.audit != nil {
+			return s.audit.Record(txCtx, audit.NewInviteEvent(audit.EventAdminInviteRevoked, actorID, invite.ID, invite.Email))
+		}
+		return nil
+	}); err != nil {
+		if _, ok := errors.AsType[*domain.AuthError](err); ok {
+			return err
+		}
+		s.log.Error("failed to revoke invite", "err", err, "invite_id", inviteID)
+		return domain.ErrInternal
 	}
 
 	s.log.Info("invite revoked", "invite_id", inviteID)
@@ -430,6 +440,11 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID
 	if err != nil || invite == nil {
 		return domain.ErrInviteNotFound
 	}
+	snapshot := *invite
+	invite = &snapshot
+	if invite.Status != domain.InvitePending && invite.Status != domain.InviteExpired {
+		return domain.ErrInviteAlreadyUsed
+	}
 
 	if s.mailer == nil {
 		return domain.ErrEmailNotConfigured
@@ -441,12 +456,13 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID
 		return domain.ErrInternal
 	}
 
-	invite.Code = hashToken(raw)
-	invite.ExpiresAt = time.Now().UTC().Add(s.config.InviteTTL)
-
-	if err := s.invites.Update(ctx, invite); err != nil {
+	changed, err := s.invites.RotateCode(ctx, invite.ID, invite.Code, hashToken(raw), time.Now().UTC().Add(s.config.InviteTTL))
+	if err != nil {
 		s.log.Error("failed to update invite", "err", err, "invite_id", inviteID)
 		return domain.ErrInternal
+	}
+	if !changed {
+		return domain.ErrInviteAlreadyUsed
 	}
 
 	url := s.config.BaseURL + "/invite?token=" + raw

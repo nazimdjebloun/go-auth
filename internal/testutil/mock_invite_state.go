@@ -1,0 +1,32 @@
+package testutil
+
+import (
+	"context"
+	"time"
+
+	"github.com/nazimdjebloun/go-auth/domain"
+)
+
+func (m *MockInviteRepo) Revoke(_ context.Context, id string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	invite := m.invites[id]
+	if invite == nil || (invite.Status != domain.InvitePending && invite.Status != domain.InviteExpired) {
+		return false, nil
+	}
+	invite.Status = domain.InviteRevoked
+	return true, nil
+}
+
+func (m *MockInviteRepo) RotateCode(_ context.Context, id, expectedCode, newCode string, expiresAt time.Time) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	invite := m.invites[id]
+	if invite == nil || invite.Code != expectedCode || (invite.Status != domain.InvitePending && invite.Status != domain.InviteExpired) {
+		return false, nil
+	}
+	delete(m.invites, invite.Code)
+	invite.Code, invite.ExpiresAt, invite.Status = newCode, expiresAt, domain.InvitePending
+	m.invites[newCode] = invite
+	return true, nil
+}
