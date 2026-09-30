@@ -48,6 +48,8 @@ Use a numeric keypad for 2FA and a full keyboard for the other codes. The shorte
 
 ## Sessions and tokens
 
+Password-authenticated session and challenge issuance rechecks the verified hash, pepper version, and authentication requirements under a user-row lock. A concurrent password reset/change either revokes the newly issued session/challenge or causes the stale login to return `invalid_credentials`. 2FA token consumption, session creation, last-login update, and the verification audit event commit in one transaction under that same user lock. Delivery of a challenge email happens after the challenge transaction commits and cannot recreate a challenge deleted by a password replacement.
+
 Every session issues two opaque tokens, a session token and a refresh token, each 32 cryptographically random bytes (`crypto/rand`), hex-encoded. Only their SHA-256 hash is ever written to the database; the raw token exists solely in the `Set-Cookie` header sent to the client. A leaked database dump does not hand over live sessions.
 
 Refresh tokens rotate on every use: presenting one invalidates it and issues a new one. A short **grace window** (default 5s) tolerates two requests racing to refresh the same token; a previous token presented after that window revokes the session as suspected replay. Sessions additionally support an idle timeout (default 7d), a refresh-token expiry (default 30d), and an optional absolute maximum lifetime from creation regardless of activity. Refresh cannot revive a session after its idle timeout or maximum lifetime, and access-token validation enforces the maximum lifetime even if the access-token expiry is later.

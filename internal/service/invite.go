@@ -283,7 +283,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 	// invite proves nothing here. The invite is already claimed above, so a
 	// gated response does not strand it.
 	if s.config.RequireEmail2FA && s.twoFactorSvc != nil {
-		challenge, aerr := s.twoFactorSvc.Challenge(ctx, user.ID)
+		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr
 		}
@@ -297,8 +297,19 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 		}, challenge.BindingToken), nil
 	}
 
-	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	var sessResult *api.SessionResult
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if _, err := lockPasswordIdentity(txCtx, s.users, user); err != nil {
+			return err
+		}
+		var err error
+		sessResult, err = s.sessionSvc.Create(txCtx, user.ID, input.IP, input.UserAgent)
+		return err
+	})
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCredentials) || errors.Is(err, domain.ErrUserBanned) {
+			return nil, err
+		}
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.ErrInternal
 	}

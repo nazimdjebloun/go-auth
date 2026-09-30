@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"errors"
 	"log/slog"
 	"net"
 	"time"
@@ -64,8 +65,8 @@ type TwoFactorService struct {
 	now        func() time.Time
 }
 
-// AttachTxManager makes 2FA activation, session revocation, and its audit
-// record one transaction. The library wiring calls this before serving requests.
+// AttachTxManager makes challenge issuance and verification serialize with
+// credential changes, and commits activation/revocation with its audit record.
 func (s *TwoFactorService) AttachTxManager(tm port.TxManager) {
 	s.txManager = tm
 }
@@ -126,6 +127,13 @@ func (s *TwoFactorService) Enforce(u *domain.User) bool {
 
 // ─── Challenge ──────────────────────────────────────────────
 
+func (s *TwoFactorService) withTx(ctx context.Context, fn func(context.Context) error) error {
+	if s.txManager == nil {
+		return fn(ctx)
+	}
+	return s.txManager.WithTx(ctx, fn)
+}
+
 // Challenge returns a pending 2FA challenge for the user, mailing a code only
 // when it has to.
 //
@@ -137,107 +145,110 @@ func (s *TwoFactorService) Enforce(u *domain.User) bool {
 // 5 guesses/min either way, and the refusal only added an account-level denial
 // vector. Do not reintroduce it.
 func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*api.ChallengeResult, error) {
-	user, err := s.users.GetByID(ctx, userID)
-	if err != nil || user == nil {
-		return nil, domain.ErrUserNotFound
-	}
+	return s.challenge(ctx, userID, nil)
+}
 
-	// Reuse only a lineage that is still usable. The counter checks are
-	// load-bearing: nothing marks a capped row used (the guarded writes below
-	// are the cap), so a dead lineage is neither used nor expired. Without
-	// them the next login would answer "a code was already sent" and point at
-	// a challenge that can never verify.
-	//
-	// A rotation-stale lineage is not reusable either: its code was hashed
-	// under a gone pepper, so handing back its ID would mail nothing and
-	// Verify could only answer expired. Skipping it falls through to a fresh
-	// mint (and mail) below.
-	if existing, err := s.tokens.GetLastByUserAndType(ctx, userID, domain.TokenTwoFactor); err == nil && existing != nil {
-		if existing.UsedAt == nil &&
+// challengeWithPassword binds first-factor authorization to the exact password
+// verified by authenticate, even if a reset commits before this call starts.
+func (s *TwoFactorService) challengeWithPassword(ctx context.Context, expected *domain.User) (*api.ChallengeResult, error) {
+	return s.challenge(ctx, expected.ID, expected)
+}
+
+func (s *TwoFactorService) challenge(ctx context.Context, userID string, expected *domain.User) (*api.ChallengeResult, error) {
+	var user *domain.User
+	var token *domain.VerificationToken
+	var result *api.ChallengeResult
+	var raw string
+	err := s.withTx(ctx, func(txCtx context.Context) error {
+		var err error
+		if expected != nil {
+			user, err = lockPasswordIdentity(txCtx, s.users, expected)
+		} else {
+			user, err = s.users.GetByIDForUpdate(txCtx, userID)
+		}
+		if err != nil {
+			return err
+		}
+		if user == nil {
+			return domain.ErrUserNotFound
+		}
+		if user.IsBanned {
+			return domain.ErrUserBanned
+		}
+		existing, err := s.tokens.GetLastByUserAndType(txCtx, userID, domain.TokenTwoFactor)
+		if err != nil {
+			return err
+		}
+		if existing != nil && existing.UsedAt == nil &&
 			s.now().UTC().Before(existing.ExpiresAt) &&
 			existing.Attempts < maxAttemptsPerChallenge &&
 			existing.ResendCount < maxCodeRefreshesPerChallenge &&
 			!stalePepper(existing.CreatedAt, s.config.PepperRotatedAt) {
-			return &api.ChallengeResult{
-				ID:           existing.ID,
-				Sent:         false,
-				ExpiresAt:    existing.ExpiresAt,
+			result = &api.ChallengeResult{
+				ID: existing.ID, Sent: false, ExpiresAt: existing.ExpiresAt,
 				BindingToken: s.bindingToken(existing.ID),
-			}, nil
+			}
+			return nil
 		}
-	}
-
-	if err := s.tokens.DeleteUnusedByUserAndType(ctx, userID, domain.TokenTwoFactor); err != nil {
-		s.log.Error("failed to clear stale 2fa tokens", "err", err, "user_id", userID)
-		return nil, domain.ErrInternal
-	}
-
-	return s.issue(ctx, user)
-}
-
-// issue mints a fresh challenge row and mails the code.
-func (s *TwoFactorService) issue(ctx context.Context, user *domain.User) (*api.ChallengeResult, error) {
-	if s.mailer == nil {
-		return nil, domain.ErrEmailNotConfigured
-	}
-
-	raw, err := otp.GenerateNumeric(twoFactorCodeLength)
+		if err := s.tokens.DeleteUnusedByUserAndType(txCtx, userID, domain.TokenTwoFactor); err != nil {
+			return err
+		}
+		token, raw, err = s.prepareIssue(txCtx, user)
+		return err
+	})
 	if err != nil {
-		s.log.Error("failed to generate 2fa code", "err", err, "user_id", user.ID)
-		return nil, domain.ErrInternal
-	}
-
-	if len(s.config.OTPPepper) == 0 {
-		s.log.Error("2fa issue refused: no OTP pepper derived — refusing")
-		return nil, domain.ErrInternal
-	}
-
-	now := s.now().UTC()
-	token := &domain.VerificationToken{
-		ID:        generateID(),
-		UserID:    &user.ID,
-		Email:     user.Email,
-		TokenHash: hashOTP(raw, s.config.OTPPepper),
-		Type:      domain.TokenTwoFactor,
-		ExpiresAt: now.Add(s.config.TwoFactorCodeTTL),
-		CreatedAt: now,
-	}
-	if err := s.tokens.Create(ctx, token); err != nil {
-		s.log.Error("failed to store 2fa token", "err", err, "user_id", user.ID)
-		return nil, domain.ErrInternal
-	}
-
-	if aerr := s.send(ctx, user, raw); aerr != nil {
-		// Undo the mint. Left in place, this row is a live lineage as far as
-		// Challenge's reuse check is concerned, so every login for the next
-		// TwoFactorCodeTTL would answer "a code was already sent" and hand back
-		// a challenge whose code nobody has — locking the account out of login
-		// entirely until it expires. Note Challenge's own cleanup cannot save
-		// it: the reuse branch returns before reaching that delete.
-		//
-		// Deleting by user+type rather than by id is safe here because issue is
-		// only reached after Challenge cleared the unused rows, so this is the
-		// only one. Two concurrent logins can race — the loser's challenge id
-		// stops resolving and that login has to be retried, which is the right
-		// trade against a guaranteed lockout.
-		if derr := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenTwoFactor); derr != nil {
-			s.log.Error("failed to clear undelivered 2fa token", "err", derr, "user_id", user.ID)
+		if _, ok := errors.AsType[*domain.AuthError](err); ok {
+			return nil, err
 		}
-		return nil, aerr
+		s.log.Error("failed to prepare 2fa challenge", "err", err, "user_id", userID)
+		return nil, domain.ErrInternal
+	}
+	if result != nil {
+		return result, nil
 	}
 
+	// SMTP runs after commit, so delivery never holds a credential row lock.
+	// A concurrent reset deletes this unused row; delivery cannot recreate it.
+	if err := s.send(ctx, user, raw); err != nil {
+		if _, cleanupErr := s.tokens.MarkUsedIfUnused(ctx, token.ID); cleanupErr != nil {
+			s.log.Error("failed to invalidate undelivered 2fa token", "err", cleanupErr, "token_id", token.ID)
+		}
+		return nil, err
+	}
 	if s.audit != nil {
 		if err := s.audit.Record(ctx, audit.NewTwoFactorCodeSentEvent(user.ID)); err != nil {
 			return nil, err
 		}
 	}
-
 	return &api.ChallengeResult{
-		ID:           token.ID,
-		Sent:         true,
-		ExpiresAt:    token.ExpiresAt,
+		ID: token.ID, Sent: true, ExpiresAt: token.ExpiresAt,
 		BindingToken: s.bindingToken(token.ID),
 	}, nil
+}
+
+// prepareIssue creates only the challenge credential, inside its caller's
+// transaction. Delivery is separated to keep external I/O outside row locks.
+func (s *TwoFactorService) prepareIssue(ctx context.Context, user *domain.User) (*domain.VerificationToken, string, error) {
+	if s.mailer == nil {
+		return nil, "", domain.ErrEmailNotConfigured
+	}
+	raw, err := otp.GenerateNumeric(twoFactorCodeLength)
+	if err != nil {
+		return nil, "", err
+	}
+	if len(s.config.OTPPepper) == 0 {
+		return nil, "", errors.New("2fa issue requires an OTP pepper")
+	}
+	now := s.now().UTC()
+	token := &domain.VerificationToken{
+		ID: generateID(), UserID: &user.ID, Email: user.Email,
+		TokenHash: hashOTP(raw, s.config.OTPPepper), Type: domain.TokenTwoFactor,
+		ExpiresAt: now.Add(s.config.TwoFactorCodeTTL), CreatedAt: now,
+	}
+	if err := s.tokens.Create(ctx, token); err != nil {
+		return nil, "", err
+	}
+	return token, raw, nil
 }
 
 func (s *TwoFactorService) send(ctx context.Context, user *domain.User, code string) error {
@@ -343,34 +354,47 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 
 	// Correct code, but claim the lineage under the same cap: a concurrent
 	// wrong guess may have tripped it between the comparison above and here.
-	ok, err := s.tokens.MarkUsedIfUnderCap(ctx, token.ID, maxAttemptsPerChallenge)
+	var user *domain.User
+	var sessResult *api.SessionResult
+	err = s.withTx(ctx, func(txCtx context.Context) error {
+		var err error
+		// Password replacement locks this row before revoking challenges and
+		// sessions. Claim and issuance must remain within this lock's lifetime.
+		user, err = s.users.GetByIDForUpdate(txCtx, *token.UserID)
+		if err != nil {
+			return err
+		}
+		if user == nil {
+			return domain.ErrUserNotFound
+		}
+		if user.IsBanned {
+			return domain.ErrUserBanned
+		}
+		ok, err := s.tokens.MarkUsedIfUnderCap(txCtx, token.ID, maxAttemptsPerChallenge)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return domain.ErrTwoFactorCodeInvalid
+		}
+		sessResult, err = s.sessionSvc.Create(txCtx, user.ID, ip, userAgent)
+		if err != nil {
+			return err
+		}
+		if err := s.users.UpdateLastLoginAt(txCtx, user.ID, s.now().UTC()); err != nil {
+			return err
+		}
+		if s.audit != nil {
+			return s.audit.Record(txCtx, audit.NewTwoFactorVerifiedEvent(user.ID, sessResult.Session.ID, net.ParseIP(ip), userAgent))
+		}
+		return nil
+	})
 	if err != nil {
-		s.log.Error("failed to consume 2fa token", "err", err, "token_id", token.ID)
-		return nil, domain.ErrInternal
-	}
-	if !ok {
-		return nil, domain.ErrTwoFactorCodeInvalid
-	}
-
-	user, err := s.users.GetByID(ctx, *token.UserID)
-	if err != nil || user == nil {
-		return nil, domain.ErrUserNotFound
-	}
-
-	sessResult, err := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
-	if err != nil {
-		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
-		return nil, domain.ErrInternal
-	}
-
-	if err := s.users.UpdateLastLoginAt(ctx, user.ID, s.now().UTC()); err != nil {
-		s.log.Error("failed to update last login time", "err", err, "user_id", user.ID)
-	}
-
-	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewTwoFactorVerifiedEvent(user.ID, sessResult.Session.ID, net.ParseIP(ip), userAgent)); err != nil {
+		if _, ok := errors.AsType[*domain.AuthError](err); ok {
 			return nil, err
 		}
+		s.log.Error("failed to complete 2fa verification", "err", err, "token_id", token.ID)
+		return nil, domain.ErrInternal
 	}
 
 	return &api.TwoFactorVerifyResult{

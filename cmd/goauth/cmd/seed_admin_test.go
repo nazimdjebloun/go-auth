@@ -46,6 +46,10 @@ func (f *fakeUserRepo) GetByID(_ context.Context, _ string) (*domain.User, error
 	return nil, nil
 }
 
+func (f *fakeUserRepo) GetByIDForUpdate(ctx context.Context, id string) (*domain.User, error) {
+	return f.GetByID(ctx, id)
+}
+
 func (f *fakeUserRepo) GetByEmail(_ context.Context, email string) (*domain.User, error) {
 	return f.byEmail[email], nil
 }

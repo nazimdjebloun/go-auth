@@ -46,8 +46,16 @@ type PasswordHashUpdater interface {
 	UpdatePasswordHash(ctx context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error)
 }
 
+// UserAuthenticationLocker reads current authentication state while holding
+// the user row until the caller's transaction ends. It requires a transaction
+// context and serializes session/challenge issuance with credential replacement.
+type UserAuthenticationLocker interface {
+	GetByIDForUpdate(ctx context.Context, id string) (*domain.User, error)
+}
+
 // UserRepository stores user accounts and credentials.
 type UserRepository interface {
+	UserAuthenticationLocker
 	PasswordHashUpdater
 	AdminGuardStore
 	// UpdateName changes only name and updated_at. False means the user

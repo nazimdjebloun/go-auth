@@ -186,16 +186,20 @@ func (s *AuthService) enforceTwoFactor(user *domain.User) bool {
 // transaction context, so both records obey record-iff-commit.
 func (s *AuthService) createAuditedLoginSession(
 	ctx context.Context,
-	userID, ip, userAgent string,
+	user *domain.User,
+	ip, userAgent string,
 	loginEvent func(sessionID string) audit.Event,
 ) (*api.SessionResult, error) {
 	var result *api.SessionResult
 	err := s.withTx(ctx, func(txCtx context.Context) error {
-		created, err := s.sessionSvc.Create(txCtx, userID, ip, userAgent)
+		if _, err := lockPasswordIdentity(txCtx, s.users, user); err != nil {
+			return err
+		}
+		created, err := s.sessionSvc.Create(txCtx, user.ID, ip, userAgent)
 		if err != nil {
 			return err
 		}
-		if s.audit != nil {
+		if s.audit != nil && loginEvent != nil {
 			if err := s.audit.Record(txCtx, loginEvent(created.Session.ID)); err != nil {
 				return err
 			}
@@ -306,7 +310,7 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 	// just typed in, so it proves nothing at registration time. The gate first
 	// applies on their next login. Intentional; do not "fix" to enforceTwoFactor.
 	if s.config.RequireEmail2FA && s.twoFactorSvc != nil {
-		challenge, aerr := s.twoFactorSvc.Challenge(ctx, user.ID)
+		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr
 		}
@@ -319,8 +323,11 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 		}, challenge.BindingToken), nil
 	}
 
-	sessResult, err := s.sessionSvc.Create(ctx, user.ID, input.IP, input.UserAgent)
+	sessResult, err := s.createAuditedLoginSession(ctx, user, input.IP, input.UserAgent, nil)
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCredentials) || errors.Is(err, domain.ErrUserBanned) {
+			return nil, err
+		}
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.ErrInternal
 	}
@@ -354,6 +361,10 @@ func (s *AuthService) authenticate(ctx context.Context, input api.LoginInput) (*
 		s.burnDummyPasswordVerification(input.Password)
 		return nil, false, domain.ErrInvalidCredentials
 	}
+	// Preserve the credential snapshot even with a repository returning shared
+	// objects; rehash may update this copy only after a successful CAS.
+	snapshot := *user
+	user = &snapshot
 
 	err = comparePassword(s.hasher, input.Password, *user.PasswordHash, user.PasswordPepperVersion)
 	if err != nil {
@@ -485,7 +496,7 @@ func (s *AuthService) Login(ctx context.Context, input api.LoginInput) (*api.Log
 
 	// Ordering: banned → email-verify → password → 2FA → session.
 	if s.enforceTwoFactor(user) {
-		challenge, aerr := s.twoFactorSvc.Challenge(ctx, user.ID)
+		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr
 		}
@@ -498,10 +509,13 @@ func (s *AuthService) Login(ctx context.Context, input api.LoginInput) (*api.Log
 		}, challenge.BindingToken), nil
 	}
 
-	sessResult, err := s.createAuditedLoginSession(ctx, user.ID, input.IP, input.UserAgent, func(sessionID string) audit.Event {
+	sessResult, err := s.createAuditedLoginSession(ctx, user, input.IP, input.UserAgent, func(sessionID string) audit.Event {
 		return audit.NewLoginEvent(user.ID, sessionID, net.ParseIP(input.IP), input.UserAgent, true)
 	})
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCredentials) || errors.Is(err, domain.ErrUserBanned) {
+			return nil, err
+		}
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.ErrInternal
 	}
@@ -561,7 +575,7 @@ func (s *AuthService) AdminLogin(ctx context.Context, input api.LoginInput) (*ap
 	// no mailer configured — NewConfig refuses that combination unless every
 	// other email-sending feature is also off.
 	if !s.config.DisableAdminTwoFactor && s.twoFactorSvc != nil {
-		challenge, aerr := s.twoFactorSvc.Challenge(ctx, user.ID)
+		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr
 		}
@@ -574,10 +588,13 @@ func (s *AuthService) AdminLogin(ctx context.Context, input api.LoginInput) (*ap
 		}, challenge.BindingToken), nil
 	}
 
-	sessResult, err := s.createAuditedLoginSession(ctx, user.ID, input.IP, input.UserAgent, func(sessionID string) audit.Event {
+	sessResult, err := s.createAuditedLoginSession(ctx, user, input.IP, input.UserAgent, func(sessionID string) audit.Event {
 		return audit.NewAdminLoginSuccessEvent(user.ID, sessionID, net.ParseIP(input.IP), input.UserAgent)
 	})
 	if err != nil {
+		if errors.Is(err, domain.ErrInvalidCredentials) || errors.Is(err, domain.ErrUserBanned) {
+			return nil, err
+		}
 		s.log.Error("failed to create session", "err", err, "user_id", user.ID)
 		return nil, domain.ErrInternal
 	}

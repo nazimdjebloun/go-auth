@@ -114,6 +114,10 @@ is built on pgx. SQLite and MySQL applications must blank-import their selected
 
 ## Password security
 
+Password login and 2FA session issuance serialize with password replacement.
+A reset or change revokes pending challenges and prevents an in-flight login
+from issuing a session using the old password.
+
 The zero-configuration password KDF is bcrypt at cost 12. Existing hashes select
 their verifier from their own format prefix, and a successful login upgrades a
 stale algorithm or parameter set through a guarded rehash.
