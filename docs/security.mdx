@@ -134,6 +134,8 @@ Admin bans commit the ban, session deletion, and audit record together; unbannin
 
 ## Secrets
 
+Startup validates the complete cloned configuration after resolving defaults and before deriving any key. A previously successful `NewConfig` call does not authorize later changes that weaken the root secret, disable both CSRF protections, or violate other configuration requirements.
+
 `WithSecret` supplies the required application-wide root secret and must be at least 32 bytes (`NewConfig` rejects anything shorter, since HMAC-SHA256 wants a full-strength key). It is never used directly as key material: HKDF-SHA256 derives four independent subkeys with distinct purpose strings: CSRF signing, 2FA challenge binding, OAuth token encryption, and OTP pepper. A compromise of one derived purpose's key does not hand over the others. Nothing about the secret or its derived keys is logged or exposed via any endpoint.
 
 The two pepper features are deliberately separate. `OTPPepper` is always derived from `WithSecret` using `goauth-otp-pepper-v1` and protects low-entropy 2FA, verification, set-password, and delete-account codes. The optional password pepper takes independently versioned input from `WithPasswordPepper` and derives each version's HMAC key with `goauth-password-pepper-v1`. They address different offline-guessing threats and are not interchangeable; no password operation reads the OTP pepper, and no OTP operation reads the password pepper.

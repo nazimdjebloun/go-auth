@@ -1,8 +1,8 @@
 package goauth
 
 // applyDefaults fills every field the consumer left unset. It runs in
-// NewConfig after all options have been applied, which is the only point at
-// which "unset" is knowable: an option that assigns a struct wholesale cannot
+// NewConfig after all options have been applied and again on New's clone, since
+// later options can replace a section. An option assigning a struct cannot
 // tell a zero field from an omitted one, so seeding defaults *before* options
 // run means any partially-filled struct silently destroys them.
 //

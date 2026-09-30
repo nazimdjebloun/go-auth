@@ -25,9 +25,11 @@ func prepareConfig(in *Config) (Config, keyring.Keys, error) {
 				"required fields and security settings are validated",
 		)
 	}
-	// Options can be applied after NewConfig, so recheck pepper material here.
-	if err := cfg.validatePasswordPepper(); err != nil {
-		return Config{}, keyring.Keys{}, fmt.Errorf("goauth: invalid password pepper configuration: %w", err)
+	// Exported options remain callable after NewConfig. Resolve intent fields
+	// again and validate the final clone before deriving keys or opening stores.
+	cfg.applyDefaults()
+	if err := cfg.validate(); err != nil {
+		return Config{}, keyring.Keys{}, fmt.Errorf("goauth: invalid configuration: %w", err)
 	}
 	if cfg.app.Environment.normalize() == EnvironmentDev && cfg.logger != nil {
 		cfg.logger.Warn("goauth: running in dev environment", "cookie_secure", cfg.resolved.cookieSecure)

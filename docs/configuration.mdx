@@ -8,7 +8,7 @@ icon: "Settings2"
 
 All configuration goes through `NewConfig(opts ...Option)`: apply every option you want, and it fills in defaults for anything you left unset, validates the result, and returns a value that `New` accepts. Options can be passed in any order, with one exception: a later `WithRateLimit` replaces the whole rate-limit table, discarding any earlier `WithRateLimitRoute` tweak. Set narrow options after the broad one.
 
-`NewConfig` returns every problem it finds at once, joined into a single error. Not just the first one. Each section below lists the exact error text and what causes it.
+`NewConfig` returns every problem it finds at once, joined into a single error. Not just the first one. Each section below lists the exact error text and what causes it. `New` clones the configuration, reapplies defaults, and validates the complete result before deriving keys or initializing services. Options applied after `NewConfig` are therefore also checked; startup does not modify the caller's configuration.
 
 ## `WithApp`: Required
 

@@ -84,13 +84,9 @@ func (a *Auth) Services() Services {
 const startupDatabaseTimeout = 10 * time.Second
 
 // New builds the Auth instance from a config produced by NewConfig(opts...)
-// — the only supported way to configure go-auth. NewConfig is what runs
-// validate() (required fields, secret length, origin policy, rate-limit
-// settings, and everything else in config.validate()); Config's fields are
-// unexported, so NewConfig is the only way to build one New() accepts.
-// The validated check below is belt-and-suspenders defense in depth against
-// silently proceeding with unvalidated — and in the case of an empty
-// secret, cryptographically unsafe — settings.
+// — the only supported way to configure go-auth. New clones the configuration,
+// resolves defaults, and validates all settings again before deriving keys or
+// initializing services, including options applied after NewConfig.
 func New(in *Config) (*Auth, error) {
 	cfg, keys, err := prepareConfig(in)
 	if err != nil {

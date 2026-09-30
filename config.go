@@ -89,6 +89,8 @@ type Option = func(*Config)
 // validates the result. If validation fails, the returned error includes
 // all invalid fields. This is the only way to produce a config that New()
 // will accept — see the config type's doc comment.
+// New reapplies defaults and validation to its own copy, so options applied
+// after NewConfig cannot bypass startup security checks.
 func NewConfig(opts ...Option) (*Config, error) {
 	var cfg Config
 	for _, opt := range opts {

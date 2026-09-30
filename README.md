@@ -114,6 +114,9 @@ is built on pgx. SQLite and MySQL applications must blank-import their selected
 
 ## Password security
 
+`New` revalidates the complete configuration before deriving secrets or
+starting services, including options applied after `NewConfig`.
+
 Password login and 2FA session issuance serialize with password replacement.
 A reset or change revokes pending challenges and prevents an in-flight login
 from issuing a session using the old password.
