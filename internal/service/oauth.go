@@ -424,8 +424,16 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 			return domain.ErrInternal
 		}
 
-		hasPassword := user.HasPassword()
-		if len(accounts) <= 1 && !hasPassword {
+		// Delete removes every identity for this provider. Multiple accounts
+		// under the same provider are one removable group, not surviving methods.
+		hasRemainingMethod := user.HasPassword()
+		for _, account := range accounts {
+			if account.Provider != providerName {
+				hasRemainingMethod = true
+				break
+			}
+		}
+		if !hasRemainingMethod {
 			return domain.ErrCannotUnlinkLastProvider
 		}
 

@@ -93,6 +93,7 @@ built in — show the error and point the user at your login form.
 ### Unlink — `POST /auth/oauth/{provider}/unlink`
 
 Auth required. Blocked if this is the account's *only* way to log in — unlinking must never leave an account with no password and no remaining provider.
+Unlink removes **all** identities for the selected provider. Two linked Google identities do not count as a surviving method when unlinking Google: a passwordless account must retain an identity from a different provider.
 
 **Response**: `{ "message": "Provider unlinked" }`
 

@@ -85,7 +85,6 @@ func (m *mockProviderAccountRepo) Delete(_ context.Context, userID, provider str
 	for key, pa := range m.accounts {
 		if pa.UserID == userID && pa.Provider == provider {
 			delete(m.accounts, key)
-			return nil
 		}
 	}
 	return nil

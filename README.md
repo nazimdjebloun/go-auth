@@ -112,6 +112,9 @@ mutations check current actor and target roles inside their transaction.
 Invite resends rotate only the current pending or expired invite. Revocation
 and acceptance cannot be overwritten by a delayed resend or expiry read.
 
+OAuth unlink removes every identity for the selected provider and requires a
+password or an identity from another provider to remain.
+
 For production, configure SMTP with `WithEmail` or provide a custom
 `port.Mailer`. A mailer is required whenever an enabled feature sends email;
 admin-login 2FA is one such feature and is enabled by default. PostgreSQL support
