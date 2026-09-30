@@ -326,7 +326,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input api.CreateUserInput
 	s.log.Info("user created by admin", "user_id", user.ID, "email", user.Email, "role", role)
 
 	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewAdminEvent(audit.EventAdminUserCreated, "", user.ID)); err != nil {
+		if err := s.audit.Record(ctx, audit.NewAdminEvent(audit.EventAdminUserCreated, input.ActorID, user.ID)); err != nil {
 			return nil, err
 		}
 	}
