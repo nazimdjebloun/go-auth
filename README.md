@@ -106,6 +106,9 @@ the flow to the initiating browser and pass that value to `Callback`.
 OAuth rejects failed profile requests and missing or mismatched provider
 identities before looking up or linking an account.
 
+Organization owner creation and removal require an existing owner. Membership
+mutations check current actor and target roles inside their transaction.
+
 For production, configure SMTP with `WithEmail` or provide a custom
 `port.Mailer`. A mailer is required whenever an enabled feature sends email;
 admin-login 2FA is one such feature and is enabled by default. PostgreSQL support

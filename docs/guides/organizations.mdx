@@ -388,7 +388,7 @@ See [List members](./client/organizations.mdx#list-members) for the wrapper and 
 
 ### Remove a member, or leave — `DELETE /auth/orgs/{orgID}/members/{userID}`, `POST /auth/orgs/{orgID}/leave`
 
-Two routes, one underlying operation: `LeaveOrg` is literally `RemoveMember` with your own ID — leaving is just removing yourself. Removing someone else requires org admin; leaving only requires being a member (you can always remove yourself).
+Two routes, one underlying operation: `LeaveOrg` is literally `RemoveMember` with your own ID — leaving is just removing yourself. Removing someone else requires org admin, or Owner when the target is an Owner. Leaving only requires being a member, subject to the last-owner guard. Programmatic `AddMember` also requires Owner authority when adding an Owner. These checks use the current memberships locked inside the mutation transaction.
 
 ```json
 { "message": "Member removed" }

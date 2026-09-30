@@ -410,21 +410,33 @@ func (s *OrgService) AddMember(ctx context.Context, input api.AddMemberInput) er
 	if !input.Role.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
-	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
-		return err
-	}
-	return s.addMemberTx(ctx, input.OrgID, input.UserID, input.Role, func(txCtx context.Context) error {
-		if s.audit == nil {
-			return nil
+	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if input.ActorID == "" {
+			return domain.ErrForbidden
 		}
-		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberInvited, input.ActorID, input.OrgID, &input.UserID))
+		actor, err := s.orgs.LockMembership(txCtx, input.OrgID, input.ActorID)
+		if err != nil {
+			return err
+		}
+		minimum := domain.OrgRoleAdmin
+		if input.Role == domain.OrgRoleOwner {
+			minimum = domain.OrgRoleOwner
+		}
+		if err := requireOrgRole(actor, minimum); err != nil {
+			return err
+		}
+		return s.addMemberTx(txCtx, input.OrgID, input.UserID, input.Role, func(txCtx context.Context) error {
+			if s.audit == nil {
+				return nil
+			}
+			return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberInvited, input.ActorID, input.OrgID, &input.UserID))
+		})
 	})
 }
 
 // RemoveMember removes input.UserID from input.OrgID. input.ActorID must
 // either equal input.UserID (a member leaving on their own) or hold at
-// least Admin — anything else is removing someone else and requires that
-// privilege.
+// least Admin. Removing another Owner requires Owner authority.
 // removeMemberTx does the actual work of removing userID from orgID —
 // lookup, owner/member-count upkeep, delete, active-org cleanup — with no
 // authorization check of its own. See deleteOrgTx's doc comment for why the
@@ -511,19 +523,32 @@ func (s *OrgService) membershipRaceError(txCtx context.Context, orgID, userID st
 
 // RemoveMember removes a member from an organization.
 func (s *OrgService) RemoveMember(ctx context.Context, input api.RemoveMemberInput) error {
-	if input.ActorID != input.UserID {
-		if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
+	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		actor, target, err := s.lockActorAndTarget(txCtx, input.OrgID, input.ActorID, input.UserID)
+		if err != nil {
 			return err
 		}
-	}
-
-	_, err := s.removeMemberTx(ctx, input.OrgID, input.UserID, func(txCtx context.Context, _ domain.OrgRole) error {
-		if s.audit == nil {
-			return nil
+		if target == nil {
+			return domain.ErrOrgMemberNotFound
 		}
-		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, input.ActorID, input.OrgID, &input.UserID))
+		minimum := domain.OrgRoleMember
+		if input.ActorID != input.UserID {
+			minimum = domain.OrgRoleAdmin
+			if target.Role == domain.OrgRoleOwner {
+				minimum = domain.OrgRoleOwner
+			}
+		}
+		if err := requireOrgRole(actor, minimum); err != nil {
+			return err
+		}
+		_, err = s.removeMemberTx(txCtx, input.OrgID, input.UserID, func(txCtx context.Context, _ domain.OrgRole) error {
+			if s.audit == nil {
+				return nil
+			}
+			return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberRemoved, input.ActorID, input.OrgID, &input.UserID))
+		})
+		return err
 	})
-	return err
 }
 
 // updateMemberRoleTx does the actual work of changing userID's role within
@@ -633,43 +658,29 @@ func (s *OrgService) UpdateMemberRole(ctx context.Context, input api.UpdateMembe
 	if !input.NewRole.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
-	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
-		return err
-	}
-
-	member, err := s.orgs.GetMembership(ctx, input.OrgID, input.UserID)
-	if err != nil {
-		s.log.Error("failed to get membership for role update", "err", err, "org_id", input.OrgID, "user_id", input.UserID)
-		return err
-	}
-	if member == nil {
-		return domain.ErrOrgMemberNotFound
-	}
-	if input.NewRole == domain.OrgRoleOwner || member.Role == domain.OrgRoleOwner {
-		actor, err := s.orgs.GetMembership(ctx, input.OrgID, input.ActorID)
+	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		actor, target, err := s.lockActorAndTarget(txCtx, input.OrgID, input.ActorID, input.UserID)
 		if err != nil {
-			s.log.Error("failed to get actor membership for role update", "err", err, "org_id", input.OrgID, "actor_id", input.ActorID)
 			return err
 		}
-		if actor == nil || actor.Role != domain.OrgRoleOwner {
-			return domain.ErrOrgForbidden
+		if target == nil {
+			return domain.ErrOrgMemberNotFound
 		}
-	}
-
-	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole, func(txCtx context.Context, _ domain.OrgRole) error {
-		if s.audit == nil {
-			return nil
+		minimum := domain.OrgRoleAdmin
+		if input.NewRole == domain.OrgRoleOwner || target.Role == domain.OrgRoleOwner {
+			minimum = domain.OrgRoleOwner
 		}
-		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
-	})
-	if err != nil {
+		if err := requireOrgRole(actor, minimum); err != nil {
+			return err
+		}
+		_, err = s.updateMemberRoleTx(txCtx, input.OrgID, input.UserID, input.NewRole, func(txCtx context.Context, _ domain.OrgRole) error {
+			if s.audit == nil {
+				return nil
+			}
+			return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
+		})
 		return err
-	}
-	if oldRole == "" {
-		return nil // no-op: already had this role
-	}
-
-	return nil
+	})
 }
 
 // LeaveOrg removes the current user from an organization.

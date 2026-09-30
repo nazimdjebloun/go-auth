@@ -119,6 +119,8 @@ Deployment topology determines the CSRF configuration. Same origin needs no addi
 
 ## Access control
 
+Organization self-service checks and locks the current actor membership inside the mutation transaction. Adding an Owner requires an Owner; removing another Owner likewise requires an Owner, even when other Owners remain. A member can still leave their own organization subject to the last-owner guard. Role changes lock both actor and target before deciding whether owner authority is required. Platform-admin override methods retain their separate authorization.
+
 Every endpoint that reads or mutates a specific resource by ID checks ownership, not just authentication:
 
 - **Sessions**: revoking a session by ID returns the same `session_not_found` whether it does not exist or belongs to someone else, so one user cannot distinguish "no such session" from "that is not yours" by probing IDs.
