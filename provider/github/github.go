@@ -79,6 +79,9 @@ func (g *GitHub) Exchange(ctx context.Context, code string, codeVerifier string)
 		return nil, fmt.Errorf("github: failed to fetch user: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("github: user info returned HTTP %d", resp.StatusCode)
+	}
 
 	var user struct {
 		ID        int64  `json:"id"`
@@ -89,6 +92,9 @@ func (g *GitHub) Exchange(ctx context.Context, code string, codeVerifier string)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
 		return nil, fmt.Errorf("github: failed to decode user: %w", err)
+	}
+	if user.ID <= 0 {
+		return nil, fmt.Errorf("github: user info is missing a valid identity")
 	}
 
 	email := user.Email
@@ -141,6 +147,9 @@ func fetchGitHubPrimaryEmail(client *http.Client) (string, bool, error) {
 		return "", false, fmt.Errorf("github: failed to fetch emails: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return "", false, fmt.Errorf("github: emails returned HTTP %d", resp.StatusCode)
+	}
 
 	var emails []struct {
 		Email    string `json:"email"`

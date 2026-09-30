@@ -67,6 +67,8 @@ Only the token layer can be disabled, through `SecurityConfig.DisableCSRFToken`.
 
 ## OAuth
 
+Google and GitHub reject non-success profile HTTP responses and missing subject IDs. The shared callback also rejects nil profiles, blank subject IDs, and provider names that do not match the requested provider before any identity lookup or linking. A new OAuth account requires a valid email address. A previously linked identity can still authenticate when its current profile omits email. Invalid profiles return the generic `provider_error`.
+
 OAuth uses **PKCE** (S256) on every provider, including ones that do not strictly require it: a random 64-byte code verifier is generated per flow, its SHA-256-derived challenge is sent in the authorization request, and the verifier is only revealed at the token exchange. An intercepted authorization code is useless without it. A random, single-use **state token** is stored by hash and bound to the initiating browser with a short-lived, host-only `HttpOnly` cookie; the callback requires both copies. Reusing a state token returns `state_used`, and an expired one returns `state_expired`. Provider linking also binds the state to the exact initiating session token and validates that session again at callback.
 
 An OAuth-provided email is only treated as verified when the provider guarantees it. For GitHub, a non-empty public profile email specifically, since GitHub only allows verified addresses to be set as public. Linking a new provider to an existing account requires that account to already be authenticated (`unauthorized` otherwise), and unlinking is blocked (`cannot_unlink_last_provider`) if it would leave the account with no way to log in at all, with no password and no remaining linked provider.

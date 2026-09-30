@@ -103,6 +103,8 @@ browser state cookie that must return on the callback. Provider linking also
 requires the same live session at the callback. If you call `auth.Services().OAuth`
 directly, use the `State` field of the returned `api.OAuthInitiation` to bind
 the flow to the initiating browser and pass that value to `Callback`.
+OAuth rejects failed profile requests and missing or mismatched provider
+identities before looking up or linking an account.
 
 For production, configure SMTP with `WithEmail` or provide a custom
 `port.Mailer`. A mailer is required whenever an enabled feature sends email;

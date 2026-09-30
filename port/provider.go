@@ -7,6 +7,9 @@ import (
 
 // OAuthProfile is the identity OAuthProvider.Exchange resolves from the
 // provider's own userinfo endpoint after a successful code exchange.
+// Provider must match OAuthProvider.Name, and ProviderUserID must be non-blank.
+// Creating a new account also requires a valid Email; existing linked identities
+// can authenticate without an email address in the current provider response.
 type OAuthProfile struct {
 	Provider       string
 	ProviderUserID string // the provider's own opaque user ID — never the email, which can change

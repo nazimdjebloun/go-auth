@@ -676,6 +676,7 @@ func TestOAuthCallback_GETWithPOSTBody(t *testing.T) {
 
 func TestOAuthCallback_GoogleGET(t *testing.T) {
 	th := newOAuthTestHarness(t)
+	th.mockProvider.profile.Provider = "google"
 
 	u := fmt.Sprintf("/auth/oauth/google/callback?code=google-code&state=%s", th.stateToken)
 	req := httptest.NewRequest(http.MethodGet, u, nil)
@@ -693,6 +694,7 @@ func TestOAuthCallback_GoogleGET(t *testing.T) {
 
 func TestOAuthCallback_GitHubGET(t *testing.T) {
 	th := newOAuthTestHarness(t)
+	th.mockProvider.profile.Provider = "github"
 
 	u := fmt.Sprintf("/auth/oauth/github/callback?code=github-code&state=%s", th.stateToken)
 	req := httptest.NewRequest(http.MethodGet, u, nil)

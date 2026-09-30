@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -243,6 +244,10 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		s.log.Error("provider exchange failed", "err", exchangeErr, "provider", providerName)
 		return nil, domain.NewError("provider_error", "Failed to authenticate with provider")
 	}
+	if info == nil || info.Provider != providerName || strings.TrimSpace(info.ProviderUserID) == "" {
+		s.log.Error("provider returned an invalid identity", "provider", providerName)
+		return nil, domain.NewError("provider_error", "Failed to authenticate with provider")
+	}
 
 	existing, lookupErr := s.providerRepo.GetByProvider(ctx, providerName, info.ProviderUserID)
 	if lookupErr != nil {
@@ -327,6 +332,9 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return nil, domain.ErrForbidden
 	}
 
+	if err := validateEmail(info.Email); err != nil {
+		return nil, domain.NewError("provider_error", "Failed to authenticate with provider")
+	}
 	existingUser, userErr := s.userRepo.GetByEmail(ctx, info.Email)
 	if userErr != nil || existingUser != nil {
 		return nil, domain.ErrEmailAlreadyExists

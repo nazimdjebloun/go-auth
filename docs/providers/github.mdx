@@ -34,6 +34,8 @@ goauth.WithProvider(github.New(github.Config{
 
 ## Email handling
 
+The adapter rejects non-2xx profile and email responses and missing or non-positive profile `id` values. Invalid profiles fail with `provider_error`; they cannot create, link, or authenticate an identity.
+
 GitHub's `/user` endpoint only returns an email when the user has set a **public** profile email. When it's empty, the provider falls back to `/user/emails` (which needs the `user:email` scope) and picks the address marked both `primary` and `verified` — if none qualifies, the exchange fails rather than silently using an unverified address.
 
 When the public profile email *is* present, it's treated as verified without a separate check: GitHub only allows a verified address to be set as the public one, so a non-empty `user.Email` is verified by construction.

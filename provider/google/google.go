@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -78,6 +80,9 @@ func (g *Google) Exchange(ctx context.Context, code string, codeVerifier string)
 		return nil, fmt.Errorf("google: failed to fetch user info: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("google: user info returned HTTP %d", resp.StatusCode)
+	}
 
 	var user struct {
 		ID            string `json:"id"`
@@ -88,6 +93,9 @@ func (g *Google) Exchange(ctx context.Context, code string, codeVerifier string)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
 		return nil, fmt.Errorf("google: failed to decode user info: %w", err)
+	}
+	if strings.TrimSpace(user.ID) == "" {
+		return nil, fmt.Errorf("google: user info is missing an identity")
 	}
 
 	var expiresAt *time.Time
