@@ -118,6 +118,8 @@ is built on pgx. SQLite and MySQL applications must blank-import their selected
 starting services, including options applied after `NewConfig`.
 
 Password login and 2FA session issuance serialize with password replacement.
+2FA verification claims the exact live code under its attempt cap; a resend
+invalidates an in-flight verification of the previous code.
 A reset or change revokes pending challenges and prevents an in-flight login
 from issuing a session using the old password.
 

@@ -321,6 +321,8 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 	if err != nil || token == nil || token.Type != domain.TokenTwoFactor || token.UserID == nil {
 		return nil, domain.ErrTwoFactorCodeInvalid
 	}
+	snapshot := *token
+	token = &snapshot
 	if token.UsedAt != nil {
 		return nil, domain.ErrTwoFactorCodeAlreadyUsed
 	}
@@ -370,7 +372,10 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 		if user.IsBanned {
 			return domain.ErrUserBanned
 		}
-		ok, err := s.tokens.MarkUsedIfUnderCap(txCtx, token.ID, maxAttemptsPerChallenge)
+		ok, err := s.tokens.ConsumeIfValidUnderCap(txCtx, port.ConsumeTokenInput{
+			ID: token.ID, TokenHash: token.TokenHash, UserID: *token.UserID,
+			Type: domain.TokenTwoFactor, UsedAt: s.now().UTC(),
+		}, maxAttemptsPerChallenge)
 		if err != nil {
 			return err
 		}

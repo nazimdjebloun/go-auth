@@ -24,6 +24,8 @@ var (
 
 	tokenDeleteExpiredQuery = sqlText(`DELETE FROM verification_tokens WHERE expires_at < $1`)
 
+	tokenConsumeIfValidUnderCapQuery = sqlText(tokenConsumeIfValidQuery + " AND attempts < $7")
+
 	tokenExpiredIDQuery = sqlText(`SELECT id FROM verification_tokens WHERE expires_at < $1 ORDER BY expires_at, id LIMIT $2`)
 
 	tokenDeleteUnusedByUserAndTypeQuery = sqlText(`DELETE FROM verification_tokens WHERE user_id=$1 AND type=$2 AND used_at IS NULL`)

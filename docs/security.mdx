@@ -79,6 +79,8 @@ An OAuth-provided email is only treated as verified when the provider guarantees
 
 ## Two-factor authentication
 
+The successful 2FA claim reasserts the challenge ID, code hash, user ID, token type, unused state, current expiry, and attempt cap in the same SQL update. A resend committed after code comparison makes the old-code claim fail, and expiry is checked again at the claim time. A failed claim creates no session and does not consume the current code.
+
 Email-based 2FA is controlled globally by `TwoFactorConfig.RequireEmail2FA` and per user by `TwoFactorEnabled`. The following limits and operational effects matter when choosing it.
 
 ### Admin login

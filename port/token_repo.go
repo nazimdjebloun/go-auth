@@ -29,6 +29,10 @@ type TokenRepository interface {
 	// when the token is missing or another caller already claimed it.
 	MarkUsedIfUnused(ctx context.Context, id string) (bool, error)
 	ConsumeIfValid(ctx context.Context, input ConsumeTokenInput) (bool, error)
+	// ConsumeIfValidUnderCap applies the exact token identity, unused state,
+	// expiry at UsedAt, and attempt cap in one update. Use for 2FA so a resend
+	// cannot authorize a claim using a previously compared code.
+	ConsumeIfValidUnderCap(ctx context.Context, input ConsumeTokenInput, maxAttempts int) (bool, error)
 	DeleteExpired(ctx context.Context) error
 	DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error
 

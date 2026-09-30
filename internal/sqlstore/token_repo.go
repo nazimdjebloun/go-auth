@@ -103,6 +103,12 @@ func (r *TokenRepository) ConsumeIfValid(ctx context.Context, input port.Consume
 	))
 }
 
+// ConsumeIfValidUnderCap claims the exact live token within its attempt budget.
+func (r *TokenRepository) ConsumeIfValidUnderCap(ctx context.Context, input port.ConsumeTokenInput, maxAttempts int) (bool, error) {
+	return affected(r.db.ExecContext(ctx, tokenConsumeIfValidUnderCapQuery,
+		input.UsedAt, input.ID, input.TokenHash, input.UserID, input.Type, input.UsedAt, maxAttempts))
+}
+
 // HasValidByUserAndType reports whether a user has a valid token of the type.
 func (r *TokenRepository) HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error) {
 	var exists bool
