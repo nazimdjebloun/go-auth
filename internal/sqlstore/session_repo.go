@@ -539,7 +539,7 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 	}
 
 	if prev != nil {
-		if prev.RefreshRotatedAt != nil && now.Sub(*prev.RefreshRotatedAt) < input.GraceWindow {
+		if input.GraceWindow > 0 && prev.RefreshRotatedAt != nil && now.Sub(*prev.RefreshRotatedAt) < input.GraceWindow {
 			r.log.Warn("refresh token reuse in grace window",
 				"user_id", prev.UserID,
 				"session_id", prev.ID,

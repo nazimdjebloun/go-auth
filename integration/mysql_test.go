@@ -207,17 +207,21 @@ func TestMySQL_RefreshRotation(t *testing.T) {
 		t.Error("refresh_token_hash not updated to the new token")
 	}
 
-	// Old token must be dead outside any grace window (grace is disabled).
-	if _, aerr := a.Services().Session.RefreshSession(ctx, res.RefreshToken); aerr == nil {
-		t.Error("expected reused pre-rotation refresh token to be rejected")
-	}
-
 	if _, _, aerr := a.Services().Auth.ValidateSession(ctx, rotated.SessionToken); aerr != nil {
 		t.Fatal("ValidateSession after rotation:", aerr)
 	}
-	if _, aerr := a.Services().Session.RefreshSession(ctx, rotated.RefreshToken); aerr != nil {
+	second, aerr := a.Services().Session.RefreshSession(ctx, rotated.RefreshToken)
+	if aerr != nil {
 		t.Fatal("second refresh with rotated token:", aerr)
 	}
+	// Replay of the previous token revokes the session, including its current pair.
+	if _, err := a.Services().Session.RefreshSession(ctx, rotated.RefreshToken); err == nil {
+		t.Error("replayed token accepted")
+	}
+	if _, _, err := a.Services().Auth.ValidateSession(ctx, second.SessionToken); err == nil {
+		t.Error("replay did not revoke session")
+	}
+
 }
 
 // TestMySQL_PasswordReset mirrors the Postgres reset test: forgot-password
