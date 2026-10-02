@@ -9,7 +9,8 @@ direct service APIs.
 
 ## What it includes
 
-- Email/password and OAuth registration and login
+- Email/password and OAuth registration and login, with case-sensitive provider
+  identities on every database
 - Session and refresh-token rotation, idle expiry, and absolute lifetime limits
 - Password recovery for accounts with an existing password, password changes,
   email verification, and OAuth-only account password setup after sign-in

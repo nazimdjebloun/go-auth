@@ -112,8 +112,8 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
 CREATE TABLE IF NOT EXISTS provider_accounts (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL,
-    provider VARCHAR(50) NOT NULL,
-    provider_user_id VARCHAR(255) NOT NULL,
+    provider VARCHAR(50) COLLATE utf8mb4_0900_bin NOT NULL,
+    provider_user_id VARCHAR(255) COLLATE utf8mb4_0900_bin NOT NULL,
     provider_email TEXT NOT NULL,
     provider_name TEXT NOT NULL,
     avatar_url TEXT NOT NULL,

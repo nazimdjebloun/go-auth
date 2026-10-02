@@ -589,7 +589,9 @@ CREATE INDEX idx_verification_tokens_token_hash ON verification_tokens(token_has
 
 ### `provider_accounts`
 
-Linked OAuth identities. A user may have several.
+Linked OAuth identities. A user may have several. Provider names and subject IDs
+match case-sensitively on all drivers. MySQL uses `utf8mb4_0900_bin` for both
+columns so trailing spaces and distinct Unicode sequences also remain distinct.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -656,8 +658,8 @@ CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(p
 CREATE TABLE IF NOT EXISTS provider_accounts (
     id VARCHAR(36) PRIMARY KEY,
     user_id VARCHAR(36) NOT NULL,
-    provider VARCHAR(50) NOT NULL,
-    provider_user_id VARCHAR(255) NOT NULL,
+    provider VARCHAR(50) COLLATE utf8mb4_0900_bin NOT NULL,
+    provider_user_id VARCHAR(255) COLLATE utf8mb4_0900_bin NOT NULL,
     provider_email TEXT NOT NULL,
     provider_name TEXT NOT NULL,
     avatar_url TEXT NOT NULL,
