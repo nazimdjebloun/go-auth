@@ -44,7 +44,10 @@ func TestAdminAccessRequiresVerifiedSessionAcrossLoginAndRefresh(t *testing.T) {
 			checkAccess := func(raw string, allowed bool) {
 				t.Helper()
 				request := httptest.NewRequest(http.MethodGet, "/privileged", nil)
-				request.AddCookie(&http.Cookie{Name: "goauth_session", Value: raw})
+				request.AddCookie(&http.Cookie{
+					Name: "goauth_session", Value: raw,
+					Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+				})
 				recorder := httptest.NewRecorder()
 				protected.ServeHTTP(recorder, request)
 				want := http.StatusForbidden

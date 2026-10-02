@@ -7,6 +7,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
+// Revoke changes only a pending or expired invite to revoked.
 func (m *MockInviteRepo) Revoke(_ context.Context, id string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -18,6 +19,7 @@ func (m *MockInviteRepo) Revoke(_ context.Context, id string) (bool, error) {
 	return true, nil
 }
 
+// RotateCode replaces the expected code only while an invite remains reusable.
 func (m *MockInviteRepo) RotateCode(_ context.Context, id, expectedCode, newCode string, expiresAt time.Time) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

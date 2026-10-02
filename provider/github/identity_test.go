@@ -26,14 +26,18 @@ func TestExchangeRejectsInvalidIdentity(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				if r.URL.Path == "/token" {
-					fmt.Fprint(w, `{"access_token":"test-token","token_type":"bearer"}`)
+					if _, err := fmt.Fprint(w, `{"access_token":"test-token","token_type":"bearer"}`); err != nil {
+						t.Errorf("write token response: %v", err)
+					}
 					return
 				}
 				if r.URL.Path != "/user" {
 					t.Errorf("unexpected profile request: %s", r.URL.Path)
 				}
 				w.WriteHeader(tc.status)
-				fmt.Fprint(w, tc.body)
+				if _, err := fmt.Fprint(w, tc.body); err != nil {
+					t.Errorf("write profile response: %v", err)
+				}
 			}))
 			defer server.Close()
 			ctx := context.WithValue(context.Background(), oauth2.HTTPClient, &http.Client{

@@ -69,7 +69,7 @@ func (h *Handler) ResendVerificationPublic(w http.ResponseWriter, r *http.Reques
 	// account-independent infrastructure errors; the generic success sentinel
 	// carries no account or delivery information.
 	_, err := h.services.Verify.SendVerificationByEmail(r.Context(), body.Email)
-	if err != nil && !errors.Is(err, domain.ErrVerificationEmailSent) {
+	if !errors.Is(err, domain.ErrVerificationEmailSent) {
 		h.writeError(w, err)
 		return
 	}

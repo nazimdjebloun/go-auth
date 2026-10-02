@@ -8,18 +8,31 @@ import (
 )
 
 // This compiles the public type surface from outside package goauth.
-func publicTypesCompile(a *goauth.Auth, ctx context.Context) {
+func publicTypesCompile(ctx context.Context, a *goauth.Auth) {
 	services := a.Services()
-	var _ goauth.AuthOperations = services.Auth
-	var _ goauth.PasswordOperations = services.Password
-	var _ goauth.SessionOperations = services.Session
-	var _ goauth.VerifyOperations = services.Verify
-	var _ goauth.InviteOperations = services.Invite
-	var _ goauth.AdminOperations = services.Admin
-	var _ goauth.OAuthOperations = services.OAuth
-	var _ goauth.OrgOperations = services.Org
-	var _ goauth.OrgInviteOperations = services.OrgInvite
-	var _ goauth.TwoFactorOperations = services.TwoFactor
+	_ = struct {
+		Auth      goauth.AuthOperations
+		Password  goauth.PasswordOperations
+		Session   goauth.SessionOperations
+		Verify    goauth.VerifyOperations
+		Invite    goauth.InviteOperations
+		Admin     goauth.AdminOperations
+		OAuth     goauth.OAuthOperations
+		Org       goauth.OrgOperations
+		OrgInvite goauth.OrgInviteOperations
+		TwoFactor goauth.TwoFactorOperations
+	}{
+		Auth:      services.Auth,
+		Password:  services.Password,
+		Session:   services.Session,
+		Verify:    services.Verify,
+		Invite:    services.Invite,
+		Admin:     services.Admin,
+		OAuth:     services.OAuth,
+		Org:       services.Org,
+		OrgInvite: services.OrgInvite,
+		TwoFactor: services.TwoFactor,
+	}
 	_, _ = a.Login(ctx, api.LoginInput{})
 	_, _ = services.Org.CreateOrg(ctx, api.CreateOrgInput{})
 	_, _ = services.Admin.ListUsers(ctx, api.AdminListUsersInput{OrderBy: api.UserSortCreatedAt})
