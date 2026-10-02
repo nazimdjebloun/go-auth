@@ -3,12 +3,22 @@ name: CI
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "23 2 * * *"
   workflow_dispatch:
     inputs:
       fuzz_time:
         description: Seconds to fuzz each target in the fuzz job
         required: false
         default: "15"
+      stress:
+        description: Run repeated database concurrency and rollback tests
+        type: boolean
+        default: false
+      stress_count:
+        description: Repetitions per CPU setting (1-100)
+        type: number
+        default: 25
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -59,14 +69,19 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-      - run: go test -count=1 -race -timeout 15m $(go list ./... | grep -v '/integration')
+      - run: go test -count=1 -race -shuffle=on -timeout 15m $(go list ./... | grep -v '/integration')
 
-  integration:
+  databases:
+    name: database-${{ matrix.backend }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [sqlite, postgres, mysql]
     services:
       postgres:
-        image: postgres:18
+        image: ${{ matrix.backend == 'postgres' && 'postgres:18' || '' }}
         env:
           POSTGRES_USER: goauth
           POSTGRES_PASSWORD: goauth
@@ -78,17 +93,46 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      mysql:
+        image: ${{ matrix.backend == 'mysql' && 'mysql:8.4' || '' }}
+        env:
+          MYSQL_ROOT_PASSWORD: goauth-test
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -pgoauth-test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      GOAUTH_POSTGRES_DSN: ${{ matrix.backend == 'postgres' && 'postgres://goauth:goauth@localhost:5432/goauth?sslmode=disable' || '' }}
+      GOAUTH_MYSQL_TEST_DSN: ${{ matrix.backend == 'mysql' && 'root:goauth-test@tcp(127.0.0.1:3306)/?parseTime=true&timeout=10s' || '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version: "1.26.6"
           cache: true
-          cache-dependency-path: |
-            go.sum
-      - run: go test -count=1 -race -timeout 30m ./integration/...
+          cache-dependency-path: go.sum
+      - name: Verify backend test runner
+        run: python3 -m unittest discover -s .github/scripts -p '*_test.py'
+      - name: Full database behavior and schema suite
+        run: python3 .github/scripts/test_backends.py "${{ matrix.backend }}"
+      - name: Repeat concurrency and rollback suite
+        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.stress)
         env:
-          GOAUTH_POSTGRES_DSN: postgres://goauth:goauth@localhost:5432/goauth?sslmode=disable
+          STRESS_COUNT: ${{ inputs.stress_count || '25' }}
+        run: python3 .github/scripts/test_backends.py "${{ matrix.backend }}" --stress --count "$STRESS_COUNT"
+      - name: Preserve results, shuffle seeds, and coverage
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: database-${{ matrix.backend }}
+          path: .test-results/${{ matrix.backend }}/
+          include-hidden-files: true
+          retention-days: 14
+          if-no-files-found: error
 
   cli:
     runs-on: ubuntu-latest
@@ -103,7 +147,7 @@ jobs:
             go.sum
       - run: go build ./cmd/goauth/...
       - run: go vet ./cmd/goauth/...
-      - run: go test -count=1 -race -timeout 5m ./cmd/goauth/...
+      - run: go test -count=1 -race -shuffle=on -timeout 5m ./cmd/goauth/...
       # One merged module: a published root tag must install the CLI from
       # outside any checkout. Gate on tag pushes: until the merged release
       # exists, older published versions do not contain cmd/goauth.
@@ -119,34 +163,6 @@ jobs:
           "$GOBIN/goauth" generate --driver mysql --out mysql.schema.sql
           "$GOBIN/goauth" generate --driver sqlite --out sqlite.schema.sql
 
-  mysql-schema:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      mysql:
-        image: mysql:8.4
-        env:
-          MYSQL_ROOT_PASSWORD: goauth-test
-          MYSQL_ROOT_HOST: "%"
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost -pgoauth-test"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
-        with:
-          go-version: "1.26.6"
-          cache: true
-          cache-dependency-path: |
-            go.sum
-      - run: go test -count=1 -timeout 5m -run '^TestApplySchema_MySQL$' ./cmd/goauth/cmd
-        env:
-          GOAUTH_MYSQL_TEST_DSN: root:goauth-test@tcp(127.0.0.1:3306)/?parseTime=true
-
   security:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -161,11 +177,11 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   fuzz:
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      FUZZ_BUDGET: ${{ github.event.inputs.fuzz_time || '5' }}
+      FUZZ_BUDGET: ${{ github.event.inputs.fuzz_time || (github.event_name == 'schedule' && '30') || '5' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

@@ -12,6 +12,8 @@
 
 # Output of go coverage
 *.out
+/.test-results/
+/.github/scripts/__pycache__/
 
 # Local agent tooling
 agent/

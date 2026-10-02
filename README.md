@@ -227,6 +227,7 @@ The documentation is also published at
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development and verification steps.
+See [TESTING.md](TESTING.md) for the full SQLite, PostgreSQL, and MySQL suites.
 
 ## License
 
