@@ -81,7 +81,7 @@ type Rate struct {
 // every WithRateLimit* option calls this function to lazily seed a config,
 // so an eager store meant each of those options orphaned a goroutine nothing
 // could ever close. The store is created once, later, by whoever ends up
-// using the config (config.applyDefaults, or middleware.RateLimit for a
+// using the config (goauth.New, or middleware.RateLimit for a
 // hand-built Config).
 func DefaultRateLimitConfig() *Config {
 	return &Config{

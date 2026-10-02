@@ -132,6 +132,9 @@ Call `Auth.Close` during shutdown to stop the delivery worker.
 Email-code delivery failures clear only the request's unused token, allowing
 another attempt while preserving concurrently issued codes.
 
+`NewConfig` starts no background work. Each `Auth` gets its own default
+rate-limit store; `Auth.Close` releases it. Supplied stores remain yours to close.
+
 Admin accounts must complete email 2FA through password or OAuth login by
 default. Admin routes check the session's completed second factor, recorded in
 `sessions.two_factor_verified_at`.

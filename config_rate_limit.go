@@ -26,7 +26,7 @@ func WithRateLimit(cfg ratelimit.Config) Option {
 		// consumer owns, not data to be snapshotted.
 		c.rateLimit = &clone
 		// Only a Store the consumer actually supplied is theirs to own. A
-		// zero Store here means applyDefaults will build one, and that one
+		// zero Store here means New will build one, and that one
 		// is ours to close.
 		c.set.rateLimitStore = cfg.Store != nil
 	}
@@ -112,9 +112,8 @@ func (c *Config) validateRateLimit() []error {
 		return nil
 	}
 	rl := c.rateLimit
-	// Store is not checked: applyDefaults runs first and fills in the
-	// in-memory default whenever it's nil, so "enabled with no store" is
-	// no longer a reachable configuration.
+	// A nil Store requests a per-Auth in-memory store. New creates it only
+	// after all fallible startup work succeeds.
 	if err := validateRate("default", rl.Default, false); err != nil {
 		errs = append(errs, err)
 	}
@@ -151,16 +150,5 @@ func validateRate(name string, r ratelimit.Rate, allowZero bool) error {
 func (c *Config) applyRateLimitDefaults() {
 	if c.rateLimit == nil {
 		c.rateLimit = ratelimit.DefaultRateLimitConfig()
-	}
-	// The Store is created here rather than in DefaultRateLimitConfig: that
-	// function is called lazily by every WithRateLimit* option to seed a
-	// config, so building a store inside it started a cleanup goroutine per
-	// option call that nothing owned and Close could never reach. Building
-	// it once, here, also means Store is genuinely optional — a consumer
-	// passing WithRateLimit(ratelimit.Config{...}) without one gets the
-	// in-memory default instead of a validation error.
-	if c.rateLimit.Store == nil {
-		c.rateLimit.Store = ratelimit.NewMemoryStore(ratelimit.WithStoreLogger(c.logger))
-		c.set.rateLimitStore = false // we built it, so Close owns it
 	}
 }

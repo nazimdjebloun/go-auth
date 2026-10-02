@@ -91,6 +91,7 @@ type Option = func(*Config)
 // will accept — see the config type's doc comment.
 // New reapplies defaults and validation to its own copy, so options applied
 // after NewConfig cannot bypass startup security checks.
+// NewConfig does not start background work or allocate a default rate-limit store.
 func NewConfig(opts ...Option) (*Config, error) {
 	var cfg Config
 	for _, opt := range opts {
@@ -154,7 +155,10 @@ func (c *Config) clone() Config {
 		}
 		rl.TrustedIPs = append([]string(nil), c.rateLimit.TrustedIPs...)
 		rl.DisabledPaths = append([]string(nil), c.rateLimit.DisabledPaths...)
-		// Store and Logger are live objects — shared, not snapshotted.
+		// Only consumer-supplied stores may be shared across Auth instances.
+		if !c.set.rateLimitStore {
+			rl.Store = nil
+		}
 		cfg.rateLimit = &rl
 	}
 	cfg.providers = append([]port.OAuthProvider(nil), c.providers...)

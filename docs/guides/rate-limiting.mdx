@@ -56,6 +56,8 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 10, Windo
 
 `ratelimit.NewMemoryStore()` is a fixed-window counter in a sharded, process-local map. It needs no configuration for one instance. It is **per-instance**, so two application instances behind a load balancer enforce an effective limit of `N × instance count`.
 
+`NewConfig` leaves the default store unallocated and starts no cleanup goroutine. Each successful `goauth.New` creates its own store after startup checks, even when you reuse the same configuration. Disabled rate limiting allocates no default store. `Auth.Close` stops only that instance's owned store; a store explicitly supplied through `WithRateLimit` or `WithRateLimitStore` is shared as supplied and remains yours to close.
+
 For multi-instance deployments, implement `ratelimit.Store` with `Allow(ctx, key, Rate) (Result, error)` against Redis or another shared backend and pass it to `WithRateLimitStore`. The store makes the allow/deny decision, allowing a distributed backend to increment and decide atomically. See [Architecture → Extension points](../architecture.mdx#extension-points).
 
 `New()` logs a one-time startup warning when rate limiting is enabled and still on this default store — it's a reminder, not a diagnosis (the library has no way to detect "multiple instances" directly), so it fires in single-instance deployments too. Pass any other `ratelimit.Store` implementation via `WithRateLimitStore` to silence it.

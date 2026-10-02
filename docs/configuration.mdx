@@ -638,7 +638,7 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
 | `Enabled` | `bool` | Optional | `true` | Disabling it logs a warning at startup: it is flagged as insecure for production. |
 | `Default` | `ratelimit.Rate` | Optional | `60 requests / minute` | Fallback for any route not in `Routes`. |
 | `Routes` | `map[string]ratelimit.Rate` | Optional | a built-in table covering login, register, password reset, verification, invites, etc. | Keyed by `"METHOD /path"`. A `Rate{Requests: 0}` entry disables limiting for that one route. |
-| `Store` | `ratelimit.Store` | Optional | a bounded in-memory store | Left `nil`, one is created for you and closed by `Auth.Close()`. Supply one to swap in a distributed store (Redis, etc.) across multiple instances. A supplied store is yours to close. |
+| `Store` | `ratelimit.Store` | Optional | a bounded in-memory store | Left `nil`, each successful `New` creates its own store when rate limiting is enabled; `Auth.Close()` stops it. `NewConfig` creates no store or background work. Supply one to share a distributed store (Redis, etc.) across instances. A supplied store is yours to close. |
 | `DisabledPaths` | `[]string` | Optional | none | |
 | `TrustedIPs` | `[]string` | Optional | none | IPs/CIDRs. Required if `IPAddressHeader` is set. |
 | `IPv6Subnet` | `int` | Optional | `64` | Subnet prefix length used to bucket IPv6 clients. Must be 1–128. |

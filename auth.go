@@ -118,6 +118,11 @@ func New(in *Config) (*Auth, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Allocate owned rate-limit resources only after every fallible startup
+	// step succeeds. A reusable Config carries no library-owned store.
+	if cfg.rateLimit.Enabled && cfg.rateLimit.Store == nil {
+		cfg.rateLimit.Store = ratelimit.NewMemoryStore(ratelimit.WithStoreLogger(cfg.logger))
+	}
 	httpParts := buildHTTP(&cfg, wired)
 
 	maintenance := newMaintenanceRunner(cfg.maintenance, collectMaintenanceTargets(wired.sessionRepo, wired.tokenRepo))

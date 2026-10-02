@@ -478,11 +478,7 @@ func TestNewConfig_RateLimitValidation(t *testing.T) {
 	}
 }
 
-// TestNewConfig_RateLimitStoreIsOptional replaces a case that asserted
-// "enabled with a nil Store" was a validation error. It no longer is:
-// applyDefaults fills in the in-memory store, which is what makes it safe
-// for DefaultRateLimitConfig to leave Store nil — building one there started
-// a cleanup goroutine on every WithRateLimit* call that nothing could close.
+// A nil Store is valid configuration; allocation belongs to Auth startup.
 func TestNewConfig_RateLimitStoreIsOptional(t *testing.T) {
 	cfg, err := NewConfig(append(validConfigOpts(), WithRateLimit(ratelimit.Config{
 		Enabled:    true,
@@ -490,10 +486,10 @@ func TestNewConfig_RateLimitStoreIsOptional(t *testing.T) {
 		IPv6Subnet: 64,
 	}))...)
 	if err != nil {
-		t.Fatalf("expected a nil Store to be filled in, got %v", err)
+		t.Fatalf("expected a nil Store to be accepted, got %v", err)
 	}
-	if cfg.rateLimit.Store == nil {
-		t.Fatal("expected applyDefaults to supply the in-memory store")
+	if cfg.rateLimit.Store != nil {
+		t.Fatal("NewConfig allocated a store before Auth startup")
 	}
 	if cfg.set.rateLimitStore {
 		t.Error("a library-built store must not be marked consumer-owned, or Close() will leak its cleanup goroutine")
