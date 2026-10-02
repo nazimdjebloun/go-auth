@@ -2,29 +2,19 @@ package sqlstore
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/nazimdjebloun/go-auth/internal/schema"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
 func recoveryRepositoryFixture(t *testing.T) (*DB, *RecoveryRepository) {
 	t.Helper()
-	db := newSQLiteTestDB(t)
-	ddl, err := schema.For("sqlite")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range schema.SplitSQL(ddl) {
-		if strings.Contains(statement, "recovery_requests") {
-			if _, err := db.Exec(statement); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
+	raw := testdb.OpenSelected(t)
+	testdb.Apply(t, raw)
+	db := NewDB(raw, testdb.Driver(raw))
 	return db, NewRecoveryRepository(db)
 }
 

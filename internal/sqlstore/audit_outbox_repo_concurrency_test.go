@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/audit"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 )
 
 // TestClaimBatch_ConcurrentClaimersDeliverExactlyOnce proves that the
@@ -19,7 +20,9 @@ func TestClaimBatch_ConcurrentClaimersDeliverExactlyOnce(t *testing.T) {
 		eventCount   = 32
 	)
 
-	db := newAuditSQLiteDB(t)
+	raw := testdb.OpenSelected(t)
+	testdb.Apply(t, raw)
+	db := NewDB(raw, testdb.Driver(raw))
 	db.SetMaxOpenConns(claimerCount + 2)
 	rec := NewRecordRepository(db)
 	out := NewOutboxRepository(db)
@@ -29,6 +32,7 @@ func TestClaimBatch_ConcurrentClaimersDeliverExactlyOnce(t *testing.T) {
 	for i := 0; i < eventCount; i++ {
 		id := fmt.Sprintf("10000000-0000-4000-8000-%012d", i)
 		e := testEvent(id)
+		e.OrgID = nil
 		seedEvent(t, rec, e)
 		if err := out.Insert(ctx, e.ID, e.OrgID, audit.PriorityFor(e.Type), now); err != nil {
 			t.Fatalf("seed outbox row %d: %v", i, err)

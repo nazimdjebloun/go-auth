@@ -2,46 +2,34 @@ package sqlstore
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 )
 
 func newAdminGuardDB(t *testing.T) (*DB, *DB) {
 	t.Helper()
-	dsn := filepath.Join(t.TempDir(), "guard.db") + "?_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)"
-	open := func() *DB {
-		raw, err := sql.Open("sqlite", dsn)
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			if err := raw.Close(); err != nil {
-				t.Error(err)
-			}
-		})
-		return NewDB(raw, "sqlite")
-	}
-	a, b := open(), open()
-	if _, err := a.Exec(`CREATE TABLE users (id TEXT PRIMARY KEY,role TEXT,is_banned BOOLEAN,banned_at DATETIME,updated_at DATETIME)`); err != nil {
-		t.Fatal(err)
-	}
+	raw := testdb.OpenSelected(t)
+	testdb.Apply(t, raw)
+	other := testdb.SecondPool(t, raw)
+	a, b := NewDB(raw, testdb.Driver(raw)), NewDB(other, testdb.Driver(other))
 	return a, b
 }
 
 func seedGuardUser(t *testing.T, db *DB, id string, role domain.Role, banned bool) {
 	t.Helper()
-	if _, err := db.Exec(`INSERT INTO users VALUES (?,?,?,NULL,CURRENT_TIMESTAMP)`, id, role, banned); err != nil {
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO users (id,email,name,role,is_banned,created_at,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, guardID(id), id+"@example.com", id, role, banned, time.Now().UTC(), time.Now().UTC()); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func guardMutation(ctx context.Context, r *UserRepository, op, id string) (bool, error) {
 	now := time.Now().UTC()
+	id = guardID(id)
 	switch op {
 	case "delete":
 		return r.DeleteWithAdminGuard(ctx, id)
@@ -142,7 +130,7 @@ func TestAdminGuard_OuterRollbackAndPanic(t *testing.T) {
 					}()
 				}
 				err := db.WithTx(context.Background(), func(ctx context.Context) error {
-					changed, err := r.DeleteWithAdminGuard(ctx, "a")
+					changed, err := r.DeleteWithAdminGuard(ctx, guardID("a"))
 					if err != nil {
 						return err
 					}
@@ -173,3 +161,5 @@ func TestAdminGuard_OuterRollbackAndPanic(t *testing.T) {
 		})
 	}
 }
+
+func guardID(id string) string { return uuid.NewSHA1(uuid.NameSpaceOID, []byte(id)).String() }

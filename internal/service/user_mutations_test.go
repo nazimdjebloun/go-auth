@@ -59,7 +59,7 @@ func TestUserMutations_VerificationPreservesConcurrentName(t *testing.T) {
 		t.Fatal(err)
 	}
 	const code = "verify-mutation"
-	if err := f.tokens.Create(ctx, &domain.VerificationToken{ID: "verify-mutation", UserID: &f.userID, Email: u.Email, TokenHash: hashOTP(code, cfg.OTPPepper), Type: domain.TokenVerifyEmail, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour)}); err != nil {
+	if err := f.tokens.Create(ctx, &domain.VerificationToken{ID: "00000000-0000-4000-8000-000000000080", UserID: &f.userID, Email: u.Email, TokenHash: hashOTP(code, cfg.OTPPepper), Type: domain.TokenVerifyEmail, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
 	users := &mutationReadHook{UserRepository: f.users}

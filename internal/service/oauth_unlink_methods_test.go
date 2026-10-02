@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ func TestOAuthUnlinkCountsMethodsRemainingAfterProviderDeletion(t *testing.T) {
 			f := newPasswordTransactionFixture(t)
 			ctx := context.Background()
 			if name != "password remains" {
-				if _, err := f.db.Exec("UPDATE users SET password_hash = NULL WHERE id = ?", f.userID); err != nil {
+				if _, err := f.db.ExecContext(context.Background(), "UPDATE users SET password_hash = NULL WHERE id = $1", f.userID); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -27,7 +28,7 @@ func TestOAuthUnlinkCountsMethodsRemainingAfterProviderDeletion(t *testing.T) {
 				providers = append(providers, "github")
 			}
 			for i, provider := range providers {
-				id := string(rune('a' + i))
+				id := fmt.Sprintf("00000000-0000-4000-8000-%012d", i+60)
 				if err := repo.Create(ctx, &domain.ProviderAccount{
 					ID: id, UserID: f.userID, Provider: provider, ProviderUserID: id, CreatedAt: now, UpdatedAt: now,
 				}); err != nil {

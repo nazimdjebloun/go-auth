@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"testing"
 	"time"
 
@@ -23,14 +24,14 @@ func TestUserMutations_VerificationRollback(t *testing.T) {
 				t.Fatal(err)
 			}
 			const code = "rollback-verification"
-			if err := f.tokens.Create(ctx, &domain.VerificationToken{ID: code, UserID: &f.userID, Email: u.Email, TokenHash: hashOTP(code, cfg.OTPPepper), Type: domain.TokenVerifyEmail, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour)}); err != nil {
+			if err := f.tokens.Create(ctx, &domain.VerificationToken{ID: "00000000-0000-4000-8000-000000000081", UserID: &f.userID, Email: u.Email, TokenHash: hashOTP(code, cfg.OTPPepper), Type: domain.TokenVerifyEmail, CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour)}); err != nil {
 				t.Fatal(err)
 			}
 			users := &mutationReadHook{UserRepository: f.users}
 			users.afterRead = func() {
 				var err error
 				if scenario == "write failure" {
-					_, err = f.db.ExecContext(ctx, "CREATE TRIGGER reject_verification BEFORE UPDATE OF is_verified ON users BEGIN SELECT RAISE(ABORT, 'injected failure'); END")
+					testdb.FailWrites(t, f.db.DB, "reject_verification", "users", "UPDATE", "")
 				} else {
 					_, err = f.db.ExecContext(ctx, "UPDATE users SET email=$1 WHERE id=$2", "changed@example.com", f.userID)
 				}

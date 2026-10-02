@@ -71,7 +71,7 @@ func TestOrgMutationChecksCurrentActorAndTargetRoles(t *testing.T) {
 			f := newPasswordTransactionFixture(t)
 			ctx := context.Background()
 			now := time.Now().UTC()
-			for _, id := range []string{"admin", "target", "new-member"} {
+			for _, id := range []string{"00000000-0000-4000-8000-000000000071", "00000000-0000-4000-8000-000000000072", "00000000-0000-4000-8000-000000000073"} {
 				if err := f.users.Create(ctx, &domain.User{
 					ID: id, Email: id + "@example.com", Name: id, Role: domain.RoleUser, CreatedAt: now, UpdatedAt: now,
 				}); err != nil {
@@ -85,8 +85,8 @@ func TestOrgMutationChecksCurrentActorAndTargetRoles(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, input := range []api.AddMemberInput{
-				{OrgID: org.ID, UserID: "admin", Role: domain.OrgRoleAdmin, ActorID: f.userID},
-				{OrgID: org.ID, UserID: "target", Role: domain.OrgRoleMember, ActorID: f.userID},
+				{OrgID: org.ID, UserID: "00000000-0000-4000-8000-000000000071", Role: domain.OrgRoleAdmin, ActorID: f.userID},
+				{OrgID: org.ID, UserID: "00000000-0000-4000-8000-000000000072", Role: domain.OrgRoleMember, ActorID: f.userID},
 			} {
 				if err := svc.AddMember(ctx, input); err != nil {
 					t.Fatal(err)
@@ -94,27 +94,27 @@ func TestOrgMutationChecksCurrentActorAndTargetRoles(t *testing.T) {
 			}
 			other := NewOrgService(orgs, f.users, f.sessions, f.db, OrgServiceConfig{})
 			svc.txManager = &orgAuthorizationTxBoundary{TxManager: f.db, before: func() error {
-				target, newRole := "admin", domain.OrgRoleMember
+				target, newRole := "00000000-0000-4000-8000-000000000071", domain.OrgRoleMember
 				if name == "target promoted before removal" {
-					target, newRole = "target", domain.OrgRoleOwner
+					target, newRole = "00000000-0000-4000-8000-000000000072", domain.OrgRoleOwner
 				}
 				return other.UpdateMemberRole(ctx, api.UpdateMemberRoleInput{
 					OrgID: org.ID, UserID: target, NewRole: newRole, ActorID: f.userID,
 				})
 			}}
 			if name == "actor demoted before add" {
-				err = svc.AddMember(ctx, api.AddMemberInput{OrgID: org.ID, UserID: "new-member", Role: domain.OrgRoleMember, ActorID: "admin"})
+				err = svc.AddMember(ctx, api.AddMemberInput{OrgID: org.ID, UserID: "00000000-0000-4000-8000-000000000073", Role: domain.OrgRoleMember, ActorID: "00000000-0000-4000-8000-000000000071"})
 			} else {
-				err = svc.RemoveMember(ctx, api.RemoveMemberInput{OrgID: org.ID, UserID: "target", ActorID: "admin"})
+				err = svc.RemoveMember(ctx, api.RemoveMemberInput{OrgID: org.ID, UserID: "00000000-0000-4000-8000-000000000072", ActorID: "00000000-0000-4000-8000-000000000071"})
 			}
 			if !errors.Is(err, domain.ErrOrgForbidden) {
 				t.Fatalf("stale authorization error=%v, want org_forbidden", err)
 			}
-			member, err := orgs.GetMembership(ctx, org.ID, "target")
+			member, err := orgs.GetMembership(ctx, org.ID, "00000000-0000-4000-8000-000000000072")
 			if err != nil || member == nil {
 				t.Fatalf("rejected mutation removed target: %+v, %v", member, err)
 			}
-			created, err := orgs.GetMembership(ctx, org.ID, "new-member")
+			created, err := orgs.GetMembership(ctx, org.ID, "00000000-0000-4000-8000-000000000073")
 			if err != nil || created != nil {
 				t.Fatalf("rejected mutation added member: %+v, %v", created, err)
 			}

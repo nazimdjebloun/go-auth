@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/google/uuid"
 	"testing"
 	"time"
 
@@ -32,7 +33,7 @@ func TestPublicRecoveryQueuesWithoutLookupOrDelivery(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		user.ID, user.Email, user.IsVerified = email, email, false
+		user.ID, user.Email, user.IsVerified = uuid.NewString(), email, false
 		if email == "passwordless@example.com" {
 			user.PasswordHash = nil
 		}
@@ -57,10 +58,10 @@ func TestPublicRecoveryQueuesWithoutLookupOrDelivery(t *testing.T) {
 		t.Fatal("public recovery performed synchronous email delivery")
 	}
 	var count int
-	if err := f.db.QueryRow("SELECT COUNT(*) FROM recovery_requests WHERE attempts = 0 AND claim_owner = ''").Scan(&count); err != nil || count != 8 {
+	if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM recovery_requests WHERE attempts = 0 AND claim_owner = ''").Scan(&count); err != nil || count != 8 {
 		t.Fatalf("queued requests=%d err=%v, want 8", count, err)
 	}
-	if _, err := f.db.Exec("DROP TABLE recovery_requests"); err != nil {
+	if _, err := f.db.ExecContext(context.Background(), "DROP TABLE recovery_requests"); err != nil {
 		t.Fatal(err)
 	}
 	for _, email := range []string{"password-transaction@example.com", "missing@example.com"} {
@@ -85,12 +86,12 @@ func TestRecoveryWorkerSkipsIneligibleAccounts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			f, _, _, mailer, worker := recoveryFixture(t)
 			if test.passwordless {
-				if _, err := f.db.Exec("UPDATE users SET password_hash = NULL WHERE id = ?", f.userID); err != nil {
+				if _, err := f.db.ExecContext(context.Background(), "UPDATE users SET password_hash = NULL WHERE id = $1", f.userID); err != nil {
 					t.Fatal(err)
 				}
 			}
 			var before int
-			if err := f.db.QueryRow("SELECT COUNT(*) FROM verification_tokens").Scan(&before); err != nil {
+			if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM verification_tokens").Scan(&before); err != nil {
 				t.Fatal(err)
 			}
 			ctx := context.Background()
@@ -101,10 +102,10 @@ func TestRecoveryWorkerSkipsIneligibleAccounts(t *testing.T) {
 				t.Fatalf("processed=%v err=%v", processed, err)
 			}
 			var remaining, tokens int
-			if err := f.db.QueryRow("SELECT COUNT(*) FROM recovery_requests").Scan(&remaining); err != nil {
+			if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM recovery_requests").Scan(&remaining); err != nil {
 				t.Fatal(err)
 			}
-			if err := f.db.QueryRow("SELECT COUNT(*) FROM verification_tokens").Scan(&tokens); err != nil {
+			if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM verification_tokens").Scan(&tokens); err != nil {
 				t.Fatal(err)
 			}
 			if remaining != 0 || tokens != before || len(mailer.Calls) != 0 {
@@ -134,7 +135,7 @@ func TestRecoveryPersistsAcrossWorkerReplacementAndRetriesDelivery(t *testing.T)
 		t.Run(string(kind), func(t *testing.T) {
 			f, password, verify, mailer, _ := recoveryFixture(t)
 			ctx := context.Background()
-			if _, err := f.db.Exec("UPDATE users SET is_verified = false WHERE id = ?", f.userID); err != nil {
+			if _, err := f.db.ExecContext(context.Background(), "UPDATE users SET is_verified = false WHERE id = $1", f.userID); err != nil {
 				t.Fatal(err)
 			}
 			if err := sqlstore.NewRecoveryRepository(f.db).Enqueue(ctx, kind, "password-transaction@example.com"); err != nil {
@@ -150,11 +151,11 @@ func TestRecoveryPersistsAcrossWorkerReplacementAndRetriesDelivery(t *testing.T)
 				t.Fatalf("failed delivery processed=%v err=%v", processed, err)
 			}
 			var attempts int
-			if err := f.db.QueryRow("SELECT attempts FROM recovery_requests").Scan(&attempts); err != nil || attempts != 1 {
+			if err := f.db.QueryRowContext(context.Background(), "SELECT attempts FROM recovery_requests").Scan(&attempts); err != nil || attempts != 1 {
 				t.Fatalf("retry attempts=%d err=%v", attempts, err)
 			}
 			// Force the scheduled retry ready without a brittle wall-clock test.
-			if _, err := f.db.Exec("UPDATE recovery_requests SET available_at = 0"); err != nil {
+			if _, err := f.db.ExecContext(context.Background(), "UPDATE recovery_requests SET available_at = 0"); err != nil {
 				t.Fatal(err)
 			}
 			mailer.SendFn = nil
@@ -162,7 +163,7 @@ func TestRecoveryPersistsAcrossWorkerReplacementAndRetriesDelivery(t *testing.T)
 				t.Fatalf("retry processed=%v err=%v", processed, err)
 			}
 			var count int
-			if err := f.db.QueryRow("SELECT COUNT(*) FROM recovery_requests").Scan(&count); err != nil || count != 0 {
+			if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM recovery_requests").Scan(&count); err != nil || count != 0 {
 				t.Fatalf("completed requests=%d err=%v", count, err)
 			}
 			if len(mailer.Calls) != 2 {
@@ -182,7 +183,7 @@ func (failingRecoveryTemplate) Render(port.TemplateData) (port.TemplateResult, e
 
 func TestRecoveryVerificationRetriesAfterRenderLeavesAnUndeliveredToken(t *testing.T) {
 	f, _, verify, mailer, worker := recoveryFixture(t)
-	if _, err := f.db.Exec("UPDATE users SET is_verified = false WHERE id = ?", f.userID); err != nil {
+	if _, err := f.db.ExecContext(context.Background(), "UPDATE users SET is_verified = false WHERE id = $1", f.userID); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
@@ -199,7 +200,7 @@ func TestRecoveryVerificationRetriesAfterRenderLeavesAnUndeliveredToken(t *testi
 		t.Fatalf("expected undelivered live token: token=%+v err=%v emails=%d", last, err, len(mailer.Calls))
 	}
 	verify.templates = templates
-	if _, err := f.db.Exec("UPDATE recovery_requests SET available_at = 0"); err != nil {
+	if _, err := f.db.ExecContext(context.Background(), "UPDATE recovery_requests SET available_at = 0"); err != nil {
 		t.Fatal(err)
 	}
 	if processed, err := worker.ProcessOne(ctx); !processed || err != nil {
@@ -237,7 +238,7 @@ func TestRecoveryWorkerShutdownCancelsDeliveryAndLeavesDurableClaim(t *testing.T
 	}
 	worker.Stop()
 	var count int
-	if err := f.db.QueryRow("SELECT COUNT(*) FROM recovery_requests").Scan(&count); err != nil || count != 2 {
+	if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM recovery_requests").Scan(&count); err != nil || count != 2 {
 		t.Fatalf("durable requests after shutdown=%d err=%v", count, err)
 	}
 }

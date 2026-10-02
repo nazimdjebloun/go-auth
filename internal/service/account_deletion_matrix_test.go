@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +14,16 @@ import (
 
 func deletionExec(t *testing.T, f *passwordTransactionFixture, query string, args ...any) {
 	t.Helper()
+	if strings.HasPrefix(query, "CREATE TRIGGER ") {
+		fields := strings.Fields(query)
+		operation := fields[4]
+		table := fields[6]
+		if operation == "UPDATE" {
+			table = fields[8]
+		}
+		testdb.FailWrites(t, f.db.DB, fields[2], table, operation, "")
+		return
+	}
 	if _, err := f.db.ExecContext(context.Background(), query, args...); err != nil {
 		t.Fatal(err)
 	}
@@ -36,17 +47,17 @@ func deletionCoordinator(f *passwordTransactionFixture) *AccountDeletion {
 func seedDeletionOrg(t *testing.T, f *passwordTransactionFixture, id string, owners int) {
 	t.Helper()
 	// A second member is not an administrator; owner counts are independent.
-	deletionExec(t, f, `INSERT OR IGNORE INTO users (id,email,created_at,updated_at) VALUES ('other','other@example.com',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+	deletionExec(t, f, `INSERT INTO users (id,email,name,created_at,updated_at) VALUES ('00000000-0000-4000-8000-000000000090','other@example.com','Other',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
 	deletionExec(t, f, `INSERT INTO organizations (id,name,slug,owner_count,member_count,created_at,updated_at) VALUES ($1,$2,$3,$4,2,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, id, id, id, owners)
 	deletionExec(t, f, `INSERT INTO organization_members VALUES ($1,$2,'owner',CURRENT_TIMESTAMP)`, id, f.userID)
 	role := "member"
 	if owners == 2 {
 		role = "owner"
 	}
-	deletionExec(t, f, `INSERT INTO organization_members VALUES ($1,'other',$2,CURRENT_TIMESTAMP)`, id, role)
+	deletionExec(t, f, `INSERT INTO organization_members VALUES ($1,'00000000-0000-4000-8000-000000000090',$2,CURRENT_TIMESTAMP)`, id, role)
 	deletionExec(t, f, `UPDATE users SET org_owner_count=org_owner_count+1 WHERE id=$1`, f.userID)
 	if owners == 2 {
-		deletionExec(t, f, `UPDATE users SET org_owner_count=org_owner_count+1 WHERE id='other'`)
+		deletionExec(t, f, `UPDATE users SET org_owner_count=org_owner_count+1 WHERE id='00000000-0000-4000-8000-000000000090'`)
 	}
 }
 
@@ -67,9 +78,9 @@ func assertDeletionRolledBack(t *testing.T, f *passwordTransactionFixture, owner
 	if err != nil || token == nil || token.UsedAt != nil {
 		t.Fatalf("token not restored unused: %+v / %v", token, err)
 	}
-	deletionCount(t, f, "SELECT member_count FROM organizations WHERE id='org'", 2)
-	deletionCount(t, f, "SELECT owner_count FROM organizations WHERE id='org'", owners)
-	deletionCount(t, f, "SELECT COUNT(*) FROM organization_members WHERE org_id='org'", 2)
+	deletionCount(t, f, "SELECT member_count FROM organizations WHERE id='00000000-0000-4000-8000-000000000091'", 2)
+	deletionCount(t, f, "SELECT owner_count FROM organizations WHERE id='00000000-0000-4000-8000-000000000091'", owners)
+	deletionCount(t, f, "SELECT COUNT(*) FROM organization_members WHERE org_id='00000000-0000-4000-8000-000000000091'", 2)
 }
 
 func TestAccountDeletion_RollbackMatrix(t *testing.T) {
@@ -79,14 +90,14 @@ func TestAccountDeletion_RollbackMatrix(t *testing.T) {
 		want        error
 	}{
 		{name: "last owner", owners: 1, want: domain.ErrCannotRemoveLastOwner},
-		{name: "last usable admin", owners: 2, setup: `UPDATE users SET role='admin' WHERE id='password-transaction-user'`, want: domain.ErrCannotDeleteLastAdmin},
+		{name: "last usable admin", owners: 2, setup: `UPDATE users SET role='admin' WHERE id='00000000-0000-4000-8000-000000000010'`, want: domain.ErrCannotDeleteLastAdmin},
 		{name: "counter write", owners: 2, setup: `CREATE TRIGGER fail_delete BEFORE UPDATE OF member_count ON organizations BEGIN SELECT RAISE(ABORT,'injected rollback'); END`},
 		{name: "session delete", owners: 2, setup: `CREATE TRIGGER fail_delete BEFORE DELETE ON sessions BEGIN SELECT RAISE(ABORT,'injected rollback'); END`},
 		{name: "user delete after counters and sessions", owners: 2, setup: `CREATE TRIGGER fail_delete BEFORE DELETE ON users BEGIN SELECT RAISE(ABORT,'injected rollback'); END`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newPasswordTransactionFixture(t)
-			seedDeletionOrg(t, f, "org", tc.owners)
+			seedDeletionOrg(t, f, "00000000-0000-4000-8000-000000000091", tc.owners)
 			if tc.setup != "" {
 				deletionExec(t, f, tc.setup)
 			}
@@ -97,7 +108,7 @@ func TestAccountDeletion_RollbackMatrix(t *testing.T) {
 				if !errors.Is(err, tc.want) {
 					t.Fatalf("got %v, want %v", err, tc.want)
 				}
-			} else if err == nil || !strings.Contains(err.Error(), "injected rollback") {
+			} else if err == nil || !strings.Contains(err.Error(), "injected failure") {
 				t.Fatalf("wanted injected failure, got %v", err)
 			}
 			assertDeletionRolledBack(t, f, tc.owners)
@@ -107,19 +118,19 @@ func TestAccountDeletion_RollbackMatrix(t *testing.T) {
 
 func TestAccountDeletion_SuccessAndRepeatedDelete(t *testing.T) {
 	f := newPasswordTransactionFixture(t)
-	seedDeletionOrg(t, f, "org", 2)
+	seedDeletionOrg(t, f, "00000000-0000-4000-8000-000000000091", 2)
 	d := deletionCoordinator(f)
 	if err := d.DeleteUser(context.Background(), f.userID); err != nil {
 		t.Fatal(err)
 	}
-	deletionCount(t, f, "SELECT COUNT(*) FROM users WHERE id='password-transaction-user'", 0)
+	deletionCount(t, f, "SELECT COUNT(*) FROM users WHERE id='00000000-0000-4000-8000-000000000010'", 0)
 	deletionCount(t, f, "SELECT COUNT(*) FROM sessions", 0)
 	deletionCount(t, f, "SELECT COUNT(*) FROM verification_tokens", 0)
-	deletionCount(t, f, "SELECT member_count FROM organizations WHERE id='org'", 1)
-	deletionCount(t, f, "SELECT owner_count FROM organizations WHERE id='org'", 1)
-	deletionCount(t, f, "SELECT org_owner_count FROM users WHERE id='other'", 1)
+	deletionCount(t, f, "SELECT member_count FROM organizations WHERE id='00000000-0000-4000-8000-000000000091'", 1)
+	deletionCount(t, f, "SELECT owner_count FROM organizations WHERE id='00000000-0000-4000-8000-000000000091'", 1)
+	deletionCount(t, f, "SELECT org_owner_count FROM users WHERE id='00000000-0000-4000-8000-000000000090'", 1)
 	if err := d.DeleteUser(context.Background(), f.userID); !errors.Is(err, domain.ErrUserNotFound) {
 		t.Fatalf("repeat delete = %v", err)
 	}
-	deletionCount(t, f, "SELECT member_count FROM organizations WHERE id='org'", 1)
+	deletionCount(t, f, "SELECT member_count FROM organizations WHERE id='00000000-0000-4000-8000-000000000091'", 1)
 }

@@ -2,9 +2,8 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"errors"
-	"path/filepath"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -12,7 +11,6 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -101,23 +99,9 @@ type passwordTransactionFixture struct {
 
 func newPasswordTransactionFixture(t *testing.T) *passwordTransactionFixture {
 	t.Helper()
-	rawDB, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "password.db")+"?_pragma=foreign_keys(1)&_pragma=busy_timeout(10000)")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = rawDB.Close() })
-
-	ddl, err := schema.For("sqlite")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, statement := range schema.SplitSQL(ddl) {
-		if _, err := rawDB.Exec(statement); err != nil {
-			t.Fatalf("applying sqlite schema: %v", err)
-		}
-	}
-
-	db := sqlstore.NewDB(rawDB, "sqlite")
+	rawDB := testdb.OpenSelected(t)
+	testdb.Apply(t, rawDB)
+	db := sqlstore.NewDB(rawDB, testdb.Driver(rawDB))
 	users := sqlstore.NewUserRepository(db)
 	tokens := sqlstore.NewTokenRepository(db)
 	sessions := sqlstore.NewSessionRepository(db)
@@ -127,7 +111,7 @@ func newPasswordTransactionFixture(t *testing.T) *passwordTransactionFixture {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	const userID = "password-transaction-user"
+	const userID = "00000000-0000-4000-8000-000000000010"
 	if err := users.Create(context.Background(), &domain.User{
 		ID:           userID,
 		Email:        "password-transaction@example.com",
@@ -142,7 +126,7 @@ func newPasswordTransactionFixture(t *testing.T) *passwordTransactionFixture {
 	}
 
 	const code = "atomic-password-reset-code"
-	const tokenID = "atomic-password-reset-token"
+	const tokenID = "00000000-0000-4000-8000-000000000011"
 	if err := tokens.Create(context.Background(), &domain.VerificationToken{
 		ID:        tokenID,
 		UserID:    stringPointer(userID),
@@ -157,7 +141,7 @@ func newPasswordTransactionFixture(t *testing.T) *passwordTransactionFixture {
 
 	const sessionHash = "atomic-password-reset-session"
 	if err := sessions.Create(context.Background(), &domain.Session{
-		ID:               "atomic-password-reset-session-id",
+		ID:               "00000000-0000-4000-8000-000000000012",
 		UserID:           userID,
 		TokenHash:        sessionHash,
 		RefreshTokenHash: "atomic-password-reset-refresh",

@@ -53,7 +53,7 @@ func TestLoginCredentialReplacementCannotIssueSessionOrChallenge(t *testing.T) {
 				t.Fatal(err)
 			}
 			if tc.admin {
-				if _, err := f.db.ExecContext(ctx, "UPDATE users SET role = ? WHERE id = ?", domain.RoleAdmin, user.ID); err != nil {
+				if _, err := f.db.ExecContext(ctx, "UPDATE users SET role = $1 WHERE id = $2", domain.RoleAdmin, user.ID); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -108,7 +108,7 @@ func TestLoginCredentialReplacementCannotIssueSessionOrChallenge(t *testing.T) {
 				t.Fatalf("stale password login error = %v, want invalid_credentials", err)
 			}
 			var count int
-			if err := f.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", f.userID).Scan(&count); err != nil {
+			if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM sessions WHERE user_id = $1", f.userID).Scan(&count); err != nil {
 				t.Fatal(err)
 			}
 			if count != 0 {
@@ -147,7 +147,7 @@ func TestTwoFactorVerifyAuditFailureRollsBackClaimAndSession(t *testing.T) {
 		t.Fatalf("failed verification consumed challenge: %+v, %v", token, err)
 	}
 	var count int
-	if err := f.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", f.userID).Scan(&count); err != nil {
+	if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM sessions WHERE user_id = $1", f.userID).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {

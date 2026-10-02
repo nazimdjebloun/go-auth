@@ -53,7 +53,7 @@ func TestInviteRevocationCannotBeOverwrittenByResendOrExpiryRead(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := newPasswordTransactionFixture(t)
 			ctx := context.Background()
-			if _, err := f.db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", f.userID); err != nil {
+			if _, err := f.db.ExecContext(context.Background(), "UPDATE users SET role = 'admin' WHERE id = $1", f.userID); err != nil {
 				t.Fatal(err)
 			}
 			repo := sqlstore.NewInviteRepository(f.db)
@@ -62,7 +62,7 @@ func TestInviteRevocationCannotBeOverwrittenByResendOrExpiryRead(t *testing.T) {
 			if name == "expiry read" {
 				expires = now.Add(-time.Hour)
 			}
-			invite := &domain.Invite{ID: "invite", Email: "invitee@example.com", Code: hashToken("old-code"),
+			invite := &domain.Invite{ID: "00000000-0000-4000-8000-000000000050", Email: "invitee@example.com", Code: hashToken("old-code"),
 				CreatedBy: f.userID, Status: domain.InvitePending, ExpiresAt: expires, CreatedAt: now}
 			if err := repo.Create(ctx, invite); err != nil {
 				t.Fatal(err)

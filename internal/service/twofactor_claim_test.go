@@ -74,7 +74,7 @@ func TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim(t *testing.T) {
 				t.Fatalf("rejected claim consumed token: %+v, %v", token, err)
 			}
 			var count int
-			if err := f.db.QueryRow("SELECT COUNT(*) FROM sessions WHERE user_id = ?", f.userID).Scan(&count); err != nil {
+			if err := f.db.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM sessions WHERE user_id = $1", f.userID).Scan(&count); err != nil {
 				t.Fatal(err)
 			}
 			if count != 1 {

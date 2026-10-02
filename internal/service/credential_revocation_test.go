@@ -36,7 +36,7 @@ func TestBanUser_RevocationFailureRollsBackBanAndSessions(t *testing.T) {
 	f := newPasswordTransactionFixture(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	const actorID = "ban-actor"
+	const actorID = "00000000-0000-4000-8000-000000000030"
 	if err := f.users.Create(ctx, &domain.User{
 		ID: actorID, Email: "ban-actor@example.com", Name: "Admin",
 		Role: domain.RoleAdmin, CreatedAt: now, UpdatedAt: now,
@@ -108,7 +108,7 @@ func TestUnbanUser_AuditFailureRollsBackUnban(t *testing.T) {
 	f := newPasswordTransactionFixture(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	const actorID = "unban-actor"
+	const actorID = "00000000-0000-4000-8000-000000000031"
 	if err := f.users.Create(ctx, &domain.User{
 		ID: actorID, Email: "unban-actor@example.com", Name: "Admin",
 		Role: domain.RoleAdmin, CreatedAt: now, UpdatedAt: now,

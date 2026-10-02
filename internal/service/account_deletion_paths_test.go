@@ -16,7 +16,7 @@ func TestAccountDeletion_CodeClaimAndRollback(t *testing.T) {
 	for _, name := range []string{"success", "last owner", "last admin", "late failure", "used code", "expired code", "wrong code"} {
 		t.Run(name, func(t *testing.T) {
 			f := newPasswordTransactionFixture(t)
-			seedDeletionOrg(t, f, "org", 2)
+			seedDeletionOrg(t, f, "00000000-0000-4000-8000-000000000091", 2)
 			cfg := defaultTestConfig()
 			cfg.OTPPepper = []byte("account-deletion-tests-pepper-32bytes")
 			pub := &testutil.MockAuditPublisher{}
@@ -28,7 +28,7 @@ func TestAccountDeletion_CodeClaimAndRollback(t *testing.T) {
 			code := "ABCDEFGH"
 			switch name {
 			case "last owner":
-				deletionExec(t, f, `UPDATE organization_members SET role='member' WHERE user_id='other'`)
+				deletionExec(t, f, `UPDATE organization_members SET role='member' WHERE user_id='00000000-0000-4000-8000-000000000090'`)
 				deletionExec(t, f, `UPDATE organizations SET owner_count=1`)
 				wantOwners = 1
 				want = domain.ErrCannotRemoveLastOwner
@@ -85,7 +85,7 @@ func TestAccountDeletion_PasswordAndAdminPaths(t *testing.T) {
 	for _, path := range []string{"password", "admin"} {
 		t.Run(path, func(t *testing.T) {
 			f := newPasswordTransactionFixture(t)
-			seedDeletionOrg(t, f, "org", 1)
+			seedDeletionOrg(t, f, "00000000-0000-4000-8000-000000000091", 1)
 			cfg := defaultTestConfig()
 			pub := &testutil.MockAuditPublisher{}
 			cfg.Audit = pub
@@ -95,10 +95,10 @@ func TestAccountDeletion_PasswordAndAdminPaths(t *testing.T) {
 				svc.AttachAccountDeletion(deletionCoordinator(f))
 				err = svc.DeleteAccount(context.Background(), f.userID, "OldPass1!")
 			} else {
-				deletionExec(t, f, `UPDATE users SET role='admin' WHERE id='other'`)
+				deletionExec(t, f, `UPDATE users SET role='admin' WHERE id='00000000-0000-4000-8000-000000000090'`)
 				svc := NewAdminService(f.users, f.sessions, nil, nil, f.hasher, cfg, nil)
 				svc.AttachAccountDeletion(deletionCoordinator(f))
-				err = svc.DeleteUser(context.Background(), api.DeleteUserInput{ActorID: "other", UserID: f.userID})
+				err = svc.DeleteUser(context.Background(), api.DeleteUserInput{ActorID: "00000000-0000-4000-8000-000000000090", UserID: f.userID})
 			}
 			if !errors.Is(err, domain.ErrCannotRemoveLastOwner) {
 				t.Fatalf("got %v", err)
