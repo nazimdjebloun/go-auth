@@ -1,0 +1,267 @@
+---
+title: "v0.2.5"
+description: "Password hashing hardening, transactional authentication, durable audit delivery, queued recovery, and SQLite, PostgreSQL, and MySQL parity."
+date: "2026-10-02"
+---
+
+Password hashing and pepper rotation get a more accessible registry and corrected
+dummy verification. Credential changes, second-factor verification, session
+issuance, and authorization checks now account for concurrent changes. Audit
+delivery gains a transactional outbox, public recovery moves to a durable queue,
+and CI requires real schema and behavior tests on all three supported databases.
+
+## Password hashing and versioned peppers
+
+This release builds on the configurable hashing, guarded rehash-on-login, and
+versioned password pepper support already present in v0.2.4.
+
+- **The algorithm registry lives in `hasher/registry`.** New password writes use
+  the configured hasher. Existing hashes select their verifier from their own
+  format prefix, so switching between bcrypt and Argon2id does not prevent
+  verification of previously written hashes. Successful login can replace a
+  stale algorithm, parameter set, or pepper version through a guarded write.
+- **Missing and passwordless accounts use the configured KDF for dummy
+  verification.** The production password pipeline previously missed the
+  registry capability check and fell back to fixed cost-12 bcrypt. It now uses
+  the configured algorithm and parameters, with regression coverage for bcrypt,
+  Argon2id, and pepper-enabled and unpeppered configurations. This corrects a
+  timing discrepancy without claiming that every authentication path takes an
+  identical amount of time.
+- **Argon2id parsing rejects numeric overflows before conversion.** Malformed
+  stored parameters cannot wrap into smaller integer types before validation.
+- **Password pepper versions remain independent of the hash algorithm.**
+  `WithPasswordPepper` selects a current version for new writes, and each stored
+  password identifies the exact key needed for verification. Verification does
+  not search other keys or fall back to unpeppered input. Startup rejects a
+  database pepper version whose key is unavailable.
+- **Rolling deployments retain the monotonic pepper-version rules.** An older
+  instance with preloaded keys can verify a password written by a newer one
+  without rehashing it to an older version. Password changes and resets also
+  preserve a newer stored version rather than downgrade it.
+
+The defaults remain **bcrypt at cost 12**, with password peppering disabled.
+Argon2id is opt-in through `WithPasswordHasher`; its default profile uses 64 MiB,
+three iterations, and parallelism four. Password peppering is separately opt-in.
+See [Security](../security.mdx) for the hashing and pepper configuration.
+
+## Authentication and session safety
+
+- **Credential replacement serializes with login issuance.** Password login and
+  2FA verification lock the user and recheck the state needed to issue a session.
+  A concurrent password reset or change revokes pending challenges and prevents
+  a login from completing with a replaced password.
+- **2FA consumes the exact live code in the session transaction.** The claim
+  rechecks the code, expiry, and attempt budget. Token consumption, session
+  creation, last-login updates, and transactional audit recording share the
+  transaction. If issuance fails, the claim rolls back. Resending a code also
+  invalidates an in-flight comparison of the previous code.
+- **Admin second-factor requirements cover password and OAuth login.** Admin
+  accounts require email 2FA by default. Privileged HTTP routes check both the
+  current admin role and the session's completed second factor. A valid session
+  alone does not establish admin second-factor assurance.
+- **Setting a password cannot overwrite one acquired concurrently.** A
+  passwordless account can consume a set-password code only while it still has
+  no password. A second confirmation does not replace the first password.
+- **Refresh rotation preserves the previous hash on MySQL.** Replay is also
+  rejected when the configured grace period is zero, including the future
+  rotation-timestamp edge case.
+- **Backend errors stay distinguishable from authentication failures.** Initial
+  credential, session, token, invitation, and OAuth lookups preserve unexpected
+  repository errors and cancellation. A missing credential still produces the
+  appropriate authentication error; a backend failure does not masquerade as an
+  invalid password or an expired session. HTTP errors keep backend details out
+  of the response.
+
+## Authorization and account invariants
+
+- **Owner membership requires current owner authority.** Organization mutations
+  lock and check the actor's current membership inside the transaction. An
+  organization admin cannot grant owner membership, and a role change before
+  the transaction cannot leave an earlier authorization decision in effect.
+- **Active-organization selection coordinates with membership changes.** Session
+  scope cannot be set using membership that is being removed or changed without
+  the corresponding synchronization.
+- **Invite revocation survives resend and expiry races.** Resending rotates only
+  the current pending or expired invite. Delayed reads and resends cannot
+  overwrite an accepted or revoked state.
+- **OAuth identity checks precede account lookup and linking.** Failed profile
+  requests, empty identifiers, and provider mismatches are rejected. MySQL
+  provider identities preserve exact case-sensitive matching.
+- **Unlinking a provider preserves a remaining login method.** Removing a
+  provider removes all identities for that provider and requires a password or
+  an identity from another provider to remain.
+- **Admin reductions use database-backed guards.** Concurrent bans, demotions,
+  and deletions cannot independently remove the last usable administrator.
+  Ban, unban, and 2FA-setting changes coordinate their writes with session
+  revocation and transactional audit recording. Admin account creation records
+  the authorized actor.
+- **Targeted user writes preserve concurrent identity changes.** Name and
+  verification updates no longer depend on writing an entire fetched snapshot
+  back over newer account state.
+
+## Durable audit records and delivery
+
+- **`audit.Service.Record` writes through the caller's transaction.** When auditing is
+  enabled, the durable `audit_log` insert participates in the state-change
+  transaction. External delivery adds an `audit_outbox` obligation to that same
+  transaction; external sinks are delivered by a dispatcher after commit.
+- **Audit failure policy is explicit.** The default is fail-open, with loss
+  counters and diagnostics. A configured fail-closed policy can abort a
+  transactional operation if its audit record or delivery obligation cannot be
+  written. Events without a surrounding transaction cannot roll back an
+  already determined operation.
+- **Delivery is at least once.** Leased claims allow recovery after worker
+  failure. Retries, dead-letter retention, age limits, and a backlog cap bound
+  delivery state without using the audit record itself as a mutable queue.
+  External receivers must deduplicate by event ID.
+- **`WebhookSink` sends one JSON event per HTTP POST.** Configuring a secret
+  adds an HMAC-SHA256 body signature in `X-Signature`. Transport errors and 5xx
+  responses can retry within a delivery attempt; 4xx responses do not retry
+  within that attempt and remain subject to the outbox policy.
+- **Custom external sinks declare a finite batch-delivery bound.** Startup
+  validates that the claim lease exceeds the declared delivery time and that
+  record retention is compatible with outbox retention and retry settings.
+- **New events cover additional account activity.** Failed login, session
+  revocation, name changes, and self-deletion now have audit events. The
+  never-emitted `login.locked` event is removed.
+- **Shutdown and delivery statistics are expanded.** Queued work uses a live
+  shutdown context, retention-worker shutdown is awaited, and statistics
+  distinguish pending delivery, dead letters, dropped obligations, missed
+  writes, and blocked operations.
+
+See [Audit logs](../guides/audit-logs.mdx) for delivery and failure semantics.
+
+## Recovery and email delivery
+
+- **Public recovery queues before account lookup.** Password recovery and
+  verification resend persist a request first, then let a worker resolve the
+  account and send email. The public request no longer waits for account lookup
+  or SMTP, and success does not confirm account existence or email delivery.
+- **Recovery jobs survive a process restart.** The queue uses exclusive leased
+  claims and retry/dead-letter state. A stale worker cannot complete and delete
+  a job that another worker has reclaimed.
+- **Undelivered codes permit another attempt.** Verification, account-deletion,
+  and password-setup rendering or sending failures remove only that request's
+  unused token. Cleanup preserves a concurrently issued replacement and an
+  already consumed token, and has a bounded context independent of request
+  cancellation. This applies to failures returned by the configured mailer;
+  later failures after an asynchronous enqueue are handled by that mailer.
+- **`mailer.NewAsync` adds a bounded delivery queue.** Workers deliver with
+  configurable retries and per-attempt timeouts. A full queue falls back to
+  synchronous sending rather than silently accepting and dropping the message.
+  This decorator is an in-memory queue; a hard process crash can lose queued
+  mail.
+- **Negative retry counts are rejected.** Zero retries means one send attempt.
+  `Stop` closes the queue once and shares one completion signal across callers.
+  Its context bounds the caller's wait; workers continue draining after that
+  wait expires, and another call can wait for completion.
+
+## Configuration, maintenance, and resource ownership
+
+- **`New` validates the final configuration.** Defaults and validation run again
+  before secrets are derived, including when options were applied after
+  `NewConfig`. Empty or short secrets, invalid session lifetimes, and invalid
+  CSRF configuration cannot bypass validation this way.
+- **`NewConfig` starts no background work.** Each successful `Auth` construction
+  gets its own enabled default rate-limit store. Reusing a configuration does
+  not share counters or janitor ownership, and failed startup does not leak a
+  default store. Supplied stores remain caller-owned.
+- **Owned database pools have configurable limits.** URL-created connections
+  support maximum open and idle connections and connection lifetimes. Defaults
+  cap PostgreSQL and MySQL at 25 open connections and SQLite at one. Borrowed
+  `DB` and `Pool` handles retain caller ownership and settings.
+- **Expired-row maintenance is enabled by default.** Cleanup deletes bounded
+  batches of already expired sessions and tokens after a grace period. A
+  session remains ineligible while its refresh credential is usable.
+  `WithMaintenance` configures the worker, and `Auth.RunMaintenance` remains
+  available when the background worker is disabled.
+- **The CLI shares the root Go module.** Library and CLI build and test together.
+  Bootstrap checks the selected database's complete schema, and `seed-admin`
+  resolves the configured SMTP port correctly.
+- **Cryptographic dependencies are updated.** Updates include fixes for known
+  advisories in `golang.org/x/crypto` and `filippo.io/edwards25519`.
+
+## Public Go API changes
+
+This is a pre-v1 release with changes to the programmatic API:
+
+- Import operation inputs and results from
+  `github.com/nazimdjebloun/go-auth/api`, for example `api.LoginInput`.
+- Replace access through the `auth.Services` field with `auth.Services()`.
+  The returned bundle exposes operation interfaces. Reassigning a field on it
+  does not alter the instance's internal wiring.
+- Use `Auth.Handler("METHOD /path")` instead of the removed public `Handlers`
+  group when integrating a custom router. Returned handlers include their
+  middleware; disabled and unknown routes return `ok == false`.
+  `Auth.Mount` remains the direct integration with `http.ServeMux`.
+- List inputs use resource-specific sort fields and typed sort directions,
+  replacing a shared free-form ordering shape.
+- Audit APIs use names such as `audit.Service` and `Record`. Custom external
+  sinks implement `BatchDeliveryTimeBounder` as well as `EventSink`.
+- Repository contracts require guarded credential writes, administrator guards,
+  deletion coordination, and conditional unused-token deletion. Production
+  storage is SQL-only; mailers, hashers, providers, rate-limit stores, and audit
+  sinks remain extension points.
+
+See [Architecture](../architecture.mdx) and
+[Configuration](../configuration.mdx) for the current interfaces and options.
+
+## Canonical schemas
+
+The PostgreSQL, MySQL, and SQLite schema files include:
+
+- **`audit_outbox`**, the pending audit-delivery state, with claim and creation
+  indexes.
+- **`recovery_requests`**, public recovery jobs with lease, retry, and
+  dead-letter state, with claim and creation indexes. It stores neither raw
+  password-reset tokens nor verification codes.
+- **`sessions.two_factor_verified_at`**, the nullable session field recording
+  completed second-factor assurance.
+
+MySQL OAuth provider identities also use case-sensitive storage semantics.
+See [Schemas](../schemas.mdx) for the canonical table definitions.
+
+## Tests and CI
+
+- **SQLite, PostgreSQL, and MySQL are required CI backends.** Each runs real SQL
+  service, repository, integration, HTTP, and CLI schema tests with the race
+  detector and shuffled ordering. Tests verify the full expected table and
+  index inventory, not only whether schema execution returns success.
+- **Database fixtures are isolated.** Tests create unique databases instead of
+  reusing a fixed shared database. The runner fails on unexpected skips,
+  missing required tests, or an empty test run, and preserves logs, coverage,
+  commands, and shuffle seeds as artifacts.
+- **Concurrency and rollback coverage is expanded.** Cases include code
+  replacement and expiry at claim, credential replacement during login,
+  administrator reductions across connections, recovery lease ownership,
+  authorization changes before a transaction, exact OAuth identities, refresh
+  replay with zero grace, and second-factor session persistence.
+- **Repeated stress runs are scheduled and available on demand.** They repeat
+  the concurrency and rollback suite with CPU settings one and four. Ordinary
+  push runs execute the full backend suites without the repeated stress step.
+- **Mocks no longer return live user pointers.** Reads and writes use detached
+  snapshots, including optional pointer fields. Mock transactions restore
+  enlisted repository state on errors, cancellation, and panic. They model
+  callback rollback; real SQL tests remain the authority for isolation,
+  constraints, and durable audit behavior.
+- **Async mailer tests are deterministic.** Tests assert errors and attempt
+  counts and coordinate queue saturation, concurrent sends, shutdown, and
+  draining rather than depending on scheduler timing.
+- **Fuzzing and static checks remain separate gates.** CI builds and vets the
+  module, runs lint and vulnerability scanning, and fuzzes credential,
+  cryptography, schema, middleware, and token parsers. The known fuzz-harness
+  deadline case is retried without suppressing assertion failures or recorded
+  failing inputs.
+
+All nine [CI jobs for commit `4a801ad`](https://github.com/nazimdjebloun/go-auth/actions/runs/37067543980)
+passed: build/vet, lint, security scanning, unit race tests, CLI tests, fuzzing,
+and the three database jobs. Installation of the CLI from a published version
+is a separate check triggered by a release tag.
+
+## Documentation
+
+Updated guides cover the public API, password hashing and pepper versions,
+second-factor assurance, audit failure policies and delivery, queued recovery,
+resource ownership, and database testing. Client and administrator documentation
+is expanded, route documentation is split by concern, and links and examples
+are aligned with the current package structure.
