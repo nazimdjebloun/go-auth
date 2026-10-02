@@ -449,7 +449,12 @@ func (s *AuthService) burnDummyPasswordVerification(password string) {
 // no-stored-password timing comparison. Bare hashers (direct service wiring,
 // unit tests) get a bcrypt-shaped constant as before.
 func (s *AuthService) dummyHashForTiming() string {
-	if registry, ok := s.hasher.(rehashRegistry); ok {
+	if pipeline, ok := s.hasher.(versionedPasswordPipeline); ok {
+		if h := pipeline.dummyHash(); h != "" {
+			return h
+		}
+	}
+	if registry, ok := s.hasher.(interface{ DummyHash() string }); ok {
 		if h := registry.DummyHash(); h != "" {
 			return h
 		}
