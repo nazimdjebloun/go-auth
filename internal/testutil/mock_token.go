@@ -141,6 +141,17 @@ func (m *MockTokenRepo) DeleteExpired(_ context.Context) error {
 	return nil
 }
 
+// DeleteUnusedByID removes only the requested unused token and its hash index.
+func (m *MockTokenRepo) DeleteUnusedByID(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if token := m.tokens[id]; token != nil && token.UsedAt == nil {
+		delete(m.tokens, id)
+		delete(m.tokens, token.TokenHash)
+	}
+	return nil
+}
+
 // DeleteUnusedByUserAndType really deletes, matching sqlstore. It used to
 // return nil without touching anything, which silently passed any test whose
 // subject was the cleanup itself.

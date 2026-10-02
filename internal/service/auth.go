@@ -799,11 +799,17 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 	})
 	if err != nil {
 		s.log.Error("failed to render deletion email template", "err", err, "user_id", userID)
+		if cleanupErr := discardUndeliveredToken(ctx, s.tokens, token.ID); cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
+		}
 		return domain.ErrInternal
 	}
 
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send deletion email", "err", err, "user_id", userID)
+		if cleanupErr := discardUndeliveredToken(ctx, s.tokens, token.ID); cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
+		}
 		return domain.NewError("email_failed", "Failed to send deletion email")
 	}
 

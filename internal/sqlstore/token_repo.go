@@ -125,6 +125,12 @@ func (r *TokenRepository) DeleteExpired(ctx context.Context) error {
 	return err
 }
 
+// DeleteUnusedByID removes the specified token only while it remains unused.
+func (r *TokenRepository) DeleteUnusedByID(ctx context.Context, id string) error {
+	_, err := r.db.ExecContext(ctx, tokenDeleteUnusedByIDQuery, id)
+	return err
+}
+
 // DeleteUnusedByUserAndType removes unused tokens of a type for a user.
 func (r *TokenRepository) DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error {
 	_, err := r.db.ExecContext(ctx, tokenDeleteUnusedByUserAndTypeQuery, userID, tokenType)

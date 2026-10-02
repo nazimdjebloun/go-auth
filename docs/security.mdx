@@ -107,6 +107,8 @@ Twenty failed 2FA attempts on one account within an hour send a notification ema
 
 ### Mail delivery availability
 
+Verification, set-password, and account-deletion requests remove their own unused code when rendering or delivery fails. Cleanup has a separate five-second deadline even if the request was canceled, and does not remove codes issued by another request. A cleanup failure is returned as a server error. Successful mailer acceptance does not guarantee final delivery, especially with an asynchronous mailer.
+
 With email verification, a mailer outage only blocks new signups. With `RequireEmail2FA: true`, `Challenge` sends a code during each password login, so a mailer outage blocks that path. Use `TwoFactorConfig.DefaultEnabled` for per-user 2FA that is enabled by default but can be disabled.
 
 ## Rate limiting

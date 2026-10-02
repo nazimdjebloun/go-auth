@@ -256,19 +256,16 @@ func (s *VerificationService) sendVerification(ctx context.Context, user *domain
 	})
 	if err != nil {
 		s.log.Error("failed to render verification email template", "err", err, "user_id", user.ID)
+		if cleanupErr := discardUndeliveredToken(ctx, s.tokens, token.ID); cleanupErr != nil {
+			return nil, errors.Join(err, cleanupErr)
+		}
 		return nil, domain.ErrInternal
 	}
 
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send verification email", "err", err, "user_id", user.ID)
-		// Drop the row the failed send would otherwise leave behind. An
-		// undelivered code is indistinguishable from an outstanding one to the
-		// skip check above, so keeping it would make the next call answer "a
-		// code was already sent" about a code that never left — for the whole
-		// VerificationCodeTTL, with resend hitting the same branch. Clearing it
-		// is what lets Sent=false mean a code the mailer actually accepted.
-		if derr := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenVerifyEmail); derr != nil {
-			s.log.Error("failed to clear undelivered verification token", "err", derr, "user_id", user.ID)
+		if cleanupErr := discardUndeliveredToken(ctx, s.tokens, token.ID); cleanupErr != nil {
+			return nil, errors.Join(err, cleanupErr)
 		}
 		return nil, domain.NewError("email_failed", "Failed to send verification email")
 	}

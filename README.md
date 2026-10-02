@@ -129,6 +129,9 @@ SMTP timing does not reveal registered addresses. The `recovery_requests`
 table is included in the [schema](docs/schemas.mdx#recovery_requests).
 Call `Auth.Close` during shutdown to stop the delivery worker.
 
+Email-code delivery failures clear only the request's unused token, allowing
+another attempt while preserving concurrently issued codes.
+
 Admin accounts must complete email 2FA through password or OAuth login by
 default. Admin routes check the session's completed second factor, recorded in
 `sessions.two_factor_verified_at`.

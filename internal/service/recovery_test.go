@@ -181,7 +181,7 @@ func (failingRecoveryTemplate) Render(port.TemplateData) (port.TemplateResult, e
 	return port.TemplateResult{}, errors.New("temporary template failure")
 }
 
-func TestRecoveryVerificationRetriesAfterRenderLeavesAnUndeliveredToken(t *testing.T) {
+func TestRecoveryVerificationRetriesAfterRenderFailure(t *testing.T) {
 	f, _, verify, mailer, worker := recoveryFixture(t)
 	if _, err := f.db.ExecContext(context.Background(), "UPDATE users SET is_verified = false WHERE id = $1", f.userID); err != nil {
 		t.Fatal(err)
@@ -196,8 +196,8 @@ func TestRecoveryVerificationRetriesAfterRenderLeavesAnUndeliveredToken(t *testi
 		t.Fatalf("render failure processed=%v err=%v", processed, err)
 	}
 	last, err := f.tokens.GetLastByUserAndType(ctx, f.userID, domain.TokenVerifyEmail)
-	if err != nil || last == nil || last.UsedAt != nil || len(mailer.Calls) != 0 {
-		t.Fatalf("expected undelivered live token: token=%+v err=%v emails=%d", last, err, len(mailer.Calls))
+	if err != nil || last != nil || len(mailer.Calls) != 0 {
+		t.Fatalf("render failure left a token: token=%+v err=%v emails=%d", last, err, len(mailer.Calls))
 	}
 	verify.templates = templates
 	if _, err := f.db.ExecContext(context.Background(), "UPDATE recovery_requests SET available_at = 0"); err != nil {

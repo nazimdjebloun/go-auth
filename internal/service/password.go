@@ -373,10 +373,16 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 	})
 	if tplErr != nil {
 		s.log.Error("failed to render set-password email template", "err", tplErr, "user_id", userID)
+		if cleanupErr := discardUndeliveredToken(ctx, s.tokens, token.ID); cleanupErr != nil {
+			return errors.Join(tplErr, cleanupErr)
+		}
 		return domain.ErrInternal
 	}
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send set-password email", "err", err, "user_id", userID)
+		if cleanupErr := discardUndeliveredToken(ctx, s.tokens, token.ID); cleanupErr != nil {
+			return errors.Join(err, cleanupErr)
+		}
 		return domain.NewError("email_failed", "Failed to send email")
 	}
 

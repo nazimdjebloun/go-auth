@@ -34,6 +34,9 @@ type TokenRepository interface {
 	// cannot authorize a claim using a previously compared code.
 	ConsumeIfValidUnderCap(ctx context.Context, input ConsumeTokenInput, maxAttempts int) (bool, error)
 	DeleteExpired(ctx context.Context) error
+	// DeleteUnusedByID removes only the named unused token. Delivery cleanup
+	// must not remove codes another request successfully issued.
+	DeleteUnusedByID(ctx context.Context, id string) error
 	DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error
 
 	// IncrementAttempts, MarkUsedIfUnderCap and UpdateForResend are guarded

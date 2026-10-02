@@ -992,6 +992,17 @@ func (m *mockTokenRepo) DeleteExpired(_ context.Context) error {
 	return nil
 }
 
+func (m *mockTokenRepo) DeleteUnusedByID(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, token := range m.tokens {
+		if token.ID == id && token.UsedAt == nil {
+			delete(m.tokens, key)
+		}
+	}
+	return nil
+}
+
 func (m *mockTokenRepo) DeleteUnusedByUserAndType(_ context.Context, _ string, _ domain.TokenType) error {
 	return nil
 }
