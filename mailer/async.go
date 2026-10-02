@@ -14,8 +14,7 @@ import (
 // leaves it unset.
 const DefaultAsyncQueueSize = 256
 
-// DefaultAsyncTimeout bounds a single underlying Send attempt, and doubles
-// as the default drain budget per Stop.
+// DefaultAsyncTimeout bounds a single underlying Send attempt.
 const DefaultAsyncTimeout = 30 * time.Second
 
 // AsyncConfig configures an Async mailer decorator. The zero value yields
@@ -28,7 +27,7 @@ type AsyncConfig struct {
 	// Workers is the number of delivery workers. 0 or 1 means one worker;
 	// mail providers usually serialize per-connection anyway.
 	Workers int
-	// Retries is how many times a failed send is retried in the background.
+	// Retries is how many times a failed send is retried. It must be nonnegative.
 	// 0 means a single attempt per message; the attempt is logged and dropped
 	// after the final failure — Async is best-effort, not a durable outbox.
 	Retries int
@@ -68,6 +67,7 @@ type Async struct {
 
 	queue  chan asyncMessage
 	wg     sync.WaitGroup
+	done   chan struct{}
 	stopMu sync.Mutex
 	closed bool
 }
@@ -83,6 +83,9 @@ type asyncMessage struct {
 func NewAsync(underlying port.Mailer, cfg AsyncConfig) (*Async, error) {
 	if underlying == nil {
 		return nil, fmt.Errorf("goauth: async mailer requires an underlying mailer")
+	}
+	if cfg.Retries < 0 {
+		return nil, fmt.Errorf("goauth: async mailer retries must be nonnegative")
 	}
 	size := cfg.QueueSize
 	if size <= 0 {
@@ -107,6 +110,7 @@ func NewAsync(underlying port.Mailer, cfg AsyncConfig) (*Async, error) {
 		cfg:        cfg,
 		log:        log,
 		queue:      make(chan asyncMessage, size),
+		done:       make(chan struct{}),
 	}
 	for i := 0; i < workers; i++ {
 		a.wg.Add(1)
@@ -178,24 +182,24 @@ func (a *Async) worker() {
 }
 
 // Stop stops accepting new messages, drains the queue, and waits for the
-// workers. The context bounds the drain; an expired context returns ctx.Err()
-// and abandons any messages still queued (they were logged at enqueue time
-// and are identifiable, but not retried).
+// workers. The context bounds only the caller's wait: when it expires, Stop
+// returns ctx.Err() and workers continue draining with their own per-attempt
+// timeout. Call Stop again to wait for completion. There is no default drain
+// deadline; underlying mailers must honor the context passed to Send.
 func (a *Async) Stop(ctx context.Context) error {
 	a.stopMu.Lock()
 	if !a.closed {
 		a.closed = true
 		close(a.queue)
+		go func() {
+			a.wg.Wait()
+			close(a.done)
+		}()
 	}
 	a.stopMu.Unlock()
 
-	done := make(chan struct{})
-	go func() {
-		a.wg.Wait()
-		close(done)
-	}()
 	select {
-	case <-done:
+	case <-a.done:
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()

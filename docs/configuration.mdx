@@ -480,6 +480,8 @@ goauth.WithTemplates(myTemplateProvider)
 
 Public password-reset and verification-resend requests are delivered by the durable recovery worker. Its processing context has a 30-second deadline; custom `port.Mailer` implementations must honor context cancellation and deadlines so retries and `Auth.Close` can complete. The [recovery queue table](./schemas.mdx#recovery_requests) is required even when audit is disabled.
 
+`mailer.NewAsync` optionally adds an in-memory queue to a mailer. `AsyncConfig.Retries` must be nonnegative; zero still makes one delivery attempt. Queued sends return before delivery, while a full queue falls back to synchronous delivery and returns any final send error. Call `Async.Stop(ctx)` separately during shutdown: its context bounds your wait, and workers continue draining if that wait expires. Repeated calls wait for the same drain. There is no default shutdown deadline; `AsyncConfig.Timeout` bounds each underlying send attempt (30 seconds by default).
+
 **`EmailConfig`** (only validated when `WithEmail` is set and `WithMailer` is not)
 
 | Field | Type | Required | Default | Notes |
