@@ -42,7 +42,8 @@ func (m *MockOrgRepo) SetUsers(users port.UserRepository) {
 }
 
 // Create stores an organization.
-func (m *MockOrgRepo) Create(_ context.Context, org *domain.Organization) error {
+func (m *MockOrgRepo) Create(ctx context.Context, org *domain.Organization) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.orgs[org.ID] = org
@@ -51,7 +52,8 @@ func (m *MockOrgRepo) Create(_ context.Context, org *domain.Organization) error 
 }
 
 // GetByID returns an organization by ID.
-func (m *MockOrgRepo) GetByID(_ context.Context, id string) (*domain.Organization, error) {
+func (m *MockOrgRepo) GetByID(ctx context.Context, id string) (*domain.Organization, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	org, ok := m.orgs[id]
@@ -62,7 +64,8 @@ func (m *MockOrgRepo) GetByID(_ context.Context, id string) (*domain.Organizatio
 }
 
 // GetBySlug returns an organization by slug.
-func (m *MockOrgRepo) GetBySlug(_ context.Context, slug string) (*domain.Organization, error) {
+func (m *MockOrgRepo) GetBySlug(ctx context.Context, slug string) (*domain.Organization, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	org, ok := m.orgs[slug]
@@ -73,7 +76,8 @@ func (m *MockOrgRepo) GetBySlug(_ context.Context, slug string) (*domain.Organiz
 }
 
 // Update replaces an organization.
-func (m *MockOrgRepo) Update(_ context.Context, org *domain.Organization) error {
+func (m *MockOrgRepo) Update(ctx context.Context, org *domain.Organization) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.orgs[org.ID] = org
@@ -81,7 +85,8 @@ func (m *MockOrgRepo) Update(_ context.Context, org *domain.Organization) error 
 }
 
 // Delete removes an organization.
-func (m *MockOrgRepo) Delete(_ context.Context, id string) (bool, error) {
+func (m *MockOrgRepo) Delete(ctx context.Context, id string) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.orgs[id]; !ok {
@@ -92,7 +97,8 @@ func (m *MockOrgRepo) Delete(_ context.Context, id string) (bool, error) {
 }
 
 // AddMember stores an organization membership.
-func (m *MockOrgRepo) AddMember(_ context.Context, member *domain.OrgMember) error {
+func (m *MockOrgRepo) AddMember(ctx context.Context, member *domain.OrgMember) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := member.OrgID + ":" + member.UserID
@@ -107,7 +113,8 @@ func (m *MockOrgRepo) AddMember(_ context.Context, member *domain.OrgMember) err
 }
 
 // RemoveMember removes a matching organization membership.
-func (m *MockOrgRepo) RemoveMember(_ context.Context, orgID, userID string, expectRole domain.OrgRole) (bool, error) {
+func (m *MockOrgRepo) RemoveMember(ctx context.Context, orgID, userID string, expectRole domain.OrgRole) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := orgID + ":" + userID
@@ -120,7 +127,8 @@ func (m *MockOrgRepo) RemoveMember(_ context.Context, orgID, userID string, expe
 }
 
 // UpdateMemberRole changes a matching membership role.
-func (m *MockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, expectRole, newRole domain.OrgRole) (bool, error) {
+func (m *MockOrgRepo) UpdateMemberRole(ctx context.Context, orgID, userID string, expectRole, newRole domain.OrgRole) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	key := orgID + ":" + userID
@@ -133,7 +141,8 @@ func (m *MockOrgRepo) UpdateMemberRole(_ context.Context, orgID, userID string, 
 }
 
 // GetMembership returns an organization membership.
-func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*domain.OrgMember, error) {
+func (m *MockOrgRepo) GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.GetMembershipErr != nil {
@@ -153,11 +162,13 @@ func (m *MockOrgRepo) GetMembership(_ context.Context, orgID, userID string) (*d
 
 // LockMembership mirrors the transaction-scoped lookup for service tests.
 func (m *MockOrgRepo) LockMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
+	recordMockTx(ctx, m)
 	return m.GetMembership(ctx, orgID, userID)
 }
 
 // CountMembers returns the number of matching organization members.
 func (m *MockOrgRepo) CountMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) (int, error) {
+	recordMockTx(ctx, m)
 	f := filter
 	f.Limit, f.Offset = 0, 0
 	items, err := m.ListMembers(ctx, orgID, f)
@@ -166,6 +177,7 @@ func (m *MockOrgRepo) CountMembers(ctx context.Context, orgID string, filter por
 
 // ListMembers returns matching organization members.
 func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port.OrgMemberFilter) ([]domain.OrgMemberDetail, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	var all []domain.OrgMemberDetail
 	for _, mem := range m.members {
@@ -258,6 +270,7 @@ func (m *MockOrgRepo) ListMembers(ctx context.Context, orgID string, filter port
 
 // CountUserOrgs returns the number of matching organizations for a user.
 func (m *MockOrgRepo) CountUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) (int, error) {
+	recordMockTx(ctx, m)
 	f := filter
 	f.Limit, f.Offset = 0, 0
 	items, err := m.ListUserOrgs(ctx, userID, f)
@@ -265,7 +278,8 @@ func (m *MockOrgRepo) CountUserOrgs(ctx context.Context, userID string, filter p
 }
 
 // ListUserOrgs returns matching organizations for a user.
-func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, error) {
+func (m *MockOrgRepo) ListUserOrgs(ctx context.Context, userID string, filter port.UserOrgFilter) ([]domain.Organization, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	var all []domain.Organization
 	for _, mem := range m.members {
@@ -329,6 +343,7 @@ func (m *MockOrgRepo) ListUserOrgs(_ context.Context, userID string, filter port
 
 // Count returns the number of matching organizations.
 func (m *MockOrgRepo) Count(ctx context.Context, filter port.OrgFilter) (int, error) {
+	recordMockTx(ctx, m)
 	f := filter
 	f.Limit, f.Offset = 0, 0
 	items, err := m.List(ctx, f)
@@ -336,7 +351,8 @@ func (m *MockOrgRepo) Count(ctx context.Context, filter port.OrgFilter) (int, er
 }
 
 // List returns matching organizations.
-func (m *MockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.Organization, error) {
+func (m *MockOrgRepo) List(ctx context.Context, filter port.OrgFilter) ([]domain.Organization, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	seen := make(map[string]bool)
 	var all []domain.Organization
@@ -419,7 +435,8 @@ func (m *MockOrgRepo) List(_ context.Context, filter port.OrgFilter) ([]domain.O
 }
 
 // IncrementUserOrgOwnerCount increments a user's owned organization count within the limit.
-func (m *MockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID string, maxOrgs int) error {
+func (m *MockOrgRepo) IncrementUserOrgOwnerCount(ctx context.Context, userID string, maxOrgs int) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	count := 0
@@ -435,22 +452,26 @@ func (m *MockOrgRepo) IncrementUserOrgOwnerCount(_ context.Context, userID strin
 }
 
 // DecrementUserOrgOwnerCount decrements a user's owned organization count.
-func (m *MockOrgRepo) DecrementUserOrgOwnerCount(_ context.Context, _ string) error {
+func (m *MockOrgRepo) DecrementUserOrgOwnerCount(ctx context.Context, _ string) error {
+	recordMockTx(ctx, m)
 	return nil
 }
 
 // IncrementOrgMemberCount increments an organization's member count.
-func (m *MockOrgRepo) IncrementOrgMemberCount(_ context.Context, _ string, _ int) error {
+func (m *MockOrgRepo) IncrementOrgMemberCount(ctx context.Context, _ string, _ int) error {
+	recordMockTx(ctx, m)
 	return nil
 }
 
 // DecrementOrgMemberCount decrements an organization's member count.
-func (m *MockOrgRepo) DecrementOrgMemberCount(_ context.Context, _ string) error {
+func (m *MockOrgRepo) DecrementOrgMemberCount(ctx context.Context, _ string) error {
+	recordMockTx(ctx, m)
 	return nil
 }
 
 // TryDecrementOrgOwnerCount decrements an organization's owner count unless it is the last owner.
-func (m *MockOrgRepo) TryDecrementOrgOwnerCount(_ context.Context, orgID string) error {
+func (m *MockOrgRepo) TryDecrementOrgOwnerCount(ctx context.Context, orgID string) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// The service runs its guarded membership delete/update BEFORE this
@@ -472,11 +493,13 @@ func (m *MockOrgRepo) TryDecrementOrgOwnerCount(_ context.Context, orgID string)
 }
 
 // IncrementOrgOwnerCount increments an organization's owner count.
-func (m *MockOrgRepo) IncrementOrgOwnerCount(_ context.Context, _ string) error {
+func (m *MockOrgRepo) IncrementOrgOwnerCount(ctx context.Context, _ string) error {
+	recordMockTx(ctx, m)
 	return nil
 }
 
 // DecrementOwnerCountForOrgOwners decrements the owned count for an organization's owners.
-func (m *MockOrgRepo) DecrementOwnerCountForOrgOwners(_ context.Context, _ string) error {
+func (m *MockOrgRepo) DecrementOwnerCountForOrgOwners(ctx context.Context, _ string) error {
+	recordMockTx(ctx, m)
 	return nil
 }

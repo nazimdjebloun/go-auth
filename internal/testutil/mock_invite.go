@@ -22,7 +22,8 @@ func NewMockInviteRepo() *MockInviteRepo {
 }
 
 // Create stores an invite under its ID, code, and email.
-func (m *MockInviteRepo) Create(_ context.Context, invite *domain.Invite) error {
+func (m *MockInviteRepo) Create(ctx context.Context, invite *domain.Invite) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.invites[invite.ID] = invite
@@ -32,7 +33,8 @@ func (m *MockInviteRepo) Create(_ context.Context, invite *domain.Invite) error 
 }
 
 // GetByID returns the invite with the given ID.
-func (m *MockInviteRepo) GetByID(_ context.Context, id string) (*domain.Invite, error) {
+func (m *MockInviteRepo) GetByID(ctx context.Context, id string) (*domain.Invite, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites[id]
@@ -43,7 +45,8 @@ func (m *MockInviteRepo) GetByID(_ context.Context, id string) (*domain.Invite, 
 }
 
 // GetByCode returns the invite with the given code.
-func (m *MockInviteRepo) GetByCode(_ context.Context, code string) (*domain.Invite, error) {
+func (m *MockInviteRepo) GetByCode(ctx context.Context, code string) (*domain.Invite, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites[code]
@@ -54,7 +57,8 @@ func (m *MockInviteRepo) GetByCode(_ context.Context, code string) (*domain.Invi
 }
 
 // GetByEmail returns the invite sent to the given email.
-func (m *MockInviteRepo) GetByEmail(_ context.Context, email string) (*domain.Invite, error) {
+func (m *MockInviteRepo) GetByEmail(ctx context.Context, email string) (*domain.Invite, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites["email:"+email]
@@ -78,7 +82,8 @@ func (m *MockInviteRepo) inviteMatches(inv *domain.Invite, filter port.InviteFil
 }
 
 // List returns invites matching filter.
-func (m *MockInviteRepo) List(_ context.Context, filter port.InviteFilter) ([]domain.Invite, error) {
+func (m *MockInviteRepo) List(ctx context.Context, filter port.InviteFilter) ([]domain.Invite, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var result []domain.Invite
@@ -91,7 +96,8 @@ func (m *MockInviteRepo) List(_ context.Context, filter port.InviteFilter) ([]do
 }
 
 // Count returns the number of invites matching filter.
-func (m *MockInviteRepo) Count(_ context.Context, filter port.InviteFilter) (int, error) {
+func (m *MockInviteRepo) Count(ctx context.Context, filter port.InviteFilter) (int, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	n := 0
@@ -104,7 +110,8 @@ func (m *MockInviteRepo) Count(_ context.Context, filter port.InviteFilter) (int
 }
 
 // Update replaces the stored invite.
-func (m *MockInviteRepo) Update(_ context.Context, invite *domain.Invite) error {
+func (m *MockInviteRepo) Update(ctx context.Context, invite *domain.Invite) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.invites[invite.ID] = invite
@@ -114,7 +121,8 @@ func (m *MockInviteRepo) Update(_ context.Context, invite *domain.Invite) error 
 }
 
 // Delete removes the invite with the given ID.
-func (m *MockInviteRepo) Delete(_ context.Context, id string) error {
+func (m *MockInviteRepo) Delete(ctx context.Context, id string) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if inv, ok := m.invites[id]; ok {
@@ -126,7 +134,8 @@ func (m *MockInviteRepo) Delete(_ context.Context, id string) error {
 }
 
 // ClaimInvite accepts a pending, unexpired invite.
-func (m *MockInviteRepo) ClaimInvite(_ context.Context, code string, acceptedAt time.Time) (bool, error) {
+func (m *MockInviteRepo) ClaimInvite(ctx context.Context, code string, acceptedAt time.Time) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites[code]

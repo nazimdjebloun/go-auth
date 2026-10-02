@@ -8,7 +8,8 @@ import (
 )
 
 // Revoke changes only a pending or expired invite to revoked.
-func (m *MockInviteRepo) Revoke(_ context.Context, id string) (bool, error) {
+func (m *MockInviteRepo) Revoke(ctx context.Context, id string) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	invite := m.invites[id]
@@ -20,7 +21,8 @@ func (m *MockInviteRepo) Revoke(_ context.Context, id string) (bool, error) {
 }
 
 // RotateCode replaces the expected code only while an invite remains reusable.
-func (m *MockInviteRepo) RotateCode(_ context.Context, id, expectedCode, newCode string, expiresAt time.Time) (bool, error) {
+func (m *MockInviteRepo) RotateCode(ctx context.Context, id, expectedCode, newCode string, expiresAt time.Time) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	invite := m.invites[id]

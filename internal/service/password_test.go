@@ -17,6 +17,7 @@ type concurrentPasswordWinnerRepo struct {
 	*testutil.MockUserRepo
 	winnerHash    string
 	winnerVersion *uint32
+	winnerWritten bool
 	updateCalls   int
 }
 
@@ -51,6 +52,25 @@ func (m *recordingForgotPasswordTxManager) WithTx(ctx context.Context, fn func(c
 	return m.callbackErr
 }
 
+// Inject the committed competing write after the initial read but before the
+// service transaction. The stale read remains a detached snapshot; rollback of
+// the losing change must not undo an independent transaction's winning write.
+func (r *concurrentPasswordWinnerRepo) GetByID(ctx context.Context, userID string) (*domain.User, error) {
+	user, err := r.MockUserRepo.GetByID(ctx, userID)
+	if err != nil || user == nil || r.winnerWritten {
+		return user, err
+	}
+	won, err := r.MockUserRepo.UpdatePasswordHash(ctx, userID, *user.PasswordHash, user.PasswordPepperVersion, r.winnerHash, r.winnerVersion, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	if !won {
+		return nil, errors.New("test: concurrent winner could not update password")
+	}
+	r.winnerWritten = true
+	return user, nil
+}
+
 func (r *concurrentPasswordWinnerRepo) UpdatePasswordHash(
 	ctx context.Context,
 	userID, oldHash string,
@@ -60,21 +80,6 @@ func (r *concurrentPasswordWinnerRepo) UpdatePasswordHash(
 	updatedAt time.Time,
 ) (bool, error) {
 	r.updateCalls++
-	won, err := r.MockUserRepo.UpdatePasswordHash(
-		ctx,
-		userID,
-		oldHash,
-		oldPepperVersion,
-		r.winnerHash,
-		r.winnerVersion,
-		updatedAt,
-	)
-	if err != nil {
-		return false, err
-	}
-	if !won {
-		return false, errors.New("test: concurrent winner could not update password")
-	}
 	return r.MockUserRepo.UpdatePasswordHash(
 		ctx,
 		userID,

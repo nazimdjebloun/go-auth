@@ -7,7 +7,8 @@ import (
 )
 
 // ConsumeIfValidUnderCap mirrors the single guarded SQL update.
-func (m *MockTokenRepo) ConsumeIfValidUnderCap(_ context.Context, input port.ConsumeTokenInput, maxAttempts int) (bool, error) {
+func (m *MockTokenRepo) ConsumeIfValidUnderCap(ctx context.Context, input port.ConsumeTokenInput, maxAttempts int) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	token := m.tokens[input.ID]

@@ -19,7 +19,8 @@ func NewMockProviderAccountRepo() *MockProviderAccountRepo {
 }
 
 // Create stores a provider account.
-func (m *MockProviderAccountRepo) Create(_ context.Context, pa *domain.ProviderAccount) error {
+func (m *MockProviderAccountRepo) Create(ctx context.Context, pa *domain.ProviderAccount) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.accounts[pa.ID] = pa
@@ -27,7 +28,8 @@ func (m *MockProviderAccountRepo) Create(_ context.Context, pa *domain.ProviderA
 }
 
 // GetByProvider returns a matching provider account.
-func (m *MockProviderAccountRepo) GetByProvider(_ context.Context, provider, providerUserID string) (*domain.ProviderAccount, error) {
+func (m *MockProviderAccountRepo) GetByProvider(ctx context.Context, provider, providerUserID string) (*domain.ProviderAccount, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, pa := range m.accounts {
@@ -39,7 +41,8 @@ func (m *MockProviderAccountRepo) GetByProvider(_ context.Context, provider, pro
 }
 
 // ListByUserID returns a user's provider accounts.
-func (m *MockProviderAccountRepo) ListByUserID(_ context.Context, userID string) ([]domain.ProviderAccount, error) {
+func (m *MockProviderAccountRepo) ListByUserID(ctx context.Context, userID string) ([]domain.ProviderAccount, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var res []domain.ProviderAccount
@@ -52,7 +55,8 @@ func (m *MockProviderAccountRepo) ListByUserID(_ context.Context, userID string)
 }
 
 // Delete removes a user's provider account.
-func (m *MockProviderAccountRepo) Delete(_ context.Context, userID, provider string) error {
+func (m *MockProviderAccountRepo) Delete(ctx context.Context, userID, provider string) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for id, pa := range m.accounts {
@@ -63,10 +67,9 @@ func (m *MockProviderAccountRepo) Delete(_ context.Context, userID, provider str
 	return nil
 }
 
-// LockByUserID is a no-op here: the mock serializes through its own mutex
-// (and MockTxManager runs the guarded sequence inline), so there is no
-// interleaving to serialize against — the real row-locking lives in
-// sqlstore.
-func (m *MockProviderAccountRepo) LockByUserID(_ context.Context, _ string) error {
+// LockByUserID enlists the repository in mock rollback. It does not simulate
+// SQL row locks; concurrency guarantees are tested with real SQL fixtures.
+func (m *MockProviderAccountRepo) LockByUserID(ctx context.Context, _ string) error {
+	recordMockTx(ctx, m)
 	return nil
 }

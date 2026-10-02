@@ -13,7 +13,8 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-// MockUserRepo is an in-memory user repository for tests.
+// MockUserRepo is an in-memory user repository for tests. Stored users and
+// read results are detached snapshots, including their optional pointer fields.
 type MockUserRepo struct {
 	mu    sync.Mutex
 	users map[string]*domain.User
@@ -29,7 +30,8 @@ func NewMockUserRepo() *MockUserRepo {
 }
 
 // Create stores a user.
-func (m *MockUserRepo) Create(_ context.Context, user *domain.User) error {
+func (m *MockUserRepo) Create(ctx context.Context, user *domain.User) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// Check for duplicate email — mirrors sqlstore's unique-constraint
@@ -41,44 +43,53 @@ func (m *MockUserRepo) Create(_ context.Context, user *domain.User) error {
 			return port.ErrDuplicateKey
 		}
 	}
-	m.users[user.ID] = user
-	m.users[user.Email] = user
+	stored := cloneUser(user)
+	m.users[user.ID] = stored
+	m.users[user.Email] = stored
 	return nil
 }
 
 // GetByID returns a user by ID.
-func (m *MockUserRepo) GetByID(_ context.Context, id string) (*domain.User, error) {
+func (m *MockUserRepo) GetByID(ctx context.Context, id string) (*domain.User, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[id]
 	if !ok {
 		return nil, nil
 	}
-	return u, nil
+	return cloneUser(u), nil
 }
 
 // GetByEmail returns a user by email.
-func (m *MockUserRepo) GetByEmail(_ context.Context, email string) (*domain.User, error) {
+func (m *MockUserRepo) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[email]
 	if !ok {
 		return nil, nil
 	}
-	return u, nil
+	return cloneUser(u), nil
 }
 
 // Update replaces a user.
-func (m *MockUserRepo) Update(_ context.Context, user *domain.User) error {
+func (m *MockUserRepo) Update(ctx context.Context, user *domain.User) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.users[user.ID] = user
-	m.users[user.Email] = user
+	if old := m.users[user.ID]; old != nil {
+		delete(m.users, old.Email)
+	}
+	stored := cloneUser(user)
+	m.users[user.ID] = stored
+	m.users[user.Email] = stored
 	return nil
 }
 
 // Delete removes a user.
-func (m *MockUserRepo) Delete(_ context.Context, id string) error {
+func (m *MockUserRepo) Delete(ctx context.Context, id string) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u := m.users[id]
@@ -90,7 +101,8 @@ func (m *MockUserRepo) Delete(_ context.Context, id string) error {
 }
 
 // List returns matching users.
-func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain.User, error) {
+func (m *MockUserRepo) List(ctx context.Context, filter port.UserFilter) ([]domain.User, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -104,7 +116,7 @@ func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 			continue
 		}
 		seen[u.ID] = true
-		matched = append(matched, *u)
+		matched = append(matched, *cloneUser(u))
 	}
 
 	sort.SliceStable(matched, func(i, j int) bool {
@@ -135,7 +147,8 @@ func (m *MockUserRepo) List(_ context.Context, filter port.UserFilter) ([]domain
 }
 
 // Count returns the number of matching users.
-func (m *MockUserRepo) Count(_ context.Context, filter port.UserFilter) (int, error) {
+func (m *MockUserRepo) Count(ctx context.Context, filter port.UserFilter) (int, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -155,7 +168,8 @@ func (m *MockUserRepo) Count(_ context.Context, filter port.UserFilter) (int, er
 
 // CountByDay groups matched users by their CreatedAt day — a small in-memory
 // stand-in for the real GROUP BY date_trunc('day', ...) query.
-func (m *MockUserRepo) CountByDay(_ context.Context, filter port.UserFilter) ([]api.DailyCount, error) {
+func (m *MockUserRepo) CountByDay(ctx context.Context, filter port.UserFilter) ([]api.DailyCount, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -222,7 +236,8 @@ func userMatchesFilter(u *domain.User, filter port.UserFilter) bool {
 }
 
 // SetBanStatus changes a user's ban status.
-func (m *MockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned bool, bannedAt *time.Time, _ time.Time) error {
+func (m *MockUserRepo) SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, _ time.Time) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -230,12 +245,13 @@ func (m *MockUserRepo) SetBanStatus(_ context.Context, userID string, isBanned b
 		return nil
 	}
 	u.IsBanned = isBanned
-	u.BannedAt = bannedAt
+	u.BannedAt = clonePointer(bannedAt)
 	return nil
 }
 
 // SetTwoFactorEnabled changes a user's two-factor status.
-func (m *MockUserRepo) SetTwoFactorEnabled(_ context.Context, userID string, enabled bool, updatedAt time.Time) error {
+func (m *MockUserRepo) SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -248,7 +264,8 @@ func (m *MockUserRepo) SetTwoFactorEnabled(_ context.Context, userID string, ena
 }
 
 // UpdateLastLoginAt records a user's last login time.
-func (m *MockUserRepo) UpdateLastLoginAt(_ context.Context, userID string, t time.Time) error {
+func (m *MockUserRepo) UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -260,7 +277,8 @@ func (m *MockUserRepo) UpdateLastLoginAt(_ context.Context, userID string, t tim
 }
 
 // UpdatePasswordHash replaces a matching password hash.
-func (m *MockUserRepo) UpdatePasswordHash(_ context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {
+func (m *MockUserRepo) UpdatePasswordHash(ctx context.Context, userID, oldHash string, oldPepperVersion *uint32, newHash string, newPepperVersion *uint32, updatedAt time.Time) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -277,7 +295,8 @@ func (m *MockUserRepo) UpdatePasswordHash(_ context.Context, userID, oldHash str
 
 // UpdateName changes only name and updated_at — the guarded write the
 // service layer requires. False means the user no longer exists.
-func (m *MockUserRepo) UpdateName(_ context.Context, userID, name string, updatedAt time.Time) (bool, error) {
+func (m *MockUserRepo) UpdateName(ctx context.Context, userID, name string, updatedAt time.Time) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -291,7 +310,8 @@ func (m *MockUserRepo) UpdateName(_ context.Context, userID, name string, update
 
 // VerifyEmailIfMatches sets verification fields only while the stored email
 // still matches — the conditional write the service layer requires.
-func (m *MockUserRepo) VerifyEmailIfMatches(_ context.Context, userID, expectedEmail string, verifiedAt time.Time) (bool, error) {
+func (m *MockUserRepo) VerifyEmailIfMatches(ctx context.Context, userID, expectedEmail string, verifiedAt time.Time) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -304,10 +324,13 @@ func (m *MockUserRepo) VerifyEmailIfMatches(_ context.Context, userID, expectedE
 	return true, nil
 }
 
-// WithAdminGuard runs fn directly: the mock is single-process, so there is
-// no cross-connection serialization to model.
+// WithAdminGuard gives guarded mutations the same callback rollback model as
+// MockTxManager. SQL fixtures verify the actual account-mutation locks.
 func (m *MockUserRepo) WithAdminGuard(ctx context.Context, fn func(context.Context) error) error {
-	return fn(ctx)
+	return (&MockTxManager{}).WithTx(ctx, func(txCtx context.Context) error {
+		recordMockTx(txCtx, m)
+		return fn(txCtx)
+	})
 }
 
 func (m *MockUserRepo) mockUsableAdminLocked(exceptID string) bool {
@@ -323,7 +346,8 @@ func (m *MockUserRepo) mockUsableAdminLocked(exceptID string) bool {
 }
 
 // DeleteWithAdminGuard deletes the user unless it is the last usable admin.
-func (m *MockUserRepo) DeleteWithAdminGuard(_ context.Context, userID string) (bool, error) {
+func (m *MockUserRepo) DeleteWithAdminGuard(ctx context.Context, userID string) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -339,7 +363,8 @@ func (m *MockUserRepo) DeleteWithAdminGuard(_ context.Context, userID string) (b
 }
 
 // BanWithAdminGuard sets ban status unless banning would remove the last usable admin.
-func (m *MockUserRepo) BanWithAdminGuard(_ context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) (bool, error) {
+func (m *MockUserRepo) BanWithAdminGuard(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -350,14 +375,15 @@ func (m *MockUserRepo) BanWithAdminGuard(_ context.Context, userID string, isBan
 		return false, nil
 	}
 	u.IsBanned = isBanned
-	u.BannedAt = bannedAt
+	u.BannedAt = clonePointer(bannedAt)
 	u.UpdatedAt = updatedAt
 	return true, nil
 }
 
 // DemoteWithAdminGuard sets the role unless demoting from admin would remove
 // the last usable admin. Promotions are always allowed.
-func (m *MockUserRepo) DemoteWithAdminGuard(_ context.Context, userID string, role domain.Role, updatedAt time.Time) (bool, error) {
+func (m *MockUserRepo) DemoteWithAdminGuard(ctx context.Context, userID string, role domain.Role, updatedAt time.Time) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -373,7 +399,8 @@ func (m *MockUserRepo) DemoteWithAdminGuard(_ context.Context, userID string, ro
 }
 
 // SetPasswordAndVerify consumes a token, sets a password, and verifies a user.
-func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
+func (m *MockUserRepo) SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]
@@ -400,7 +427,8 @@ func (m *MockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, pa
 }
 
 // ListPasswordPepperVersions returns stored password pepper versions.
-func (m *MockUserRepo) ListPasswordPepperVersions(_ context.Context) ([]uint32, error) {
+func (m *MockUserRepo) ListPasswordPepperVersions(ctx context.Context) ([]uint32, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	seen := make(map[uint32]struct{})

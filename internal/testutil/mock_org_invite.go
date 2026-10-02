@@ -24,7 +24,8 @@ func NewMockOrgInviteRepo() *MockOrgInviteRepo {
 }
 
 // Create stores an organization invitation.
-func (m *MockOrgInviteRepo) Create(_ context.Context, invite *domain.OrgInvite) error {
+func (m *MockOrgInviteRepo) Create(ctx context.Context, invite *domain.OrgInvite) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.invites[invite.ID] = invite
@@ -33,7 +34,8 @@ func (m *MockOrgInviteRepo) Create(_ context.Context, invite *domain.OrgInvite) 
 }
 
 // GetByID returns an organization invitation by ID.
-func (m *MockOrgInviteRepo) GetByID(_ context.Context, id string) (*domain.OrgInvite, error) {
+func (m *MockOrgInviteRepo) GetByID(ctx context.Context, id string) (*domain.OrgInvite, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites[id]
@@ -44,7 +46,8 @@ func (m *MockOrgInviteRepo) GetByID(_ context.Context, id string) (*domain.OrgIn
 }
 
 // GetByCodeHash returns an organization invitation by code hash.
-func (m *MockOrgInviteRepo) GetByCodeHash(_ context.Context, codeHash string) (*domain.OrgInvite, error) {
+func (m *MockOrgInviteRepo) GetByCodeHash(ctx context.Context, codeHash string) (*domain.OrgInvite, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites["hash:"+codeHash]
@@ -56,6 +59,7 @@ func (m *MockOrgInviteRepo) GetByCodeHash(_ context.Context, codeHash string) (*
 
 // CountByOrgID returns an organization's invitation count.
 func (m *MockOrgInviteRepo) CountByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) (int, error) {
+	recordMockTx(ctx, m)
 	f := filter
 	f.Limit, f.Offset = 0, 0
 	items, err := m.ListByOrgID(ctx, orgID, f)
@@ -63,7 +67,8 @@ func (m *MockOrgInviteRepo) CountByOrgID(ctx context.Context, orgID string, filt
 }
 
 // ListByOrgID returns an organization's invitations.
-func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, error) {
+func (m *MockOrgInviteRepo) ListByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) ([]domain.OrgInvite, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	var all []domain.OrgInvite
 	seen := make(map[string]bool)
@@ -147,7 +152,8 @@ func (m *MockOrgInviteRepo) ListByOrgID(_ context.Context, orgID string, filter 
 }
 
 // Update replaces an organization invitation.
-func (m *MockOrgInviteRepo) Update(_ context.Context, invite *domain.OrgInvite) error {
+func (m *MockOrgInviteRepo) Update(ctx context.Context, invite *domain.OrgInvite) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if existing, ok := m.invites[invite.ID]; ok {
@@ -160,7 +166,8 @@ func (m *MockOrgInviteRepo) Update(_ context.Context, invite *domain.OrgInvite) 
 }
 
 // Delete removes an organization invitation.
-func (m *MockOrgInviteRepo) Delete(_ context.Context, id string) error {
+func (m *MockOrgInviteRepo) Delete(ctx context.Context, id string) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if inv, ok := m.invites[id]; ok {
@@ -171,7 +178,8 @@ func (m *MockOrgInviteRepo) Delete(_ context.Context, id string) error {
 }
 
 // ClaimInvite consumes a matching organization invitation.
-func (m *MockOrgInviteRepo) ClaimInvite(_ context.Context, id, codeHash string) (bool, error) {
+func (m *MockOrgInviteRepo) ClaimInvite(ctx context.Context, id, codeHash string) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	inv, ok := m.invites[id]

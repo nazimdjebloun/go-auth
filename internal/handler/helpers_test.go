@@ -1645,12 +1645,14 @@ func (m *mockOrgInviteRepo) ClaimInvite(_ context.Context, id, codeHash string) 
 	return true, nil
 }
 
-// ─── mockTxManager ───────────────────────────────────────────────────
+// ─── inlineTxManager ───────────────────────────────────────────────────
 
-type mockTxManager struct{}
+type inlineTxManager struct{}
 
-func (m *mockTxManager) WithTx(_ context.Context, fn func(ctx context.Context) error) error {
-	return fn(context.Background())
+// This callback stub tests HTTP behavior only. Transaction guarantees are
+// exercised with SQL fixtures, not the handler's independent repository stubs.
+func (m *inlineTxManager) WithTx(ctx context.Context, fn func(ctx context.Context) error) error {
+	return fn(ctx)
 }
 
 // ─── testHarness ─────────────────────────────────────────────────────
@@ -1706,20 +1708,20 @@ func newTestHarness() *testHarness {
 
 	twoFactorSvc := service.NewTwoFactorService(users, sessions, tokens, hasher, mailer, nil, cfg, sessSvc)
 	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, twoFactorSvc)
-	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &mockTxManager{}, cfg)
-	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, &mockTxManager{}, cfg)
-	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, &mockTxManager{}, cfg, sessSvc, twoFactorSvc)
+	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &inlineTxManager{}, cfg)
+	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, &inlineTxManager{}, cfg)
+	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, &inlineTxManager{}, cfg, sessSvc, twoFactorSvc)
 	providers := newMockProviderAccountRepo()
 	auditLogs := newMockAuditLogRepo()
 	adminSvc := service.NewAdminService(users, sessions, providers, auditLogs, hasher, cfg, sessSvc)
-	// Production wiring always attaches the coordinator; do the same here
-	// so admin deletion exercises the real transactional path.
-	adminSvc.AttachAccountDeletion(service.NewAccountDeletion(&mockTxManager{}, nil, sessions, users))
-	orgSvc := service.NewOrgService(orgs, users, sessions, &mockTxManager{}, service.OrgServiceConfig{
+	// Use the same account-deletion coordinator as production; SQL tests
+	// verify its transaction guarantees.
+	adminSvc.AttachAccountDeletion(service.NewAccountDeletion(&inlineTxManager{}, nil, sessions, users))
+	orgSvc := service.NewOrgService(orgs, users, sessions, &inlineTxManager{}, service.OrgServiceConfig{
 		MaxOrgsPerUser: 100,
 		Logger:         nil,
 	})
-	orgInviteSvc := service.NewOrgInviteService(orgInvites, orgs, users, &mockTxManager{}, gen, &mockMailer{}, service.OrgInviteServiceConfig{
+	orgInviteSvc := service.NewOrgInviteService(orgInvites, orgs, users, &inlineTxManager{}, gen, &mockMailer{}, service.OrgInviteServiceConfig{
 		MaxOrgsPerUser: 100,
 		InviteTTL:      7 * 24 * time.Hour,
 		BaseURL:        "http://localhost:3000",

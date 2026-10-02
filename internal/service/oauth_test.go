@@ -261,6 +261,9 @@ func TestOAuthUnlink_PasswordHolderMayUnlinkLast(t *testing.T) {
 
 	hash, _ := (&testutil.MockHasher{}).Hash("Passw0rd!")
 	user.PasswordHash = &hash
+	if err := users.Update(ctx, user); err != nil {
+		t.Fatal(err)
+	}
 	if err := svc.Unlink(ctx, user.ID, "test"); err != nil {
 		t.Fatalf("password holder unlinking last provider failed: %v", err)
 	}

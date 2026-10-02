@@ -21,7 +21,8 @@ func NewMockTokenRepo() *MockTokenRepo {
 }
 
 // Create stores a token under its ID and hash.
-func (m *MockTokenRepo) Create(_ context.Context, t *domain.VerificationToken) error {
+func (m *MockTokenRepo) Create(ctx context.Context, t *domain.VerificationToken) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tokens[t.ID] = t
@@ -30,7 +31,8 @@ func (m *MockTokenRepo) Create(_ context.Context, t *domain.VerificationToken) e
 }
 
 // GetByHash returns the token with the given hash.
-func (m *MockTokenRepo) GetByHash(_ context.Context, hash string) (*domain.VerificationToken, error) {
+func (m *MockTokenRepo) GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tokens[hash]
@@ -41,7 +43,8 @@ func (m *MockTokenRepo) GetByHash(_ context.Context, hash string) (*domain.Verif
 }
 
 // MarkUsed records the current time on the token.
-func (m *MockTokenRepo) MarkUsed(_ context.Context, id string) error {
+func (m *MockTokenRepo) MarkUsed(ctx context.Context, id string) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tokens[id]
@@ -53,7 +56,8 @@ func (m *MockTokenRepo) MarkUsed(_ context.Context, id string) error {
 }
 
 // MarkUsedIfUnused claims a token that has not been used.
-func (m *MockTokenRepo) MarkUsedIfUnused(_ context.Context, id string) (bool, error) {
+func (m *MockTokenRepo) MarkUsedIfUnused(ctx context.Context, id string) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tokens[id]
@@ -66,7 +70,8 @@ func (m *MockTokenRepo) MarkUsedIfUnused(_ context.Context, id string) (bool, er
 }
 
 // ConsumeIfValid claims a token when every input predicate matches.
-func (m *MockTokenRepo) ConsumeIfValid(_ context.Context, input port.ConsumeTokenInput) (bool, error) {
+func (m *MockTokenRepo) ConsumeIfValid(ctx context.Context, input port.ConsumeTokenInput) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tokens[input.ID]
@@ -80,7 +85,8 @@ func (m *MockTokenRepo) ConsumeIfValid(_ context.Context, input port.ConsumeToke
 }
 
 // GetByID returns the token with the given ID.
-func (m *MockTokenRepo) GetByID(_ context.Context, id string) (*domain.VerificationToken, error) {
+func (m *MockTokenRepo) GetByID(ctx context.Context, id string) (*domain.VerificationToken, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tokens[id]
@@ -95,7 +101,8 @@ func (m *MockTokenRepo) GetByID(_ context.Context, id string) (*domain.Verificat
 // SQL semantics: each checks its cap under the same lock that applies the
 // change and reports whether it landed. Modelling them as unconditional writes
 // would let tests pass while the real cap does nothing.
-func (m *MockTokenRepo) IncrementAttempts(_ context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
+func (m *MockTokenRepo) IncrementAttempts(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tokens[id]
@@ -107,7 +114,8 @@ func (m *MockTokenRepo) IncrementAttempts(_ context.Context, id string, maxAttem
 }
 
 // MarkUsedIfUnderCap claims an unused token below its attempt cap.
-func (m *MockTokenRepo) MarkUsedIfUnderCap(_ context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
+func (m *MockTokenRepo) MarkUsedIfUnderCap(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tokens[id]
@@ -120,7 +128,8 @@ func (m *MockTokenRepo) MarkUsedIfUnderCap(_ context.Context, id string, maxAtte
 }
 
 // UpdateForResend rotates a challenge token below its resend and attempt caps.
-func (m *MockTokenRepo) UpdateForResend(_ context.Context, id string, newHash string, newExpiresAt time.Time, newCreatedAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
+func (m *MockTokenRepo) UpdateForResend(ctx context.Context, id string, newHash string, newExpiresAt time.Time, newCreatedAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	t, ok := m.tokens[id]
@@ -137,12 +146,14 @@ func (m *MockTokenRepo) UpdateForResend(_ context.Context, id string, newHash st
 }
 
 // DeleteExpired is a no-op for this test repository.
-func (m *MockTokenRepo) DeleteExpired(_ context.Context) error {
+func (m *MockTokenRepo) DeleteExpired(ctx context.Context) error {
+	recordMockTx(ctx, m)
 	return nil
 }
 
 // DeleteUnusedByID removes only the requested unused token and its hash index.
-func (m *MockTokenRepo) DeleteUnusedByID(_ context.Context, id string) error {
+func (m *MockTokenRepo) DeleteUnusedByID(ctx context.Context, id string) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if token := m.tokens[id]; token != nil && token.UsedAt == nil {
@@ -159,7 +170,8 @@ func (m *MockTokenRepo) DeleteUnusedByID(_ context.Context, id string) error {
 // Tokens are indexed under both their id and their hash, so a single row is
 // two entries here; the predicate matches both, and deleting during a range is
 // well defined in Go.
-func (m *MockTokenRepo) DeleteUnusedByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) error {
+func (m *MockTokenRepo) DeleteUnusedByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) error {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for key, t := range m.tokens {
@@ -171,7 +183,8 @@ func (m *MockTokenRepo) DeleteUnusedByUserAndType(_ context.Context, userID stri
 }
 
 // GetLastByUserAndType returns the newest matching token.
-func (m *MockTokenRepo) GetLastByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error) {
+func (m *MockTokenRepo) GetLastByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var last *domain.VerificationToken
@@ -186,7 +199,8 @@ func (m *MockTokenRepo) GetLastByUserAndType(_ context.Context, userID string, t
 }
 
 // HasValidByUserAndType reports whether an unused matching token remains valid.
-func (m *MockTokenRepo) HasValidByUserAndType(_ context.Context, userID string, tokenType domain.TokenType) (bool, error) {
+func (m *MockTokenRepo) HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error) {
+	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := time.Now().UTC()

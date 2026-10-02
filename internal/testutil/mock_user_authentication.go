@@ -9,5 +9,6 @@ import (
 // GetByIDForUpdate supports sequential mock transactions. Concurrency guarantees
 // are exercised against the SQL repositories.
 func (m *MockUserRepo) GetByIDForUpdate(ctx context.Context, id string) (*domain.User, error) {
+	recordMockTx(ctx, m)
 	return m.GetByID(ctx, id)
 }
