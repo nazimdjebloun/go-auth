@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"testing"
 	"time"
 
@@ -19,7 +20,8 @@ func leaseMinute() time.Duration { return time.Minute }
 func dbCount(t *testing.T, db *sql.DB, query string, args ...any) int {
 	t.Helper()
 	var n int
-	if err := db.QueryRow(query, args...).Scan(&n); err != nil {
+	//nolint:gosec // Query comes from fixed test SQL; every dynamic value remains a bound argument.
+	if err := db.QueryRow(testdb.SQL(db, query), args...).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n

@@ -7,10 +7,10 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -90,22 +90,10 @@ func (m *testMailer) waitForResetToken(t *testing.T) string {
 // SQLite helpers
 // ---------------------------------------------------------------------------
 
-func newSQLiteDB(t *testing.T) (*sql.DB, func()) {
+func newTestDB(t *testing.T) (*sql.DB, func()) {
 	t.Helper()
-	f, err := os.CreateTemp("", "goauth-*.db")
-	if err != nil {
-		t.Fatal(err)
-	}
-	db, err := sql.Open("sqlite", f.Name()+"?_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)")
-	if err != nil {
-		checkTestErrors(t).noError(os.Remove(f.Name()))
-		t.Fatal(err)
-	}
-	cleanup := func() {
-		checkTestErrors(t).noError(db.Close())
-		checkTestErrors(t).noError(os.Remove(f.Name()))
-	}
-	return db, cleanup
+	db := testdb.OpenSelected(t)
+	return db, func() {}
 }
 
 // newTestAuth builds a *goauth.Auth directly rather than returning an
@@ -124,7 +112,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditCon
 			BaseURL: "http://localhost:8080",
 			Database: goauth.DatabaseConfig{
 				DB:     db,
-				Driver: goauth.DriverSQLite,
+				Driver: testAuthDriver(db),
 			},
 		}),
 		goauth.WithSession(goauth.SessionConfig{
@@ -161,7 +149,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditCon
 
 func openAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 	t.Helper()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 	a, err := newTestAuth(db, mailer)
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +189,7 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorCo
 			BaseURL: "http://localhost:8080",
 			Database: goauth.DatabaseConfig{
 				DB:     db,
-				Driver: goauth.DriverSQLite,
+				Driver: testAuthDriver(db),
 			},
 		}),
 		goauth.WithSession(goauth.SessionConfig{
@@ -227,7 +215,7 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorCo
 
 func openAuth2FA(t *testing.T, db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorConfig, reg goauth.RegistrationConfig) *goauth.Auth {
 	t.Helper()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 	a, err := newTestAuth2FA(db, mailer, twoFactor, reg)
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +236,7 @@ func wrongTwoFactorCode(actualCode string) string {
 func twoFactorEnabledInDB(t *testing.T, db *sql.DB, userID string) bool {
 	t.Helper()
 	var enabled bool
-	if err := db.QueryRow("SELECT two_factor_enabled FROM users WHERE id = ?", userID).Scan(&enabled); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT two_factor_enabled FROM users WHERE id = ?"), userID).Scan(&enabled); err != nil {
 		t.Fatal(err)
 	}
 	return enabled
@@ -293,13 +281,13 @@ func extractTokenFromEmail(body string) string {
 // ---------------------------------------------------------------------------
 
 func TestMigrations_CreateTables(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 
-	for _, name := range []string{"users", "sessions", "verification_tokens", "invites", "organizations", "organization_members", "organization_invites"} {
+	for _, name := range testdb.TableNames(testdb.Driver(db)) {
 		var n int
-		if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&n); err != nil {
+		if err := db.QueryRow(testdb.SQL(db, testTableQuery(db)), name).Scan(&n); err != nil {
 			t.Fatal(err)
 		}
 		if n != 1 {
@@ -309,7 +297,7 @@ func TestMigrations_CreateTables(t *testing.T) {
 }
 
 func TestRegister_CreatesUserAndSession(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -336,7 +324,7 @@ func TestRegister_CreatesUserAndSession(t *testing.T) {
 
 	// Password is hashed, not plaintext
 	var pwHash string
-	if err := db.QueryRow("SELECT password_hash FROM users WHERE id = ?", res.User.ID).Scan(&pwHash); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT password_hash FROM users WHERE id = ?"), res.User.ID).Scan(&pwHash); err != nil {
 		t.Fatal(err)
 	}
 	if pwHash == "" || pwHash == validTestPassword() {
@@ -345,7 +333,7 @@ func TestRegister_CreatesUserAndSession(t *testing.T) {
 
 	// Session token_hash is SHA256 of raw token, not the raw value
 	var tokHash string
-	if err := db.QueryRow("SELECT token_hash FROM sessions WHERE id = ?", res.Session.ID).Scan(&tokHash); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT token_hash FROM sessions WHERE id = ?"), res.Session.ID).Scan(&tokHash); err != nil {
 		t.Fatal(err)
 	}
 	if tokHash == res.SessionToken {
@@ -357,7 +345,7 @@ func TestRegister_CreatesUserAndSession(t *testing.T) {
 }
 
 func TestSession_ValidateAfterRegister(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -386,7 +374,7 @@ func TestSession_ValidateAfterRegister(t *testing.T) {
 }
 
 func TestSession_RevokeInvalidates(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -413,7 +401,7 @@ func TestSession_RevokeInvalidates(t *testing.T) {
 }
 
 func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -472,7 +460,7 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 }
 
 func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -523,7 +511,7 @@ func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
 }
 
 func TestPassword_ForgotAndReset(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -556,7 +544,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 
 	// Verify raw token is NOT stored — only SHA256 hash
 	var tokHash string
-	if err := db.QueryRow("SELECT token_hash FROM verification_tokens WHERE type = ?", domain.TokenResetPass).Scan(&tokHash); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT token_hash FROM verification_tokens WHERE type = ?"), domain.TokenResetPass).Scan(&tokHash); err != nil {
 		t.Fatal(err)
 	}
 	if tokHash == resetToken {
@@ -565,8 +553,8 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 	if tokHash != sha256Hex(resetToken) {
 		t.Error("reset token hash does not match SHA256(raw token)")
 	}
-	if _, err := db.Exec("INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at) VALUES (?, ?, ?, ?, ?, ?)",
-		"pending-reset-2fa", registered.User.ID, registered.User.Email, "pending-reset-2fa-hash", domain.TokenTwoFactor, time.Now().UTC().Add(time.Hour)); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at) VALUES (?, ?, ?, ?, ?, ?)"),
+		"00000000-0000-4000-8000-000000000020", registered.User.ID, registered.User.Email, "00000000-0000-4000-8000-000000000020-hash", domain.TokenTwoFactor, time.Now().UTC().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -580,14 +568,14 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 
 	// Token should be marked used
 	var usedCount int
-	if err := db.QueryRow("SELECT COUNT(*) FROM verification_tokens WHERE type = ? AND used_at IS NOT NULL", domain.TokenResetPass).Scan(&usedCount); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM verification_tokens WHERE type = ? AND used_at IS NOT NULL"), domain.TokenResetPass).Scan(&usedCount); err != nil {
 		t.Fatal(err)
 	}
 	if usedCount != 1 {
 		t.Error("reset token not marked as used")
 	}
 	var pending2FA int
-	if err := db.QueryRow("SELECT COUNT(*) FROM verification_tokens WHERE id = ?", "pending-reset-2fa").Scan(&pending2FA); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM verification_tokens WHERE id = ?"), "00000000-0000-4000-8000-000000000020").Scan(&pending2FA); err != nil {
 		t.Fatal(err)
 	}
 	if pending2FA != 0 {
@@ -612,7 +600,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 }
 
 func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -632,7 +620,7 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 
 	// App-wide invites are admin-only at the service layer, so promote first —
 	// Register hands out the default "user" role.
-	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -655,7 +643,7 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 
 	// DB stores hashed code, not raw
 	var codeHash string
-	if err := db.QueryRow("SELECT code FROM invites WHERE id = ?", invite.ID).Scan(&codeHash); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT code FROM invites WHERE id = ?"), invite.ID).Scan(&codeHash); err != nil {
 		t.Fatal(err)
 	}
 	if codeHash == "" {
@@ -666,7 +654,7 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 	// (CreateInvite no longer returns the raw code for security).
 	knownRaw := "test-invite-code-12345"
 	knownHash := sha256Hex(knownRaw)
-	_, err := db.Exec("UPDATE invites SET code = ? WHERE id = ?", knownHash, invite.ID)
+	_, err := db.Exec(testdb.SQL(db, "UPDATE invites SET code = ? WHERE id = ?"), knownHash, invite.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,7 +687,7 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 
 	// Invite marked accepted
 	var status string
-	if err := db.QueryRow("SELECT status FROM invites WHERE id = ?", invite.ID).Scan(&status); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT status FROM invites WHERE id = ?"), invite.ID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "accepted" {
@@ -712,7 +700,7 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestCheckSession_ValidToken(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -733,7 +721,7 @@ func TestCheckSession_ValidToken(t *testing.T) {
 }
 
 func TestCheckSession_InvalidToken(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -744,7 +732,7 @@ func TestCheckSession_InvalidToken(t *testing.T) {
 }
 
 func TestCheckSession_EmptyToken(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -755,9 +743,9 @@ func TestCheckSession_EmptyToken(t *testing.T) {
 }
 
 func TestCheckSession_ExpiredSession(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 	cfg, err := goauth.NewConfig(
 		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
@@ -765,14 +753,14 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 			BaseURL: "http://localhost:8080",
 			Database: goauth.DatabaseConfig{
 				DB:     db,
-				Driver: goauth.DriverSQLite,
+				Driver: testAuthDriver(db),
 			},
 		}),
 		goauth.WithSession(goauth.SessionConfig{
-			TTL:             1 * time.Millisecond,
-			IdleTTL:         1 * time.Millisecond,
-			RefreshTokenTTL: 1 * time.Millisecond,
-			TokenTTL:        1 * time.Millisecond,
+			TTL:             1 * time.Hour,
+			IdleTTL:         1 * time.Hour,
+			RefreshTokenTTL: 1 * time.Hour,
+			TokenTTL:        1 * time.Hour,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
 			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
@@ -801,8 +789,10 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	// Wait for session to expire
-	time.Sleep(50 * time.Millisecond)
+	// Set persisted expiry explicitly; this does not depend on storage precision.
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE sessions SET expires_at = ? WHERE id = ?"), time.Now().UTC().Add(-time.Hour), res.Session.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	if a.CheckSession(ctx, res.SessionToken) {
 		t.Error("CheckSession returned true for an expired token")
@@ -810,7 +800,7 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 }
 
 func TestCheckSession_BannedUser(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -833,7 +823,7 @@ func TestCheckSession_BannedUser(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -848,7 +838,7 @@ func TestCheckSession_BannedUser(t *testing.T) {
 }
 
 func TestCheckSession_AfterLogout(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -874,7 +864,7 @@ func TestCheckSession_AfterLogout(t *testing.T) {
 }
 
 func TestGetSession_ValidToken(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -914,7 +904,7 @@ func TestGetSession_ValidToken(t *testing.T) {
 }
 
 func TestGetSession_InvalidToken(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -932,9 +922,9 @@ func TestGetSession_InvalidToken(t *testing.T) {
 }
 
 func TestGetSession_ExpiredToken(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 	cfg, err := goauth.NewConfig(
 		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
@@ -942,14 +932,14 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 			BaseURL: "http://localhost:8080",
 			Database: goauth.DatabaseConfig{
 				DB:     db,
-				Driver: goauth.DriverSQLite,
+				Driver: testAuthDriver(db),
 			},
 		}),
 		goauth.WithSession(goauth.SessionConfig{
-			TTL:             1 * time.Millisecond,
-			IdleTTL:         1 * time.Millisecond,
-			RefreshTokenTTL: 1 * time.Millisecond,
-			TokenTTL:        1 * time.Millisecond,
+			TTL:             1 * time.Hour,
+			IdleTTL:         1 * time.Hour,
+			RefreshTokenTTL: 1 * time.Hour,
+			TokenTTL:        1 * time.Hour,
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
 			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
@@ -978,7 +968,9 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE sessions SET expires_at = ? WHERE id = ?"), time.Now().UTC().Add(-time.Hour), res.Session.ID); err != nil {
+		t.Fatal(err)
+	}
 
 	user, session, err := a.GetSession(ctx, res.SessionToken)
 	if err == nil {
@@ -993,7 +985,7 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 }
 
 func TestGetSession_BannedUser(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -1016,7 +1008,7 @@ func TestGetSession_BannedUser(t *testing.T) {
 	if aerr2 != nil {
 		t.Fatal(aerr2)
 	}
-	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1039,7 +1031,7 @@ func TestGetSession_BannedUser(t *testing.T) {
 }
 
 func TestGetSession_ReturnsFullUserWithRole(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -1076,7 +1068,7 @@ func TestGetSession_ReturnsFullUserWithRole(t *testing.T) {
 }
 
 func TestGetSession_AfterLogoutReturnsError(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -1109,7 +1101,7 @@ func TestGetSession_AfterLogoutReturnsError(t *testing.T) {
 }
 
 func TestRefreshToken_E2E(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -1167,7 +1159,7 @@ func TestRefreshToken_E2E(t *testing.T) {
 
 	// Refresh token hash should be SHA256 of raw refresh token (not stored in plaintext)
 	var storedHash string
-	if err := db.QueryRow("SELECT refresh_token_hash FROM sessions WHERE id = ?", session2.ID).Scan(&storedHash); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT refresh_token_hash FROM sessions WHERE id = ?"), session2.ID).Scan(&storedHash); err != nil {
 		t.Fatal(err)
 	}
 	if storedHash == refresh2 {
@@ -1207,7 +1199,7 @@ func TestRefreshToken_E2E(t *testing.T) {
 // the SQLite driver returned SQL NULL for parsed_ua / metadata and scanning
 // them into json.RawMessage failed, making every admin audit-log listing 500.
 func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -1300,7 +1292,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 		}
 	}
 	if len(typed) == 0 {
-		rows, _ := db.Query("SELECT event_type, user_agent FROM audit_log")
+		rows, _ := db.Query(testdb.SQL(db, "SELECT event_type, user_agent FROM audit_log"))
 		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var et, ua string
@@ -1312,7 +1304,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 }
 
 func TestPublicServicesAndHandlerLookup(t *testing.T) {
-	db, cleanup := newSQLiteDB(t)
+	db, cleanup := newTestDB(t)
 	defer cleanup()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -1337,7 +1329,7 @@ func TestPublicServicesAndHandlerLookup(t *testing.T) {
 // mounted handler so consumers don't need to wrap the mux with a.CORS
 // themselves.
 func TestMount_BakesInCORS(t *testing.T) {
-	db, cleanup := newSQLiteDB(t)
+	db, cleanup := newTestDB(t)
 	defer cleanup()
 	a := openAuth(t, db, &testMailer{})
 
@@ -1401,7 +1393,7 @@ func TestMount_BakesInCORS(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestTwoFactor_VerifyThenEnable_LaterLoginRequiresTwoFactor(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{}, goauth.RegistrationConfig{
@@ -1466,7 +1458,7 @@ func TestTwoFactor_VerifyThenEnable_LaterLoginRequiresTwoFactor(t *testing.T) {
 }
 
 func TestTwoFactor_RegisterWithRequireEmail2FA_ChallengeThenVerify(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{RequireEmail2FA: true}, goauth.RegistrationConfig{})
@@ -1505,7 +1497,7 @@ func TestTwoFactor_RegisterWithRequireEmail2FA_ChallengeThenVerify(t *testing.T)
 }
 
 func TestTwoFactor_EnableDisable_PersistsToDB(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -1541,7 +1533,7 @@ func TestTwoFactor_EnableDisable_PersistsToDB(t *testing.T) {
 }
 
 func TestTwoFactor_AttemptCap_ResendFails_FreshLoginIssuesNewCode(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -1615,7 +1607,7 @@ func TestTwoFactor_AttemptCap_ResendFails_FreshLoginIssuesNewCode(t *testing.T) 
 // it is explicitly not an account-wide brute-force control (see
 // docs/security.mdx and the comment on TwoFactorService.Challenge).
 func TestTwoFactor_NoAccountLevelRefusal_AcrossManyLineages(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -1660,7 +1652,7 @@ func TestTwoFactor_NoAccountLevelRefusal_AcrossManyLineages(t *testing.T) {
 }
 
 func TestTwoFactor_ResendCeiling(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -1694,7 +1686,7 @@ func TestTwoFactor_ResendCeiling(t *testing.T) {
 }
 
 func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -1739,7 +1731,7 @@ func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
 	}
 
 	var attempts int
-	if err := db.QueryRow("SELECT attempts FROM verification_tokens WHERE id = ?", login.TwoFactorChallenge).Scan(&attempts); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT attempts FROM verification_tokens WHERE id = ?"), login.TwoFactorChallenge).Scan(&attempts); err != nil {
 		t.Fatal(err)
 	}
 	if attempts != 5 {
@@ -1756,7 +1748,7 @@ func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
 // email_already_exists — this asserts the fix against the real SQLite
 // repository, not a mock.
 func TestRegister_ConcurrentSameEmail_OneWinsOneGetsEmailAlreadyExists(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -1800,7 +1792,7 @@ func TestRegister_ConcurrentSameEmail_OneWinsOneGetsEmailAlreadyExists(t *testin
 }
 
 func TestTwoFactor_ChallengeBinding_RequiredByDefault(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -1852,7 +1844,7 @@ func TestTwoFactor_ChallengeBinding_RequiredByDefault(t *testing.T) {
 }
 
 func TestTwoFactor_ChallengeBinding_DisabledSkipsCheck(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{DisableChallengeBinding: true}, goauth.RegistrationConfig{})
@@ -1880,7 +1872,7 @@ func TestTwoFactor_ChallengeBinding_DisabledSkipsCheck(t *testing.T) {
 }
 
 func TestTwoFactor_DefaultTwoFactorEnabled_GatedUntilDisabled(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{DefaultEnabled: true}, goauth.RegistrationConfig{})
@@ -1934,7 +1926,7 @@ func TestTwoFactor_DefaultTwoFactorEnabled_GatedUntilDisabled(t *testing.T) {
 }
 
 func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{RequireEmail2FA: true}, goauth.RegistrationConfig{})
@@ -1956,7 +1948,7 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 		t.Fatal(aerr)
 	}
 	user := verifyResult.User
-	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", user.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), user.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1982,7 +1974,7 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 	}
 	knownRaw := "test-invite-code-2fa"
 	knownHash := sha256Hex(knownRaw)
-	if _, err := db.Exec("UPDATE invites SET code = ? WHERE id = ?", knownHash, invite.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE invites SET code = ? WHERE id = ?"), knownHash, invite.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2008,7 +2000,7 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 }
 
 func TestTwoFactor_Enable_RevokesOtherSessionsByDefault(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -2049,7 +2041,7 @@ func TestTwoFactor_Enable_RevokesOtherSessionsByDefault(t *testing.T) {
 }
 
 func TestTwoFactor_Enable_KeepOtherSessionsLeavesBoth(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -2086,7 +2078,7 @@ func TestTwoFactor_Enable_KeepOtherSessionsLeavesBoth(t *testing.T) {
 // is not subject to SameSite, so either alone is legitimate there.
 func newAuthWithCSRFTopology(t *testing.T, db *sql.DB, sameSite http.SameSite, exposeInBody bool) *bytes.Buffer {
 	t.Helper()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
@@ -2096,7 +2088,7 @@ func newAuthWithCSRFTopology(t *testing.T, db *sql.DB, sameSite http.SameSite, e
 		goauth.WithApp(goauth.AppConfig{
 			Name:     "TestApp",
 			BaseURL:  "https://api.example.com",
-			Database: goauth.DatabaseConfig{DB: db, Driver: goauth.DriverSQLite},
+			Database: goauth.DatabaseConfig{DB: db, Driver: testAuthDriver(db)},
 		}),
 		goauth.WithSecurity(goauth.SecurityConfig{
 			AllowedOrigins: []string{"https://panel.example.com"},
@@ -2119,7 +2111,7 @@ func newAuthWithCSRFTopology(t *testing.T, db *sql.DB, sameSite http.SameSite, e
 }
 
 func TestCSRFTopology_WarnsOnNoneWithoutBodyToken(t *testing.T) {
-	db, cleanup := newSQLiteDB(t)
+	db, cleanup := newTestDB(t)
 	defer cleanup()
 
 	logs := newAuthWithCSRFTopology(t, db, http.SameSiteNoneMode, false).String()
@@ -2129,7 +2121,7 @@ func TestCSRFTopology_WarnsOnNoneWithoutBodyToken(t *testing.T) {
 }
 
 func TestCSRFTopology_WarnsOnBodyTokenWithoutNone(t *testing.T) {
-	db, cleanup := newSQLiteDB(t)
+	db, cleanup := newTestDB(t)
 	defer cleanup()
 
 	logs := newAuthWithCSRFTopology(t, db, http.SameSiteLaxMode, true).String()
@@ -2139,7 +2131,7 @@ func TestCSRFTopology_WarnsOnBodyTokenWithoutNone(t *testing.T) {
 }
 
 func TestCSRFTopology_SilentWhenBothSet(t *testing.T) {
-	db, cleanup := newSQLiteDB(t)
+	db, cleanup := newTestDB(t)
 	defer cleanup()
 
 	logs := newAuthWithCSRFTopology(t, db, http.SameSiteNoneMode, true).String()
@@ -2149,11 +2141,29 @@ func TestCSRFTopology_SilentWhenBothSet(t *testing.T) {
 }
 
 func TestCSRFTopology_SilentOnPlainSameOriginDefaults(t *testing.T) {
-	db, cleanup := newSQLiteDB(t)
+	db, cleanup := newTestDB(t)
 	defer cleanup()
 
 	logs := newAuthWithCSRFTopology(t, db, http.SameSiteLaxMode, false).String()
 	if strings.Contains(logs, "ExposeCSRFTokenInBody") {
 		t.Errorf("the default same-origin setup must not warn, got:\n%s", logs)
 	}
+}
+
+func testTableQuery(db *sql.DB) string {
+	switch testdb.Driver(db) {
+	case "postgres":
+		return "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?"
+	case "mysql":
+		return "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?"
+	default:
+		return "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?"
+	}
+}
+
+func testAuthDriver(db *sql.DB) goauth.Driver {
+	if testdb.Driver(db) == "sqlite" {
+		return goauth.DriverSQLite
+	}
+	return goauth.Driver(testdb.Driver(db))
 }

@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"errors"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"testing"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -40,7 +41,7 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 
 	// Audit events flush asynchronously (ServiceConfig's default
 	// FlushInterval is 100ms).
-	time.Sleep(200 * time.Millisecond)
+	waitAuditCount(t, db, "SELECT COUNT(*) FROM audit_log WHERE event_type = 'session.refresh_reuse_detected'", 1)
 
 	reuseType := string(audit.EventSessionRefreshReuseDetected)
 	events, err := a.Services().AuditLog.List(ctx, port.AuditLogFilter{Types: []string{reuseType}, Limit: 10})
@@ -56,7 +57,7 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 }
 
 func TestSession_RefreshCannotReviveIdleSession(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -65,14 +66,14 @@ func TestSession_RefreshCannotReviveIdleSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("UPDATE sessions SET last_active_at = ? WHERE id = ?", time.Now().UTC().Add(-2*time.Hour), registered.Session.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE sessions SET last_active_at = ? WHERE id = ?"), time.Now().UTC().Add(-2*time.Hour), registered.Session.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := a.Services().Session.RefreshSession(ctx, registered.RefreshToken); !errors.Is(err, domain.ErrSessionExpired) {
 		t.Fatalf("refresh after idle timeout = %v, want ErrSessionExpired", err)
 	}
 	var storedHash string
-	if err := db.QueryRow("SELECT refresh_token_hash FROM sessions WHERE id = ?", registered.Session.ID).Scan(&storedHash); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT refresh_token_hash FROM sessions WHERE id = ?"), registered.Session.ID).Scan(&storedHash); err != nil {
 		t.Fatal(err)
 	}
 	if storedHash != sha256Hex(registered.RefreshToken) {
@@ -81,9 +82,9 @@ func TestSession_RefreshCannotReviveIdleSession(t *testing.T) {
 }
 
 func TestSession_RefreshAuditFailureKeepsOldToken(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 	a, err := newTestAuth(db, &testMailer{}, goauth.AuditConfig{
 		Enabled: true,
 		EnqueueFailureMode: func(event audit.Event) audit.FailureMode {
@@ -102,24 +103,18 @@ func TestSession_RefreshAuditFailureKeepsOldToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec(`CREATE TRIGGER block_refresh_audit BEFORE INSERT ON audit_log
-		WHEN NEW.event_type = 'session.refreshed'
-		BEGIN SELECT RAISE(FAIL, 'blocked refresh audit'); END`); err != nil {
-		t.Fatal(err)
-	}
+	removeFailure := testdb.FailWrites(t, db, "block_refresh_audit", "audit_log", "INSERT", "NEW.event_type = 'session.refreshed'")
 	if _, err := a.Services().Session.RefreshSession(ctx, registered.RefreshToken); !errors.Is(err, audit.ErrRecordBlocked) {
 		t.Fatalf("refresh with failed audit = %v, want ErrRecordBlocked", err)
 	}
-	if _, err := db.Exec("DROP TRIGGER block_refresh_audit"); err != nil {
-		t.Fatal(err)
-	}
+	removeFailure()
 	if _, err := a.Services().Session.RefreshSession(ctx, registered.RefreshToken); err != nil {
 		t.Fatalf("old refresh token was stranded after rollback: %v", err)
 	}
 }
 
 func TestSession_RefreshReuseDetection_RevocationFailurePropagates(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -137,10 +132,7 @@ func TestSession_RefreshReuseDetection_RevocationFailurePropagates(t *testing.T)
 		t.Fatal(err)
 	}
 
-	if _, err := db.Exec(`CREATE TRIGGER block_reuse_revoke BEFORE DELETE ON sessions
-		BEGIN SELECT RAISE(FAIL, 'blocked reuse revocation'); END`); err != nil {
-		t.Fatal(err)
-	}
+	removeFailure := testdb.FailWrites(t, db, "block_reuse_revoke", "sessions", "DELETE", "")
 	_, err = a.Services().Session.RefreshSession(ctx, oldRefreshToken)
 	if err == nil {
 		t.Fatal("expected revocation failure to propagate")
@@ -149,9 +141,7 @@ func TestSession_RefreshReuseDetection_RevocationFailurePropagates(t *testing.T)
 		t.Fatalf("revocation failure was misreported as a successfully revoked session: %v", err)
 	}
 
-	if _, err := db.Exec("DROP TRIGGER block_reuse_revoke"); err != nil {
-		t.Fatal(err)
-	}
+	removeFailure()
 	if _, err := a.Services().Session.RefreshSession(ctx, rotated.RefreshToken); err != nil {
 		t.Fatalf("current refresh token should remain usable because deletion did not occur: %v", err)
 	}

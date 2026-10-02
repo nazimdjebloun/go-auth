@@ -12,6 +12,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -71,7 +72,7 @@ func TestSetPassword_ConfirmAfterCommit_AlreadySet(t *testing.T) {
 
 func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
 	t.Helper()
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -85,7 +86,7 @@ func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
 		t.Fatal(aerr)
 	}
 	// Simulate an OAuth-only account: no password hash yet.
-	if _, err := db.Exec("UPDATE users SET password_hash = NULL WHERE id = ?", reg.User.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET password_hash = NULL WHERE id = ?"), reg.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -149,7 +150,7 @@ func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
 
 	// The code is stamped used exactly once.
 	var usedCount int
-	if err := db.QueryRow("SELECT COUNT(*) FROM verification_tokens WHERE user_id = ? AND type = ? AND used_at IS NOT NULL",
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM verification_tokens WHERE user_id = ? AND type = ? AND used_at IS NOT NULL"),
 		reg.User.ID, domain.TokenSetPass).Scan(&usedCount); err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +182,7 @@ func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
 // invite code: the claim serializes them, the loser gets invite_already_used,
 // and exactly one account is created.
 func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -194,7 +195,7 @@ func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{
@@ -204,7 +205,7 @@ func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
 		t.Fatal(aerr)
 	}
 	const knownRaw = "test-race-invite-code-1"
-	if _, err := db.Exec("UPDATE invites SET code = ? WHERE id = ?", sha256Hex(knownRaw), invite.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE invites SET code = ? WHERE id = ?"), sha256Hex(knownRaw), invite.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -240,14 +241,14 @@ func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
 		t.Errorf("expected loser invite_already_used (other=%d), got alreadyUsed=%d", other, alreadyUsed)
 	}
 	var userCount int
-	if err := db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", "invitee@example.com").Scan(&userCount); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM users WHERE email = ?"), "invitee@example.com").Scan(&userCount); err != nil {
 		t.Fatal(err)
 	}
 	if userCount != 1 {
 		t.Errorf("users with invite email = %d, want exactly 1", userCount)
 	}
 	var status string
-	if err := db.QueryRow("SELECT status FROM invites WHERE id = ?", invite.ID).Scan(&status); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT status FROM invites WHERE id = ?"), invite.ID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "accepted" {
@@ -259,7 +260,7 @@ func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
 // when the account insert fails (the address registered through another
 // path), the invite claim rolls back with it and the invite stays pending.
 func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth(t, db, mailer)
@@ -272,7 +273,7 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{
@@ -282,7 +283,7 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 		t.Fatal(aerr)
 	}
 	const knownRaw = "test-race-invite-code-2"
-	if _, err := db.Exec("UPDATE invites SET code = ? WHERE id = ?", sha256Hex(knownRaw), invite.ID); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE invites SET code = ? WHERE id = ?"), sha256Hex(knownRaw), invite.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -300,7 +301,7 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 		t.Fatalf("code = %q, want email_already_exists", authCode(err))
 	}
 	var status string
-	if err := db.QueryRow("SELECT status FROM invites WHERE id = ?", invite.ID).Scan(&status); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT status FROM invites WHERE id = ?"), invite.ID).Scan(&status); err != nil {
 		t.Fatal(err)
 	}
 	if status != "pending" {
@@ -314,7 +315,7 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 
 func readOrgCounts(t *testing.T, db *sql.DB, orgID string) (ownerCount, memberCount int) {
 	t.Helper()
-	if err := db.QueryRow("SELECT owner_count, member_count FROM organizations WHERE id = ?", orgID).
+	if err := db.QueryRow(testdb.SQL(db, "SELECT owner_count, member_count FROM organizations WHERE id = ?"), orgID).
 		Scan(&ownerCount, &memberCount); err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +325,7 @@ func readOrgCounts(t *testing.T, db *sql.DB, orgID string) (ownerCount, memberCo
 func readUserOwnerCount(t *testing.T, db *sql.DB, userID string) int {
 	t.Helper()
 	var n int
-	if err := db.QueryRow("SELECT org_owner_count FROM users WHERE id = ?", userID).Scan(&n); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT org_owner_count FROM users WHERE id = ?"), userID).Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -334,7 +335,7 @@ func readUserOwnerCount(t *testing.T, db *sql.DB, userID string) int {
 // same member: exactly one wins, and the denormalized owner/member counts
 // move exactly once.
 func TestOrg_ConcurrentRemoveMember_CountsConsistent(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -399,7 +400,7 @@ func TestOrg_ConcurrentRemoveMember_CountsConsistent(t *testing.T) {
 		t.Errorf("owner users.org_owner_count = %d, want 1", n)
 	}
 	var memberships int
-	if err := db.QueryRow("SELECT COUNT(*) FROM organization_members WHERE org_id = ? AND user_id = ?",
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM organization_members WHERE org_id = ? AND user_id = ?"),
 		org.ID, member.User.ID).Scan(&memberships); err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +413,7 @@ func TestOrg_ConcurrentRemoveMember_CountsConsistent(t *testing.T) {
 // winner applies the change, the loser observes the already-applied target
 // role and reports a no-op — and the owner counts move exactly once.
 func TestOrg_ConcurrentDemoteSameMemberTwice(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -460,7 +461,7 @@ func TestOrg_ConcurrentDemoteSameMemberTwice(t *testing.T) {
 	wg.Wait()
 
 	var role string
-	if err := db.QueryRow("SELECT role FROM organization_members WHERE org_id = ? AND user_id = ?",
+	if err := db.QueryRow(testdb.SQL(db, "SELECT role FROM organization_members WHERE org_id = ? AND user_id = ?"),
 		org.ID, owner1.User.ID).Scan(&role); err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +485,7 @@ func TestOrg_ConcurrentDemoteSameMemberTwice(t *testing.T) {
 // database state must be consistent with the final membership row in every
 // interleaving.
 func TestOrg_ConcurrentRemoveVsDemote(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -548,7 +549,7 @@ func TestOrg_ConcurrentRemoveVsDemote(t *testing.T) {
 
 	var role *string
 	var roleVal string
-	if err := db.QueryRow("SELECT role FROM organization_members WHERE org_id = ? AND user_id = ?",
+	if err := db.QueryRow(testdb.SQL(db, "SELECT role FROM organization_members WHERE org_id = ? AND user_id = ?"),
 		org.ID, owner1.User.ID).Scan(&roleVal); err == nil {
 		role = &roleVal
 	}
@@ -588,7 +589,7 @@ func TestOrg_ConcurrentRemoveVsDemote(t *testing.T) {
 // once — the loser's guarded delete matches nothing and rolls its upkeep
 // back instead of decrementing a second time.
 func TestOrg_ConcurrentDeleteOrg_CountsConsistent(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -635,7 +636,7 @@ func TestOrg_ConcurrentDeleteOrg_CountsConsistent(t *testing.T) {
 		t.Fatalf("expected exactly 1 successful deletion, got %d", succeeded)
 	}
 	var orgs int
-	if err := db.QueryRow("SELECT COUNT(*) FROM organizations WHERE id = ?", org.ID).Scan(&orgs); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM organizations WHERE id = ?"), org.ID).Scan(&orgs); err != nil {
 		t.Fatal(err)
 	}
 	if orgs != 0 {
@@ -651,7 +652,7 @@ func TestOrg_ConcurrentDeleteOrg_CountsConsistent(t *testing.T) {
 // backstop when it loses the check-then-insert race), and member_count moves
 // exactly once.
 func TestOrg_ConcurrentAddMember_CountsConsistent(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -724,7 +725,7 @@ func TestOrg_ConcurrentAddMember_CountsConsistent(t *testing.T) {
 // the previously emailed code no longer redeems, and the invite row survives
 // the failed attempt.
 func TestOrgInvite_RotatedCodeRejected(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -770,14 +771,14 @@ func TestOrgInvite_RotatedCodeRejected(t *testing.T) {
 	}
 
 	var remaining int
-	if err := db.QueryRow("SELECT COUNT(*) FROM organization_invites WHERE id = ?", invite.ID).Scan(&remaining); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM organization_invites WHERE id = ?"), invite.ID).Scan(&remaining); err != nil {
 		t.Fatal(err)
 	}
 	if remaining != 1 {
 		t.Errorf("invite rows = %d after failed accept, want the row to survive", remaining)
 	}
 	var memberships int
-	if err := db.QueryRow("SELECT COUNT(*) FROM organization_members WHERE org_id = ? AND user_id = ?",
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM organization_members WHERE org_id = ? AND user_id = ?"),
 		org.ID, invitee.User.ID).Scan(&memberships); err != nil {
 		t.Fatal(err)
 	}
@@ -818,7 +819,7 @@ func (p *stubOAuthProvider) Exchange(_ context.Context, _, _ string) (*port.OAut
 // OAuth providers, so the OAuth callback/link/unlink flows run end to end.
 func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...port.OAuthProvider) *goauth.Auth {
 	t.Helper()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 	opts := []goauth.Option{
 		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
@@ -826,7 +827,7 @@ func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...po
 			BaseURL: "http://localhost:8080",
 			Database: goauth.DatabaseConfig{
 				DB:     db,
-				Driver: goauth.DriverSQLite,
+				Driver: testAuthDriver(db),
 			},
 		}),
 		goauth.WithSession(goauth.SessionConfig{
@@ -912,7 +913,7 @@ func oauthLink(ctx context.Context, t *testing.T, a *goauth.Auth, provider, user
 // user's two providers: exactly one wins, and the survivor still
 // authenticates — the user is never stranded with zero login methods.
 func TestUnlink_ConcurrentLastProvider(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOAuthAuth(t, db, &testMailer{},
 		&stubOAuthProvider{name: "stubA", providerUserID: "user-a", email: "oauth@test.com"},
@@ -976,7 +977,7 @@ func TestUnlink_ConcurrentLastProvider(t *testing.T) {
 // arbitrates, the loser gets email_already_exists, and no orphaned user row
 // is left behind by a half-finished registration.
 func TestOAuth_ConcurrentSameEmail_OneWins(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOAuthAuth(t, db, &testMailer{},
 		&stubOAuthProvider{name: "stubA", providerUserID: "user-a", email: "race@test.com"},
@@ -1024,7 +1025,7 @@ func TestOAuth_ConcurrentSameEmail_OneWins(t *testing.T) {
 		t.Errorf("expected the loser to get email_already_exists, got duplicates=%d other=%d", duplicates, other)
 	}
 	var userCount int
-	if err := db.QueryRow("SELECT COUNT(*) FROM users WHERE email = ?", "race@test.com").Scan(&userCount); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM users WHERE email = ?"), "race@test.com").Scan(&userCount); err != nil {
 		t.Fatal(err)
 	}
 	if userCount != 1 {

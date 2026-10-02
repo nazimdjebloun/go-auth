@@ -3,19 +3,15 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/stdlib"
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/port"
 )
-
-const testDBName = "goauth_test"
 
 // newPostgresTestAuth builds a *goauth.Auth directly rather than returning
 // an intermediate goauth.Config — the config type is unexported (NewConfig
@@ -56,39 +52,7 @@ func newPostgresTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 // The returned cleanup function drops the test database entirely.
 func postgresTestDB(t *testing.T, dsn string) (*sql.DB, func()) {
 	t.Helper()
-
-	connConfig, err := pgx.ParseConfig(dsn)
-	if err != nil {
-		t.Fatalf("pgx.ParseConfig: %v", err)
-	}
-
-	origDB := connConfig.Database
-
-	// Connect to the user's database to create the test database.
-	connConfig.Database = origDB
-	adminDB := stdlib.OpenDB(*connConfig)
-
-	_, err = adminDB.Exec("CREATE DATABASE " + testDBName)
-	if err != nil && !strings.Contains(err.Error(), "already exists") {
-		checkTestErrors(t).noError(adminDB.Close())
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	checkTestErrors(t).noError(adminDB.Close())
-
-	// Connect to the test database.
-	connConfig.Database = testDBName
-	testDB := stdlib.OpenDB(*connConfig)
-
-	cleanup := func() {
-		checkTestErrors(t).noError(testDB.Close())
-		// Connect back to the user's database to drop the test database.
-		connConfig.Database = origDB
-		cleanupDB := stdlib.OpenDB(*connConfig)
-		checkTestErrors(t).result(cleanupDB.Exec("DROP DATABASE IF EXISTS " + testDBName + " WITH (FORCE)"))
-		checkTestErrors(t).noError(cleanupDB.Close())
-	}
-
-	return testDB, cleanup
+	return testdb.Open(t, "postgres", dsn), func() {}
 }
 
 func TestPostgres_RegisterAndValidateSession(t *testing.T) {

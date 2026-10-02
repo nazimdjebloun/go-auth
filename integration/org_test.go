@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,7 +19,7 @@ import (
 
 func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 	t.Helper()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 	cfg, err := goauth.NewConfig(
 		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
@@ -26,7 +27,7 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 			BaseURL: "http://localhost:8080",
 			Database: goauth.DatabaseConfig{
 				DB:     db,
-				Driver: goauth.DriverSQLite,
+				Driver: testAuthDriver(db),
 			},
 		}),
 		goauth.WithSession(goauth.SessionConfig{
@@ -65,7 +66,7 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 }
 
 func TestOrg_CreateOrgAndGetByID(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -94,7 +95,7 @@ func TestOrg_CreateOrgAndGetByID(t *testing.T) {
 
 	var dbName, dbSlug string
 	var dbOwnerCount, dbMemberCount int
-	if err := db.QueryRow("SELECT name,slug,owner_count,member_count FROM organizations WHERE id=?", org.ID).
+	if err := db.QueryRow(testdb.SQL(db, "SELECT name,slug,owner_count,member_count FROM organizations WHERE id=?"), org.ID).
 		Scan(&dbName, &dbSlug, &dbOwnerCount, &dbMemberCount); err != nil {
 		t.Fatalf("query org: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestOrg_CreateOrgAndGetByID(t *testing.T) {
 	}
 
 	var role string
-	if err := db.QueryRow("SELECT role FROM organization_members WHERE org_id=? AND user_id=?", org.ID, res.User.ID).
+	if err := db.QueryRow(testdb.SQL(db, "SELECT role FROM organization_members WHERE org_id=? AND user_id=?"), org.ID, res.User.ID).
 		Scan(&role); err != nil {
 		t.Fatalf("query membership: %v", err)
 	}
@@ -121,7 +122,7 @@ func TestOrg_CreateOrgAndGetByID(t *testing.T) {
 }
 
 func TestOrg_CreateOrgDuplicateSlug(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -152,7 +153,7 @@ func TestOrg_CreateOrgDuplicateSlug(t *testing.T) {
 }
 
 func TestOrg_CreateOrgReservedSlug(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -177,7 +178,7 @@ func TestOrg_CreateOrgReservedSlug(t *testing.T) {
 }
 
 func TestOrg_GetBySlug(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -212,7 +213,7 @@ func TestOrg_GetBySlug(t *testing.T) {
 }
 
 func TestOrg_UpdateOrg(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -244,14 +245,14 @@ func TestOrg_UpdateOrg(t *testing.T) {
 	}
 
 	var dbSlug string
-	checkTestErrors(t).noError(db.QueryRow("SELECT slug FROM organizations WHERE id=?", org.ID).Scan(&dbSlug))
+	checkTestErrors(t).noError(db.QueryRow(testdb.SQL(db, "SELECT slug FROM organizations WHERE id=?"), org.ID).Scan(&dbSlug))
 	if dbSlug != newSlug {
 		t.Errorf("db slug=%q", dbSlug)
 	}
 }
 
 func TestOrg_DeleteOrg(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -281,7 +282,7 @@ func TestOrg_DeleteOrg(t *testing.T) {
 }
 
 func TestOrg_AddAndRemoveMember(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -324,7 +325,7 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 	}
 
 	var dbCount int
-	checkTestErrors(t).noError(db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount))
+	checkTestErrors(t).noError(db.QueryRow(testdb.SQL(db, "SELECT member_count FROM organizations WHERE id=?"), org.ID).Scan(&dbCount))
 	if dbCount != 2 {
 		t.Errorf("member_count=%d", dbCount)
 	}
@@ -336,14 +337,14 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 	if _, err := a.Services().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID}); err == nil {
 		t.Fatal("expected error after removal")
 	}
-	checkTestErrors(t).noError(db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount))
+	checkTestErrors(t).noError(db.QueryRow(testdb.SQL(db, "SELECT member_count FROM organizations WHERE id=?"), org.ID).Scan(&dbCount))
 	if dbCount != 1 {
 		t.Errorf("member_count=%d", dbCount)
 	}
 }
 
 func TestOrg_AddDuplicateMember(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -376,7 +377,7 @@ func TestOrg_AddDuplicateMember(t *testing.T) {
 }
 
 func TestOrg_UpdateMemberRole(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -417,20 +418,20 @@ func TestOrg_UpdateMemberRole(t *testing.T) {
 	}
 
 	var dbRole string
-	checkTestErrors(t).noError(db.QueryRow("SELECT role FROM organization_members WHERE org_id=? AND user_id=?", org.ID, member.User.ID).Scan(&dbRole))
+	checkTestErrors(t).noError(db.QueryRow(testdb.SQL(db, "SELECT role FROM organization_members WHERE org_id=? AND user_id=?"), org.ID, member.User.ID).Scan(&dbRole))
 	if dbRole != "owner" {
 		t.Errorf("role=%q", dbRole)
 	}
 
 	var dbOwnerCount int
-	checkTestErrors(t).noError(db.QueryRow("SELECT owner_count FROM organizations WHERE id=?", org.ID).Scan(&dbOwnerCount))
+	checkTestErrors(t).noError(db.QueryRow(testdb.SQL(db, "SELECT owner_count FROM organizations WHERE id=?"), org.ID).Scan(&dbOwnerCount))
 	if dbOwnerCount != 2 {
 		t.Errorf("owner_count=%d", dbOwnerCount)
 	}
 }
 
 func TestOrg_CannotRemoveLastOwner(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -457,7 +458,7 @@ func TestOrg_CannotRemoveLastOwner(t *testing.T) {
 }
 
 func TestOrg_ListMembers(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -523,7 +524,7 @@ func TestOrg_ListMembers(t *testing.T) {
 }
 
 func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -588,7 +589,7 @@ func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
 }
 
 func TestOrg_ListMembers_Search(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -644,7 +645,7 @@ func TestOrg_ListMembers_Search(t *testing.T) {
 }
 
 func TestOrg_ListUserOrgs(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -694,7 +695,7 @@ func TestOrg_ListUserOrgs(t *testing.T) {
 }
 
 func TestOrg_ListUserOrgs_Search(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -731,7 +732,7 @@ func TestOrg_ListUserOrgs_Search(t *testing.T) {
 }
 
 func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -763,7 +764,7 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 	}
 
 	var dbEmail, dbRole string
-	checkTestErrors(t).noError(db.QueryRow("SELECT email, role FROM organization_invites WHERE id=?", invite.ID).Scan(&dbEmail, &dbRole))
+	checkTestErrors(t).noError(db.QueryRow(testdb.SQL(db, "SELECT email, role FROM organization_invites WHERE id=?"), invite.ID).Scan(&dbEmail, &dbRole))
 	if dbEmail != "newguy@test.com" || dbRole != "member" {
 		t.Errorf("email=%q role=%q", dbEmail, dbRole)
 	}
@@ -797,7 +798,7 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 }
 
 func TestOrg_MaxOrgLimit(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -830,7 +831,7 @@ func TestOrg_MaxOrgLimit(t *testing.T) {
 }
 
 func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -886,7 +887,7 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 
 	// Member count incremented
 	var dbCount int
-	checkTestErrors(t).noError(db.QueryRow("SELECT member_count FROM organizations WHERE id=?", org.ID).Scan(&dbCount))
+	checkTestErrors(t).noError(db.QueryRow(testdb.SQL(db, "SELECT member_count FROM organizations WHERE id=?"), org.ID).Scan(&dbCount))
 	if dbCount != 2 {
 		t.Errorf("member_count=%d, want 2", dbCount)
 	}
@@ -902,7 +903,7 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 }
 
 func TestOrg_AcceptInvite_WrongEmail(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -955,7 +956,7 @@ func TestOrg_AcceptInvite_WrongEmail(t *testing.T) {
 // a row and DELETE /auth/orgs/active was a silent no-op that still returned
 // 200.
 func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -1025,7 +1026,7 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 	}
 
 	var activeOrgID, activeRole sql.NullString
-	if err := db.QueryRow("SELECT active_org_id, active_org_role FROM sessions WHERE id=?", login.Session.ID).
+	if err := db.QueryRow(testdb.SQL(db, "SELECT active_org_id, active_org_role FROM sessions WHERE id=?"), login.Session.ID).
 		Scan(&activeOrgID, &activeRole); err != nil {
 		t.Fatalf("query session after set: %v", err)
 	}
@@ -1048,7 +1049,7 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 		t.Fatalf("DELETE /auth/orgs/active: expected 200, got %d", delRec.Code)
 	}
 
-	if err := db.QueryRow("SELECT active_org_id FROM sessions WHERE id=?", login.Session.ID).
+	if err := db.QueryRow(testdb.SQL(db, "SELECT active_org_id FROM sessions WHERE id=?"), login.Session.ID).
 		Scan(&activeOrgID); err != nil {
 		t.Fatalf("query session after clear: %v", err)
 	}

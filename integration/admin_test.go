@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ import (
 // publish.
 func openOrgAdminAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 	t.Helper()
-	migrateDB(t, db, "sqlite")
+	migrateDB(t, db, testdb.Driver(db))
 	cfg, err := goauth.NewConfig(
 		goauth.WithBcryptCost(4),
 		goauth.WithApp(goauth.AppConfig{
@@ -27,7 +28,7 @@ func openOrgAdminAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth
 			BaseURL: "http://localhost:8080",
 			Database: goauth.DatabaseConfig{
 				DB:     db,
-				Driver: goauth.DriverSQLite,
+				Driver: testAuthDriver(db),
 			},
 		}),
 		goauth.WithSession(goauth.SessionConfig{
@@ -65,7 +66,7 @@ func openOrgAdminAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth
 }
 
 func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -75,7 +76,7 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,10 +95,10 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 	cutoff := time.Now().UTC()
 	dormantSince := cutoff.Add(-30 * 24 * time.Hour)
 	stillActive := cutoff.Add(1 * time.Hour)
-	if _, err := db.ExecContext(ctx, "UPDATE users SET last_login_at = ? WHERE id = ?", dormantSince, dormant.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET last_login_at = ? WHERE id = ?"), dormantSince, dormant.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET last_login_at = ? WHERE id = ?", stillActive, active.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET last_login_at = ? WHERE id = ?"), stillActive, active.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,7 +129,7 @@ func TestAdmin_ListUsers_DormancyFilters(t *testing.T) {
 }
 
 func TestAdmin_GetRegistrationTrend(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -138,7 +139,7 @@ func TestAdmin_GetRegistrationTrend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -151,7 +152,7 @@ func TestAdmin_GetRegistrationTrend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET created_at = ? WHERE id = ?", twoDaysAgo, u2.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET created_at = ? WHERE id = ?"), twoDaysAgo, u2.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -177,7 +178,7 @@ func TestAdmin_GetRegistrationTrend(t *testing.T) {
 }
 
 func TestAdmin_GetLoginActivity(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -187,7 +188,7 @@ func TestAdmin_GetLoginActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	u1, err := a.Register(ctx, api.RegisterInput{Email: "loginuser@example.com", Password: "Passw0rd!", Name: "LoginUser"})
@@ -240,7 +241,7 @@ func TestAdmin_GetLoginActivity(t *testing.T) {
 }
 
 func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -250,7 +251,7 @@ func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -293,7 +294,7 @@ func TestAdmin_ListSessions_FilterByIP(t *testing.T) {
 }
 
 func TestAdmin_BulkBanUsers(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -303,7 +304,7 @@ func TestAdmin_BulkBanUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -330,7 +331,7 @@ func TestAdmin_BulkBanUsers(t *testing.T) {
 	}
 
 	var isBanned bool
-	if err := db.QueryRowContext(ctx, "SELECT is_banned FROM users WHERE id = ?", u1.User.ID).Scan(&isBanned); err != nil {
+	if err := db.QueryRowContext(ctx, testdb.SQL(db, "SELECT is_banned FROM users WHERE id = ?"), u1.User.ID).Scan(&isBanned); err != nil {
 		t.Fatal(err)
 	}
 	if !isBanned {
@@ -339,7 +340,7 @@ func TestAdmin_BulkBanUsers(t *testing.T) {
 }
 
 func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -349,7 +350,7 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -396,7 +397,7 @@ func TestAdmin_ListAuditLogs_DeviceTypeAndMultiEventType(t *testing.T) {
 }
 
 func TestAdmin_ListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -406,7 +407,7 @@ func TestAdmin_ListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	target, err := a.Register(ctx, api.RegisterInput{Email: "bantarget@example.com", Password: "Passw0rd!", Name: "Target"})
@@ -435,7 +436,7 @@ func TestAdmin_ListAuditLogs_ResolvesActorAndTargetEmails(t *testing.T) {
 }
 
 func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAdminAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -445,7 +446,7 @@ func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -491,7 +492,7 @@ func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
 }
 
 func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	a := openOrgAdminAuth(t, db, &testMailer{})
 	defer a.Close()
@@ -501,7 +502,7 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET role = 'admin' WHERE id = ?", admin.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -519,7 +520,7 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	// refuse to remove an org's last owner) — e.g. a direct account
 	// deletion elsewhere in the system. The org is left with no members at
 	// all and is otherwise unmanageable by anyone.
-	if _, err := db.ExecContext(ctx, "DELETE FROM organization_members WHERE org_id = ? AND user_id = ?", org.ID, owner.User.ID); err != nil {
+	if _, err := db.ExecContext(ctx, testdb.SQL(db, "DELETE FROM organization_members WHERE org_id = ? AND user_id = ?"), org.ID, owner.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	members, err := a.Services().Org.AdminListOrgMembers(ctx, api.AdminListOrgMembersInput{OrgID: org.ID, ActorID: admin.User.ID})

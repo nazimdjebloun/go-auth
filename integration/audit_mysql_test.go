@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"testing"
 	"time"
 
@@ -165,7 +166,7 @@ func TestMySQL_AuditSweepExpired(t *testing.T) {
 	if err := out.Insert(ctx, dead.ID, dead.OrgID, 0, now.Add(-time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("UPDATE audit_outbox SET dead_lettered_at = ? WHERE audit_log_id = ?",
+	if _, err := db.Exec(testdb.SQL(db, "UPDATE audit_outbox SET dead_lettered_at = ? WHERE audit_log_id = ?"),
 		now.Add(-8*day()).Format("2006-01-02 15:04:05"), dead.ID); err != nil {
 		t.Fatal(err)
 	}

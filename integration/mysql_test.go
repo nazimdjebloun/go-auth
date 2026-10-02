@@ -3,11 +3,11 @@ package integration_test
 import (
 	"context"
 	"database/sql"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -64,39 +64,7 @@ func newMySQLTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 // that drops the database entirely.
 func mysqlTestDB(t *testing.T, dsn string) (*sql.DB, func()) {
 	t.Helper()
-
-	cfg, err := mysql.ParseDSN(dsn)
-	if err != nil {
-		t.Fatalf("mysql.ParseDSN: %v", err)
-	}
-
-	// Connect without a default database to create the test database.
-	cfg.DBName = ""
-	adminDB, err := sql.Open("mysql", cfg.FormatDSN())
-	if err != nil {
-		t.Fatalf("open admin db: %v", err)
-	}
-	if _, err := adminDB.Exec("CREATE DATABASE IF NOT EXISTS `goauth_test`"); err != nil {
-		checkTestErrors(t).noError(adminDB.Close())
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	checkTestErrors(t).noError(adminDB.Close())
-
-	cfg.DBName = "goauth_test"
-	testDB, err := sql.Open("mysql", cfg.FormatDSN())
-	if err != nil {
-		t.Fatalf("open test db: %v", err)
-	}
-
-	cleanup := func() {
-		checkTestErrors(t).noError(testDB.Close())
-		cfg.DBName = ""
-		if cleanupDB, err := sql.Open("mysql", cfg.FormatDSN()); err == nil {
-			_, _ = cleanupDB.Exec("DROP DATABASE IF EXISTS `goauth_test`")
-			checkTestErrors(t).noError(cleanupDB.Close())
-		}
-	}
-	return testDB, cleanup
+	return testdb.Open(t, "mysql", dsn), func() {}
 }
 
 // TestMySQL_RegisterAndValidateSession covers the core write/read paths on
@@ -144,7 +112,7 @@ func TestMySQL_RegisterAndValidateSession(t *testing.T) {
 
 	// The stored hash must be SHA-256 of the raw token, never the raw token.
 	var tokHash string
-	if err := db.QueryRow("SELECT token_hash FROM sessions WHERE id = ?", session.ID).Scan(&tokHash); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT token_hash FROM sessions WHERE id = ?"), session.ID).Scan(&tokHash); err != nil {
 		t.Fatal(err)
 	}
 	if tokHash != sha256Hex(res.SessionToken) {
@@ -197,7 +165,7 @@ func TestMySQL_RefreshRotation(t *testing.T) {
 	}
 
 	var prevHash, curHash string
-	if err := db.QueryRow("SELECT prev_refresh_token_hash, refresh_token_hash FROM sessions WHERE id = ?", rotated.Session.ID).Scan(&prevHash, &curHash); err != nil {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT prev_refresh_token_hash, refresh_token_hash FROM sessions WHERE id = ?"), rotated.Session.ID).Scan(&prevHash, &curHash); err != nil {
 		t.Fatal(err)
 	}
 	if prevHash != sha256Hex(res.RefreshToken) {

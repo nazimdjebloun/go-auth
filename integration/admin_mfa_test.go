@@ -2,6 +2,7 @@ package integration_test
 
 import (
 	"context"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,9 +15,9 @@ import (
 func TestAdminAccessRequiresVerifiedSessionAcrossLoginAndRefresh(t *testing.T) {
 	for _, optOut := range []bool{false, true} {
 		t.Run(map[bool]string{false: "required", true: "explicit opt-out"}[optOut], func(t *testing.T) {
-			db, cleanup := newSQLiteDB(t)
+			db, cleanup := newTestDB(t)
 			defer cleanup()
-			migrateDB(t, db, "sqlite")
+			migrateDB(t, db, testdb.Driver(db))
 			mailer := &testMailer{}
 			a, err := newTestAuth2FA(db, mailer, goauth.TwoFactorConfig{DisableAdminTwoFactor: optOut}, goauth.RegistrationConfig{
 				EnableEmailPassword: true, AllowPublic: true,
@@ -35,7 +36,7 @@ func TestAdminAccessRequiresVerifiedSessionAcrossLoginAndRefresh(t *testing.T) {
 			}
 			// Promotion does not turn an existing first-factor session into a
 			// second-factor session. The current database role is checked per request.
-			if _, err := db.Exec("UPDATE users SET role = 'admin' WHERE id = ?", registered.User.ID); err != nil {
+			if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), registered.User.ID); err != nil {
 				t.Fatal(err)
 			}
 			protected := a.RequireAuth(a.RequireAdmin(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,7 @@ func (m *blockedRecoveryDelivery) Send(ctx context.Context, _, _, _, _ string) e
 }
 
 func TestPublicRecoveryHTTPReturnsWhileSMTPIsBlocked(t *testing.T) {
-	db, cleanup := newSQLiteDB(t)
+	db, cleanup := newTestDB(t)
 	defer cleanup()
 	mailer := &blockedRecoveryDelivery{entered: make(chan struct{})}
 	a := openAuth(t, db, mailer)
@@ -98,10 +99,10 @@ func TestPublicRecoveryHTTPReturnsWhileSMTPIsBlocked(t *testing.T) {
 		}
 	}
 	var count int
-	if err := db.QueryRow("SELECT COUNT(*) FROM recovery_requests").Scan(&count); err != nil || count != 5 {
+	if err := db.QueryRow(testdb.SQL(db, "SELECT COUNT(*) FROM recovery_requests")).Scan(&count); err != nil || count != 5 {
 		t.Fatalf("recovery requests not durably queued: count=%d err=%v", count, err)
 	}
-	if _, err := db.Exec("DROP TABLE recovery_requests"); err != nil {
+	if _, err := db.Exec(testdb.SQL(db, "DROP TABLE recovery_requests")); err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{"/auth/forgot-password", "/auth/verify-email/resend"} {

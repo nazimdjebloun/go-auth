@@ -3,6 +3,7 @@ package integration_test
 import (
 	"context"
 	"errors"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"testing"
 
 	goauth "github.com/nazimdjebloun/go-auth"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestVerification_UserUpdateFailureRollsBackTokenClaim(t *testing.T) {
-	db, closeDB := newSQLiteDB(t)
+	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
 	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{}, goauth.RegistrationConfig{
@@ -34,16 +35,12 @@ func TestVerification_UserUpdateFailureRollsBackTokenClaim(t *testing.T) {
 		t.Fatal("could not extract verification code")
 	}
 
-	if _, err := db.Exec(`CREATE TRIGGER block_email_verification BEFORE UPDATE OF is_verified ON users
-		BEGIN SELECT RAISE(FAIL, 'blocked user update'); END`); err != nil {
-		t.Fatal(err)
-	}
+	removeFailure := testdb.FailWrites(t, db, "block_email_verification", "users", "UPDATE", "")
+
 	if _, err := a.Services().Verify.VerifyEmail(ctx, code); !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("verification error = %v, want internal_error", err)
 	}
-	if _, err := db.Exec("DROP TRIGGER block_email_verification"); err != nil {
-		t.Fatal(err)
-	}
+	removeFailure()
 
 	user, err := a.Services().Verify.VerifyEmail(ctx, code)
 	if err != nil {
