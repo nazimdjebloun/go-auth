@@ -181,6 +181,18 @@ jobs:
             targets="$(go test -list '^Fuzz' "./$p" | grep '^Fuzz' || true)"
             for t in $targets; do
               echo "fuzzing $p:$t (${FUZZ_BUDGET}s)"
-              go test -fuzz="^$t$" -fuzztime="${FUZZ_BUDGET}s" -run='^$' "./$p"
+              if output="$(go test -fuzz="^$t$" -fuzztime="${FUZZ_BUDGET}s" -run='^$' "./$p" 2>&1)"; then
+                printf '%s\n' "$output"
+              elif grep -Fq -- "--- FAIL: $t (" <<< "$output" &&
+                   grep -Eq '^[[:space:]]+context deadline exceeded$' <<< "$output" &&
+                   ! grep -Eq 'Failing input written|To re-run:|panic:|fatal error:|_test\.go:[0-9]+:' <<< "$output"; then
+                # Go can report its own fuzztime deadline as a failure (golang/go#75804).
+                printf '%s\n' "$output"
+                echo "retrying $p:$t after fuzz harness deadline failure"
+                go test -fuzz="^$t$" -fuzztime="${FUZZ_BUDGET}s" -run='^$' "./$p"
+              else
+                printf '%s\n' "$output"
+                exit 1
+              fi
             done
           done
