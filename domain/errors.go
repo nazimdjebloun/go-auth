@@ -94,7 +94,7 @@ var (
 	ErrSetPasswordCodeUsed     = NewError("code_used", "Set password code has already been used")
 	ErrEmailNotConfigured      = NewError("email_not_configured", "Email sender is not configured")
 	ErrInviteEmailFailed       = NewError("email_failed", "Failed to send invite email")
-	ErrVerificationEmailSent   = NewError("email_not_found", "If an account exists, a verification email has been sent")
+	ErrVerificationEmailSent   = NewError("email_not_found", "If an account exists, a verification email will be sent")
 	ErrVerificationCodeInvalid = NewError("code_invalid", "Invalid verification code")
 	ErrVerificationCodeUsed    = NewError("code_already_used", "This code has already been used")
 	ErrVerificationCodeExpired = NewError("code_expired", "Verification code has expired")

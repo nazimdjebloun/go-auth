@@ -9,8 +9,9 @@ import "context"
 // handles transport, never template content. text may be empty if the
 // TemplateProvider didn't produce a plain-text part; html is never empty.
 // Send should return a non-nil error only on a real delivery failure —
-// go-auth surfaces that as a 500 to the caller, so don't wrap validation
-// errors that belong further up the stack in it.
+// synchronous operations may surface that as a 500; queued public recovery
+// retries it outside the request. Send must honor context cancellation and
+// deadlines so Auth.Close can stop an in-flight recovery delivery.
 type Mailer interface {
 	Send(ctx context.Context, to, subject, html, text string) error
 }

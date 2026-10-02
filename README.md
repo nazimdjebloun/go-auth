@@ -123,10 +123,14 @@ is built on pgx. SQLite and MySQL applications must blank-import their selected
 
 ## Password security
 
+Public password reset and verification resend use a durable recovery queue so
+SMTP timing does not reveal registered addresses. The `recovery_requests`
+table is included in the [schema](docs/schemas.mdx#recovery_requests).
+Call `Auth.Close` during shutdown to stop the delivery worker.
+
 Admin accounts must complete email 2FA through password or OAuth login by
-default. Admin routes check the session's completed second factor. Existing
-databases need the nullable `sessions.two_factor_verified_at` column described
-in [Schemas](docs/schemas.mdx); existing admin sessions must sign in again.
+default. Admin routes check the session's completed second factor, recorded in
+`sessions.two_factor_verified_at`.
 
 `New` revalidates the complete configuration before deriving secrets or
 starting services, including options applied after `NewConfig`.

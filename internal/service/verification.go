@@ -24,6 +24,7 @@ type VerificationService struct {
 	config    Config
 	log       *slog.Logger
 	audit     AuditPublisher
+	recovery  port.RecoveryEnqueuer
 }
 
 // NewVerificationService returns an email verification service.
@@ -168,6 +169,10 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 // already outstanding. The returned api.VerificationResult says which happened;
 // a nil error alone does not mean an email left the building.
 func (s *VerificationService) SendVerification(ctx context.Context, user *domain.User) (*api.VerificationResult, error) {
+	return s.sendVerification(ctx, user, false)
+}
+
+func (s *VerificationService) sendVerification(ctx context.Context, user *domain.User, retry bool) (*api.VerificationResult, error) {
 	if s.mailer == nil {
 		return nil, domain.ErrEmailNotConfigured
 	}
@@ -178,8 +183,11 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	// (Two concurrent sends can both pass and mint two; the loser then goes
 	// unnoticed once the winner is used, which costs one extra email and
 	// nothing else.)
-	if user.ID != "" {
+	if user.ID != "" && !retry {
 		last, err := s.tokens.GetLastByUserAndType(ctx, user.ID, domain.TokenVerifyEmail)
+		if err != nil {
+			return nil, domain.ErrInternal
+		}
 		if err == nil && last != nil {
 			// Still usable — reuse it rather than mail a second code.
 			if last.UsedAt == nil && time.Now().UTC().Before(last.ExpiresAt) {
@@ -281,13 +289,27 @@ func (s *VerificationService) ResendVerification(ctx context.Context, userID str
 	return s.SendVerification(ctx, user)
 }
 
-// SendVerificationByEmail resolves the account itself and is safe to expose
-// unauthenticated. Its result must not reach the caller — Sent would report
-// whether an unverified account exists for that address, which is exactly what
-// the flat "if an account exists" reply is there to withhold. See the handler.
+// SendVerificationByEmail queues a public request without looking up an account.
+// The result never reports whether a message will actually be delivered.
 func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email string) (*api.VerificationResult, error) {
+	if s.mailer == nil {
+		return nil, domain.ErrEmailNotConfigured
+	}
+	if s.recovery == nil {
+		return nil, domain.ErrInternal
+	}
+	if err := enqueueRecovery(ctx, s.recovery, port.RecoveryVerification, email, s.log); err != nil {
+		return nil, err
+	}
+	return nil, domain.ErrVerificationEmailSent
+}
+
+func (s *VerificationService) processVerificationByEmail(ctx context.Context, email string, retry bool) (*api.VerificationResult, error) {
 	user, err := s.users.GetByEmail(ctx, email)
-	if err != nil || user == nil {
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
 		return nil, domain.ErrVerificationEmailSent
 	}
 
@@ -295,5 +317,13 @@ func (s *VerificationService) SendVerificationByEmail(ctx context.Context, email
 		return nil, domain.ErrVerificationEmailSent
 	}
 
-	return s.SendVerification(ctx, user)
+	return s.sendVerification(ctx, user, retry)
+}
+
+func (s *VerificationService) sendVerificationByEmail(ctx context.Context, email string, retry bool) error {
+	_, err := s.processVerificationByEmail(ctx, email, retry)
+	if errors.Is(err, domain.ErrVerificationEmailSent) {
+		return nil
+	}
+	return err
 }

@@ -33,6 +33,7 @@ type PasswordService struct {
 	config    Config
 	log       *slog.Logger
 	audit     AuditPublisher
+	recovery  port.RecoveryEnqueuer
 }
 
 // NewPasswordService returns a password service.
@@ -65,8 +66,19 @@ func NewPasswordService(
 	}
 }
 
-// ForgotPassword sends a password-reset code when the account permits it.
+// ForgotPassword queues an account-independent recovery request. A missing
+// queue fails closed instead of falling back to account-dependent SMTP work.
 func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPasswordInput) error {
+	if s.mailer == nil {
+		return domain.ErrEmailNotConfigured
+	}
+	if s.recovery == nil {
+		return domain.ErrInternal
+	}
+	return enqueueRecovery(ctx, s.recovery, port.RecoveryPasswordReset, input.Email, s.log)
+}
+
+func (s *PasswordService) sendPasswordReset(ctx context.Context, input api.ForgotPasswordInput) error {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	if s.mailer == nil {
 		// This check precedes the account lookup so a configuration failure has
@@ -78,7 +90,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPa
 	if err != nil {
 		s.log.Error("forgot-password account lookup failed", "err", err)
 		s.burnForgotPasswordDummy(ctx)
-		return nil
+		return err
 	}
 	if user == nil || !user.HasPassword() {
 		s.burnForgotPasswordDummy(ctx)
@@ -88,7 +100,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPa
 	raw, err := s.gen.Generate()
 	if err != nil {
 		s.log.Error("failed to generate token", "err", err, "user_id", user.ID)
-		return nil
+		return err
 	}
 
 	now := time.Now().UTC()
@@ -106,7 +118,7 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPa
 		return s.writePasswordResetToken(txCtx, user.ID, token)
 	}); err != nil {
 		s.log.Error("failed to replace reset token", "err", err, "user_id", user.ID)
-		return nil
+		return err
 	}
 
 	url := s.config.BaseURL + "/reset-password?token=" + raw
@@ -117,12 +129,12 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPa
 	})
 	if err != nil {
 		s.log.Error("failed to render reset email template", "err", err, "user_id", user.ID)
-		return nil
+		return err
 	}
 
 	if err := s.mailer.Send(ctx, user.Email, result.Subject, result.HTML, result.Text); err != nil {
 		s.log.Error("failed to send reset email", "err", err, "user_id", user.ID)
-		return nil
+		return err
 	}
 
 	s.log.Info("password reset requested", "user_id", user.ID)

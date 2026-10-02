@@ -194,8 +194,7 @@ func TestPostgres_PasswordReset(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	body := mailer.lastBody()
-	resetToken := extractTokenFromEmail(body)
+	resetToken := mailer.waitForResetToken(t)
 	if resetToken == "" {
 		t.Fatal("could not extract reset token from email")
 	}

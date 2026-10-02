@@ -256,7 +256,7 @@ func TestMySQL_PasswordReset(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	resetToken := extractTokenFromEmail(mailer.lastBody())
+	resetToken := mailer.waitForResetToken(t)
 	if resetToken == "" {
 		t.Fatal("could not extract reset token from email")
 	}

@@ -40,6 +40,8 @@ type AuthOperations interface {
 
 // PasswordOperations exposes the password service methods available to callers.
 type PasswordOperations interface {
+	// ForgotPassword durably queues a request. Success does not confirm account
+	// existence or delivery; email is processed in the background.
 	ForgotPassword(ctx context.Context, input api.ForgotPasswordInput) error
 	ResetPassword(ctx context.Context, input api.ResetPasswordInput) error
 	RequestSetPassword(ctx context.Context, userID string) error
@@ -69,6 +71,8 @@ type VerifyOperations interface {
 	VerifyEmail(ctx context.Context, code string) (*domain.User, error)
 	SendVerification(ctx context.Context, user *domain.User) (*api.VerificationResult, error)
 	ResendVerification(ctx context.Context, userID string) (*api.VerificationResult, error)
+	// SendVerificationByEmail durably queues a public request and returns the
+	// generic email_not_found sentinel; its result never reports actual delivery.
 	SendVerificationByEmail(ctx context.Context, email string) (*api.VerificationResult, error)
 }
 

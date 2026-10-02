@@ -249,10 +249,10 @@ Public flow for a user who's locked out entirely — no session involved on eith
 
 **Request body**: `{ "email": "..." }`. With a mailer configured, returns the same generic success message for unknown, passwordless, and password-bearing accounts. Only an account with an existing password receives a reset link; an OAuth-only account must use its provider to sign in before using the set-password flow above.
 
-Token storage, template, audit, and mail delivery failures are logged but also return the generic response. If no mailer is configured, every address instead receives `email_not_configured`.
+Valid addresses are durably queued before account lookup. A queue failure returns `internal_error` (`500`) independent of account existence; no mailer returns `email_not_configured`. Token generation, storage, rendering, and delivery run afterward in the background, with retries. Success acknowledges acceptance, not delivery. See [Schemas](../schemas.mdx#recovery_requests) for the required queue table.
 
 <Callout type="info" title="Timing-safe on purpose">
-  When the email doesn't match a password-bearing account, the service still generates a token, performs rollback-only token cleanup and insertion, and renders the email template before returning. This keeps the local work similar without sending an email or leaving a token row behind.
+  The public response path performs input validation and the same queue insert for known and unknown valid addresses. It does not wait for account lookup, token generation, template rendering, or SMTP delivery. Missing and passwordless accounts are skipped by the worker.
 </Callout>
 
 #### curl
@@ -286,7 +286,7 @@ See [Client → Forgot / reset password](./client/security.mdx#forgot-password) 
 
 ### Complete the reset — `POST /auth/reset-password`
 
-Requesting a new reset invalidates any earlier unused one for the same user — only the most recent link works. On success, **every** session for that user is revoked (there's no "except current" here, since there's no session to except), and the CSRF cookie is rotated.
+When the worker processes a new reset, it invalidates any earlier unused token for the same user — only the most recent link works. A retry can regenerate the token and send another link. On successful password replacement, **every** session for that user is revoked, and the CSRF cookie is rotated.
 
 **Request body**: `{ "code", "newPassword" }`
 

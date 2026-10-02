@@ -197,7 +197,7 @@ Changes the caller's display name. `Auth:` Session.
 
 POST /auth/forgot-password
 
-Starts the reset flow for accounts with an existing password. The response is identical for unknown, passwordless, and password-bearing accounts, including when token storage or mail delivery fails. Only an account with an existing password can receive a reset link. `Auth:` Public.
+Queues the reset request before looking up the account. Unknown, passwordless, and password-bearing accounts receive the same acceptance response; a background worker sends a link only if the account has an existing password. `Auth:` Public.
 
 **Request body:**
 
@@ -208,10 +208,10 @@ Starts the reset flow for accounts with an existing password. The response is id
 **Response `200 OK`:**
 
 ```json
-{ "message": "If an account exists with this email, a reset link has been sent." }
+{ "message": "If an account exists with this email, a reset link will be sent." }
 ```
 
-**Errors:** `email_not_configured` (`500`, no mailer configured; returned for every submitted address). Delivery and storage failures are logged and return the generic success response.
+**Errors:** `email_not_configured` (`500`, no mailer configured), `internal_error` (`500`, queue unavailable). These failures are account-independent. Token storage and delivery failures retry in the background and do not change an accepted request's response.
 
 ### Reset password
 
@@ -339,7 +339,7 @@ Resends the verification email for the logged-in user. `Auth:` Session. No body.
 
 POST /auth/verify-email/resend
 
-Public variant for users with no session (e.g. stuck at the verification screen). Deliberately flat: it never reveals whether the email exists or whether a code was already live. `Auth:` Public.
+Public variant for users with no session (e.g. stuck at the verification screen). Queues the request before account lookup and returns the same acceptance response whether the email exists or a code is already live. The worker checks verification state and outstanding-code rules before sending. `Auth:` Public.
 
 **Request body:**
 
@@ -350,8 +350,10 @@ Public variant for users with no session (e.g. stuck at the verification screen)
 **Response `200 OK`:**
 
 ```json
-{ "message": "If an account exists, a verification email has been sent" }
+{ "message": "If an account exists, a verification email will be sent" }
 ```
+
+**Errors:** `email_not_configured` (`500`, no mailer configured), `internal_error` (`500`, queue unavailable), with the same error for known and unknown addresses. Delivery failures retry in the background.
 
 ### Delete account
 

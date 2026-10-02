@@ -1,6 +1,23 @@
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
+-- Public recovery requests are queued before any account lookup. Times are
+-- UTC Unix seconds; no raw reset token or verification code is stored here.
+CREATE TABLE IF NOT EXISTS recovery_requests (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    email TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    available_at BIGINT NOT NULL,
+    lease_until BIGINT NOT NULL DEFAULT 0,
+    claim_owner TEXT NOT NULL DEFAULT '',
+    dead_lettered INTEGER NOT NULL DEFAULT 0,
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recovery_requests_claim ON recovery_requests(dead_lettered, available_at, lease_until);
+CREATE INDEX IF NOT EXISTS idx_recovery_requests_created ON recovery_requests(created_at);
+
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT UNIQUE NOT NULL,

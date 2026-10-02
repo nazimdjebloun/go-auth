@@ -91,7 +91,7 @@ func newTestPasswordService(users *testutil.MockUserRepo, tokens *testutil.MockT
 	sessions := testutil.NewMockSessionRepo()
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	return NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
+	return newPasswordDeliveryTestService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
 }
 
 func extractResetToken(mailer *testutil.MockMailer) string {
@@ -155,7 +155,7 @@ func TestForgotPassword_NonexistentUser(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, txManager, cfg)
+	svc := newPasswordDeliveryTestService(users, tokens, hasher, gen, mailer, sessions, txManager, cfg)
 
 	err := svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "nobody@example.com"})
 	if err != nil {
@@ -183,7 +183,7 @@ func TestForgotPassword_NilMailer(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, cfg)
+	svc := newPasswordDeliveryTestService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, cfg)
 
 	hash, _ := hasher.Hash("Passw0rd!")
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
@@ -215,7 +215,7 @@ func TestForgotPassword_NilMailer_NonexistentUserMatchesExistingUser(t *testing.
 	hasher := &testutil.MockHasher{}
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessions := testutil.NewMockSessionRepo()
-	svc := NewPasswordService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, defaultTestConfig())
+	svc := newPasswordDeliveryTestService(users, tokens, hasher, gen, nil, sessions, &testutil.MockTxManager{}, defaultTestConfig())
 
 	err := svc.ForgotPassword(context.Background(), api.ForgotPasswordInput{Email: "nobody@example.com"})
 	if authErrCode(err) != "email_not_configured" {
@@ -361,7 +361,7 @@ func TestResetPassword_NewerPepperVersionWithoutKeyFailsClosed(t *testing.T) {
 	}
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	svc := NewPasswordService(users, tokens, pipeline, &testutil.MockTokenGen{Length: 32}, nil, sessions, &testutil.MockTxManager{}, cfg)
+	svc := newPasswordDeliveryTestService(users, tokens, pipeline, &testutil.MockTokenGen{Length: 32}, nil, sessions, &testutil.MockTxManager{}, cfg)
 
 	err = svc.ResetPassword(context.Background(), api.ResetPasswordInput{Code: code, NewPassword: "NewPass1!"})
 	if !errors.Is(err, domain.ErrInternal) {
@@ -591,7 +591,7 @@ func TestChangePassword_ConcurrentV3WriteWinsOverV2Node(t *testing.T) {
 	}
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	svc := NewPasswordService(users, testutil.NewMockTokenRepo(), pipeline, &testutil.MockTokenGen{Length: 32}, nil, sessions, &testutil.MockTxManager{}, cfg)
+	svc := newPasswordDeliveryTestService(users, testutil.NewMockTokenRepo(), pipeline, &testutil.MockTokenGen{Length: 32}, nil, sessions, &testutil.MockTxManager{}, cfg)
 
 	err = svc.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      user.ID,
@@ -734,7 +734,7 @@ func TestChangePassword_RevokesOtherSessions(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
+	svc := newPasswordDeliveryTestService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
 
 	hash, _ := hasher.Hash("OldPass1!")
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{

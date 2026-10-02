@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -64,12 +65,14 @@ func (h *Handler) ResendVerificationPublic(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Both return values are dropped deliberately: this endpoint is
-	// unauthenticated, so the error distinguishes "no such account" and Sent
-	// distinguishes "already had a live code" — each of which would turn the
-	// flat reply below into an account-existence oracle. The authenticated
-	// ResendVerification above is where codeSent is safe to expose.
-	_, _ = h.services.Verify.SendVerificationByEmail(r.Context(), body.Email)
+	// The public operation enqueues before account lookup. Queue failures are
+	// account-independent infrastructure errors; the generic success sentinel
+	// carries no account or delivery information.
+	_, err := h.services.Verify.SendVerificationByEmail(r.Context(), body.Email)
+	if err != nil && !errors.Is(err, domain.ErrVerificationEmailSent) {
+		h.writeError(w, err)
+		return
+	}
 
-	h.writeJSON(w, http.StatusOK, map[string]string{"message": "If an account exists, a verification email has been sent"})
+	h.writeJSON(w, http.StatusOK, map[string]string{"message": "If an account exists, a verification email will be sent"})
 }

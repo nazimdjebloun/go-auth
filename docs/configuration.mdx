@@ -478,6 +478,8 @@ goauth.WithTemplates(myTemplateProvider)
 | `WithTemplates(port.TemplateProvider)` | Replace the built-in email templates | Optional | The library still renders subject/HTML/text and hands finished strings to the mailer either way. This replaces content; `WithMailer` replaces delivery. |
 | `TwoFactorConfig.DisableAdminTwoFactor` | Opt out of mandatory admin-account 2FA; global/per-user requirements remain | Optional, default `false` (challenge on) | Set via `WithTwoFactor`. The last of the five mailer-requiring features to disable for a mailer-free, API-only deployment. |
 
+Public password-reset and verification-resend requests are delivered by the durable recovery worker. Its processing context has a 30-second deadline; custom `port.Mailer` implementations must honor context cancellation and deadlines so retries and `Auth.Close` can complete. The [recovery queue table](./schemas.mdx#recovery_requests) is required even when audit is disabled.
+
 **`EmailConfig`** (only validated when `WithEmail` is set and `WithMailer` is not)
 
 | Field | Type | Required | Default | Notes |

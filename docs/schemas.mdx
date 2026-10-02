@@ -9,7 +9,7 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 # Schemas
 
 go-auth ships one canonical schema per database driver, embedded into the
-library at build time. Nine tables and around forty indexes, no ORM, no
+library at build time. Canonical SQL tables and indexes, no ORM, no
 runtime `CREATE TABLE`. You apply the schema once, before your app starts.
 
 The column tables below describe the **PostgreSQL** schema. Table and column
@@ -126,7 +126,7 @@ or `sqlite3`, and `mysql`.
 
   On PostgreSQL and SQLite every statement is `IF NOT EXISTS`, so re-running
   after you fix the cause picks up where it stopped. **MySQL is different:**
-  `CREATE INDEX` has no `IF NOT EXISTS` form there, so all 39 index statements
+  `CREATE INDEX` has no `IF NOT EXISTS` form there, so its index statements
   are unguarded and a second run fails with `Duplicate key name` on the first
   index that already exists. The tables survive. The command cannot be used
   as a no-op re-check on MySQL. Do not point it at a production database without
@@ -135,12 +135,17 @@ or `sqlite3`, and `mysql`.
 
 ## The tables
 
-Nine tables. Foreign keys to `users` are `ON DELETE CASCADE`, so deleting a
+Eleven tables. Foreign keys to `users` are `ON DELETE CASCADE`, so deleting a
 user takes their sessions, tokens, linked OAuth accounts, and org memberships
 with it. Three exceptions: `sessions.active_org_id` and
 `organizations.created_by` are `ON DELETE SET NULL` (deleting an org clears it
 from sessions pointing at it; an org outlives its creator's account), and
 `invites.created_by` declares no delete action (it does not cascade).
+
+`recovery_requests` has no account foreign key: the same row is written for
+known and unknown addresses, and the worker discards it if no eligible account
+exists when processing. Audit records and delivery obligations also remain
+independent of account deletion.
 
 No table stores a raw credential. Passwords are bcrypt or Argon2id hashes, optionally peppered before the KDF; session tokens,
 refresh tokens, verification tokens, and both kinds of invite code are stored as
@@ -149,6 +154,91 @@ SHA-256 hashes, and the raw value exists only in the response to the client.
 Each table gives a column-by-column summary. The types shown are the
 PostgreSQL ones. Each summary is followed by the exact DDL the library applies
 on each driver, indexes included.
+
+### `recovery_requests`
+
+Durable public password-reset and verification-resend requests. The public
+request writes only the supplied normalized address and operation, before any
+account lookup. No raw reset token or verification code is stored here.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `TEXT` | Application-generated request ID |
+| `kind` / `email` | `TEXT` | `password_reset` or `verification`, and the normalized address |
+| `attempts` | `INTEGER` | Incremented on each claim, including claims interrupted by a crash |
+| `available_at` | `BIGINT` | Next eligible time, UTC Unix seconds |
+| `lease_until` / `claim_owner` | `BIGINT` / `TEXT` | Two-minute lease and unique owner; stale workers cannot acknowledge a reclaimed job |
+| `dead_lettered` | `INTEGER` | `1` when processing fails after the five-attempt budget is exhausted |
+| `created_at` | `BIGINT` | UTC Unix seconds; basis for eligibility and retention |
+
+Successful processing deletes the row. Failures retry after 10, 20, 40, and 80
+seconds; delivery is at least once, so a crash after sending can cause another
+email and credential regeneration. Requests become ineligible after 24 hours.
+The minute-based cleanup deletes expired pending requests and dead letters
+older than seven days from creation, while preserving active leases.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS recovery_requests (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    email TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    available_at BIGINT NOT NULL,
+    lease_until BIGINT NOT NULL DEFAULT 0,
+    claim_owner TEXT NOT NULL DEFAULT '',
+    dead_lettered INTEGER NOT NULL DEFAULT 0,
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recovery_requests_claim ON recovery_requests(dead_lettered, available_at, lease_until);
+CREATE INDEX IF NOT EXISTS idx_recovery_requests_created ON recovery_requests(created_at);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS recovery_requests (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    email TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    available_at BIGINT NOT NULL,
+    lease_until BIGINT NOT NULL DEFAULT 0,
+    claim_owner TEXT NOT NULL DEFAULT '',
+    dead_lettered INTEGER NOT NULL DEFAULT 0,
+    created_at BIGINT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_recovery_requests_claim ON recovery_requests(dead_lettered, available_at, lease_until);
+CREATE INDEX IF NOT EXISTS idx_recovery_requests_created ON recovery_requests(created_at);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS recovery_requests (
+    id VARCHAR(36) PRIMARY KEY,
+    kind VARCHAR(32) NOT NULL,
+    email VARCHAR(254) NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    available_at BIGINT NOT NULL,
+    lease_until BIGINT NOT NULL DEFAULT 0,
+    claim_owner VARCHAR(36) NOT NULL DEFAULT '',
+    dead_lettered INTEGER NOT NULL DEFAULT 0,
+    created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_recovery_requests_claim ON recovery_requests(dead_lettered, available_at, lease_until);
+CREATE INDEX idx_recovery_requests_created ON recovery_requests(created_at);
+```
+
+</Tab>
+</Tabs>
 
 ### `users`
 
@@ -1107,7 +1197,7 @@ CREATE INDEX idx_audit_outbox_created_at ON audit_outbox(created_at);
 
 ## Driver differences
 
-Three files, roughly 190 lines each, living in `internal/schema/` and embedded
+Three files living in `internal/schema/` and embedded
 by `//go:embed`. The table and column names are identical across all three.
 Only types and defaults differ.
 
@@ -1115,10 +1205,11 @@ Only types and defaults differ.
 |---|---|---|---|
 | IDs | `UUID`, defaulted by `gen_random_uuid()` | `TEXT`, generated by the application | `VARCHAR(36)`, generated by the application |
 | Timestamps | `TIMESTAMPTZ` | `DATETIME` | `DATETIME`, `DATETIME(6)` on the org tables |
+| Recovery queue times | `BIGINT` UTC Unix seconds | `BIGINT` UTC Unix seconds | `BIGINT` UTC Unix seconds |
 | Booleans | `BOOLEAN` | `INTEGER` (`0`/`1`) | `BOOLEAN` |
 | JSON columns | `JSONB` | `TEXT` | `JSON` for `metadata` and `parsed_ua` |
 | `CHECK` constraints | 7: pepper version, user role, member role, invite role, invite status, token type, and the session active-org pair | 1: pepper version only | none |
-| Indexes | 43 | 41 | 39 |
+| Indexes | 47 | 45 | 43 |
 | Re-runnable | yes: every statement is `IF NOT EXISTS` | yes | **no**: `CREATE INDEX` is unguarded |
 | Foreign keys | inline `REFERENCES` | inline `REFERENCES` | named `CONSTRAINT ... FOREIGN KEY` |
 | Timestamp precision | `TIMESTAMPTZ` | `DATETIME` | `DATETIME(6)` (microseconds) on the org tables |

@@ -226,7 +226,7 @@ Only relevant when `RequireEmailVerification: true`. Two ways in: a link with a 
 | `user_not_found` | 404 | The user behind the token no longer exists |
 | `internal_error` | 500 | Database failure while marking the user verified or the token used |
 
-**`POST /auth/verify-email/resend`** — body `{ "email": "..." }`. Always returns a generic success message whether or not the account exists, to avoid leaking which emails are registered.
+**`POST /auth/verify-email/resend`** — body `{ "email": "..." }`. Queues the request before account lookup and returns a generic acceptance message whether or not the account exists. Queue failures return `internal_error` (`500`) for every address. Delivery happens in the background; authenticated resend remains synchronous and returns `codeSent`.
 
 #### curl
 

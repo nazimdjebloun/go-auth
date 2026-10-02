@@ -186,7 +186,7 @@ func newPasswordTransactionFixture(t *testing.T) *passwordTransactionFixture {
 func (f *passwordTransactionFixture) passwordService(hasher port.Hasher, sessions port.SessionRevoker) *PasswordService {
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	return NewPasswordService(
+	return newPasswordDeliveryTestService(
 		f.users,
 		f.tokens,
 		hasher,
@@ -264,7 +264,7 @@ func TestForgotPassword_DummyInsertIsRolledBack(t *testing.T) {
 	mailer := &testutil.MockMailer{}
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	svc := NewPasswordService(
+	svc := newPasswordDeliveryTestService(
 		f.users,
 		f.tokens,
 		f.hasher,
@@ -301,7 +301,7 @@ func TestForgotPassword_PasswordlessAccountDoesNotReceiveUnusableResetLink(t *te
 		t.Fatal(err)
 	}
 	mailer := &testutil.MockMailer{}
-	svc := NewPasswordService(f.users, f.tokens, f.hasher,
+	svc := newPasswordDeliveryTestService(f.users, f.tokens, f.hasher,
 		&testutil.MockTokenGen{Length: 32}, mailer, f.sessions, f.db, defaultTestConfig())
 	var before int
 	if err := f.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM verification_tokens").Scan(&before); err != nil {
@@ -329,7 +329,7 @@ func TestForgotPassword_LookupFailureKeepsGenericResponse(t *testing.T) {
 	f := newPasswordTransactionFixture(t)
 	ctx := context.Background()
 	mailer := &testutil.MockMailer{}
-	svc := NewPasswordService(&failingRecoveryUserLookup{UserRepository: f.users}, f.tokens,
+	svc := newPasswordDeliveryTestService(&failingRecoveryUserLookup{UserRepository: f.users}, f.tokens,
 		f.hasher, &testutil.MockTokenGen{Length: 32}, mailer, f.sessions, f.db, defaultTestConfig())
 	if err := svc.ForgotPassword(ctx, api.ForgotPasswordInput{Email: "password-transaction@example.com"}); err != nil {
 		t.Fatalf("ForgotPassword lookup failure = %v, want generic success", err)
@@ -343,7 +343,7 @@ func TestForgotPassword_StorageFailureDoesNotRevealAccount(t *testing.T) {
 	f := newPasswordTransactionFixture(t)
 	ctx := context.Background()
 	mailer := &testutil.MockMailer{}
-	svc := NewPasswordService(f.users, &failingRecoveryTokenWrite{TokenRepository: f.tokens},
+	svc := newPasswordDeliveryTestService(f.users, &failingRecoveryTokenWrite{TokenRepository: f.tokens},
 		f.hasher, &testutil.MockTokenGen{Length: 32}, mailer, f.sessions, f.db, defaultTestConfig())
 	for _, email := range []string{"password-transaction@example.com", "unknown@example.com"} {
 		if err := svc.ForgotPassword(ctx, api.ForgotPasswordInput{Email: email}); err != nil {

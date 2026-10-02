@@ -26,6 +26,7 @@ type serviceWiring struct {
 	cookies        middleware.CookieSettings
 	auditService   *audit.Service
 	twoFactorStore ratelimit.Store
+	recoveryWorker *service.RecoveryWorker
 }
 
 // buildServices keeps the order of repository, audit, and service construction
@@ -155,6 +156,10 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	// registration (record-iff-commit).
 	authSvc.AttachTxManager(sqlDB)
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepo, sqlDB, serviceCfg)
+	var recoveryWorker *service.RecoveryWorker
+	if mailer != nil {
+		recoveryWorker = service.NewRecoveryWorker(sqlstore.NewRecoveryRepository(sqlDB), passSvc, verifySvc, cfg.logger)
+	}
 	inviteSvc := service.NewInviteService(userRepo, sessionRepo, inviteRepo, hasherImpl, genImpl, mailer, sqlDB, serviceCfg, sessSvc, twoFactorSvc)
 	adminSvc := service.NewAdminService(userRepo, sessionRepo, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
 	// Unbanning must commit its audit record with the state change; bans and
@@ -225,6 +230,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		sessionRepo: sessionRepo, tokenRepo: tokenRepo, userRepo: userRepo,
 		orgRepo: orgRepo, cookies: cookies, auditService: auditSvc,
 		twoFactorStore: twoFactorStore,
+		recoveryWorker: recoveryWorker,
 	}, nil
 }
 

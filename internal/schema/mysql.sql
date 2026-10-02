@@ -1,3 +1,20 @@
+-- Public recovery requests are queued before any account lookup. Times are
+-- UTC Unix seconds; no raw reset token or verification code is stored here.
+CREATE TABLE IF NOT EXISTS recovery_requests (
+    id VARCHAR(36) PRIMARY KEY,
+    kind VARCHAR(32) NOT NULL,
+    email VARCHAR(254) NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    available_at BIGINT NOT NULL,
+    lease_until BIGINT NOT NULL DEFAULT 0,
+    claim_owner VARCHAR(36) NOT NULL DEFAULT '',
+    dead_lettered INTEGER NOT NULL DEFAULT 0,
+    created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_recovery_requests_claim ON recovery_requests(dead_lettered, available_at, lease_until);
+CREATE INDEX idx_recovery_requests_created ON recovery_requests(created_at);
+
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,

@@ -41,6 +41,7 @@ type Auth struct {
 	// rate-limit Store it is unconditionally ours to close.
 	twoFactorStore ratelimit.Store
 	maintenance    *maintenanceRunner
+	recoveryWorker *service.RecoveryWorker
 }
 
 // serviceSet keeps the concrete instances needed by internal HTTP wiring.
@@ -125,6 +126,9 @@ func New(in *Config) (*Auth, error) {
 	}
 
 	constructed = true
+	if wired.recoveryWorker != nil {
+		wired.recoveryWorker.Start(context.Background())
+	}
 	return &Auth{
 		cfg:            cfg,
 		pool:           pool,
@@ -138,6 +142,7 @@ func New(in *Config) (*Auth, error) {
 		auditService:   wired.auditService,
 		twoFactorStore: wired.twoFactorStore,
 		maintenance:    maintenance,
+		recoveryWorker: wired.recoveryWorker,
 		services:       wired.services,
 		routes:         httpParts.routes,
 	}, nil
@@ -157,6 +162,9 @@ func (a *Auth) AuditDeliveryStats(ctx context.Context) *audit.DeliveryStats {
 
 // Close stops background work and closes owned resources.
 func (a *Auth) Close() {
+	if a.recoveryWorker != nil {
+		a.recoveryWorker.Stop()
+	}
 	if a.maintenance != nil {
 		a.maintenance.stop()
 	}

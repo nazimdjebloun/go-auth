@@ -139,7 +139,7 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 | `code_already_used` | 410 | This code has already been used | |
 | `code_expired` | 410 | Verification code has expired | |
 | `already_verified` | 400 | Email is already verified | |
-| `email_not_found` | 200 | If an account exists, a verification email has been sent | HTTP 200 on purpose: resend-verification never reveals whether the email exists, so a non-existent address gets the same success response as a real one. |
+| `email_not_found` | 200 | If an account exists, a verification email will be sent | Public resend acknowledges queue acceptance with the same response for known and unknown addresses. Queue failure returns `internal_error` (500); delivery failures retry in the background. |
 
 ## Invites (self-service, invite-only signup)
 

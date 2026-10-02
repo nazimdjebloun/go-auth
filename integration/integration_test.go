@@ -67,6 +67,25 @@ func (m *testMailer) lastBody() string {
 	return m.bodies[len(m.bodies)-1]
 }
 
+func (m *testMailer) waitForResetToken(t *testing.T) string {
+	t.Helper()
+	timer := time.NewTimer(10 * time.Second)
+	defer timer.Stop()
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if raw := extractTokenFromEmail(m.lastBody()); raw != "" {
+			return raw
+		}
+		select {
+		case <-ticker.C:
+		case <-timer.C:
+			t.Fatal("queued recovery did not deliver a reset email")
+			return ""
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // SQLite helpers
 // ---------------------------------------------------------------------------
@@ -530,8 +549,7 @@ func TestPassword_ForgotAndReset(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	body := mailer.lastBody()
-	resetToken := extractTokenFromEmail(body)
+	resetToken := mailer.waitForResetToken(t)
 	if resetToken == "" {
 		t.Fatal("could not extract reset token from email body")
 	}
