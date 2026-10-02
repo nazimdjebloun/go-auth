@@ -205,7 +205,8 @@ The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) uses the no
 | `name_required` | 400 | Name is required | |
 | `session_not_found` | 404 | Session not found | Admin revoking a specific user session that does not exist. |
 | `user_not_found` | 404 | User not found | No user with that `{id}`. Returned by detail, ban/unban, role change, delete, and the per-user session and audit-log routes. A failed database read while checking the target is `internal_error` 500, not this code. |
-| `forbidden` | 403 | You do not have permission | From `RequireRole(domain.RoleAdmin)`: a non-admin hit an admin-only route. |
+| `forbidden` | 403 | You do not have permission | A non-admin hit an admin-only route. |
+| `two_factor_required` | 403 | Sign in again and complete two-factor authentication | The admin session lacks required second-factor assurance. |
 
 ## CSRF and rate limiting
 

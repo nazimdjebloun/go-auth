@@ -77,7 +77,7 @@ type PasswordPepperConfig struct {
 type TwoFactorConfig struct {
 	// RequireEmail2FA makes email two-factor mandatory for every password
 	// login. Enable/Disable both reject while it is on, so users cannot opt
-	// out. OAuth logins are not covered — see docs/security.mdx.
+	// out. Non-admin OAuth logins are not covered — see docs/security.mdx.
 	RequireEmail2FA bool
 
 	// DefaultEnabled seeds User.TwoFactorEnabled at registration. Users can
@@ -105,13 +105,14 @@ type TwoFactorConfig struct {
 	ChallengeCookieName string
 
 	// DisableAdminTwoFactor turns off the unconditional email two-factor
-	// challenge on POST /auth/admin/login. Intended for API-only deployments
+	// requirement for admin password/OAuth login and privileged HTTP access.
+	// Intended for API-only deployments
 	// with no email delivery at all — every other email-gated feature
 	// (RequireEmailVerification, EnableInvite, RequireEmail2FA, DefaultEnabled)
 	// must also be off before a mailer becomes optional; see NewConfig's
 	// validation error if one still needs it.
 	//
-	// The zero value keeps AdminLogin's 2FA on: this is spelled as "Disable"
+	// The zero value keeps admin-account 2FA on: this is spelled as "Disable"
 	// so that forgetting it is the secure outcome.
 	DisableAdminTwoFactor bool
 }

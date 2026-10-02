@@ -15,6 +15,7 @@ func TestChallengeBindingTokenStaysOutOfJSON(t *testing.T) {
 		{"register", NewRegisterResult(RegisterResult{RequiresTwoFactor: true}, binding)},
 		{"login", NewLoginResult(LoginResult{RequiresTwoFactor: true}, binding)},
 		{"invite", NewCompleteInviteResult(CompleteInviteResult{RequiresTwoFactor: true}, binding)},
+		{"oauth", NewOAuthCallbackResult(OAuthCallbackResult{RequiresTwoFactor: true}, binding)},
 	}
 	for _, tt := range results {
 		t.Run(tt.name, func(t *testing.T) {

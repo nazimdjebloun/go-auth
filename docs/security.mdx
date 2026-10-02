@@ -87,13 +87,13 @@ Email-based 2FA is controlled globally by `TwoFactorConfig.RequireEmail2FA` and 
 
 ### Admin login
 
-`POST /auth/admin/login` requires a second factor by default. This is independent of `RequireEmail2FA` and the admin user's `TwoFactorEnabled` setting. Therefore, a mailer is required for admin login even when the rest of the deployment does not use 2FA.
+Admin accounts require a second factor by default through ordinary password login, admin login, and OAuth. This is independent of `RequireEmail2FA` and the admin user's `TwoFactorEnabled` setting. A mailer is therefore required even when the rest of the deployment does not use 2FA. Successful verification writes `sessions.two_factor_verified_at` as part of session creation; refresh preserves it. Admin HTTP routes and `Auth.RequireAdmin` reject sessions without that assurance as `403 two_factor_required`, including old sessions and first-factor sessions belonging to newly promoted admins.
 
 Use `TwoFactorConfig.DisableAdminTwoFactor` through `WithTwoFactor` only for an API-only deployment with no email delivery. It removes the second factor from the highest-privilege login path. `NewConfig` still requires a mailer when `RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, or `DefaultEnabled` is enabled. See [Admin login](./guides/admin.mdx#admin-login) for the request and response shape.
 
 ### OAuth accounts
 
-2FA covers password login (`Login`, `AdminLogin`, `Register`, and invite registration). It does not add a second factor to an OAuth login; go-auth trusts the provider to have authenticated the user. An account with both a password and a linked provider can therefore be accessed through that provider without this library checking its own 2FA. Do not offer OAuth linking where 2FA must protect every login path.
+Admin OAuth login returns an email challenge before issuing a session. The callback sets the existing HttpOnly challenge binding cookie and redirects with `requiresTwoFactor=true`, `challengeId`, and `expiresAt`; finish through `POST /auth/2fa/verify`. Non-admin OAuth login still trusts the provider's authentication and does not apply the library's password-login 2FA policy. Do not offer OAuth linking to non-admin accounts where that policy must protect every login path.
 
 ### Attempt limits
 
@@ -130,7 +130,7 @@ Every endpoint that reads or mutates a specific resource by ID checks ownership,
 - **Sessions**: revoking a session by ID returns the same `session_not_found` whether it does not exist or belongs to someone else, so one user cannot distinguish "no such session" from "that is not yours" by probing IDs.
 - **Organizations**: every `/auth/orgs/{orgID}/*` route requires membership in that specific org, and mutating routes additionally require a minimum role (`admin` to manage members/invites/settings, `owner` to delete the org or touch another owner). Demoting or removing the last owner is blocked outright (`cannot_remove_last_owner`), the same way admin management blocks removing the last admin (`last_admin`).
 - **Active organization**: selecting an active org locks the membership until the session update commits. Concurrent removal or role change then clears or updates the session scope before its own transaction commits, so a delayed selection cannot restore an old role.
-- **Admin**: every `/admin/*` route requires `role: admin`, checked after authentication, not instead of it.
+- **Admin**: every `/admin/*` route checks the current `role: admin` after authentication and requires a session that completed 2FA by default. `DisableAdminTwoFactor` opts out of the default admin requirement; global and per-user requirements still apply. Direct programmatic admin methods take a trusted actor ID, so custom transports must apply `Auth.RequireAuth` and `Auth.RequireAdmin` before calling them. Standalone `middleware.RequireRole` checks only a role.
 
 ## Audit logging
 

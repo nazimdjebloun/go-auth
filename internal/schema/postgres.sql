@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_active_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     active_org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
     active_org_role VARCHAR(50),
+    two_factor_verified_at TIMESTAMPTZ,
     CHECK ((active_org_id IS NULL AND active_org_role IS NULL) OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL))
 );
 

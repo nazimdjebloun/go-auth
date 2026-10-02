@@ -31,6 +31,7 @@ type OAuthService struct {
 	gen          port.TokenGenerator
 	sessionSvc   *SessionService
 	verifySvc    *VerificationService
+	twoFactorSvc *TwoFactorService
 	txManager    port.TxManager
 	encryptor    *crypto.Encryptor
 	config       OAuthServiceConfig
@@ -48,7 +49,11 @@ type OAuthServiceConfig struct {
 	EnableOAuth              bool
 	InviteOnly               bool
 	Encryptor                *crypto.Encryptor
+	DisableAdminTwoFactor    bool
 }
+
+// AttachTwoFactor wires admin OAuth challenges before requests are served.
+func (s *OAuthService) AttachTwoFactor(twoFactor *TwoFactorService) { s.twoFactorSvc = twoFactor }
 
 // NewOAuthService returns an OAuth service.
 func NewOAuthService(
@@ -309,6 +314,22 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 				return nil, err
 			}
 			return &api.OAuthCallbackResult{RequiresVerification: true, VerifyEmail: user.Email}, nil
+		}
+
+		if user.Role == domain.RoleAdmin {
+			if s.twoFactorSvc == nil && !s.config.DisableAdminTwoFactor {
+				return nil, domain.ErrInternal
+			}
+			if s.twoFactorSvc != nil && s.twoFactorSvc.Enforce(user) {
+				challenge, err := s.twoFactorSvc.Challenge(ctx, user.ID)
+				if err != nil {
+					return nil, err
+				}
+				return api.NewOAuthCallbackResult(api.OAuthCallbackResult{
+					RequiresTwoFactor: true, CodeSent: challenge.Sent,
+					TwoFactorChallenge: challenge.ID, TwoFactorExpiresAt: challenge.ExpiresAt,
+				}, challenge.BindingToken), nil
+			}
 		}
 
 		sessResult, sessionErr := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)

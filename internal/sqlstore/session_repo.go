@@ -46,6 +46,7 @@ func sessionScanDest(s *domain.Session) []any {
 		&s.IP, &s.UserAgent, &s.IsRevoked, &s.ExpiresAt, &s.RefreshExpiresAt,
 		&s.RefreshRotatedAt, &s.CreatedAt, &s.RevokedAt, &s.LastActiveAt,
 		&s.ActiveOrgID, &s.ActiveOrgRole,
+		&s.TwoFactorVerifiedAt,
 	}
 }
 
@@ -98,7 +99,7 @@ func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error
 		s.ID, s.UserID, s.TokenHash, s.RefreshTokenHash, s.PreviousRefreshHash,
 		s.IP, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.RefreshExpiresAt,
 		s.RefreshRotatedAt, s.CreatedAt, s.RevokedAt, s.LastActiveAt,
-		s.ActiveOrgID, s.ActiveOrgRole)
+		s.ActiveOrgID, s.ActiveOrgRole, s.TwoFactorVerifiedAt)
 	return err
 }
 

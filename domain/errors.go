@@ -104,6 +104,7 @@ var (
 	ErrOAuthStateUsed          = NewError("state_used", "OAuth state token already used")
 
 	ErrTwoFactorCodeInvalid     = NewError("two_factor_code_invalid", "Invalid two-factor code")
+	ErrTwoFactorRequired        = NewError("two_factor_required", "Sign in again and complete two-factor authentication")
 	ErrTwoFactorCodeExpired     = NewError("two_factor_code_expired", "Two-factor code has expired")
 	ErrTwoFactorCodeAlreadyUsed = NewError("two_factor_code_already_used", "This two-factor code has already been used")
 	ErrTwoFactorAlreadyEnforced = NewError("two_factor_already_enforced", "Two-factor authentication is required and cannot be changed")

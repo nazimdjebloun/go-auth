@@ -6,7 +6,7 @@ icon: "ShieldUser"
 
 # Admin
 
-Everything here requires `role: "admin"` on the calling user — routes are wrapped in `RequireRole(domain.RoleAdmin, nil)` on top of the normal `AuthMiddleware`, so an expired or missing session fails the same way it does everywhere else, and a valid session with `role: "user"` gets `403 forbidden`.
+Everything here requires the calling user's current `role: "admin"` and a session that completed 2FA by default. Normal authentication runs first: a missing or expired session fails as usual, a non-admin gets `403 forbidden`, and an admin session without second-factor assurance gets `403 two_factor_required`. Sign in again and finish the challenge to recover access. `Auth.RequireAdmin` applies the same policy to your own routes.
 
 One distinction that applies to every admin route: `user_not_found` (404) is returned only when the target user genuinely does not exist. If the database read for the target user fails instead — an outage, a canceled context — the route answers `internal_error` (500) and logs the cause server-side, so a temporary backend problem is never reported as a missing user. The same rule covers the middleware: session validation or transparent-refresh failures due to backend trouble produce `internal_error`, never `401 unauthorized` — see [Error handling](../error-handling.mdx#general).
 
@@ -14,7 +14,7 @@ For the full path/param reference see [Routes](../routes/admin.mdx#user-manageme
 
 ## Configuration
 
-There's no `WithAdmin` flag — these routes are always mounted. What gates them is purely the `role` column on `domain.User`, which is either `"user"` or `"admin"`.
+There's no `WithAdmin` flag — these routes are always mounted. Access checks the `role` column on `domain.User` and the session's second-factor assurance. `TwoFactorConfig.DisableAdminTwoFactor` opts out of the default admin requirement; global and per-user requirements still apply.
 
 <Callout type="warn" title="Bootstrapping the first admin">
   Every admin-management endpoint below requires an admin session to call — including `POST /admin/users`. That's a chicken-and-egg problem for the very first admin: there's no API route that creates one from nothing. Use the `goauth seed-admin` CLI command — see [Creating the first admin](#creating-the-first-admin) below.
@@ -72,7 +72,7 @@ Same request shape as [Login](./authentication.mdx#login), but only succeeds for
 | `password` | `string` | Required |
 
 <Callout type="warn" title="Admin login requires a second factor by default">
-  `POST /auth/admin/login` sends a 2FA challenge regardless of `RequireEmail2FA` and the account's `TwoFactorEnabled` setting. It therefore requires a mailer unless `TwoFactorConfig.DisableAdminTwoFactor` is set. Disabling it reduces protection for the highest-privilege login path. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off) and [Security](../security.mdx#two-factor-authentication).
+  `POST /auth/admin/login` sends a 2FA challenge regardless of `RequireEmail2FA` and the account's `TwoFactorEnabled` setting. It therefore requires a mailer unless `TwoFactorConfig.DisableAdminTwoFactor` is set. The same default applies to ordinary admin password login, admin OAuth login, and privileged HTTP access. Global/per-user requirements still apply when the admin default is disabled. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off) and [Security](../security.mdx#two-factor-authentication).
 </Callout>
 
 **Response** (`200 OK`) — never a session directly. A correct admin password returns a gated challenge, the same shape [Login](./authentication.mdx#login) uses:

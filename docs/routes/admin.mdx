@@ -6,7 +6,7 @@ icon: "ShieldUser"
 
 # Admin
 
-Every route here needs an admin session. `middleware.RequireRole(domain.RoleAdmin, ...)` wraps the handlers: no session is `401 unauthorized`, a non-admin session is `403 forbidden`. On every list route, an explicitly supplied unsupported or empty `orderBy` or `orderDirection` is `400 invalid_input`; omit either parameter to use its documented default. See the [Admin guide](../guides/admin.mdx) for flows and examples.
+Every route here needs an admin session. Authentication runs before the current-role and second-factor checks: missing/expired sessions get `401`, a non-admin gets `403 forbidden`, and an admin session without required second-factor assurance gets `403 two_factor_required`. On every list route, an explicitly supplied unsupported or empty `orderBy` or `orderDirection` is `400 invalid_input`; omit either parameter to use its documented default. See the [Admin guide](../guides/admin.mdx) for flows and examples.
 
 ## Login
 
@@ -14,7 +14,7 @@ Every route here needs an admin session. `middleware.RequireRole(domain.RoleAdmi
 
 POST /auth/admin/login
 
-Same body as [Login](./auth.mdx) (`{ "email": "...", "password": "..." }`), but only `role: "admin"` accounts pass (a correct non-admin password fails exactly like a wrong one). Always returns the 2FA challenge below unless `TwoFactorConfig.DisableAdminTwoFactor` is set. See [Admin login](../guides/admin.mdx#admin-login).
+Same body as [Login](./auth.mdx) (`{ "email": "...", "password": "..." }`), but only `role: "admin"` accounts pass (a correct non-admin password fails exactly like a wrong one). Returns the 2FA challenge below by default. `DisableAdminTwoFactor` opts out of the default admin requirement; global/per-user requirements still apply. See [Admin login](../guides/admin.mdx#admin-login).
 
 **Response** (`200 OK`):
 

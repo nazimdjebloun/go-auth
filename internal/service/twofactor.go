@@ -116,13 +116,13 @@ func (s *TwoFactorService) BindingDisabled() bool { return s.config.DisableTwoFa
 
 // Enforce reports whether a user must clear a second factor to get a session.
 //
-// This is the ordinary login check. /auth/admin/login enforces unconditionally
-// on top of it — see AuthService.AdminLogin.
+// Admin accounts require it by default regardless of the login endpoint.
 func (s *TwoFactorService) Enforce(u *domain.User) bool {
 	if u == nil {
 		return false
 	}
-	return s.config.RequireEmail2FA || u.TwoFactorEnabled
+	return s.config.RequireEmail2FA || u.TwoFactorEnabled ||
+		(u.Role == domain.RoleAdmin && !s.config.DisableAdminTwoFactor)
 }
 
 // ─── Challenge ──────────────────────────────────────────────
@@ -382,7 +382,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 		if !ok {
 			return domain.ErrTwoFactorCodeInvalid
 		}
-		sessResult, err = s.sessionSvc.Create(txCtx, user.ID, ip, userAgent)
+		sessResult, err = s.sessionSvc.create(txCtx, user.ID, ip, userAgent, true)
 		if err != nil {
 			return err
 		}

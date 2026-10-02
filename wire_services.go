@@ -176,8 +176,10 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 			EnableOAuth:              cfg.registration.EnableOAuth,
 			InviteOnly:               !cfg.registration.AllowPublic,
 			Encryptor:                encryptor,
+			DisableAdminTwoFactor:    cfg.twoFactor.DisableAdminTwoFactor,
 		}
 		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, sqlDB, oauthCfg)
+		oauthSvc.AttachTwoFactor(twoFactorSvc)
 	}
 
 	var orgSvc *service.OrgService

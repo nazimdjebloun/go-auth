@@ -12,6 +12,13 @@ Requires `RegistrationConfig.EnableOAuth: true` and at least one `WithProvider(.
 
 ## Frontend client setup
 
+Admin sign-in through a linked provider stops for email 2FA by default. The
+landing URL includes `requiresTwoFactor=true`, `challengeId`, and `expiresAt`.
+Show the code-entry screen and submit the challenge and email code to
+`POST /auth/2fa/verify` in the same browser; the callback has already set the
+HttpOnly binding cookie. No session exists until verification succeeds. See
+[OAuth callback outcomes](../routes/oauth.mdx#callback).
+
 The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](./client/index.mdx). The named-method wrapper for everything on this page lives on [Client → OAuth](./client/oauth.mdx).
 
 ## Linking a provider

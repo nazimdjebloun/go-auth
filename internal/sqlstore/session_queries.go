@@ -3,9 +3,9 @@ package sqlstore
 import "strings"
 
 var (
-	sessionCols = `id, user_id, token_hash, refresh_token_hash, prev_refresh_token_hash, ip_address, user_agent, is_revoked, expires_at, refresh_expires_at, refresh_rotated_at, created_at, revoked_at, last_active_at, active_org_id, active_org_role`
+	sessionCols = `id, user_id, token_hash, refresh_token_hash, prev_refresh_token_hash, ip_address, user_agent, is_revoked, expires_at, refresh_expires_at, refresh_rotated_at, created_at, revoked_at, last_active_at, active_org_id, active_org_role, two_factor_verified_at`
 
-	sessionCreateQuery = `INSERT INTO sessions (` + sessionCols + `) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
+	sessionCreateQuery = `INSERT INTO sessions (` + sessionCols + `) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`
 
 	sessionByTokenHashQuery = `SELECT ` + sessionCols + ` FROM sessions WHERE token_hash = $1`
 

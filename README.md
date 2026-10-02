@@ -13,7 +13,7 @@ direct service APIs.
 - Session and refresh-token rotation, idle expiry, and absolute lifetime limits
 - Password recovery for accounts with an existing password, password changes,
   email verification, and OAuth-only account password setup after sign-in
-- Optional email 2FA and mandatory admin-login 2FA by default
+- Optional email 2FA and mandatory admin-account 2FA by default
 - Multi-tenant organizations, roles, invitations, and active-organization
   sessions whose scope stays synchronized with membership changes
 - Administrative user, session, organization, invitation, and audit-log APIs
@@ -122,6 +122,11 @@ is built on pgx. SQLite and MySQL applications must blank-import their selected
 `database/sql` driver.
 
 ## Password security
+
+Admin accounts must complete email 2FA through password or OAuth login by
+default. Admin routes check the session's completed second factor. Existing
+databases need the nullable `sessions.two_factor_verified_at` column described
+in [Schemas](docs/schemas.mdx); existing admin sessions must sign in again.
 
 `New` revalidates the complete configuration before deriving secrets or
 starting services, including options applied after `NewConfig`.

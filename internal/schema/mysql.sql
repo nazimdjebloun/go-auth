@@ -72,6 +72,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     active_org_id VARCHAR(36),
     active_org_role VARCHAR(50),
+    two_factor_verified_at DATETIME(6),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (active_org_id) REFERENCES organizations(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

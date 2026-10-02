@@ -300,7 +300,7 @@ goauth.WithTwoFactor(goauth.TwoFactorConfig{
 | `CodeTTL` | `time.Duration` | `5m` | Lifetime of a 2FA login code. |
 | `DisableChallengeBinding` | `bool` | `false` | Turns off the browser binding cookie for non-browser consumers. |
 | `ChallengeCookieName` | `string` | `_2fa_challenge` | Overrides the binding cookie name. |
-| `DisableAdminTwoFactor` | `bool` | `false` | Turns off admin login's unconditional second factor. |
+| `DisableAdminTwoFactor` | `bool` | `false` | Opts out of mandatory admin-account 2FA across password/OAuth login and admin HTTP access. Global/per-user requirements still apply. |
 
 **Expected errors**
 
@@ -444,7 +444,7 @@ goauth.WithOrganizations(goauth.OrganizationConfig{
 
 ## `WithMailer` / `WithEmail` / `WithTemplates`: required unless every email feature is off
 
-A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `TwoFactorConfig.RequireEmail2FA`, `TwoFactorConfig.DefaultEnabled`, or `POST /auth/admin/login`'s two-factor challenge (on by default; see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `TwoFactorConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
+A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `TwoFactorConfig.RequireEmail2FA`, `TwoFactorConfig.DefaultEnabled`, or mandatory admin-account two-factor authentication (on by default; see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `TwoFactorConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
 
 **Exception: `EnvironmentDev`.** If neither `WithMailer` nor `WithEmail` is set and `Environment` is `EnvironmentDev`, `NewConfig` automatically defaults to a log-only mailer (`mailer.Log`) instead of erroring. Emails are logged (`slog`) rather than delivered, so local development works with zero mailer setup. This default only fills in when *nothing* was configured; an explicit `WithMailer`/`WithEmail` call is never overridden. Outside `EnvironmentDev`, no default is applied: a still-unconfigured mailer is a validation error.
 
@@ -476,7 +476,7 @@ goauth.WithTemplates(myTemplateProvider)
 | `WithMailer(port.Mailer)` | Your own delivery implementation | Required unless every email-sending feature is off (auto-defaulted in `EnvironmentDev`, see above) | Takes precedence over `WithEmail` if both are set. |
 | `WithEmail(EmailConfig)` | Built-in SMTP delivery | Required unless every email-sending feature is off (auto-defaulted in `EnvironmentDev`, see above) | Ignored if `WithMailer` is also set: its fields are not even validated in that case. |
 | `WithTemplates(port.TemplateProvider)` | Replace the built-in email templates | Optional | The library still renders subject/HTML/text and hands finished strings to the mailer either way. This replaces content; `WithMailer` replaces delivery. |
-| `TwoFactorConfig.DisableAdminTwoFactor` | Turn off `POST /auth/admin/login`'s unconditional two-factor challenge | Optional, default `false` (challenge on) | Set via `WithTwoFactor`. The last of the five mailer-requiring features to disable for a mailer-free, API-only deployment. |
+| `TwoFactorConfig.DisableAdminTwoFactor` | Opt out of mandatory admin-account 2FA; global/per-user requirements remain | Optional, default `false` (challenge on) | Set via `WithTwoFactor`. The last of the five mailer-requiring features to disable for a mailer-free, API-only deployment. |
 
 **`EmailConfig`** (only validated when `WithEmail` is set and `WithMailer` is not)
 

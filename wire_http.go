@@ -55,9 +55,10 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 
 	// OAuth handlers (separate because they need baseURL for redirects).
 	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, cfg.app.BaseURL, cfg.security.CSRFToken, clientIPCfg, cookies, cfg.logger)
+	oauthHandlers.AttachTwoFactor(svc.TwoFactor)
 
 	authMW := middleware.AuthMiddleware(sessSvc, cookies, userRepo, cfg.logger)
-	adminMW := middleware.RequireRole(domain.RoleAdmin, cfg.logger)
+	adminMW := middleware.RequireAdminSession(!cfg.twoFactor.DisableAdminTwoFactor || cfg.twoFactor.RequireEmail2FA, cfg.logger)
 	var trustedIPs []string
 	if cfg.rateLimit != nil {
 		cfg.rateLimit.Logger = cfg.logger

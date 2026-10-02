@@ -14,9 +14,9 @@ func (a *Auth) RequireAuth(next http.Handler) http.Handler {
 	return a.authMW(next)
 }
 
-// RequireAdmin protects a consumer route with the admin role check used by
-// the built-in /admin routes. Wrap with RequireAuth first: the check reads
-// the user from the context RequireAuth populates.
+// RequireAdmin applies the current admin role and second-factor requirements
+// used by built-in /admin routes. Wrap with RequireAuth first so the user and
+// session are available in the request context.
 func (a *Auth) RequireAdmin(next http.Handler) http.Handler {
 	return a.adminMW(next)
 }

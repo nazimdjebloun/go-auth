@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     revoked_at DATETIME,
     last_active_at DATETIME NOT NULL,
     active_org_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
-    active_org_role TEXT
+    active_org_role TEXT,
+    two_factor_verified_at DATETIME
 );
 
 CREATE TABLE IF NOT EXISTS verification_tokens (

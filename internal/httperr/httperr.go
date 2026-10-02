@@ -59,6 +59,7 @@ var byCode = map[string]int{
 	"org_metadata_too_large":       http.StatusBadRequest,
 	"method_disabled":              http.StatusMethodNotAllowed,
 	"two_factor_code_invalid":      http.StatusBadRequest,
+	"two_factor_required":          http.StatusForbidden,
 	"two_factor_code_expired":      http.StatusGone,
 	"two_factor_code_already_used": http.StatusGone,
 	"two_factor_already_enforced":  http.StatusConflict,

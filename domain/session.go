@@ -54,6 +54,8 @@ type Session struct {
 	CreatedAt           time.Time      `json:"createdAt"`
 	RevokedAt           *time.Time     `json:"revokedAt,omitempty"`
 	LastActiveAt        time.Time      `json:"lastActiveAt,omitempty"`
+	// Set only when the session is created after a successful 2FA claim.
+	TwoFactorVerifiedAt *time.Time `json:"-"`
 
 	ActiveOrgID   *string `json:"activeOrgId,omitempty"`
 	ActiveOrgRole *string `json:"activeOrgRole,omitempty"`

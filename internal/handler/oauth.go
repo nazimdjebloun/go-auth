@@ -24,9 +24,13 @@ type OAuthHandlers struct {
 	// construction like Handler.cookies — see handler.go.
 	cookies middleware.CookieSettings
 	// clientIP — see Handler.clientIP.
-	clientIP middleware.ClientIPConfig
-	log      *slog.Logger
+	clientIP  middleware.ClientIPConfig
+	log       *slog.Logger
+	twoFactor *service.TwoFactorService
 }
+
+// AttachTwoFactor provides challenge cookie settings for OAuth admin login.
+func (h *OAuthHandlers) AttachTwoFactor(twoFactor *service.TwoFactorService) { h.twoFactor = twoFactor }
 
 // NewOAuthHandlers returns OAuth HTTP handlers.
 func NewOAuthHandlers(oauth *service.OAuthService, baseURL string, csrfTokenCfg *middleware.CSRFTokenConfig, clientIP middleware.ClientIPConfig, cookies middleware.CookieSettings, logger *slog.Logger) *OAuthHandlers {
@@ -165,6 +169,26 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 	if result.RequiresVerification {
 		redirectURL := h.baseURL + "/auth/callback?requiresVerification=true&provider=" + url.QueryEscape(provider)
 		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+	if result.RequiresTwoFactor {
+		if h.twoFactor == nil {
+			http.Redirect(w, r, h.baseURL+"/auth/callback?error=internal_error", http.StatusFound)
+			return
+		}
+		if !h.twoFactor.BindingDisabled() && result.BindingToken() != "" {
+			http.SetCookie(w, newBindingCookie(bindingCookieParams{
+				name: h.twoFactor.CookieName(), value: result.BindingToken(),
+				domain: h.cookies.Domain, path: h.cookies.Path, secure: h.cookies.Secure,
+				sameSite: h.cookies.SameSite, maxAge: int(h.twoFactor.CookieTTL().Seconds()),
+			}))
+		}
+		params := url.Values{
+			"requiresTwoFactor": {"true"}, "provider": {provider},
+			"challengeId": {result.TwoFactorChallenge},
+			"expiresAt":   {result.TwoFactorExpiresAt.Format(time.RFC3339)},
+		}
+		http.Redirect(w, r, h.baseURL+"/auth/callback?"+params.Encode(), http.StatusFound)
 		return
 	}
 

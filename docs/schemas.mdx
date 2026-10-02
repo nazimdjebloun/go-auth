@@ -293,6 +293,7 @@ One row per active login: both tokens, the device fingerprint, and the active-or
 | `last_active_at` | `TIMESTAMPTZ` | Updated on authenticated requests, subject to `TouchDebounce` |
 | `active_org_id` | `UUID` | → `organizations(id)` `ON DELETE SET NULL` |
 | `active_org_role` | `VARCHAR(50)` | |
+| `two_factor_verified_at` | `TIMESTAMPTZ` | Nullable; set only for a session created after successful 2FA. Preserved during refresh. |
 
 - On PostgreSQL a table-level `CHECK` forces `active_org_id` and `active_org_role` to be both set or both null. A session cannot be scoped to an org without a role in it.
 
@@ -317,6 +318,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_active_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     active_org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
     active_org_role VARCHAR(50),
+    two_factor_verified_at TIMESTAMPTZ,
     CHECK ((active_org_id IS NULL AND active_org_role IS NULL) OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL))
 );
 
@@ -351,7 +353,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     revoked_at DATETIME,
     last_active_at DATETIME NOT NULL,
     active_org_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
-    active_org_role TEXT
+    active_org_role TEXT,
+    two_factor_verified_at DATETIME
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
@@ -386,6 +389,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     active_org_id VARCHAR(36),
     active_org_role VARCHAR(50),
+    two_factor_verified_at DATETIME(6),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (active_org_id) REFERENCES organizations(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;

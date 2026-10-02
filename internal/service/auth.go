@@ -89,8 +89,8 @@ type Config struct {
 	DefaultTwoFactorEnabled bool
 	TwoFactorCodeTTL        time.Duration
 
-	// DisableAdminTwoFactor turns off AdminLogin's unconditional email
-	// two-factor challenge. See the scope note on AdminLogin.
+	// DisableAdminTwoFactor opts out of the default admin-account requirement.
+	// Global and per-user requirements still apply.
 	DisableAdminTwoFactor bool
 
 	// TwoFactorBindingKey signs 2FA challenge binding tokens. It is a
@@ -559,22 +559,9 @@ func (s *AuthService) AdminLogin(ctx context.Context, input api.LoginInput) (*ap
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	// /auth/admin/login requires a second factor by default. Not
-	// s.enforceTwoFactor: this is independent of RequireEmail2FA and of the
-	// user's own TwoFactorEnabled flag. Applied after the role rejection above
-	// so the admin-vs-not distinction still leaks nothing.
-	//
-	// Scope note: this gates the endpoint, not the account. An admin signing in
-	// through /auth/login gets the ordinary check, and the session issued there
-	// carries role:admin just the same — so this raises the bar on the admin
-	// route specifically rather than guaranteeing every admin session cleared a
-	// second factor. Pair it with RequireEmail2FA, or with the admin enabling
-	// 2FA on their own account, if you want that stronger property.
-	//
-	// DisableAdminTwoFactor opts out entirely, for API-only deployments with
-	// no mailer configured — NewConfig refuses that combination unless every
-	// other email-sending feature is also off.
-	if !s.config.DisableAdminTwoFactor && s.twoFactorSvc != nil {
+	// Apply the same account policy used by ordinary login. An explicit admin
+	// opt-out does not bypass a global or per-user second-factor requirement.
+	if s.enforceTwoFactor(user) {
 		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr

@@ -1,5 +1,7 @@
 package api
 
+import "time"
+
 // OAuthCallbackResult contains the session or link result of an OAuth callback.
 // Callback handles the OAuth callback for both login and link flows.
 // OAuthCallbackResult is Callback's outcome. SessionToken/RefreshToken are
@@ -16,6 +18,20 @@ type OAuthCallbackResult struct {
 	RequiresVerification bool
 	VerifyEmail          string
 	IsLink               bool
+	RequiresTwoFactor    bool      `json:"requiresTwoFactor,omitempty"`
+	CodeSent             bool      `json:"codeSent,omitempty"`
+	TwoFactorChallenge   string    `json:"challengeId,omitempty"`
+	TwoFactorExpiresAt   time.Time `json:"twoFactorExpiresAt,omitempty"`
+	bindingToken         string
+}
+
+// BindingToken returns the browser binding credential; it is never serialized.
+func (r *OAuthCallbackResult) BindingToken() string { return r.bindingToken }
+
+// NewOAuthCallbackResult attaches a binding credential to an OAuth challenge.
+func NewOAuthCallbackResult(result OAuthCallbackResult, bindingToken string) *OAuthCallbackResult {
+	result.bindingToken = bindingToken
+	return &result
 }
 
 // OAuthInitiation gives the HTTP layer the authorization URL and the state to

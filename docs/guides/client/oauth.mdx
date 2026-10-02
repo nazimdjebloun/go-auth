@@ -29,6 +29,12 @@ export const oauthApi = {
 
 ## Link provider
 
+For admin sign-in, handle `requiresTwoFactor=true` on the `/auth/callback`
+landing page before refreshing the logged-in user. Read `challengeId` and
+`expiresAt`, show the existing 2FA form, and post `{ challengeId, code }` to
+`/auth/2fa/verify` using `apiRequest` and the same cookie jar. The callback sets
+the HttpOnly binding cookie; session cookies are issued only after verification.
+
 ```ts
 // Settings page — "Connect GitHub" button
 <button onClick={() => oauthApi.link("github")}>Connect GitHub</button>

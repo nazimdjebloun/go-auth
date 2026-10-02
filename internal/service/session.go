@@ -86,8 +86,13 @@ func (s *SessionService) withTx(ctx context.Context, fn func(context.Context) er
 	return s.txManager.WithTx(ctx, fn)
 }
 
-// Create creates a user session.
+// Create creates a session without second-factor assurance. Privileged HTTP
+// access requires a session issued by TwoFactorService.Verify by default.
 func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*api.SessionResult, error) {
+	return s.create(ctx, userID, ip, userAgent, false)
+}
+
+func (s *SessionService) create(ctx context.Context, userID, ip, userAgent string, twoFactorVerified bool) (*api.SessionResult, error) {
 	sessionToken, err := s.tokenGen.Generate()
 	if err != nil {
 		return nil, fmt.Errorf("session create token: %w", err)
@@ -112,6 +117,9 @@ func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent strin
 		RefreshExpiresAt:    now.Add(s.config.RefreshTTL),
 		CreatedAt:           now,
 		LastActiveAt:        now,
+	}
+	if twoFactorVerified {
+		session.TwoFactorVerifiedAt = &now
 	}
 
 	err = s.withTx(ctx, func(txCtx context.Context) error {

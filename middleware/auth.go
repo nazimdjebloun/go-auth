@@ -237,3 +237,26 @@ func RequireRole(role domain.Role, logger *slog.Logger) func(http.Handler) http.
 		})
 	}
 }
+
+// RequireAdminSession checks the current role and the session's second-factor
+// assurance. Configure requireTwoFactor for mandatory admin/global policies;
+// a user's enabled flag also requires assurance. Wrap it with AuthMiddleware.
+func RequireAdminSession(requireTwoFactor bool, logger *slog.Logger) func(http.Handler) http.Handler {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return func(next http.Handler) http.Handler {
+		assurance := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := GetUserFromContext(r.Context())
+			if requireTwoFactor || user.TwoFactorEnabled {
+				session := GetSessionFromContext(r.Context())
+				if session == nil || session.UserID != user.ID || session.TwoFactorVerifiedAt == nil || session.TwoFactorVerifiedAt.IsZero() {
+					writeJSON(w, http.StatusForbidden, domain.ErrTwoFactorRequired, logger)
+					return
+				}
+			}
+			next.ServeHTTP(w, r)
+		})
+		return RequireRole(domain.RoleAdmin, logger)(assurance)
+	}
+}

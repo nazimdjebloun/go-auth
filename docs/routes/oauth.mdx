@@ -48,6 +48,7 @@ The state cookie uses `SameSite=None; Secure` when secure cookies are enabled so
 - Failure: `302` to `{BaseURL}/auth/callback?error={code}&provider={provider}`, where `{code}` is the `error` code (e.g. `state_used`, `state_expired`).
 - Link flow (caller already had a session): `302` to `{BaseURL}/auth/callback`. No new session is issued.
 - Verification required: `302` to `{BaseURL}/auth/callback?requiresVerification=true&provider={provider}`.
+- Admin 2FA required: `302` to `{BaseURL}/auth/callback` with `requiresTwoFactor=true`, `provider`, `challengeId`, and `expiresAt` query parameters, plus an HttpOnly challenge binding cookie. No session is issued. Submit the email code and challenge ID to `POST /auth/2fa/verify` using the same browser cookie jar. The binding credential never appears in the redirect URL.
 - Normal login: `200` HTML page that sets both cookies via `Set-Cookie` and redirects client-side with `window.location.replace("{BaseURL}/auth/callback")`. Cookies go in headers (not a bare `302`) because `Set-Cookie` on cross-origin redirects is unreliable in some browsers.
 
 ### Link provider
