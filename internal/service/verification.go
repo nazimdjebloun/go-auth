@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -69,7 +70,10 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 		return nil, domain.ErrInternal
 	}
 	token, err := s.tokens.GetByHash(ctx, hashOTP(code, s.config.OTPPepper))
-	if err != nil || token == nil {
+	if err != nil {
+		return nil, fmt.Errorf("verify email: lookup: %w", err)
+	}
+	if token == nil {
 		return nil, domain.ErrVerificationCodeInvalid
 	}
 
@@ -109,7 +113,10 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	// flow exposes a challenge id. Brute-force resistance here rests on the
 	// 8-char alphanumeric space (32^8) plus the per-IP rate limit.
 	user, err := s.users.GetByID(ctx, *token.UserID)
-	if err != nil || user == nil {
+	if err != nil {
+		return nil, fmt.Errorf("verify email: lookup: %w", err)
+	}
+	if user == nil {
 		return nil, domain.ErrUserNotFound
 	}
 
@@ -188,7 +195,7 @@ func (s *VerificationService) sendVerification(ctx context.Context, user *domain
 		if err != nil {
 			return nil, domain.ErrInternal
 		}
-		if err == nil && last != nil {
+		if last != nil {
 			// Still usable — reuse it rather than mail a second code.
 			if last.UsedAt == nil && time.Now().UTC().Before(last.ExpiresAt) {
 				// A live but rotation-stale code can never verify, and
@@ -278,7 +285,10 @@ func (s *VerificationService) sendVerification(ctx context.Context, user *domain
 // ResendVerification sends a user's verification code again.
 func (s *VerificationService) ResendVerification(ctx context.Context, userID string) (*api.VerificationResult, error) {
 	user, err := s.users.GetByID(ctx, userID)
-	if err != nil || user == nil {
+	if err != nil {
+		return nil, fmt.Errorf("resend verification: lookup: %w", err)
+	}
+	if user == nil {
 		return nil, domain.ErrUserNotFound
 	}
 

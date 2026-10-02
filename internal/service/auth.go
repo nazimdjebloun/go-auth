@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/mail"
@@ -234,7 +235,10 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 	}
 	input.Name = strings.TrimSpace(input.Name)
 
-	existing, _ := s.users.GetByEmail(ctx, input.Email)
+	existing, err := s.users.GetByEmail(ctx, input.Email)
+	if err != nil {
+		return nil, fmt.Errorf("register: look up email: %w", err)
+	}
 	if existing != nil {
 		return nil, domain.ErrEmailAlreadyExists
 	}
@@ -347,7 +351,10 @@ func (s *AuthService) authenticate(ctx context.Context, input api.LoginInput) (*
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
-	if err != nil || user == nil {
+	if err != nil {
+		return nil, false, fmt.Errorf("authenticate: look up email: %w", err)
+	}
+	if user == nil {
 		// Constant-time: a dummy comparison prevents timing-based email
 		// enumeration. The registry provides the dummy hash so the burned
 		// work matches the configured hasher — a bcrypt dummy under an
@@ -609,11 +616,17 @@ func (s *AuthService) AdminLogin(ctx context.Context, input api.LoginInput) (*ap
 func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*domain.User, *domain.Session, error) {
 	session, err := s.sessionSvc.Validate(ctx, tokenRaw)
 	if err != nil {
-		return nil, nil, domain.ErrSessionExpired
+		if isSessionValidationRejection(err) {
+			return nil, nil, domain.ErrSessionExpired
+		}
+		return nil, nil, fmt.Errorf("validate session: %w", err)
 	}
 
 	user, err := s.users.GetByID(ctx, session.UserID)
-	if err != nil || user == nil {
+	if err != nil {
+		return nil, nil, fmt.Errorf("validate session: lookup: %w", err)
+	}
+	if user == nil {
 		return nil, nil, domain.ErrSessionExpired
 	}
 	if user.IsBanned {
@@ -621,6 +634,13 @@ func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*do
 	}
 
 	return user, session, nil
+}
+
+func isSessionValidationRejection(err error) bool {
+	return errors.Is(err, domain.ErrSessionNotFound) ||
+		errors.Is(err, domain.ErrSessionExpired) ||
+		errors.Is(err, domain.ErrSessionRevoked) ||
+		errors.Is(err, domain.ErrMaxLifetimeExceeded)
 }
 
 // Logout ends a session.
@@ -644,7 +664,10 @@ func (s *AuthService) Logout(ctx context.Context, sessionID string) error {
 // ChangeName changes a user's display name.
 func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) error {
 	user, err := s.users.GetByID(ctx, userID)
-	if err != nil || user == nil {
+	if err != nil {
+		return fmt.Errorf("change name: lookup: %w", err)
+	}
+	if user == nil {
 		return domain.ErrUserNotFound
 	}
 	if newName == "" {
@@ -666,7 +689,10 @@ func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) er
 // DeleteAccount deletes a user's account after password verification.
 func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password string) error {
 	user, err := s.users.GetByID(ctx, userID)
-	if err != nil || user == nil {
+	if err != nil {
+		return fmt.Errorf("delete account: lookup: %w", err)
+	}
+	if user == nil {
 		return domain.ErrUserNotFound
 	}
 
@@ -702,7 +728,10 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 // RequestDeleteAccount sends an account-deletion code.
 func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
-	if err != nil || user == nil {
+	if err != nil {
+		return fmt.Errorf("request delete account: lookup: %w", err)
+	}
+	if user == nil {
 		return domain.ErrUserNotFound
 	}
 
@@ -715,12 +744,18 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 	}
 
 	hasValid, err := s.tokens.HasValidByUserAndType(ctx, userID, domain.TokenDeleteAccount)
-	if err == nil && hasValid {
+	if err != nil {
+		return fmt.Errorf("request delete account: check outstanding code: %w", err)
+	}
+	if hasValid {
 		// A live but rotation-stale code can never verify — confirming it
 		// could only answer expired. Don't report "already sent" for it;
 		// clear it and fall through to mint a fresh code instead.
 		last, lerr := s.tokens.GetLastByUserAndType(ctx, userID, domain.TokenDeleteAccount)
-		if lerr != nil || last == nil || last.UsedAt != nil ||
+		if lerr != nil {
+			return fmt.Errorf("request delete account: look up outstanding code: %w", lerr)
+		}
+		if last == nil || last.UsedAt != nil ||
 			time.Now().UTC().After(last.ExpiresAt) ||
 			!stalePepper(last.CreatedAt, s.config.PepperRotatedAt) {
 			return nil
@@ -778,7 +813,10 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 // ConfirmDeleteAccount deletes an account using a valid code.
 func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input api.ConfirmDeleteAccountInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
+	if err != nil {
+		return fmt.Errorf("confirm delete account: lookup: %w", err)
+	}
+	if user == nil {
 		return domain.ErrUserNotFound
 	}
 
@@ -792,7 +830,10 @@ func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input api.Confir
 		return domain.ErrInternal
 	}
 	token, err := s.tokens.GetLastByUserAndType(ctx, input.UserID, domain.TokenDeleteAccount)
-	if err != nil || token == nil {
+	if err != nil {
+		return fmt.Errorf("confirm delete account: lookup: %w", err)
+	}
+	if token == nil {
 		return domain.ErrDeleteCodeInvalid
 	}
 

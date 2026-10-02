@@ -68,7 +68,10 @@ func NewInviteService(
 // GetInviteByToken returns a valid account invitation by token.
 func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (*domain.Invite, error) {
 	invite, err := s.invites.GetByCode(ctx, hashToken(rawToken))
-	if err != nil || invite == nil {
+	if err != nil {
+		return nil, fmt.Errorf("get invite by token: lookup: %w", err)
+	}
+	if invite == nil {
 		return nil, domain.ErrInviteNotFound
 	}
 
@@ -185,7 +188,10 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 		return nil, domain.ErrMethodDisabled
 	}
 	invite, err := s.invites.GetByCode(ctx, hashToken(input.Code))
-	if err != nil || invite == nil {
+	if err != nil {
+		return nil, fmt.Errorf("complete invite registration: lookup: %w", err)
+	}
+	if invite == nil {
 		return nil, domain.ErrInviteNotFound
 	}
 
@@ -376,7 +382,10 @@ func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID, actorID 
 	// Read before deleting: the audit event names the recipient, and after the
 	// delete there is no row left to read it from.
 	invite, err := s.invites.GetByID(ctx, inviteID)
-	if err != nil || invite == nil {
+	if err != nil {
+		return fmt.Errorf("hard delete invite: lookup: %w", err)
+	}
+	if invite == nil {
 		return domain.ErrInviteNotFound
 	}
 	if err := s.invites.Delete(ctx, inviteID); err != nil {
@@ -400,7 +409,10 @@ func (s *InviteService) RevokeInvite(ctx context.Context, inviteID, actorID stri
 		return err
 	}
 	invite, err := s.invites.GetByID(ctx, inviteID)
-	if err != nil || invite == nil {
+	if err != nil {
+		return fmt.Errorf("revoke invite: lookup: %w", err)
+	}
+	if invite == nil {
 		return domain.ErrInviteNotFound
 	}
 
@@ -437,7 +449,10 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID
 		return err
 	}
 	invite, err := s.invites.GetByID(ctx, inviteID)
-	if err != nil || invite == nil {
+	if err != nil {
+		return fmt.Errorf("resend invite email: lookup: %w", err)
+	}
+	if invite == nil {
 		return domain.ErrInviteNotFound
 	}
 	snapshot := *invite

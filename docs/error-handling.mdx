@@ -42,7 +42,7 @@ if err != nil {
 
 Use `errors.Is` for one specific outcome, such as `domain.ErrInvalidCredentials`. Use `errors.As` when you need the code and message generically. This is also how the handlers map an error to a response; an error that is not a `*domain.AuthError` becomes `internal_error` (500). Prefer `errors.As` to a direct type assertion because it also finds an `*AuthError` inside a wrapped error.
 
-Admin target-user lookups return `domain.ErrUserNotFound` only for an absent user. Backend read failures are wrapped with context while preserving the cause, so direct callers can use `errors.Is(err, context.Canceled)` or `errors.Is(err, context.DeadlineExceeded)`. Do not assume every service error is a `*domain.AuthError`, or expose a raw backend error to clients.
+Login, session validation, and initial credential-token lookups distinguish an absent row from a backend failure. These backend read failures are wrapped with context while preserving the cause, so direct callers can use `errors.Is(err, context.Canceled)` or `errors.Is(err, context.DeadlineExceeded)`. Login lookup failures do not become `invalid_credentials`, and `GetSession` backend failures do not become `session_expired`. Mounted handlers return the generic `internal_error` response for backend failures. Do not assume every service error is a `*domain.AuthError`, or expose a raw backend error to clients.
 
 ## Not every layer uses this shape
 

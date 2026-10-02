@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"strings"
@@ -206,7 +207,10 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 
 	stateHash := hashToken(rawState)
 	stateToken, repoErr := s.tokenRepo.GetByHash(ctx, stateHash)
-	if repoErr != nil || stateToken == nil || stateToken.Type != domain.TokenOAuthState {
+	if repoErr != nil {
+		return nil, fmt.Errorf("oauth callback: look up state: %w", repoErr)
+	}
+	if stateToken == nil || stateToken.Type != domain.TokenOAuthState {
 		return nil, domain.NewError("invalid_state", "Invalid or expired OAuth state")
 	}
 
@@ -222,6 +226,9 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 			return nil, domain.NewError("unauthorized", "Authentication required")
 		}
 		session, user, validateErr := s.sessionSvc.ValidateWithUser(ctx, rawSessionToken)
+		if validateErr != nil && !isSessionValidationRejection(validateErr) {
+			return nil, fmt.Errorf("oauth callback: validate linking session: %w", validateErr)
+		}
 		if validateErr != nil || session == nil || user == nil || user.ID != *stateToken.UserID {
 			return nil, domain.NewError("unauthorized", "Authentication required")
 		}
@@ -357,7 +364,10 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return nil, domain.NewError("provider_error", "Failed to authenticate with provider")
 	}
 	existingUser, userErr := s.userRepo.GetByEmail(ctx, info.Email)
-	if userErr != nil || existingUser != nil {
+	if userErr != nil {
+		return nil, fmt.Errorf("oauth callback: look up email: %w", userErr)
+	}
+	if existingUser != nil {
 		return nil, domain.ErrEmailAlreadyExists
 	}
 

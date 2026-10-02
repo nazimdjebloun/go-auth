@@ -185,13 +185,19 @@ func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input api.Create
 // AcceptInvite accepts an organization invitation.
 func (s *OrgInviteService) AcceptInvite(ctx context.Context, input api.AcceptInviteInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
+	if err != nil {
+		return fmt.Errorf("accept invite: lookup: %w", err)
+	}
+	if user == nil {
 		return domain.ErrForbidden
 	}
 
 	codeHash := hashToken(input.RawCode)
 	invite, err := s.orgInvites.GetByCodeHash(ctx, codeHash)
-	if err != nil || invite == nil {
+	if err != nil {
+		return fmt.Errorf("accept invite: lookup: %w", err)
+	}
+	if invite == nil {
 		return domain.ErrOrgInviteExpired
 	}
 

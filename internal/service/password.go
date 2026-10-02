@@ -215,7 +215,10 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 	}
 
 	token, err := s.tokens.GetByHash(ctx, hashToken(input.Code))
-	if err != nil || token == nil {
+	if err != nil {
+		return fmt.Errorf("reset password: lookup: %w", err)
+	}
+	if token == nil {
 		return domain.ErrResetTokenInvalid
 	}
 
@@ -236,7 +239,10 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 	}
 
 	user, err := s.users.GetByID(ctx, *token.UserID)
-	if err != nil || user == nil {
+	if err != nil {
+		return fmt.Errorf("reset password: lookup: %w", err)
+	}
+	if user == nil {
 		return domain.ErrUserNotFound
 	}
 	if !user.HasPassword() {
@@ -313,7 +319,10 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 // RequestSetPassword sends a password-setup code.
 func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string) error {
 	user, err := s.users.GetByID(ctx, userID)
-	if err != nil || user == nil {
+	if err != nil {
+		return fmt.Errorf("request set password: lookup: %w", err)
+	}
+	if user == nil {
 		return domain.ErrUserNotFound
 	}
 
@@ -377,7 +386,10 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 // ConfirmSetPassword sets a password using a valid code.
 func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.ConfirmSetPasswordInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
+	if err != nil {
+		return fmt.Errorf("confirm set password: lookup: %w", err)
+	}
+	if user == nil {
 		return domain.ErrUserNotFound
 	}
 
@@ -401,7 +413,10 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.Conf
 		return domain.ErrInternal
 	}
 	token, err := s.tokens.GetLastByUserAndType(ctx, input.UserID, domain.TokenSetPass)
-	if err != nil || token == nil {
+	if err != nil {
+		return fmt.Errorf("confirm set password: lookup: %w", err)
+	}
+	if token == nil {
 		return domain.ErrInvalidSetPasswordCode
 	}
 
@@ -456,7 +471,10 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.Conf
 // ChangePassword changes a user's password.
 func (s *PasswordService) ChangePassword(ctx context.Context, input api.ChangePasswordInput) error {
 	user, err := s.users.GetByID(ctx, input.UserID)
-	if err != nil || user == nil {
+	if err != nil {
+		return fmt.Errorf("change password: lookup: %w", err)
+	}
+	if user == nil {
 		return domain.ErrUserNotFound
 	}
 

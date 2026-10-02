@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"time"
@@ -318,7 +319,10 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 	}
 
 	token, err := s.tokens.GetByID(ctx, challengeID)
-	if err != nil || token == nil || token.Type != domain.TokenTwoFactor || token.UserID == nil {
+	if err != nil {
+		return nil, fmt.Errorf("verify: lookup: %w", err)
+	}
+	if token == nil || token.Type != domain.TokenTwoFactor || token.UserID == nil {
 		return nil, domain.ErrTwoFactorCodeInvalid
 	}
 	snapshot := *token
@@ -505,12 +509,18 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 	}
 
 	token, err := s.tokens.GetByID(ctx, challengeID)
-	if err != nil || token == nil || token.Type != domain.TokenTwoFactor || token.UserID == nil {
+	if err != nil {
+		return nil, fmt.Errorf("resend: lookup: %w", err)
+	}
+	if token == nil || token.Type != domain.TokenTwoFactor || token.UserID == nil {
 		return nil, vague
 	}
 
 	user, err := s.users.GetByID(ctx, *token.UserID)
-	if err != nil || user == nil {
+	if err != nil {
+		return nil, fmt.Errorf("resend: lookup: %w", err)
+	}
+	if user == nil {
 		return nil, vague
 	}
 	if s.mailer == nil {
@@ -656,7 +666,10 @@ func (s *TwoFactorService) authorizeChange(ctx context.Context, userID, password
 		return nil, domain.ErrTwoFactorAlreadyEnforced
 	}
 	user, err := s.users.GetByID(ctx, userID)
-	if err != nil || user == nil {
+	if err != nil {
+		return nil, fmt.Errorf("authorize change: lookup: %w", err)
+	}
+	if user == nil {
 		return nil, domain.ErrUserNotFound
 	}
 	if !user.HasPassword() {
