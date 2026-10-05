@@ -62,27 +62,30 @@ func DefaultSessionConfig() SessionConfig {
 }
 
 // NewSessionService returns a session service.
-func NewSessionService(repo port.SessionRepository, tokenGen port.TokenGenerator, config SessionConfig) *SessionService {
+// It panics if txManager is nil, including a typed nil.
+func NewSessionService(
+	txManager port.TxManager,
+	repo port.SessionRepository,
+	tokenGen port.TokenGenerator,
+	config SessionConfig,
+) *SessionService {
+	requireTxManager(txManager)
 	logger := config.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &SessionService{repo: repo, tokenGen: tokenGen, config: config, log: logger, audit: config.Audit, now: time.Now}
-}
-
-// AttachTxManager wires the transaction manager used to commit session
-// mutations with the audit records that describe them. Called once by the
-// library wiring before requests are served. Directly constructed services
-// without a manager retain the legacy autocommit behavior used by lightweight
-// tests and custom embeddings.
-func (s *SessionService) AttachTxManager(tm port.TxManager) {
-	s.txManager = tm
+	return &SessionService{
+		txManager: txManager,
+		repo:      repo,
+		tokenGen:  tokenGen,
+		config:    config,
+		log:       logger,
+		audit:     config.Audit,
+		now:       time.Now,
+	}
 }
 
 func (s *SessionService) withTx(ctx context.Context, fn func(context.Context) error) error {
-	if s.txManager == nil {
-		return fn(ctx)
-	}
 	return s.txManager.WithTx(ctx, fn)
 }
 

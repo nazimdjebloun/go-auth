@@ -26,7 +26,7 @@ func newAuditTestAuthService(t *testing.T, auditPub *testutil.MockAuditPublisher
 	sessSvc := newTestSessionService(sessions, gen)
 	cfg := defaultTestConfig()
 	cfg.Audit = auditPub
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
 	// Production wiring always attaches the coordinator; do the same here
 	// so DeleteAccount exercises the real transactional path.
 	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
@@ -184,7 +184,7 @@ func newAuditTestSessionService(auditPub *testutil.MockAuditPublisher) *SessionS
 	gen := &testutil.MockTokenGen{Length: 32}
 	cfg := DefaultSessionConfig()
 	cfg.Audit = auditPub
-	return NewSessionService(sessions, gen, cfg)
+	return NewSessionService(&testutil.MockTxManager{}, sessions, gen, cfg)
 }
 
 func TestRevokeByIDForUser_PublishesSessionRevoked(t *testing.T) {

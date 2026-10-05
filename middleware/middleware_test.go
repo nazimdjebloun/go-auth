@@ -511,7 +511,7 @@ func TestAuthMiddleware_MissingCookie(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
@@ -541,7 +541,7 @@ func TestAuthMiddleware_ExpiredSession(t *testing.T) {
 
 	sessCfg := service.DefaultSessionConfig()
 	sessCfg.Duration = -1 * time.Hour
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	checkTestErrors(t).noError(users.Create(t.Context(), user))
@@ -580,7 +580,7 @@ func TestAuthMiddleware_InvalidToken(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
@@ -610,7 +610,7 @@ func TestAuthMiddleware_BannedUser(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: true}
 	checkTestErrors(t).noError(users.Create(t.Context(), user))
@@ -649,7 +649,7 @@ func TestAuthMiddleware_DeletedUser(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	checkTestErrors(t).noError(users.Create(t.Context(), user))
@@ -689,7 +689,7 @@ func TestRequireRole_CorrectRole(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com", Role: domain.RoleAdmin}
 	checkTestErrors(t).noError(users.Create(t.Context(), user))
@@ -721,7 +721,7 @@ func TestRequireRole_WrongRole(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(t.Context(), user))
@@ -763,7 +763,7 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 	sessCfg.Duration = 30 * time.Minute
 	sessCfg.RefreshTTL = 60 * time.Minute
 	sessCfg.IdleTTL = 15 * time.Minute
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com"}
 	checkTestErrors(t).noError(users.Create(t.Context(), user))
@@ -846,7 +846,7 @@ func TestAuthMiddleware_NoTokenRotationOnValidSession(t *testing.T) {
 		shortCfg.Duration = 1 * time.Nanosecond
 		shortCfg.RefreshTTL = 60 * time.Minute
 		shortCfg.IdleTTL = 0
-		shortSessSvc := service.NewSessionService(sessions, gen, shortCfg)
+		shortSessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, shortCfg)
 		shortHandler := AuthMiddleware(shortSessSvc, DefaultCookieSettings(), users, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -907,7 +907,7 @@ func TestAuthMiddleware_MissingCookieLogsDebug(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	handler := AuthMiddleware(sessSvc, DefaultCookieSettings(), users, logger)(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
 		t.Fatal("inner handler should not be called")
@@ -937,7 +937,7 @@ func TestAuthMiddleware_BannedUserLogsWarn(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 
 	sessCfg := service.DefaultSessionConfig()
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, gen, sessCfg)
 
 	user := &domain.User{ID: "user-1", Email: "test@example.com", IsBanned: true}
 	checkTestErrors(t).noError(users.Create(t.Context(), user))

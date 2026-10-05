@@ -66,14 +66,10 @@ type TwoFactorService struct {
 	now        func() time.Time
 }
 
-// AttachTxManager makes challenge issuance and verification serialize with
-// credential changes, and commits activation/revocation with its audit record.
-func (s *TwoFactorService) AttachTxManager(tm port.TxManager) {
-	s.txManager = tm
-}
-
 // NewTwoFactorService returns a two-factor service.
+// It panics if txManager is nil, including a typed nil.
 func NewTwoFactorService(
+	txManager port.TxManager,
 	users port.UserRepository,
 	sessions port.SessionRevoker,
 	tokens port.TokenRepository,
@@ -83,11 +79,13 @@ func NewTwoFactorService(
 	config Config,
 	sessionSvc *SessionService,
 ) *TwoFactorService {
+	requireTxManager(txManager)
 	logger := config.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &TwoFactorService{
+		txManager:  txManager,
 		users:      users,
 		sessions:   sessions,
 		tokens:     tokens,
@@ -129,9 +127,6 @@ func (s *TwoFactorService) Enforce(u *domain.User) bool {
 // ─── Challenge ──────────────────────────────────────────────
 
 func (s *TwoFactorService) withTx(ctx context.Context, fn func(context.Context) error) error {
-	if s.txManager == nil {
-		return fn(ctx)
-	}
 	return s.txManager.WithTx(ctx, fn)
 }
 
@@ -609,12 +604,7 @@ func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, 
 		}
 		return nil
 	}
-	var err error
-	if s.txManager != nil {
-		err = s.txManager.WithTx(ctx, apply)
-	} else {
-		err = apply(ctx)
-	}
+	err := s.txManager.WithTx(ctx, apply)
 	if err != nil {
 		s.log.Error("failed to enable 2fa", "err", err, "user_id", user.ID)
 		return domain.ErrInternal
@@ -644,12 +634,7 @@ func (s *TwoFactorService) Disable(ctx context.Context, userID, password string)
 		}
 		return nil
 	}
-	var err error
-	if s.txManager != nil {
-		err = s.txManager.WithTx(ctx, apply)
-	} else {
-		err = apply(ctx)
-	}
+	err := s.txManager.WithTx(ctx, apply)
 	if err != nil {
 		s.log.Error("failed to disable 2fa", "err", err, "user_id", user.ID)
 		return domain.ErrInternal

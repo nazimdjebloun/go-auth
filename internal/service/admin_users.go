@@ -170,11 +170,7 @@ func (s *AdminService) UnbanUser(ctx context.Context, input api.UnbanUserInput) 
 		}
 		return nil
 	}
-	if s.txManager != nil {
-		err = s.txManager.WithTx(ctx, apply)
-	} else {
-		err = apply(ctx)
-	}
+	err = s.txManager.WithTx(ctx, apply)
 	if err != nil {
 		s.log.Error("failed to unban user", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal

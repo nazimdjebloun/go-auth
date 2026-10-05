@@ -152,10 +152,10 @@ func newLookupErrorFixture(t *testing.T) *lookupErrorFixture {
 	sessionSvc := newTestSessionService(sessions, gen)
 	return &lookupErrorFixture{
 		users: users, tokens: tokens, sessions: sessions,
-		auth:         NewAuthService(users, sessions, tokens, hasher, gen, mail, cfg, sessionSvc, nil, nil),
+		auth:         NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mail, cfg, sessionSvc, nil, nil),
 		password:     NewPasswordService(users, tokens, hasher, gen, mail, sessions, tx, cfg),
 		verification: NewVerificationService(users, tokens, gen, mail, tx, cfg),
-		twoFactor:    NewTwoFactorService(users, sessions, tokens, hasher, mail, nil, cfg, sessionSvc),
+		twoFactor:    NewTwoFactorService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, mail, nil, cfg, sessionSvc),
 		oauth: NewOAuthService(map[string]port.OAuthProvider{
 			"github": &stubOAuthProvider{name: "github", profile: oauthTestProfile("github", "subject", "user@example.com")},
 		}, testutil.NewMockProviderAccountRepo(), users, tokens, hasher, gen, sessionSvc, nil, tx, OAuthServiceConfig{EnableOAuth: true}),

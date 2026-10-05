@@ -99,6 +99,17 @@ The library targets `database/sql` for MySQL and SQLite, and `pgx/v5` (either th
 
 Admin bans hold the account-mutation guard through session revocation and audit recording. Enabling 2FA groups its flag update, optional revocation, and audit record in one transaction; unbanning and disabling 2FA group their state change with their audit record.
 
+The internal authentication, session, admin, and 2FA constructors require a
+`port.TxManager` as their first argument. They reject nil and typed-nil managers
+with a panic because missing internal wiring is a programming error. There is
+no setter or implicit autocommit fallback for these services. The composition
+root supplies the same SQL transaction manager to all four; nested operations
+join the transaction through the callback context. Repository unit tests
+supply `testutil.MockTxManager`, while HTTP-only handler fixtures use an
+explicit callback stub. Neither fixture establishes real database atomicity;
+the SQL transaction tests cover that contract. Public `goauth.New` and
+`Auth.Services()` signatures are unchanged.
+
 ## Extension points
 
 Everywhere the library needs to talk to the outside world, it does so through a `port` interface, so you can substitute your own implementation without forking:

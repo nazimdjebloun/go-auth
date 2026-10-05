@@ -39,7 +39,7 @@ func emailCodeRequest(t *testing.T, f *passwordTransactionFixture, kind domain.T
 			return err
 		}
 	case domain.TokenDeleteAccount:
-		svc := NewAuthService(f.users, f.sessions, f.tokens, f.hasher, gen, mail, cfg, nil, nil, nil)
+		svc := NewAuthService(f.db, f.users, f.sessions, f.tokens, f.hasher, gen, mail, cfg, nil, nil, nil)
 		return func(ctx context.Context) error { return svc.RequestDeleteAccount(ctx, f.userID) }
 	case domain.TokenSetPass:
 		svc := NewPasswordService(f.users, f.tokens, f.hasher, gen, mail, f.sessions, f.db, cfg)

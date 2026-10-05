@@ -142,6 +142,11 @@ default. Admin routes check the session's completed second factor, recorded in
 `New` revalidates the complete configuration before deriving secrets or
 starting services, including options applied after `NewConfig`.
 
+Internal authentication, session, admin, and 2FA services require their
+transaction manager at construction; there is no implicit autocommit fallback.
+`goauth.New` supplies it automatically. See [Architecture](docs/architecture.mdx)
+for the internal construction and testing contract.
+
 Password login and 2FA session issuance serialize with password replacement.
 2FA verification claims the exact live code under its attempt cap; a resend
 invalidates an in-flight verification of the previous code.

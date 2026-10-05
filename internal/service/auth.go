@@ -44,22 +44,11 @@ type AuthService struct {
 	deletion *AccountDeletion
 
 	// txManager commits authentication/session mutations and their audit
-	// records together (record-iff-commit). It is nil only in lightweight
-	// mock-built services; production wiring always attaches it.
+	// records together (record-iff-commit). Required at construction.
 	txManager port.TxManager
 }
 
-// AttachTxManager wires the transaction manager used by registration,
-// successful login session issuance, and logout so each mutation is atomic
-// with the audit records that describe it. Called once by library wiring.
-func (s *AuthService) AttachTxManager(tm port.TxManager) {
-	s.txManager = tm
-}
-
 func (s *AuthService) withTx(ctx context.Context, fn func(context.Context) error) error {
-	if s.txManager == nil {
-		return fn(ctx)
-	}
 	return s.txManager.WithTx(ctx, fn)
 }
 
@@ -137,7 +126,9 @@ type AuditPublisher interface {
 }
 
 // NewAuthService returns an authentication service.
+// It panics if txManager is nil, including a typed nil.
 func NewAuthService(
+	txManager port.TxManager,
 	users port.UserRepository,
 	sessions port.SessionRevoker,
 	tokens port.TokenRepository,
@@ -149,6 +140,7 @@ func NewAuthService(
 	verifySvc *VerificationService,
 	twoFactorSvc *TwoFactorService,
 ) *AuthService {
+	requireTxManager(txManager)
 	if config.PasswordPolicy.MinLength == 0 {
 		config.PasswordPolicy.MinLength = 8
 	}
@@ -159,6 +151,7 @@ func NewAuthService(
 		config.Logger = slog.Default()
 	}
 	return &AuthService{
+		txManager:    txManager,
 		users:        users,
 		sessions:     sessions,
 		tokens:       tokens,
@@ -266,8 +259,7 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 
 	// One transaction for the user row and its audit record: a crash between
 	// them would otherwise leave a registered account with no record that it
-	// was registered. Without an attached manager (mock-built service) this
-	// falls back to the previous autocommit shape.
+	// was registered.
 	createUser := func(txCtx context.Context) error {
 		if err := s.users.Create(txCtx, user); err != nil {
 			if errors.Is(err, port.ErrDuplicateKey) {
@@ -288,11 +280,7 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 		return nil
 	}
 
-	if s.txManager != nil {
-		if err := s.txManager.WithTx(ctx, createUser); err != nil {
-			return nil, err
-		}
-	} else if err := createUser(ctx); err != nil {
+	if err := s.txManager.WithTx(ctx, createUser); err != nil {
 		return nil, err
 	}
 

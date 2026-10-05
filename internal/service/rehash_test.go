@@ -38,7 +38,7 @@ func newRehashLoginService(t *testing.T, current, legacy rehashHasher) *rehashLo
 	if err != nil {
 		t.Fatalf("registry build: %v", err)
 	}
-	svc := NewAuthService(users, sessions, tokens, reg, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, reg, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 	return &rehashLoginService{AuthService: svc, users: users}
 }
 
@@ -272,7 +272,7 @@ func TestRehashOnLogin_BareHasherKeepsWorking(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, &testutil.MockHasher{}, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, &testutil.MockHasher{}, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 	if _, aerr := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "bare@example.com",
 		Password: "Passw0rd!",
@@ -310,7 +310,7 @@ func TestRehashOnLogin_DoesNotOverwriteConcurrentPasswordChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewAuthService(users, sessions, tokens, peppered, gen, nil, defaultTestConfig(), newTestSessionService(sessions, gen), nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, peppered, gen, nil, defaultTestConfig(), newTestSessionService(sessions, gen), nil, nil)
 	seedPasswordUser(t, users.MockUserRepo, "race@example.com", legacyHash)
 
 	if _, err := svc.Login(context.Background(), api.LoginInput{Email: "race@example.com", Password: password}); err != nil {

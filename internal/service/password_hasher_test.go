@@ -219,7 +219,7 @@ func TestPasswordPepper_UnpepperedLoginUpgradesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewAuthService(users, sessions, tokens, pipeline, gen, nil, defaultTestConfig(), newTestSessionService(sessions, gen), nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, pipeline, gen, nil, defaultTestConfig(), newTestSessionService(sessions, gen), nil, nil)
 	probeHashCalls := current.hashCalls
 
 	const password = "Passw0rd!"

@@ -37,10 +37,8 @@ func TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim(t *testing.T) {
 			cfg.TwoFactorCodeTTL = 5 * time.Minute
 			mail := &testutil.MockMailer{}
 			users := &twoFactorBeforeLock{UserRepository: f.users}
-			sessions := NewSessionService(f.sessions, &testutil.MockTokenGen{Length: 32}, DefaultSessionConfig())
-			sessions.AttachTxManager(f.db)
-			svc := NewTwoFactorService(users, f.sessions, f.tokens, f.hasher, mail, nil, cfg, sessions)
-			svc.AttachTxManager(f.db)
+			sessions := NewSessionService(f.db, f.sessions, &testutil.MockTokenGen{Length: 32}, DefaultSessionConfig())
+			svc := NewTwoFactorService(f.db, users, f.sessions, f.tokens, f.hasher, mail, nil, cfg, sessions)
 			challenge, err := svc.Challenge(ctx, f.userID)
 			if err != nil {
 				t.Fatal(err)

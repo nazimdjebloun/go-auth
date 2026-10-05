@@ -63,7 +63,7 @@ func testOTPPepper() []byte {
 }
 
 func newTestSessionService(repo port.SessionRepository, gen port.TokenGenerator) *SessionService {
-	return NewSessionService(repo, gen, DefaultSessionConfig())
+	return NewSessionService(&testutil.MockTxManager{}, repo, gen, DefaultSessionConfig())
 }
 
 // newTestSessionServiceNoGrace is for tests that specifically exercise
@@ -73,7 +73,7 @@ func newTestSessionService(repo port.SessionRepository, gen port.TokenGenerator)
 func newTestSessionServiceNoGrace(repo port.SessionRepository, gen port.TokenGenerator) *SessionService {
 	cfg := DefaultSessionConfig()
 	cfg.GraceWindow = 0
-	return NewSessionService(repo, gen, cfg)
+	return NewSessionService(&testutil.MockTxManager{}, repo, gen, cfg)
 }
 
 // newTestAdminService also seeds and returns an admin actor's ID — every
@@ -97,7 +97,7 @@ func newTestAdminServiceWithAudit(users *testutil.MockUserRepo, sessions *testut
 	if err := users.Create(context.Background(), actor); err != nil {
 		panic(err)
 	}
-	svc := NewAdminService(users, sessions, providers, auditLogs, hasher, cfg, sessSvc)
+	svc := NewAdminService(&testutil.MockTxManager{}, users, sessions, providers, auditLogs, hasher, cfg, sessSvc)
 	// Production wiring always attaches the coordinator; do the same here
 	// so DeleteUser exercises the real transactional path.
 	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))

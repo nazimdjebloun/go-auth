@@ -48,7 +48,7 @@ func TestAccountDeletion_CodeClaimAndRollback(t *testing.T) {
 				code = "WRONG123"
 				want = domain.ErrDeleteCodeInvalid
 			}
-			svc := NewAuthService(f.users, f.sessions, f.tokens, f.hasher, nil, nil, cfg, nil, nil, nil)
+			svc := NewAuthService(f.db, f.users, f.sessions, f.tokens, f.hasher, nil, nil, cfg, nil, nil, nil)
 			svc.AttachAccountDeletion(deletionCoordinator(f))
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -91,12 +91,12 @@ func TestAccountDeletion_PasswordAndAdminPaths(t *testing.T) {
 			cfg.Audit = pub
 			var err error
 			if path == "password" {
-				svc := NewAuthService(f.users, f.sessions, f.tokens, f.hasher, nil, nil, cfg, nil, nil, nil)
+				svc := NewAuthService(f.db, f.users, f.sessions, f.tokens, f.hasher, nil, nil, cfg, nil, nil, nil)
 				svc.AttachAccountDeletion(deletionCoordinator(f))
 				err = svc.DeleteAccount(context.Background(), f.userID, "OldPass1!")
 			} else {
 				deletionExec(t, f, `UPDATE users SET role='admin' WHERE id='00000000-0000-4000-8000-000000000090'`)
-				svc := NewAdminService(f.users, f.sessions, nil, nil, f.hasher, cfg, nil)
+				svc := NewAdminService(f.db, f.users, f.sessions, nil, nil, f.hasher, cfg, nil)
 				svc.AttachAccountDeletion(deletionCoordinator(f))
 				err = svc.DeleteUser(context.Background(), api.DeleteUserInput{ActorID: "00000000-0000-4000-8000-000000000090", UserID: f.userID})
 			}

@@ -43,7 +43,7 @@ func TestConfirmDeleteAccount_CodeWriteFailurePreservesAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	tokens := &failingDeletionCodeStore{TokenRepository: f.tokens}
-	svc := NewAuthService(f.users, f.sessions, tokens, f.hasher, nil, nil, cfg, nil, nil, nil)
+	svc := NewAuthService(f.db, f.users, f.sessions, tokens, f.hasher, nil, nil, cfg, nil, nil, nil)
 	svc.AttachAccountDeletion(NewAccountDeletion(f.db, sqlstore.NewOrgRepository(f.db), f.sessions, f.users))
 
 	err := svc.ConfirmDeleteAccount(ctx, api.ConfirmDeleteAccountInput{UserID: f.userID, Code: code})

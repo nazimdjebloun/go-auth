@@ -186,7 +186,7 @@ func newOAuthTestHarness(t testing.TB) *oauthTestHarness {
 
 	sessCfg := service.DefaultSessionConfig()
 	sessCfg.Duration = 30 * 24 * time.Hour
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&inlineTxManager{}, sessions, gen, sessCfg)
 	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, &inlineTxManager{}, cfg)
 
 	providerRepo := newMockProviderAccountRepo()

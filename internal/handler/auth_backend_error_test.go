@@ -21,7 +21,7 @@ func (*unavailableLoginUsers) GetByEmail(context.Context, string) (*domain.User,
 }
 
 func TestLoginBackendFailureReturnsGenericInternalError(t *testing.T) {
-	svc := service.NewAuthService(&unavailableLoginUsers{testutil.NewMockUserRepo()}, nil, nil, nil, nil, nil, service.Config{}, nil, nil, nil)
+	svc := service.NewAuthService(&inlineTxManager{}, &unavailableLoginUsers{testutil.NewMockUserRepo()}, nil, nil, nil, nil, nil, service.Config{}, nil, nil, nil)
 	h := New(Deps{Auth: svc})
 	r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(`{"email":"user@example.com","password":"WrongPassword1!"}`))
 	w := httptest.NewRecorder()

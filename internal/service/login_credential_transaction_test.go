@@ -64,10 +64,8 @@ func TestLoginCredentialReplacementCannotIssueSessionOrChallenge(t *testing.T) {
 			cfg.TwoFactorCodeTTL = 5 * time.Minute
 			mail := &testutil.MockMailer{}
 			gen := &testutil.MockTokenGen{Length: 32}
-			sessions := NewSessionService(f.sessions, gen, DefaultSessionConfig())
-			sessions.AttachTxManager(f.db)
-			twoFactor := NewTwoFactorService(f.users, f.sessions, f.tokens, f.hasher, mail, nil, cfg, sessions)
-			twoFactor.AttachTxManager(f.db)
+			sessions := NewSessionService(f.db, f.sessions, gen, DefaultSessionConfig())
+			twoFactor := NewTwoFactorService(f.db, f.users, f.sessions, f.tokens, f.hasher, mail, nil, cfg, sessions)
 			barrier := &loginCompareBarrier{Hasher: f.hasher, checked: make(chan struct{}), release: make(chan struct{})}
 			defer func() {
 				select {
@@ -76,8 +74,7 @@ func TestLoginCredentialReplacementCannotIssueSessionOrChallenge(t *testing.T) {
 					close(barrier.release)
 				}
 			}()
-			auth := NewAuthService(f.users, f.sessions, f.tokens, barrier, gen, mail, cfg, sessions, nil, twoFactor)
-			auth.AttachTxManager(f.db)
+			auth := NewAuthService(f.db, f.users, f.sessions, f.tokens, barrier, gen, mail, cfg, sessions, nil, twoFactor)
 			done := make(chan error, 1)
 			go func() {
 				input := api.LoginInput{Email: user.Email, Password: "OldPass1!"}
@@ -129,10 +126,8 @@ func TestTwoFactorVerifyAuditFailureRollsBackClaimAndSession(t *testing.T) {
 	cfg.DisableTwoFactorChallengeBinding = true
 	cfg.TwoFactorCodeTTL = 5 * time.Minute
 	mail := &testutil.MockMailer{}
-	sessions := NewSessionService(f.sessions, &testutil.MockTokenGen{Length: 32}, DefaultSessionConfig())
-	sessions.AttachTxManager(f.db)
-	svc := NewTwoFactorService(f.users, f.sessions, f.tokens, f.hasher, mail, nil, cfg, sessions)
-	svc.AttachTxManager(f.db)
+	sessions := NewSessionService(f.db, f.sessions, &testutil.MockTokenGen{Length: 32}, DefaultSessionConfig())
+	svc := NewTwoFactorService(f.db, f.users, f.sessions, f.tokens, f.hasher, mail, nil, cfg, sessions)
 	challenge, err := svc.Challenge(ctx, f.userID)
 	if err != nil {
 		t.Fatal(err)

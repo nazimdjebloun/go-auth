@@ -44,9 +44,8 @@ func TestBanUser_RevocationFailureRollsBackBanAndSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	sessions := &failingAfterDeleteSessions{SessionRepository: f.sessions}
-	sessionSvc := NewSessionService(sessions, nil, DefaultSessionConfig())
-	sessionSvc.AttachTxManager(f.db)
-	svc := NewAdminService(f.users, sessions, nil, nil, f.hasher, defaultTestConfig(), sessionSvc)
+	sessionSvc := NewSessionService(f.db, sessions, nil, DefaultSessionConfig())
+	svc := NewAdminService(f.db, f.users, sessions, nil, nil, f.hasher, defaultTestConfig(), sessionSvc)
 
 	if err := svc.BanUser(ctx, api.BanUserInput{UserID: f.userID, ActorID: actorID}); !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("BanUser error = %v, want internal_error", err)
@@ -71,8 +70,7 @@ func TestEnableTwoFactor_RevocationFailureRollsBackFlagAndSessions(t *testing.T)
 	f := newPasswordTransactionFixture(t)
 	ctx := context.Background()
 	sessions := &failingAfterDeleteSessions{SessionRepository: f.sessions}
-	svc := NewTwoFactorService(f.users, sessions, f.tokens, f.hasher, nil, nil, defaultTestConfig(), nil)
-	svc.AttachTxManager(f.db)
+	svc := NewTwoFactorService(f.db, f.users, sessions, f.tokens, f.hasher, nil, nil, defaultTestConfig(), nil)
 
 	if err := svc.Enable(ctx, f.userID, "OldPass1!", false, "other-caller-session"); !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("Enable error = %v, want internal_error", err)
@@ -120,8 +118,7 @@ func TestUnbanUser_AuditFailureRollsBackUnban(t *testing.T) {
 	}
 	cfg := defaultTestConfig()
 	cfg.Audit = failingAuditPublisher{}
-	svc := NewAdminService(f.users, f.sessions, nil, nil, f.hasher, cfg, nil)
-	svc.AttachTxManager(f.db)
+	svc := NewAdminService(f.db, f.users, f.sessions, nil, nil, f.hasher, cfg, nil)
 
 	if err := svc.UnbanUser(ctx, api.UnbanUserInput{UserID: f.userID, ActorID: actorID}); !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("UnbanUser error = %v, want internal_error", err)
@@ -143,8 +140,7 @@ func TestDisableTwoFactor_AuditFailureRollsBackFlag(t *testing.T) {
 	}
 	cfg := defaultTestConfig()
 	cfg.Audit = failingAuditPublisher{}
-	svc := NewTwoFactorService(f.users, f.sessions, f.tokens, f.hasher, nil, nil, cfg, nil)
-	svc.AttachTxManager(f.db)
+	svc := NewTwoFactorService(f.db, f.users, f.sessions, f.tokens, f.hasher, nil, nil, cfg, nil)
 
 	if err := svc.Disable(ctx, f.userID, "OldPass1!"); !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("Disable error = %v, want internal_error", err)

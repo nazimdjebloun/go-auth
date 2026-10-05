@@ -29,7 +29,7 @@ func TestOAuthAdminCallbackSetsBindingCookieWithoutIssuingSession(t *testing.T) 
 		OTPPepper:           []byte("test-otp-pepper-32-bytes-long!!!"),
 		TwoFactorBindingKey: []byte("test-binding-key-32-bytes-long!!"),
 	}
-	twoFactor := service.NewTwoFactorService(h.userRepo, h.sessionRepo, h.tokenRepo, &mockHasher{}, &testutil.MockMailer{}, nil, cfg, h.sessionSvc)
+	twoFactor := service.NewTwoFactorService(&inlineTxManager{}, h.userRepo, h.sessionRepo, h.tokenRepo, &mockHasher{}, &testutil.MockMailer{}, nil, cfg, h.sessionSvc)
 	h.oauthSvc.AttachTwoFactor(twoFactor)
 	h.oauthHandlers.AttachTwoFactor(twoFactor)
 	state := h.createStateToken(t, "admin-state")

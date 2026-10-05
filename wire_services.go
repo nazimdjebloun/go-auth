@@ -123,10 +123,9 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	sessionCfg := buildSessionConfig(cfg, auditPub)
 	cookies := cookiesFromSession(sessionCfg)
 
-	sessSvc := service.NewSessionService(sessionRepo, genImpl, sessionCfg)
 	// Direct session API calls must get the same record-iff-commit guarantee
 	// as login: the session mutation and its audit record share one tx.
-	sessSvc.AttachTxManager(sqlDB)
+	sessSvc := service.NewSessionService(sqlDB, sessionRepo, genImpl, sessionCfg)
 
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, sqlDB, serviceCfg)
 
@@ -147,24 +146,21 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		ratelimit.WithoutEviction(),
 		ratelimit.WithStoreLogger(cfg.logger),
 	)
-	twoFactorSvc := service.NewTwoFactorService(userRepo, sessionRepo, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
-	twoFactorSvc.AttachTxManager(sqlDB)
+	twoFactorSvc := service.NewTwoFactorService(sqlDB, userRepo, sessionRepo, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
 
-	authSvc := service.NewAuthService(userRepo, sessionRepo, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
 	// Register commits the user row and its audit record in one
 	// transaction, so a crash cannot leave an account with no record of its
 	// registration (record-iff-commit).
-	authSvc.AttachTxManager(sqlDB)
+	authSvc := service.NewAuthService(sqlDB, userRepo, sessionRepo, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepo, sqlDB, serviceCfg)
 	var recoveryWorker *service.RecoveryWorker
 	if mailer != nil {
 		recoveryWorker = service.NewRecoveryWorker(sqlstore.NewRecoveryRepository(sqlDB), passSvc, verifySvc, cfg.logger)
 	}
 	inviteSvc := service.NewInviteService(userRepo, sessionRepo, inviteRepo, hasherImpl, genImpl, mailer, sqlDB, serviceCfg, sessSvc, twoFactorSvc)
-	adminSvc := service.NewAdminService(userRepo, sessionRepo, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
 	// Unbanning must commit its audit record with the state change; bans and
 	// role changes already get that from the admin guard's own transaction.
-	adminSvc.AttachTxManager(sqlDB)
+	adminSvc := service.NewAdminService(sqlDB, userRepo, sessionRepo, providerAccountRepo, auditLogRepo, hasherImpl, serviceCfg, sessSvc)
 
 	var oauthSvc *service.OAuthService
 	if len(oauthProviders) > 0 {

@@ -30,9 +30,8 @@ type AdminService struct {
 	audit      AuditPublisher
 
 	// txManager makes a state change and its audit record one transaction on
-	// the paths that have no guard of their own (unbanning). Attached by the
-	// library's wiring; a nil manager keeps the legacy autocommit behavior
-	// that mock-built services rely on.
+	// paths that have no guard of their own (unbanning). Required at
+	// construction.
 	txManager port.TxManager
 
 	// deletion carries the transactional account-deletion invariants. It is
@@ -48,15 +47,10 @@ func (s *AdminService) AttachAccountDeletion(d *AccountDeletion) {
 	s.deletion = d
 }
 
-// AttachTxManager makes unbanning commit its state change together with its
-// audit record. Called by the library's own construction; safe to call once,
-// before the service handles requests.
-func (s *AdminService) AttachTxManager(tm port.TxManager) {
-	s.txManager = tm
-}
-
 // NewAdminService returns an administrator service.
+// It panics if txManager is nil, including a typed nil.
 func NewAdminService(
+	txManager port.TxManager,
 	users port.UserRepository,
 	sessions adminSessionStore,
 	providers port.ProviderAccountRepository,
@@ -65,10 +59,12 @@ func NewAdminService(
 	config Config,
 	sessionSvc *SessionService,
 ) *AdminService {
+	requireTxManager(txManager)
 	if config.Logger == nil {
 		config.Logger = slog.Default()
 	}
 	return &AdminService{
+		txManager:  txManager,
 		users:      users,
 		sessions:   sessions,
 		providers:  providers,

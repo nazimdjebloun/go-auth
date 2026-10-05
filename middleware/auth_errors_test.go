@@ -79,7 +79,7 @@ func TestAuthMiddleware_InfrastructureErrors(t *testing.T) {
 			users := &infrastructureUserReader{err: tc.userErr}
 			cfg := service.DefaultSessionConfig()
 			cfg.Logger = logger
-			svc := service.NewSessionService(repo, &testutil.MockTokenGen{Length: 32}, cfg)
+			svc := service.NewSessionService(&testutil.MockTxManager{}, repo, &testutil.MockTokenGen{Length: 32}, cfg)
 			cookies := DefaultCookieSettings()
 			handler := AuthMiddleware(svc, cookies, users, logger)(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("protected handler ran") }))
 			req := httptest.NewRequest("GET", "/private?secret=query-secret", nil)

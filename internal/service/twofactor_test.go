@@ -32,7 +32,7 @@ func newTwoFactorSvc(
 	tokens *testutil.MockTokenRepo,
 	mailer port.Mailer,
 ) *service.TwoFactorService {
-	return service.NewTwoFactorService(
+	return service.NewTwoFactorService(&testutil.MockTxManager{},
 		users, nil, tokens, &testutil.MockHasher{}, mailer, nil, newTwoFactorConfig(), nil,
 	)
 }
@@ -52,8 +52,8 @@ func newTwoFactorSvcWithRotation(
 	cfg.OTPPepper = []byte("test-otp-pepper-32-bytes-long!!!")
 	cfg.PepperRotatedAt = pepperRotatedAt
 	sessions := testutil.NewMockSessionRepo()
-	sessSvc := service.NewSessionService(sessions, &testutil.MockTokenGen{Length: 32}, service.DefaultSessionConfig())
-	return service.NewTwoFactorService(
+	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, &testutil.MockTokenGen{Length: 32}, service.DefaultSessionConfig())
+	return service.NewTwoFactorService(&testutil.MockTxManager{},
 		users, sessions, tokens, &testutil.MockHasher{}, mailer, nil, cfg, sessSvc,
 	)
 }

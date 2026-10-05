@@ -34,7 +34,7 @@ func TestRegister(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	result, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
@@ -69,7 +69,7 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 	checkTestErrors(t).result(svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
 		Password: "Passw0rd!",
@@ -97,7 +97,7 @@ func TestRegisterWeakPassword(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	_, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
@@ -117,7 +117,7 @@ func TestRegisterInvalidEmail(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	_, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "not-an-email",
@@ -137,7 +137,7 @@ func TestRegisterDefaultRole(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	result, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "registered@example.com",
@@ -163,7 +163,7 @@ func TestRegisterInviteOnly(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.InviteOnly = true
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
 
 	_, err := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
@@ -183,7 +183,7 @@ func TestLogin(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	regResult, _ := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
@@ -218,7 +218,7 @@ func TestLoginWrongPassword(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	regResult, _ := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
@@ -246,7 +246,7 @@ func TestLoginNonexistentUser(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	_, err := svc.Login(context.Background(), api.LoginInput{
 		Email:    "nobody@example.com",
@@ -264,7 +264,7 @@ func TestLogin_OAuthOnlyUsesSameDummyVerificationAsUnknownEmail(t *testing.T) {
 	hasher := &recordingLoginHasher{delegate: &testutil.MockHasher{}}
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	for _, input := range []api.LoginInput{
 		{Email: "missing@example.com", Password: "CandidatePass1!"},
@@ -309,7 +309,7 @@ func TestLoginUnverifiedUser_WithVerificationDisabled(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.RequireEmailVerification = false
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
 
 	regResult, _ := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "unverified@example.com",
@@ -346,7 +346,7 @@ func TestLoginUnverifiedUser_WithVerificationEnabled(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.RequireEmailVerification = true
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
 
 	// Directly create an unverified user (Register would call SendVerification and fail with nil mailer)
 	hash, _ := hasher.Hash("Passw0rd!")
@@ -389,7 +389,7 @@ func TestLoginUnverifiedUser_WrongPasswordDoesNotDiscloseAccount(t *testing.T) {
 
 	cfg := defaultTestConfig()
 	cfg.RequireEmailVerification = true
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, nil)
 
 	hash, _ := hasher.Hash("Passw0rd!")
 	if err := users.Create(context.Background(), &domain.User{
@@ -425,7 +425,7 @@ func TestLogout(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	result, _ := svc.Register(context.Background(), api.RegisterInput{
 		Email:    "test@example.com",
@@ -452,7 +452,7 @@ func TestDeleteAccount_PasswordRequired(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 
 	oauthUser := &domain.User{
 		ID:        "oauth-user-id",
@@ -482,7 +482,7 @@ func TestRequestDeleteAccount_Success(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	mailer := &testutil.MockMailer{}
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
 
 	oauthUser := &domain.User{
 		ID:        "oauth-user-id",
@@ -516,7 +516,7 @@ func TestRequestDeleteAccount_PasswordUser(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	mailer := &testutil.MockMailer{}
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
 
 	hash, _ := hasher.Hash("Passw0rd!")
 	passwordUser := &domain.User{
@@ -548,7 +548,7 @@ func TestRequestDeleteAccount_NonexistentUser(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	mailer := &testutil.MockMailer{}
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
 
 	err := svc.RequestDeleteAccount(context.Background(), "nonexistent-id")
 	if err == nil {
@@ -568,7 +568,7 @@ func TestConfirmDeleteAccount_Success(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	mailer := &testutil.MockMailer{}
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
 	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
 
 	oauthUser := &domain.User{
@@ -611,7 +611,7 @@ func TestConfirmDeleteAccount_InvalidCode(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	mailer := &testutil.MockMailer{}
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
 
 	oauthUser := &domain.User{
 		ID:        "oauth-user-id",
@@ -644,7 +644,7 @@ func TestConfirmDeleteAccount_ExpiredCode(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	mailer := &testutil.MockMailer{}
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
 
 	oauthUser := &domain.User{
 		ID:        "oauth-user-id",
@@ -688,7 +688,7 @@ func TestConfirmDeleteAccount_CodeReuse(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	mailer := &testutil.MockMailer{}
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, defaultTestConfig(), sessSvc, nil, nil)
 	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
 
 	oauthUser := &domain.User{
@@ -759,7 +759,7 @@ func TestConfirmDeleteAccount_StalePepperReturnsExpired(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.PepperRotatedAt = time.Now().UTC()
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, nil)
 
 	oauthUser := &domain.User{
 		ID:        "oauth-user-id",
@@ -802,7 +802,7 @@ func TestRequestDeleteAccount_ReplacesStaleLiveCode(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.PepperRotatedAt = time.Now().UTC()
 
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, nil)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, nil)
 	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))
 
 	oauthUser := &domain.User{
@@ -848,7 +848,7 @@ func newAdminLoginService(t *testing.T) *AuthService {
 	hasher := &testutil.MockHasher{}
 	gen := &testutil.MockTokenGen{Length: 32}
 	sessSvc := newTestSessionService(sessions, gen)
-	return NewAuthService(users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
+	return NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, defaultTestConfig(), sessSvc, nil, nil)
 }
 
 func createAdminUser(t *testing.T, svc *AuthService, email, password string, banned bool) {
@@ -908,8 +908,8 @@ func TestAdminLogin_DisableAdminTwoFactor_SkipsChallengeWithNoMailer(t *testing.
 	cfg.DisableAdminTwoFactor = true
 	// twoFactorSvc is real (not nil) so the test actually exercises the flag
 	// rather than the already-skipped "no twoFactorSvc at all" path.
-	twoFactorSvc := NewTwoFactorService(users, sessions, tokens, hasher, nil, nil, cfg, sessSvc)
-	svc := NewAuthService(users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, twoFactorSvc)
+	twoFactorSvc := NewTwoFactorService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, nil, nil, cfg, sessSvc)
+	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, nil, cfg, sessSvc, nil, twoFactorSvc)
 	createAdminUser(t, svc, "admin@example.com", "Passw0rd!", false)
 
 	result, err := svc.AdminLogin(context.Background(), api.LoginInput{

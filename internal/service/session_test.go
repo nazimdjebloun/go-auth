@@ -54,7 +54,7 @@ func TestSessionService_MaxLifetimeBoundsAccessToken(t *testing.T) {
 	cfg := DefaultSessionConfig()
 	cfg.Duration = 24 * time.Hour
 	cfg.MaxLifetime = 2 * time.Hour
-	svc := NewSessionService(sessions, gen, cfg)
+	svc := NewSessionService(&testutil.MockTxManager{}, sessions, gen, cfg)
 	issuedAt := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return issuedAt }
 	created, err := svc.Create(context.Background(), "user-1", "", "")
@@ -109,7 +109,7 @@ func TestRefreshSession_InvalidToken(t *testing.T) {
 func TestRefreshSession_ExpiredSession(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
-	svc := NewSessionService(sessions, gen, SessionConfig{
+	svc := NewSessionService(&testutil.MockTxManager{}, sessions, gen, SessionConfig{
 		CookieName:        "goauth_session",
 		RefreshCookieName: "goauth_refresh",
 		Duration:          -1 * time.Hour,
@@ -134,7 +134,7 @@ func TestRefreshSession_ExpiredSession(t *testing.T) {
 func TestRefreshSession_ExpiredRefreshToken(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	gen := &testutil.MockTokenGen{Length: 32}
-	svc := NewSessionService(sessions, gen, SessionConfig{
+	svc := NewSessionService(&testutil.MockTxManager{}, sessions, gen, SessionConfig{
 		CookieName:        "goauth_session",
 		RefreshCookieName: "goauth_refresh",
 		Duration:          30 * 24 * time.Hour,
@@ -194,7 +194,7 @@ func TestRefreshSession_ReuseDetection_PublishesAuditEvent(t *testing.T) {
 	cfg := DefaultSessionConfig()
 	cfg.GraceWindow = 0
 	cfg.Audit = auditPub
-	svc := NewSessionService(sessions, gen, cfg)
+	svc := NewSessionService(&testutil.MockTxManager{}, sessions, gen, cfg)
 
 	createResult, err := svc.Create(context.Background(), "user-1", "", "")
 	if err != nil {
@@ -243,7 +243,7 @@ func TestRefreshSession_HappyPath_PublishesRefreshedEvent(t *testing.T) {
 	auditPub := testutil.NewMockAuditPublisher()
 	cfg := DefaultSessionConfig()
 	cfg.Audit = auditPub
-	svc := NewSessionService(sessions, gen, cfg)
+	svc := NewSessionService(&testutil.MockTxManager{}, sessions, gen, cfg)
 
 	createResult, err := svc.Create(context.Background(), "user-1", "", "")
 	if err != nil {

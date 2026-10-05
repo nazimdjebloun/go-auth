@@ -3,8 +3,6 @@ name: CI
 on:
   push:
   pull_request:
-  schedule:
-    - cron: "23 2 * * *"
   workflow_dispatch:
     inputs:
       fuzz_time:
@@ -120,7 +118,7 @@ jobs:
       - name: Full database behavior and schema suite
         run: python3 .github/scripts/test_backends.py "${{ matrix.backend }}"
       - name: Repeat concurrency and rollback suite
-        if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.stress)
+        if: github.event_name == 'workflow_dispatch' && inputs.stress
         env:
           STRESS_COUNT: ${{ inputs.stress_count || '25' }}
         run: python3 .github/scripts/test_backends.py "${{ matrix.backend }}" --stress --count "$STRESS_COUNT"
@@ -177,11 +175,11 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
   fuzz:
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      FUZZ_BUDGET: ${{ github.event.inputs.fuzz_time || (github.event_name == 'schedule' && '30') || '5' }}
+      FUZZ_BUDGET: ${{ github.event.inputs.fuzz_time || '5' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7

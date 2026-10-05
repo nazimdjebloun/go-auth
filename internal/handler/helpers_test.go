@@ -1704,16 +1704,16 @@ func newTestHarness() *testHarness {
 
 	sessCfg := service.DefaultSessionConfig()
 	sessCfg.Duration = 30 * 24 * time.Hour
-	sessSvc := service.NewSessionService(sessions, gen, sessCfg)
+	sessSvc := service.NewSessionService(&inlineTxManager{}, sessions, gen, sessCfg)
 
-	twoFactorSvc := service.NewTwoFactorService(users, sessions, tokens, hasher, mailer, nil, cfg, sessSvc)
-	authSvc := service.NewAuthService(users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, twoFactorSvc)
+	twoFactorSvc := service.NewTwoFactorService(&inlineTxManager{}, users, sessions, tokens, hasher, mailer, nil, cfg, sessSvc)
+	authSvc := service.NewAuthService(&inlineTxManager{}, users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, twoFactorSvc)
 	passSvc := service.NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &inlineTxManager{}, cfg)
 	verifySvc := service.NewVerificationService(users, tokens, gen, mailer, &inlineTxManager{}, cfg)
 	inviteSvc := service.NewInviteService(users, sessions, nil, hasher, gen, mailer, &inlineTxManager{}, cfg, sessSvc, twoFactorSvc)
 	providers := newMockProviderAccountRepo()
 	auditLogs := newMockAuditLogRepo()
-	adminSvc := service.NewAdminService(users, sessions, providers, auditLogs, hasher, cfg, sessSvc)
+	adminSvc := service.NewAdminService(&inlineTxManager{}, users, sessions, providers, auditLogs, hasher, cfg, sessSvc)
 	// Use the same account-deletion coordinator as production; SQL tests
 	// verify its transaction guarantees.
 	adminSvc.AttachAccountDeletion(service.NewAccountDeletion(&inlineTxManager{}, nil, sessions, users))

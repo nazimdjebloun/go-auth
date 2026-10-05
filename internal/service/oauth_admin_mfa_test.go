@@ -33,7 +33,7 @@ func TestOAuthAdminLoginRequiresSecondFactorBeforeSession(t *testing.T) {
 				cfg.TwoFactorCodeTTL = 5 * time.Minute
 				cfg.TwoFactorBindingKey = []byte("test-binding-key-32-bytes-long!!")
 				mailer := &testutil.MockMailer{}
-				twoFactor := NewTwoFactorService(users, sessions, tokens, &testutil.MockHasher{}, mailer, nil, cfg, oauth.sessionSvc)
+				twoFactor := NewTwoFactorService(&testutil.MockTxManager{}, users, sessions, tokens, &testutil.MockHasher{}, mailer, nil, cfg, oauth.sessionSvc)
 				oauth.config.DisableAdminTwoFactor = optOut
 				oauth.AttachTwoFactor(twoFactor)
 				seedOAuthState(t, tokens, "state", "raw-state")
