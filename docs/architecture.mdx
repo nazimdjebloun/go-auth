@@ -52,7 +52,7 @@ validation together. `config_defaults.go` preserves defaulting order, while
 
 The service operations do not take HTTP requests or write HTTP responses. The supported operations are reachable two ways:
 
-- **Programmatically:** `auth.Services().Auth.Register(ctx, api.RegisterInput{...})`, `auth.Services().Admin.BanUser(ctx, api.BanUserInput{...})`, and so on. No cookies, no CSRF, no rate limiting. You get back plain Go values and are responsible for whatever transport you are building (a CLI, a gRPC service, a background job). Operations that use named inputs take types from `api` (for example, `api.LoginInput`, `api.RemoveMemberInput`, and `api.SetActiveOrgInput`); other methods take individual arguments, as their interface signatures show.
+- **Programmatically:** `auth.Services().Auth.Register(ctx, api.RegisterInput{...})`, `auth.Services().Admin.BanUser(ctx, api.BanUserInput{...})`, and so on. No cookies, no CSRF, no rate limiting. You get back plain Go values and are responsible for whatever transport you are building (a CLI, a gRPC service, a background job). Operations with multiple values after `context.Context` take a named input from `api` (for example, `api.LoginInput`, `api.TwoFactorVerifyInput`, and `api.SetActiveOrgInput`). Single-value operations keep their direct argument. See the [integration contract](./guides/integration.mdx) for migration and lifecycle rules.
 - **Over HTTP:** `auth.Mount(mux)` registers the same operations behind the full middleware chain, with `internal/handler` translating cookies and JSON into service calls.
 
 ## The middleware chain

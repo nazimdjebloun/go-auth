@@ -1,11 +1,11 @@
 package goauth
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/httperr"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -48,7 +48,7 @@ func (a *Auth) RequireOrg(role domain.OrgRole) func(http.Handler) http.Handler {
 	if a.services.Org == nil {
 		return func(_ http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				http.Error(w, `{"error":"organizations_disabled","message":"Organizations are not enabled — add goauth.WithOrganizations(goauth.OrganizationConfig{Enable: true})"}`, http.StatusServiceUnavailable)
+				httperr.Write(w, http.StatusServiceUnavailable, "organizations_disabled", "Organizations are not enabled", a.cfg.logger)
 			})
 		}
 	}
@@ -83,7 +83,7 @@ func (a *Auth) RequireActiveOrg(role domain.OrgRole) func(http.Handler) http.Han
 	if a.services.Org == nil {
 		return func(_ http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				http.Error(w, `{"error":"organizations_disabled","message":"Organizations are not enabled — add goauth.WithOrganizations(goauth.OrganizationConfig{Enable: true})"}`, http.StatusServiceUnavailable)
+				httperr.Write(w, http.StatusServiceUnavailable, "organizations_disabled", "Organizations are not enabled", a.cfg.logger)
 			})
 		}
 	}
@@ -136,14 +136,7 @@ func (a *Auth) orgScopeHandler(next OrgHandlerFunc) http.Handler {
 					"valid_role", role.IsValid(),
 				)
 			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			if err := json.NewEncoder(w).Encode(map[string]string{
-				"error":   domain.ErrInternal.Code,
-				"message": domain.ErrInternal.Message,
-			}); err != nil && a.cfg.logger != nil {
-				a.cfg.logger.Error("goauth: failed to encode organization scope error", "error", err)
-			}
+			httperr.Write(w, http.StatusInternalServerError, domain.ErrInternal.Code, domain.ErrInternal.Message, a.cfg.logger)
 			return
 		}
 

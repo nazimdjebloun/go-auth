@@ -6,6 +6,38 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
+// TwoFactorVerifyInput completes a challenge using the code and browser binding.
+// BindingToken comes from the binding cookie, never from the request body.
+type TwoFactorVerifyInput struct {
+	ChallengeID  string `json:"challengeId"`
+	BindingToken string `json:"-"`
+	Code         string `json:"code"`
+	IP           string `json:"-"`
+	UserAgent    string `json:"-"`
+}
+
+// TwoFactorResendInput identifies a challenge bound to the requesting browser.
+type TwoFactorResendInput struct {
+	ChallengeID  string `json:"challengeId"`
+	BindingToken string `json:"-"`
+}
+
+// TwoFactorEnableInput enables two-factor authentication for the authenticated user.
+// UserID and CallerSessionID come from the validated session. With CallerSessionID
+// supplied, the zero value of KeepOtherSessions revokes the user's other sessions.
+type TwoFactorEnableInput struct {
+	UserID            string `json:"-"`
+	Password          string `json:"password"`
+	KeepOtherSessions bool   `json:"keepOtherSessions"`
+	CallerSessionID   string `json:"-"`
+}
+
+// TwoFactorDisableInput authenticates disabling the user's two-factor setting.
+type TwoFactorDisableInput struct {
+	UserID   string `json:"-"`
+	Password string `json:"password"`
+}
+
 // ChallengeResult describes a pending 2FA challenge.
 //
 // Sent is false when an existing, still-usable challenge was reused rather than

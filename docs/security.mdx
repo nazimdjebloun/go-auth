@@ -87,6 +87,23 @@ The successful 2FA claim reasserts the challenge ID, code hash, user ID, token t
 
 Email-based 2FA is controlled globally by `TwoFactorConfig.RequireEmail2FA` and per user by `TwoFactorEnabled`. The following limits and operational effects matter when choosing it.
 
+### Authentication policy matrix
+
+This table describes when the built-in flows issue a session. Verification and 2FA requirements are checked before session creation; when email verification is pending, finish that flow and sign in again.
+
+| Path | Email verification when required | Local email 2FA |
+|---|---|---|
+| Password registration | Returns `RequiresVerification` without a session. | If verification is not required, challenges only when `RequireEmail2FA` is on. |
+| Invite registration | The accepted invitation establishes the address as verified. | Challenges when `RequireEmail2FA` is on. |
+| Non-admin password login | An unverified account returns `RequiresVerification`. | Challenges when `RequireEmail2FA` or the user's `TwoFactorEnabled` is on. |
+| Admin password login, including the admin endpoint | Admins bypass the email-verification gate. | Required by default; global/per-user settings still apply when `DisableAdminTwoFactor` is on. |
+| Non-admin OAuth registration or login | Unverified accounts must verify first; a provider-verified matching address satisfies this requirement. | No local challenge, even with `RequireEmail2FA` or per-user 2FA enabled. Authentication is delegated to the provider. |
+| Admin OAuth login | Unverified accounts must verify first; unlike admin password login, this path applies the email-verification gate. | Required by default after verification; global/per-user settings still apply when `DisableAdminTwoFactor` is on. |
+
+`DefaultEnabled` seeds the per-user flag for password and invite registrations. It does not itself require a challenge for their initial signup session; it applies on subsequent password logins. OAuth registration does not seed that flag, and non-admin OAuth does not consult it. These are the existing policies, unchanged by the named-input API migration.
+
+The OAuth rows describe login/registration callbacks. Linking a provider keeps the existing authenticated session and does not issue a replacement. Low-level programmatic session creation assumes that its caller has already completed the appropriate authentication checks.
+
 ### Admin login
 
 Admin accounts require a second factor by default through ordinary password login, admin login, and OAuth. This is independent of `RequireEmail2FA` and the admin user's `TwoFactorEnabled` setting. A mailer is therefore required even when the rest of the deployment does not use 2FA. Successful verification writes `sessions.two_factor_verified_at` as part of session creation; refresh preserves it. Admin HTTP routes and `Auth.RequireAdmin` reject sessions without that assurance as `403 two_factor_required`, including old sessions and first-factor sessions belonging to newly promoted admins.
@@ -109,7 +126,7 @@ Twenty failed 2FA attempts on one account within an hour send a notification ema
 
 Verification, set-password, and account-deletion requests remove their own unused code when rendering or delivery fails. Cleanup has a separate five-second deadline even if the request was canceled, and does not remove codes issued by another request. A cleanup failure is returned as a server error. Successful mailer acceptance does not guarantee final delivery, especially with an asynchronous mailer.
 
-With email verification, a mailer outage only blocks new signups. With `RequireEmail2FA: true`, `Challenge` sends a code during each password login, so a mailer outage blocks that path. Use `TwoFactorConfig.DefaultEnabled` for per-user 2FA that is enabled by default but can be disabled.
+An account waiting for email verification needs working email delivery before it can complete that flow. With `RequireEmail2FA: true`, a password login that needs a new challenge also needs successful mailer acceptance. Use `TwoFactorConfig.DefaultEnabled` to seed per-user 2FA for password and invite registrations while allowing the user to disable it later.
 
 ## Rate limiting
 

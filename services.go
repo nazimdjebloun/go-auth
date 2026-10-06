@@ -32,8 +32,8 @@ type AuthOperations interface {
 	AdminLogin(ctx context.Context, input api.LoginInput) (*api.LoginResult, error)
 	ValidateSession(ctx context.Context, tokenRaw string) (*domain.User, *domain.Session, error)
 	Logout(ctx context.Context, sessionID string) error
-	ChangeName(ctx context.Context, userID, newName string) error
-	DeleteAccount(ctx context.Context, userID string, password string) error
+	ChangeName(ctx context.Context, input api.ChangeNameInput) error
+	DeleteAccount(ctx context.Context, input api.DeleteAccountInput) error
 	RequestDeleteAccount(ctx context.Context, userID string) error
 	ConfirmDeleteAccount(ctx context.Context, input api.ConfirmDeleteAccountInput) error
 }
@@ -51,18 +51,18 @@ type PasswordOperations interface {
 
 // SessionOperations exposes the session service methods available to callers.
 type SessionOperations interface {
-	Create(ctx context.Context, userID, ip, userAgent string) (*api.SessionResult, error)
+	Create(ctx context.Context, input api.CreateSessionInput) (*api.SessionResult, error)
 	RefreshSession(ctx context.Context, rawRefreshToken string) (*api.SessionResult, error)
 	Validate(ctx context.Context, token string) (*domain.Session, error)
 	ValidateWithUser(ctx context.Context, token string) (*domain.Session, *domain.User, error)
-	Touch(ctx context.Context, token string, lastActiveAt time.Time) error
+	Touch(ctx context.Context, input api.TouchSessionInput) error
 	Revoke(ctx context.Context, token string) error
 	RevokeByID(ctx context.Context, id string) error
-	RevokeByIDForUser(ctx context.Context, id, userID string) (bool, error)
-	RevokeManyForUser(ctx context.Context, ids []string, userID string) (int, error)
+	RevokeByIDForUser(ctx context.Context, input api.RevokeSessionForUserInput) (bool, error)
+	RevokeManyForUser(ctx context.Context, input api.RevokeSessionsForUserInput) (int, error)
 	RevokeAll(ctx context.Context, userID string) error
-	RevokeAllExcept(ctx context.Context, userID string, exceptSessionID string) error
-	List(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error)
+	RevokeAllExcept(ctx context.Context, input api.RevokeAllSessionsExceptInput) error
+	List(ctx context.Context, input api.ListSessionsInput) ([]domain.Session, int, error)
 	ListAll(ctx context.Context, userID string) ([]domain.Session, error)
 }
 
@@ -83,9 +83,9 @@ type InviteOperations interface {
 	CompleteInviteRegistration(ctx context.Context, input api.CompleteInviteInput) (*api.CompleteInviteResult, error)
 	ListInvites(ctx context.Context, input api.ListInvitesInput) ([]domain.Invite, error)
 	CountInvites(ctx context.Context, input api.ListInvitesInput) (int, error)
-	HardDeleteInvite(ctx context.Context, inviteID, actorID string) error
-	RevokeInvite(ctx context.Context, inviteID, actorID string) error
-	ResendInviteEmail(ctx context.Context, inviteID, actorID string) error
+	HardDeleteInvite(ctx context.Context, input api.HardDeleteInviteInput) error
+	RevokeInvite(ctx context.Context, input api.RevokeInviteInput) error
+	ResendInviteEmail(ctx context.Context, input api.ResendInviteEmailInput) error
 	BulkRevokeInvites(ctx context.Context, input api.BulkInviteIDsInput) (*api.BulkInviteResult, error)
 	BulkDeleteInvites(ctx context.Context, input api.BulkInviteIDsInput) (*api.BulkInviteResult, error)
 	BulkSendInvites(ctx context.Context, input api.BulkInviteEmailsInput) (*api.BulkInviteResult, error)
@@ -121,9 +121,9 @@ type AdminOperations interface {
 // OAuthOperations exposes the oauth service methods available to callers.
 type OAuthOperations interface {
 	Initiate(ctx context.Context, providerName string) (*api.OAuthInitiation, error)
-	InitiateLink(ctx context.Context, providerName, userID, sessionTokenHash string) (*api.OAuthInitiation, error)
-	Callback(ctx context.Context, providerName, code, rawState, browserState, rawSessionToken, ip, userAgent string) (*api.OAuthCallbackResult, error)
-	Unlink(ctx context.Context, userID, providerName string) error
+	InitiateLink(ctx context.Context, input api.OAuthLinkInput) (*api.OAuthInitiation, error)
+	Callback(ctx context.Context, input api.OAuthCallbackInput) (*api.OAuthCallbackResult, error)
+	Unlink(ctx context.Context, input api.OAuthUnlinkInput) error
 	ListConnected(ctx context.Context, userID string) ([]domain.ProviderAccount, error)
 }
 
@@ -164,8 +164,8 @@ type OrgInviteOperations interface {
 	AcceptInvite(ctx context.Context, input api.AcceptInviteInput) error
 	ListOrgInvites(ctx context.Context, input api.ListOrgInvitesInput) (*api.ListOrgInvitesResult, error)
 	CountOrgInvites(ctx context.Context, input api.ListOrgInvitesInput) (int, error)
-	DeleteOrgInvite(ctx context.Context, orgID, inviteID, actorID string) error
-	ResendOrgInviteEmail(ctx context.Context, orgID, inviteID, actorID string) error
+	DeleteOrgInvite(ctx context.Context, input api.DeleteOrgInviteInput) error
+	ResendOrgInviteEmail(ctx context.Context, input api.ResendOrgInviteEmailInput) error
 }
 
 // TwoFactorOperations exposes the twofactor service methods available to callers.
@@ -175,10 +175,10 @@ type TwoFactorOperations interface {
 	BindingDisabled() bool
 	Enforce(u *domain.User) bool
 	Challenge(ctx context.Context, userID string) (*api.ChallengeResult, error)
-	Verify(ctx context.Context, challengeID, bindingToken, code, ip, userAgent string) (*api.TwoFactorVerifyResult, error)
-	Resend(ctx context.Context, challengeID, bindingToken string) (*api.ChallengeResult, error)
-	Enable(ctx context.Context, userID, password string, keepOtherSessions bool, callerSessionID string) error
-	Disable(ctx context.Context, userID, password string) error
+	Verify(ctx context.Context, input api.TwoFactorVerifyInput) (*api.TwoFactorVerifyResult, error)
+	Resend(ctx context.Context, input api.TwoFactorResendInput) (*api.ChallengeResult, error)
+	Enable(ctx context.Context, input api.TwoFactorEnableInput) error
+	Disable(ctx context.Context, input api.TwoFactorDisableInput) error
 }
 
 // IsSessionError reports whether err is a session lookup failure.

@@ -6,6 +6,20 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
+// DeleteOrgInviteInput identifies an organization invitation and its trusted actor.
+type DeleteOrgInviteInput struct {
+	OrgID    string `json:"orgId"`
+	InviteID string `json:"inviteId"`
+	ActorID  string `json:"-"`
+}
+
+// ResendOrgInviteEmailInput identifies an organization invitation and its trusted actor.
+type ResendOrgInviteEmailInput struct {
+	OrgID    string `json:"orgId"`
+	InviteID string `json:"inviteId"`
+	ActorID  string `json:"-"`
+}
+
 // AcceptInviteInput contains values used to accept an organization invitation.
 type AcceptInviteInput struct {
 	UserID  string

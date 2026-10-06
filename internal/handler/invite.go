@@ -154,7 +154,10 @@ func (h *Handler) HardDeleteInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inviteID := r.PathValue("id")
-	if err := h.services.Invite.HardDeleteInvite(r.Context(), inviteID, actor.ID); err != nil {
+	if err := h.services.Invite.HardDeleteInvite(r.Context(), api.HardDeleteInviteInput{
+		InviteID: inviteID,
+		ActorID:  actor.ID,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -169,7 +172,10 @@ func (h *Handler) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inviteID := r.PathValue("id")
-	if err := h.services.Invite.RevokeInvite(r.Context(), inviteID, actor.ID); err != nil {
+	if err := h.services.Invite.RevokeInvite(r.Context(), api.RevokeInviteInput{
+		InviteID: inviteID,
+		ActorID:  actor.ID,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -184,7 +190,10 @@ func (h *Handler) ResendInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	inviteID := r.PathValue("id")
-	if err := h.services.Invite.ResendInviteEmail(r.Context(), inviteID, actor.ID); err != nil {
+	if err := h.services.Invite.ResendInviteEmail(r.Context(), api.ResendInviteEmailInput{
+		InviteID: inviteID,
+		ActorID:  actor.ID,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}

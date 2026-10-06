@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -37,7 +38,15 @@ func TestOAuthCallbackRejectsInvalidIdentityBeforeLookup(t *testing.T) {
 				"test": &stubOAuthProvider{name: "test", profile: tc.profile},
 			}, repo, users, tokens)
 			seedOAuthState(t, tokens, "state", "raw-state")
-			result, err := svc.Callback(context.Background(), "test", "code", "raw-state", "raw-state", "", "", "")
+			result, err := svc.Callback(context.Background(), api.OAuthCallbackInput{
+				Provider:     "test",
+				Code:         "code",
+				State:        "raw-state",
+				BrowserState: "raw-state",
+				SessionToken: "",
+				IP:           "",
+				UserAgent:    "",
+			})
 			if authErrCode(err) != "provider_error" || result != nil {
 				t.Fatalf("invalid identity accepted: result=%+v err=%v", result, err)
 			}
@@ -54,7 +63,15 @@ func TestOAuthCallbackRejectsInvalidRegistrationEmail(t *testing.T) {
 				"test": &stubOAuthProvider{name: "test", profile: oauthTestProfile("test", "subject", email)},
 			}, testutil.NewMockProviderAccountRepo(), users, tokens)
 			seedOAuthState(t, tokens, "state", "raw-state")
-			result, err := svc.Callback(context.Background(), "test", "code", "raw-state", "raw-state", "", "", "")
+			result, err := svc.Callback(context.Background(), api.OAuthCallbackInput{
+				Provider:     "test",
+				Code:         "code",
+				State:        "raw-state",
+				BrowserState: "raw-state",
+				SessionToken: "",
+				IP:           "",
+				UserAgent:    "",
+			})
 			if authErrCode(err) != "provider_error" || result != nil {
 				t.Fatalf("invalid registration email accepted: result=%+v err=%v", result, err)
 			}
@@ -84,7 +101,15 @@ func TestOAuthCallbackLinkedIdentityDoesNotRequireCurrentEmail(t *testing.T) {
 		"test": &stubOAuthProvider{name: "test", profile: oauthTestProfile("test", "subject", "")},
 	}, repo, users, tokens)
 	seedOAuthState(t, tokens, "state", "raw-state")
-	result, err := svc.Callback(ctx, "test", "code", "raw-state", "raw-state", "", "", "")
+	result, err := svc.Callback(ctx, api.OAuthCallbackInput{
+		Provider:     "test",
+		Code:         "code",
+		State:        "raw-state",
+		BrowserState: "raw-state",
+		SessionToken: "",
+		IP:           "",
+		UserAgent:    "",
+	})
 	if err != nil || result == nil || result.SessionToken == "" {
 		t.Fatalf("linked identity without current email rejected: result=%+v err=%v", result, err)
 	}

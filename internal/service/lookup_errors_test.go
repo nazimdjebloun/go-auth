@@ -193,8 +193,18 @@ func TestServiceLookupsPreserveInfrastructureErrors(t *testing.T) {
 					_, _, err := f.auth.ValidateSession(t.Context(), "session")
 					return err
 				}},
-				{"change name", "user", func(f *lookupErrorFixture) error { return f.auth.ChangeName(t.Context(), "user", "New") }},
-				{"delete user", "user", func(f *lookupErrorFixture) error { return f.auth.DeleteAccount(t.Context(), "user", "password") }},
+				{"change name", "user", func(f *lookupErrorFixture) error {
+					return f.auth.ChangeName(t.Context(), api.ChangeNameInput{
+						UserID: "user",
+						Name:   "New",
+					})
+				}},
+				{"delete user", "user", func(f *lookupErrorFixture) error {
+					return f.auth.DeleteAccount(t.Context(), api.DeleteAccountInput{
+						UserID:   "user",
+						Password: "password",
+					})
+				}},
 				{"request deletion user", "user", func(f *lookupErrorFixture) error { return f.auth.RequestDeleteAccount(t.Context(), "user") }},
 				{"request deletion token", "token", func(f *lookupErrorFixture) error { return f.auth.RequestDeleteAccount(t.Context(), "user") }},
 				{"confirm deletion user", "user", func(f *lookupErrorFixture) error {
@@ -232,15 +242,27 @@ func TestServiceLookupsPreserveInfrastructureErrors(t *testing.T) {
 					return err
 				}},
 				{"verify 2fa token", "token", func(f *lookupErrorFixture) error {
-					_, err := f.twoFactor.Verify(t.Context(), "challenge", "", "123456", "", "")
+					_, err := f.twoFactor.Verify(t.Context(), api.TwoFactorVerifyInput{
+						ChallengeID:  "challenge",
+						BindingToken: "",
+						Code:         "123456",
+						IP:           "",
+						UserAgent:    "",
+					})
 					return err
 				}},
 				{"resend 2fa token", "token", func(f *lookupErrorFixture) error {
-					_, err := f.twoFactor.Resend(t.Context(), "challenge", "")
+					_, err := f.twoFactor.Resend(t.Context(), api.TwoFactorResendInput{
+						ChallengeID:  "challenge",
+						BindingToken: "",
+					})
 					return err
 				}},
 				{"resend 2fa user", "user", func(f *lookupErrorFixture) error {
-					_, err := f.twoFactor.Resend(t.Context(), "challenge", "")
+					_, err := f.twoFactor.Resend(t.Context(), api.TwoFactorResendInput{
+						ChallengeID:  "challenge",
+						BindingToken: "",
+					})
 					return err
 				}},
 				{"change 2fa user", "user", func(f *lookupErrorFixture) error {
@@ -248,7 +270,15 @@ func TestServiceLookupsPreserveInfrastructureErrors(t *testing.T) {
 					return err
 				}},
 				{"oauth state", "token", func(f *lookupErrorFixture) error {
-					_, err := f.oauth.Callback(t.Context(), "github", "code", "state", "state", "", "", "")
+					_, err := f.oauth.Callback(t.Context(), api.OAuthCallbackInput{
+						Provider:     "github",
+						Code:         "code",
+						State:        "state",
+						BrowserState: "state",
+						SessionToken: "",
+						IP:           "",
+						UserAgent:    "",
+					})
 					return err
 				}},
 				{"oauth linking session", "session", func(f *lookupErrorFixture) error {
@@ -258,11 +288,27 @@ func TestServiceLookupsPreserveInfrastructureErrors(t *testing.T) {
 					}
 					userID := "user"
 					state.UserID, state.Email = &userID, hashToken("session")
-					_, err = f.oauth.Callback(t.Context(), "github", "code", "state", "state", "session", "", "")
+					_, err = f.oauth.Callback(t.Context(), api.OAuthCallbackInput{
+						Provider:     "github",
+						Code:         "code",
+						State:        "state",
+						BrowserState: "state",
+						SessionToken: "session",
+						IP:           "",
+						UserAgent:    "",
+					})
 					return err
 				}},
 				{"oauth email", "user", func(f *lookupErrorFixture) error {
-					_, err := f.oauth.Callback(t.Context(), "github", "code", "state", "state", "", "", "")
+					_, err := f.oauth.Callback(t.Context(), api.OAuthCallbackInput{
+						Provider:     "github",
+						Code:         "code",
+						State:        "state",
+						BrowserState: "state",
+						SessionToken: "",
+						IP:           "",
+						UserAgent:    "",
+					})
 					return err
 				}},
 				{"invite lookup", "", func(_ *lookupErrorFixture) error {

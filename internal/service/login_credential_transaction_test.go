@@ -134,7 +134,13 @@ func TestTwoFactorVerifyAuditFailureRollsBackClaimAndSession(t *testing.T) {
 	}
 	code := testutil.GetLastVerificationCode(mail)
 	svc.audit = failingAuditPublisher{}
-	if _, err := svc.Verify(ctx, challenge.ID, "", code, "", ""); err == nil {
+	if _, err := svc.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  challenge.ID,
+		BindingToken: "",
+		Code:         code,
+		IP:           "",
+		UserAgent:    "",
+	}); err == nil {
 		t.Fatal("audit failure must reject verification")
 	}
 	token, err := f.tokens.GetByID(ctx, challenge.ID)

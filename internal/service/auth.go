@@ -189,7 +189,11 @@ func (s *AuthService) createAuditedLoginSession(
 		if _, err := lockPasswordIdentity(txCtx, s.users, user); err != nil {
 			return err
 		}
-		created, err := s.sessionSvc.Create(txCtx, user.ID, ip, userAgent)
+		created, err := s.sessionSvc.Create(txCtx, api.CreateSessionInput{
+			UserID:    user.ID,
+			IP:        ip,
+			UserAgent: userAgent,
+		})
 		if err != nil {
 			return err
 		}
@@ -650,24 +654,24 @@ func (s *AuthService) Logout(ctx context.Context, sessionID string) error {
 }
 
 // ChangeName changes a user's display name.
-func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) error {
-	user, err := s.users.GetByID(ctx, userID)
+func (s *AuthService) ChangeName(ctx context.Context, input api.ChangeNameInput) error {
+	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil {
 		return fmt.Errorf("change name: lookup: %w", err)
 	}
 	if user == nil {
 		return domain.ErrUserNotFound
 	}
-	if newName == "" {
+	if input.Name == "" {
 		return domain.NewError("validation_error", "Name cannot be empty")
 	}
-	if err := updateUserName(ctx, s.users, user, newName, time.Now().UTC()); err != nil {
-		s.log.Error("failed to update name", "err", err, "user_id", userID)
+	if err := updateUserName(ctx, s.users, user, input.Name, time.Now().UTC()); err != nil {
+		s.log.Error("failed to update name", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal
 	}
-	s.log.Info("name changed", "user_id", userID)
+	s.log.Info("name changed", "user_id", input.UserID)
 	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewNameChangedEvent(userID)); err != nil {
+		if err := s.audit.Record(ctx, audit.NewNameChangedEvent(input.UserID)); err != nil {
 			return err
 		}
 	}
@@ -675,8 +679,8 @@ func (s *AuthService) ChangeName(ctx context.Context, userID, newName string) er
 }
 
 // DeleteAccount deletes a user's account after password verification.
-func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password string) error {
-	user, err := s.users.GetByID(ctx, userID)
+func (s *AuthService) DeleteAccount(ctx context.Context, input api.DeleteAccountInput) error {
+	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil {
 		return fmt.Errorf("delete account: lookup: %w", err)
 	}
@@ -687,7 +691,7 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 	if !user.HasPassword() {
 		return domain.ErrPasswordRequired
 	}
-	if err := comparePassword(s.hasher, password, *user.PasswordHash, user.PasswordPepperVersion); err != nil {
+	if err := comparePassword(s.hasher, input.Password, *user.PasswordHash, user.PasswordPepperVersion); err != nil {
 		return domain.NewError("wrong_password", "Password is incorrect")
 	}
 
@@ -696,20 +700,20 @@ func (s *AuthService) DeleteAccount(ctx context.Context, userID string, password
 	// last-usable-admin guard. The library wiring always attaches it; a
 	// nil coordinator means a miswired service, which fails closed.
 	if s.deletion == nil {
-		s.log.Error("account deletion refused: no deletion coordinator attached", "user_id", userID)
+		s.log.Error("account deletion refused: no deletion coordinator attached", "user_id", input.UserID)
 		return domain.ErrInternal
 	}
 	record := func(txCtx context.Context) error {
 		if s.audit == nil {
 			return nil
 		}
-		return s.audit.Record(txCtx, audit.NewAccountDeletedEvent(userID))
+		return s.audit.Record(txCtx, audit.NewAccountDeletedEvent(input.UserID))
 	}
-	if err := s.deletion.DeleteUserAndRecord(ctx, userID, record); err != nil {
-		s.log.Error("failed to delete account", "err", err, "user_id", userID)
+	if err := s.deletion.DeleteUserAndRecord(ctx, input.UserID, record); err != nil {
+		s.log.Error("failed to delete account", "err", err, "user_id", input.UserID)
 		return err
 	}
-	s.log.Info("account deleted", "user_id", userID)
+	s.log.Info("account deleted", "user_id", input.UserID)
 	return nil
 }
 

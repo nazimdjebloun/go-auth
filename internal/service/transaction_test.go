@@ -91,7 +91,11 @@ func TestSessionAuditFailureRollsBackCreationWithConstructorTransaction(t *testi
 	svc := NewSessionService(&testutil.MockTxManager{}, sessions, &testutil.MockTokenGen{Length: 32}, cfg)
 	ctx := context.Background()
 
-	_, err := svc.Create(ctx, "user-1", "", "")
+	_, err := svc.Create(ctx, api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if !errors.Is(err, errInjectedAuditFailure) {
 		t.Fatalf("Create error = %v, want audit failure", err)
 	}

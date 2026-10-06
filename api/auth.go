@@ -6,6 +6,18 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
+// ChangeNameInput updates the profile of the authenticated user.
+type ChangeNameInput struct {
+	UserID string `json:"-"`
+	Name   string `json:"name"`
+}
+
+// DeleteAccountInput authenticates a password-based account deletion.
+type DeleteAccountInput struct {
+	UserID   string `json:"-"`
+	Password string `json:"password"`
+}
+
 // LoginInput contains user login credentials.
 type LoginInput struct {
 	Email     string

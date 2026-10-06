@@ -308,12 +308,12 @@ func (s *TwoFactorService) checkBinding(challengeID, supplied string) bool {
 // branch would let a concurrent burst all observe the same pre-increment count
 // and all pass the check before any write landed. One consequence is that a
 // correct code arriving on an already-capped lineage is rejected too.
-func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken, code, ip, userAgent string) (*api.TwoFactorVerifyResult, error) {
-	if !s.checkBinding(challengeID, bindingToken) {
+func (s *TwoFactorService) Verify(ctx context.Context, input api.TwoFactorVerifyInput) (*api.TwoFactorVerifyResult, error) {
+	if !s.checkBinding(input.ChallengeID, input.BindingToken) {
 		return nil, domain.ErrTwoFactorCodeInvalid
 	}
 
-	token, err := s.tokens.GetByID(ctx, challengeID)
+	token, err := s.tokens.GetByID(ctx, input.ChallengeID)
 	if err != nil {
 		return nil, fmt.Errorf("verify: lookup: %w", err)
 	}
@@ -342,14 +342,14 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
 		return nil, domain.ErrTwoFactorCodeExpired
 	}
-	if !verifyOTP(code, token.TokenHash, s.config.OTPPepper) {
+	if !verifyOTP(input.Code, token.TokenHash, s.config.OTPPepper) {
 		// A false return means the cap was already reached, by an earlier
 		// guess or a concurrent one. Either way the caller learns only
 		// "invalid" — the distinction is not theirs to see.
 		if _, err := s.tokens.IncrementAttempts(ctx, token.ID, maxAttemptsPerChallenge); err != nil {
 			s.log.Error("failed to record 2fa attempt", "err", err, "token_id", token.ID)
 		}
-		s.recordFailure(ctx, *token.UserID, token.Email, ip, userAgent)
+		s.recordFailure(ctx, *token.UserID, token.Email, input.IP, input.UserAgent)
 		return nil, domain.ErrTwoFactorCodeInvalid
 	}
 
@@ -381,7 +381,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 		if !ok {
 			return domain.ErrTwoFactorCodeInvalid
 		}
-		sessResult, err = s.sessionSvc.create(txCtx, user.ID, ip, userAgent, true)
+		sessResult, err = s.sessionSvc.create(txCtx, user.ID, input.IP, input.UserAgent, true)
 		if err != nil {
 			return err
 		}
@@ -389,7 +389,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, challengeID, bindingToken
 			return err
 		}
 		if s.audit != nil {
-			return s.audit.Record(txCtx, audit.NewTwoFactorVerifiedEvent(user.ID, sessResult.Session.ID, net.ParseIP(ip), userAgent))
+			return s.audit.Record(txCtx, audit.NewTwoFactorVerifiedEvent(user.ID, sessResult.Session.ID, net.ParseIP(input.IP), input.UserAgent))
 		}
 		return nil
 	})
@@ -496,14 +496,14 @@ func (s *TwoFactorService) notifySuspicious(ctx context.Context, email string, c
 // is reached the same guard that blocks Verify also blocks further resends.
 // The separate resend ceiling bounds how many times one lineage's code can be
 // refreshed, which also stops this being an email-bombing amplifier.
-func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken string) (*api.ChallengeResult, error) {
+func (s *TwoFactorService) Resend(ctx context.Context, input api.TwoFactorResendInput) (*api.ChallengeResult, error) {
 	vague := domain.NewError("challenge_not_found", "If the challenge is valid, a new code has been sent")
 
-	if !s.checkBinding(challengeID, bindingToken) {
+	if !s.checkBinding(input.ChallengeID, input.BindingToken) {
 		return nil, vague
 	}
 
-	token, err := s.tokens.GetByID(ctx, challengeID)
+	token, err := s.tokens.GetByID(ctx, input.ChallengeID)
 	if err != nil {
 		return nil, fmt.Errorf("resend: lookup: %w", err)
 	}
@@ -577,8 +577,8 @@ func (s *TwoFactorService) Resend(ctx context.Context, challengeID, bindingToken
 // JSON bool decodes to false, so "revokeOtherSessions" documented as defaulting
 // to true would in fact default to false and silently skip revocation for every
 // client that didn't send it. Same reasoning as SecurityConfig.DisableCSRFToken.
-func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, keepOtherSessions bool, callerSessionID string) error {
-	user, aerr := s.authorizeChange(ctx, userID, password)
+func (s *TwoFactorService) Enable(ctx context.Context, input api.TwoFactorEnableInput) error {
+	user, aerr := s.authorizeChange(ctx, input.UserID, input.Password)
 	if aerr != nil {
 		return aerr
 	}
@@ -594,8 +594,8 @@ func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, 
 		if err := s.users.SetTwoFactorEnabled(txCtx, user.ID, true, s.now().UTC()); err != nil {
 			return err
 		}
-		if !keepOtherSessions && callerSessionID != "" {
-			if err := s.sessions.DeleteAllForUserExcept(txCtx, user.ID, callerSessionID); err != nil {
+		if !input.KeepOtherSessions && input.CallerSessionID != "" {
+			if err := s.sessions.DeleteAllForUserExcept(txCtx, user.ID, input.CallerSessionID); err != nil {
 				return err
 			}
 		}
@@ -614,8 +614,8 @@ func (s *TwoFactorService) Enable(ctx context.Context, userID, password string, 
 
 // Disable turns off per-user 2FA. No session revocation: turning 2FA off is not
 // the "someone may be in my account" signal that turning it on is.
-func (s *TwoFactorService) Disable(ctx context.Context, userID, password string) error {
-	user, aerr := s.authorizeChange(ctx, userID, password)
+func (s *TwoFactorService) Disable(ctx context.Context, input api.TwoFactorDisableInput) error {
+	user, aerr := s.authorizeChange(ctx, input.UserID, input.Password)
 	if aerr != nil {
 		return aerr
 	}

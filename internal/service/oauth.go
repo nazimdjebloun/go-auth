@@ -158,12 +158,12 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*api.
 // The state stores the initiating session's token hash in its otherwise unused
 // Email field, so callback must present that same live session. OAuth state
 // rows never represent an email address.
-func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID, sessionTokenHash string) (*api.OAuthInitiation, error) {
-	p, err := s.getProvider(providerName)
+func (s *OAuthService) InitiateLink(ctx context.Context, input api.OAuthLinkInput) (*api.OAuthInitiation, error) {
+	p, err := s.getProvider(input.Provider)
 	if err != nil {
 		return nil, err
 	}
-	if userID == "" || sessionTokenHash == "" {
+	if input.UserID == "" || input.SessionTokenHash == "" {
 		return nil, domain.NewError("unauthorized", "Authentication required")
 	}
 
@@ -178,8 +178,8 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID, s
 
 	stateToken := &domain.VerificationToken{
 		ID:           uuid.New().String(),
-		UserID:       &userID,
-		Email:        sessionTokenHash,
+		UserID:       &input.UserID,
+		Email:        input.SessionTokenHash,
 		TokenHash:    hashToken(stateRaw),
 		Type:         domain.TokenOAuthState,
 		ExpiresAt:    now.Add(10 * time.Minute),
@@ -187,7 +187,7 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID, s
 	}
 
 	if err := s.tokenRepo.Create(ctx, stateToken); err != nil {
-		s.log.Error("failed to store state token", "err", err, "provider", providerName, "user_id", userID)
+		s.log.Error("failed to store state token", "err", err, "provider", input.Provider, "user_id", input.UserID)
 		return nil, domain.ErrInternal
 	}
 
@@ -196,16 +196,16 @@ func (s *OAuthService) InitiateLink(ctx context.Context, providerName, userID, s
 }
 
 // Callback completes an OAuth login or account link.
-func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawState, browserState, rawSessionToken, ip, userAgent string) (*api.OAuthCallbackResult, error) {
-	p, err := s.getProvider(providerName)
+func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInput) (*api.OAuthCallbackResult, error) {
+	p, err := s.getProvider(input.Provider)
 	if err != nil {
 		return nil, err
 	}
-	if rawState == "" || subtle.ConstantTimeCompare([]byte(rawState), []byte(browserState)) != 1 {
+	if input.State == "" || subtle.ConstantTimeCompare([]byte(input.State), []byte(input.BrowserState)) != 1 {
 		return nil, domain.NewError("invalid_state", "Invalid or expired OAuth state")
 	}
 
-	stateHash := hashToken(rawState)
+	stateHash := hashToken(input.State)
 	stateToken, repoErr := s.tokenRepo.GetByHash(ctx, stateHash)
 	if repoErr != nil {
 		return nil, fmt.Errorf("oauth callback: look up state: %w", repoErr)
@@ -222,10 +222,10 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return nil, domain.NewError("state_expired", "OAuth state token has expired")
 	}
 	if stateToken.UserID != nil {
-		if rawSessionToken == "" || stateToken.Email == "" || subtle.ConstantTimeCompare([]byte(hashToken(rawSessionToken)), []byte(stateToken.Email)) != 1 {
+		if input.SessionToken == "" || stateToken.Email == "" || subtle.ConstantTimeCompare([]byte(hashToken(input.SessionToken)), []byte(stateToken.Email)) != 1 {
 			return nil, domain.NewError("unauthorized", "Authentication required")
 		}
-		session, user, validateErr := s.sessionSvc.ValidateWithUser(ctx, rawSessionToken)
+		session, user, validateErr := s.sessionSvc.ValidateWithUser(ctx, input.SessionToken)
 		if validateErr != nil && !isSessionValidationRejection(validateErr) {
 			return nil, fmt.Errorf("oauth callback: validate linking session: %w", validateErr)
 		}
@@ -251,19 +251,19 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		codeVerifier = *stateToken.CodeVerifier
 	}
 
-	info, exchangeErr := p.Exchange(ctx, code, codeVerifier)
+	info, exchangeErr := p.Exchange(ctx, input.Code, codeVerifier)
 	if exchangeErr != nil {
-		s.log.Error("provider exchange failed", "err", exchangeErr, "provider", providerName)
+		s.log.Error("provider exchange failed", "err", exchangeErr, "provider", input.Provider)
 		return nil, domain.NewError("provider_error", "Failed to authenticate with provider")
 	}
-	if info == nil || info.Provider != providerName || strings.TrimSpace(info.ProviderUserID) == "" {
-		s.log.Error("provider returned an invalid identity", "provider", providerName)
+	if info == nil || info.Provider != input.Provider || strings.TrimSpace(info.ProviderUserID) == "" {
+		s.log.Error("provider returned an invalid identity", "provider", input.Provider)
 		return nil, domain.NewError("provider_error", "Failed to authenticate with provider")
 	}
 
-	existing, lookupErr := s.providerRepo.GetByProvider(ctx, providerName, info.ProviderUserID)
+	existing, lookupErr := s.providerRepo.GetByProvider(ctx, input.Provider, info.ProviderUserID)
 	if lookupErr != nil {
-		s.log.Error("failed to look up provider account", "err", lookupErr, "provider", providerName)
+		s.log.Error("failed to look up provider account", "err", lookupErr, "provider", input.Provider)
 		return nil, domain.ErrInternal
 	}
 
@@ -281,12 +281,12 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		if linkErr != nil {
 			return nil, linkErr
 		}
-		s.log.Info("provider linked", "user_id", *userID, "provider", providerName)
+		s.log.Info("provider linked", "user_id", *userID, "provider", input.Provider)
 		if s.audit != nil {
 			// attachOAuthLink is a non-transactional helper: the record
 			// autocommits. Fail-closed degrades to fail-open here (nothing
 			// to roll back), so this cannot fail the link.
-			if err := s.audit.Record(ctx, audit.NewOAuthEvent(audit.EventOAuthLinked, *userID, providerName, net.ParseIP(ip), userAgent)); err != nil {
+			if err := s.audit.Record(ctx, audit.NewOAuthEvent(audit.EventOAuthLinked, *userID, input.Provider, net.ParseIP(input.IP), input.UserAgent)); err != nil {
 				s.log.Error("oauth link audit record failed", "err", err, "user_id", *userID)
 			}
 		}
@@ -339,14 +339,18 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 			}
 		}
 
-		sessResult, sessionErr := s.sessionSvc.Create(ctx, user.ID, ip, userAgent)
+		sessResult, sessionErr := s.sessionSvc.Create(ctx, api.CreateSessionInput{
+			UserID:    user.ID,
+			IP:        input.IP,
+			UserAgent: input.UserAgent,
+		})
 		if sessionErr != nil {
 			s.log.Error("failed to create session", "err", sessionErr, "user_id", user.ID)
 			return nil, domain.ErrInternal
 		}
-		s.log.Info("oauth login", "user_id", user.ID, "provider", providerName, "ip", ip)
+		s.log.Info("oauth login", "user_id", user.ID, "provider", input.Provider, "ip", input.IP)
 		if s.audit != nil {
-			if err := s.audit.Record(ctx, audit.NewOAuthEvent(audit.EventOAuthLogin, user.ID, providerName, net.ParseIP(ip), userAgent)); err != nil {
+			if err := s.audit.Record(ctx, audit.NewOAuthEvent(audit.EventOAuthLogin, user.ID, input.Provider, net.ParseIP(input.IP), input.UserAgent)); err != nil {
 				return nil, err
 			}
 		}
@@ -403,7 +407,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		// Inside the transaction: the record commits with the account and
 		// provider link it describes.
 		if s.audit != nil {
-			if err := s.audit.Record(txCtx, audit.NewUserRegisteredEvent(newUser.ID, net.ParseIP(ip), userAgent)); err != nil {
+			if err := s.audit.Record(txCtx, audit.NewUserRegisteredEvent(newUser.ID, net.ParseIP(input.IP), input.UserAgent)); err != nil {
 				return err
 			}
 		}
@@ -412,7 +416,7 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return nil, err
 	}
 
-	s.log.Info("oauth register", "user_id", newUser.ID, "provider", providerName, "email_verified", info.EmailVerified)
+	s.log.Info("oauth register", "user_id", newUser.ID, "provider", input.Provider, "email_verified", info.EmailVerified)
 
 	// Only send verification email if the provider did NOT verify the email
 	// and email verification is required.
@@ -423,7 +427,11 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 		return &api.OAuthCallbackResult{IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email}, nil
 	}
 
-	sessResult, sessionErr := s.sessionSvc.Create(ctx, newUser.ID, ip, userAgent)
+	sessResult, sessionErr := s.sessionSvc.Create(ctx, api.CreateSessionInput{
+		UserID:    newUser.ID,
+		IP:        input.IP,
+		UserAgent: input.UserAgent,
+	})
 	if sessionErr != nil {
 		s.log.Error("failed to create session", "err", sessionErr, "user_id", newUser.ID)
 		return nil, domain.ErrInternal
@@ -433,25 +441,25 @@ func (s *OAuthService) Callback(ctx context.Context, providerName, code, rawStat
 }
 
 // Unlink removes a linked OAuth provider.
-func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) error {
+func (s *OAuthService) Unlink(ctx context.Context, input api.OAuthUnlinkInput) error {
 	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		// Serialize concurrent unlinks on this user's provider rows before
 		// reading them: without the lock, two parallel requests can each
 		// observe two linked providers, both pass the guard below, and both
 		// delete — leaving a passwordless user with no way to authenticate.
-		if err := s.providerRepo.LockByUserID(txCtx, userID); err != nil {
-			s.log.Error("failed to lock provider accounts", "err", err, "user_id", userID)
+		if err := s.providerRepo.LockByUserID(txCtx, input.UserID); err != nil {
+			s.log.Error("failed to lock provider accounts", "err", err, "user_id", input.UserID)
 			return domain.ErrInternal
 		}
 
-		user, userErr := s.userRepo.GetByID(txCtx, userID)
+		user, userErr := s.userRepo.GetByID(txCtx, input.UserID)
 		if userErr != nil || user == nil {
 			return domain.ErrUserNotFound
 		}
 
-		accounts, err := s.providerRepo.ListByUserID(txCtx, userID)
+		accounts, err := s.providerRepo.ListByUserID(txCtx, input.UserID)
 		if err != nil {
-			s.log.Error("failed to list provider accounts", "err", err, "user_id", userID)
+			s.log.Error("failed to list provider accounts", "err", err, "user_id", input.UserID)
 			return domain.ErrInternal
 		}
 
@@ -459,7 +467,7 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 		// under the same provider are one removable group, not surviving methods.
 		hasRemainingMethod := user.HasPassword()
 		for _, account := range accounts {
-			if account.Provider != providerName {
+			if account.Provider != input.Provider {
 				hasRemainingMethod = true
 				break
 			}
@@ -468,14 +476,14 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 			return domain.ErrCannotUnlinkLastProvider
 		}
 
-		if err := s.providerRepo.Delete(txCtx, userID, providerName); err != nil {
-			s.log.Error("failed to unlink provider", "err", err, "user_id", userID, "provider", providerName)
+		if err := s.providerRepo.Delete(txCtx, input.UserID, input.Provider); err != nil {
+			s.log.Error("failed to unlink provider", "err", err, "user_id", input.UserID, "provider", input.Provider)
 			return domain.ErrInternal
 		}
 		// Inside the transaction: the record commits with the unlink it
 		// describes.
 		if s.audit != nil {
-			if err := s.audit.Record(txCtx, audit.NewOAuthEvent(audit.EventOAuthUnlinked, userID, providerName, nil, "")); err != nil {
+			if err := s.audit.Record(txCtx, audit.NewOAuthEvent(audit.EventOAuthUnlinked, input.UserID, input.Provider, nil, "")); err != nil {
 				return err
 			}
 		}
@@ -485,7 +493,7 @@ func (s *OAuthService) Unlink(ctx context.Context, userID, providerName string) 
 		return err
 	}
 
-	s.log.Info("provider unlinked", "user_id", userID, "provider", providerName)
+	s.log.Info("provider unlinked", "user_id", input.UserID, "provider", input.Provider)
 	return nil
 }
 

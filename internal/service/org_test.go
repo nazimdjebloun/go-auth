@@ -1171,7 +1171,11 @@ func TestResendOrgInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 		t.Fatalf("seed invite: %v", err)
 	}
 
-	err := inviteSvc.ResendOrgInviteEmail(ctx, org.ID, invite.ID, "owner-1")
+	err := inviteSvc.ResendOrgInviteEmail(ctx, api.ResendOrgInviteEmailInput{
+		OrgID:    org.ID,
+		InviteID: invite.ID,
+		ActorID:  "owner-1",
+	})
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
@@ -1189,7 +1193,11 @@ func TestDeleteOrgInvite_Success(t *testing.T) {
 		OrgID: org.ID, Email: "a@b.com", Role: domain.OrgRoleMember, InvitedBy: "owner-1",
 	})
 
-	err := inviteSvc.DeleteOrgInvite(ctx, org.ID, invite.ID, "owner-1")
+	err := inviteSvc.DeleteOrgInvite(ctx, api.DeleteOrgInviteInput{
+		OrgID:    org.ID,
+		InviteID: invite.ID,
+		ActorID:  "owner-1",
+	})
 	if err != nil {
 		t.Fatalf("DeleteOrgInvite failed: %v", err)
 	}
@@ -1203,7 +1211,11 @@ func TestDeleteOrgInvite_NotFound(t *testing.T) {
 	// invite itself is what's actually being exercised.
 	org, _ := orgSvc.CreateOrg(ctx, api.CreateOrgInput{Name: "O", Slug: "acme", OwnerID: "owner-1"})
 
-	err := inviteSvc.DeleteOrgInvite(ctx, org.ID, "nonexistent", "owner-1")
+	err := inviteSvc.DeleteOrgInvite(ctx, api.DeleteOrgInviteInput{
+		OrgID:    org.ID,
+		InviteID: "nonexistent",
+		ActorID:  "owner-1",
+	})
 	if err == nil {
 		t.Fatal("expected error for nonexistent invite")
 	}
@@ -1222,7 +1234,11 @@ func TestDeleteOrgInvite_ActorNotAdmin_Forbidden(t *testing.T) {
 		OrgID: org.ID, Email: "a@b.com", Role: domain.OrgRoleMember, InvitedBy: "owner-1",
 	})
 
-	err := inviteSvc.DeleteOrgInvite(ctx, org.ID, invite.ID, "member-1")
+	err := inviteSvc.DeleteOrgInvite(ctx, api.DeleteOrgInviteInput{
+		OrgID:    org.ID,
+		InviteID: invite.ID,
+		ActorID:  "member-1",
+	})
 	if err != domain.ErrOrgForbidden {
 		t.Errorf("expected ErrOrgForbidden, got %v", err)
 	}

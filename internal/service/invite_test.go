@@ -229,7 +229,10 @@ func TestResendInviteEmail_NoMailer_ReturnsEmailNotConfigured(t *testing.T) {
 	}
 	checkTestErrors(t).noError(invites.Create(context.Background(), invite))
 
-	err := svc.ResendInviteEmail(context.Background(), invite.ID, adminID)
+	err := svc.ResendInviteEmail(context.Background(), api.ResendInviteEmailInput{
+		InviteID: invite.ID,
+		ActorID:  adminID,
+	})
 	if err == nil {
 		t.Fatal("expected an error with no mailer configured, got nil")
 	}
@@ -278,11 +281,20 @@ func TestInvite_NonAdminActorIsForbidden(t *testing.T) {
 			_, e := svc.CreateInvite(ctx, api.CreateInviteInput{Email: "a@b.co", AdminID: "plain-user"})
 			return e
 		}(),
-		"list":    func() error { _, e := svc.ListInvites(ctx, api.ListInvitesInput{ActorID: "plain-user"}); return e }(),
-		"count":   func() error { _, e := svc.CountInvites(ctx, api.ListInvitesInput{ActorID: "plain-user"}); return e }(),
-		"revoke":  svc.RevokeInvite(ctx, inv.ID, "plain-user"),
-		"resend":  svc.ResendInviteEmail(ctx, inv.ID, "plain-user"),
-		"delete":  svc.HardDeleteInvite(ctx, inv.ID, "plain-user"),
+		"list":  func() error { _, e := svc.ListInvites(ctx, api.ListInvitesInput{ActorID: "plain-user"}); return e }(),
+		"count": func() error { _, e := svc.CountInvites(ctx, api.ListInvitesInput{ActorID: "plain-user"}); return e }(),
+		"revoke": svc.RevokeInvite(ctx, api.RevokeInviteInput{
+			InviteID: inv.ID,
+			ActorID:  "plain-user",
+		}),
+		"resend": svc.ResendInviteEmail(ctx, api.ResendInviteEmailInput{
+			InviteID: inv.ID,
+			ActorID:  "plain-user",
+		}),
+		"delete": svc.HardDeleteInvite(ctx, api.HardDeleteInviteInput{
+			InviteID: inv.ID,
+			ActorID:  "plain-user",
+		}),
 		"noactor": func() error { _, e := svc.ListInvites(ctx, api.ListInvitesInput{}); return e }(),
 	}
 	for name, err := range calls {

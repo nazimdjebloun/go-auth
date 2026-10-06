@@ -133,7 +133,10 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.Auth.DeleteAccount(r.Context(), user.ID, body.Password); err != nil {
+	if err := h.services.Auth.DeleteAccount(r.Context(), api.DeleteAccountInput{
+		UserID:   user.ID,
+		Password: body.Password,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}

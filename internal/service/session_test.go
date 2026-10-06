@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
@@ -18,7 +19,11 @@ func TestCreateSession_ReturnsRefreshToken(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	result, err := svc.Create(context.Background(), "user-1", "", "")
+	result, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +39,11 @@ func TestSessionService_ClockControlsExpiry(t *testing.T) {
 	issuedAt := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return issuedAt }
 
-	result, err := svc.Create(context.Background(), "user-1", "", "")
+	result, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +66,11 @@ func TestSessionService_MaxLifetimeBoundsAccessToken(t *testing.T) {
 	svc := NewSessionService(&testutil.MockTxManager{}, sessions, gen, cfg)
 	issuedAt := time.Date(2026, 9, 22, 12, 0, 0, 0, time.UTC)
 	svc.now = func() time.Time { return issuedAt }
-	created, err := svc.Create(context.Background(), "user-1", "", "")
+	created, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +85,11 @@ func TestRefreshSession_HappyPath(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	createResult, err := svc.Create(context.Background(), "user-1", "127.0.0.1", "test-agent")
+	createResult, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "127.0.0.1",
+		UserAgent: "test-agent",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +137,11 @@ func TestRefreshSession_ExpiredSession(t *testing.T) {
 		SameSite:          http.SameSiteLaxMode,
 	})
 
-	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +166,11 @@ func TestRefreshSession_ExpiredRefreshToken(t *testing.T) {
 		SameSite:          http.SameSiteLaxMode,
 	})
 
-	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +186,11 @@ func TestRefreshSession_ReuseDetection(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionServiceNoGrace(sessions, gen)
 
-	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +225,11 @@ func TestRefreshSession_ReuseDetection_PublishesAuditEvent(t *testing.T) {
 	cfg.Audit = auditPub
 	svc := NewSessionService(&testutil.MockTxManager{}, sessions, gen, cfg)
 
-	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +278,11 @@ func TestRefreshSession_HappyPath_PublishesRefreshedEvent(t *testing.T) {
 	cfg.Audit = auditPub
 	svc := NewSessionService(&testutil.MockTxManager{}, sessions, gen, cfg)
 
-	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,7 +307,11 @@ func TestRefreshSession_RotatesTokens(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionServiceNoGrace(sessions, gen)
 
-	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +342,11 @@ func TestRefreshSession_UpdatedSessionFields(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +393,11 @@ func TestRefreshSession_DeletedSession(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	createResult, err := svc.Create(context.Background(), "user-1", "", "")
+	createResult, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +418,11 @@ func TestRefreshSession_ConcurrentRace(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	svc := newTestSessionService(sessions, gen)
 
-	createResult, err := svc.Create(ctx, "user-1", "", "")
+	createResult, err := svc.Create(ctx, api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

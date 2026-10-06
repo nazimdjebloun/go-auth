@@ -761,7 +761,11 @@ func TestOrgInvite_RotatedCodeRejected(t *testing.T) {
 	}
 
 	// Admin rotates the code; the old email must stop working.
-	if err := a.Services().OrgInvite.ResendOrgInviteEmail(ctx, org.ID, invite.ID, owner.User.ID); err != nil {
+	if err := a.Services().OrgInvite.ResendOrgInviteEmail(ctx, api.ResendOrgInviteEmailInput{
+		OrgID:    org.ID,
+		InviteID: invite.ID,
+		ActorID:  owner.User.ID,
+	}); err != nil {
 		t.Fatalf("ResendOrgInviteEmail failed: %v", err)
 	}
 	if err := a.Services().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
@@ -876,7 +880,15 @@ func oauthRegister(ctx context.Context, t *testing.T, a *goauth.Auth, provider s
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := a.Services().OAuth.Callback(ctx, provider, "code", flow.State, flow.State, "", "127.0.0.1", "test-agent")
+	res, err := a.Services().OAuth.Callback(ctx, api.OAuthCallbackInput{
+		Provider:     provider,
+		Code:         "code",
+		State:        flow.State,
+		BrowserState: flow.State,
+		SessionToken: "",
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if err != nil {
 		t.Fatalf("OAuth callback failed: %v", err)
 	}
@@ -892,15 +904,31 @@ func oauthRegister(ctx context.Context, t *testing.T, a *goauth.Auth, provider s
 
 func oauthLink(ctx context.Context, t *testing.T, a *goauth.Auth, provider, userID string) {
 	t.Helper()
-	session, err := a.Services().Session.Create(ctx, userID, "127.0.0.1", "test-agent")
+	session, err := a.Services().Session.Create(ctx, api.CreateSessionInput{
+		UserID:    userID,
+		IP:        "127.0.0.1",
+		UserAgent: "test-agent",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	flow, err := a.Services().OAuth.InitiateLink(ctx, provider, userID, session.Session.TokenHash)
+	flow, err := a.Services().OAuth.InitiateLink(ctx, api.OAuthLinkInput{
+		Provider:         provider,
+		UserID:           userID,
+		SessionTokenHash: session.Session.TokenHash,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	res, err := a.Services().OAuth.Callback(ctx, provider, "code", flow.State, flow.State, session.SessionToken, "127.0.0.1", "test-agent")
+	res, err := a.Services().OAuth.Callback(ctx, api.OAuthCallbackInput{
+		Provider:     provider,
+		Code:         "code",
+		State:        flow.State,
+		BrowserState: flow.State,
+		SessionToken: session.SessionToken,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if err != nil {
 		t.Fatalf("OAuth link failed: %v", err)
 	}
@@ -933,7 +961,10 @@ func TestUnlink_ConcurrentLastProvider(t *testing.T) {
 		go func(provider string) {
 			defer wg.Done()
 			err := doWithBusyRetry(func() error {
-				return a.Services().OAuth.Unlink(ctx, userID, provider)
+				return a.Services().OAuth.Unlink(ctx, api.OAuthUnlinkInput{
+					UserID:   userID,
+					Provider: provider,
+				})
 			})
 			switch authCode(err) {
 			case "":
@@ -967,7 +998,15 @@ func TestUnlink_ConcurrentLastProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Services().OAuth.Callback(ctx, remaining[0].Provider, "code", flow.State, flow.State, "", "127.0.0.1", "test-agent"); err != nil {
+	if _, err := a.Services().OAuth.Callback(ctx, api.OAuthCallbackInput{
+		Provider:     remaining[0].Provider,
+		Code:         "code",
+		State:        flow.State,
+		BrowserState: flow.State,
+		SessionToken: "",
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); err != nil {
 		t.Fatalf("login via the surviving provider failed: %v", err)
 	}
 }
@@ -1002,7 +1041,15 @@ func TestOAuth_ConcurrentSameEmail_OneWins(t *testing.T) {
 		go func(provider, state string) {
 			defer wg.Done()
 			err := doWithBusyRetry(func() error {
-				_, err := a.Services().OAuth.Callback(ctx, provider, "code", state, state, "", "127.0.0.1", "test-agent")
+				_, err := a.Services().OAuth.Callback(ctx, api.OAuthCallbackInput{
+					Provider:     provider,
+					Code:         "code",
+					State:        state,
+					BrowserState: state,
+					SessionToken: "",
+					IP:           "127.0.0.1",
+					UserAgent:    "test-agent",
+				})
 				return err
 			})
 			switch authCode(err) {

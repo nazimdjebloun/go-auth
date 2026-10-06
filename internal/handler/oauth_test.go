@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
@@ -146,7 +147,11 @@ func (th *oauthTestHarness) createStateToken(t testing.TB, rawState string) stri
 // OAuthService.InitiateLink produces — this is what routes a callback into
 // Callback's link branch instead of its login/register branch.
 func (th *oauthTestHarness) createLinkStateToken(t testing.TB, rawState, userID string) string {
-	sess, err := th.sessionSvc.Create(context.Background(), userID, "127.0.0.1", "test-agent")
+	sess, err := th.sessionSvc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    userID,
+		IP:        "127.0.0.1",
+		UserAgent: "test-agent",
+	})
 	checkTestErrors(t).noError(err)
 	th.linkSessionToken = sess.SessionToken
 	stateHash := sha256.Sum256([]byte(rawState))

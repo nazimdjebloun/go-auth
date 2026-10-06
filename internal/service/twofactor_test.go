@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
@@ -102,7 +103,13 @@ func TestVerify_StalePepperReturnsExpiredWithoutBurningAttempts(t *testing.T) {
 	backdateLineage(t, tokens, time.Hour)
 	code := lastTwoFactorCode(t, mailer)
 
-	_, err = svc.Verify(context.Background(), ch.ID, "", code, "127.0.0.1", "test-agent")
+	_, err = svc.Verify(context.Background(), api.TwoFactorVerifyInput{
+		ChallengeID:  ch.ID,
+		BindingToken: "",
+		Code:         code,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if err == nil {
 		t.Fatal("expected error for rotation-stale code, got nil")
 	}
@@ -132,7 +139,13 @@ func TestVerify_StalePepperWrongCodeAlsoExpired(t *testing.T) {
 
 	// The old pepper is gone, so right vs wrong is unknowable — both answer
 	// expired, and no guess information leaks through distinct errors.
-	_, err = svc.Verify(context.Background(), ch.ID, "", wrongTwoFactorCode(code), "127.0.0.1", "test-agent")
+	_, err = svc.Verify(context.Background(), api.TwoFactorVerifyInput{
+		ChallengeID:  ch.ID,
+		BindingToken: "",
+		Code:         wrongTwoFactorCode(code),
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if err == nil {
 		t.Fatal("expected error for rotation-stale lineage, got nil")
 	}
@@ -184,7 +197,10 @@ func TestResend_RecoversStaleLineage(t *testing.T) {
 	}
 	backdateLineage(t, tokens, time.Hour)
 
-	resent, err := svc.Resend(context.Background(), ch.ID, "")
+	resent, err := svc.Resend(context.Background(), api.TwoFactorResendInput{
+		ChallengeID:  ch.ID,
+		BindingToken: "",
+	})
 	if err != nil {
 		t.Fatalf("Resend failed: %v", err)
 	}
@@ -195,7 +211,13 @@ func TestResend_RecoversStaleLineage(t *testing.T) {
 
 	// The resent code is hashed under the live pepper with a refreshed
 	// created_at, so it verifies — this is the "please resend" recovery path.
-	result, err := svc.Verify(context.Background(), ch.ID, "", newCode, "127.0.0.1", "test-agent")
+	result, err := svc.Verify(context.Background(), api.TwoFactorVerifyInput{
+		ChallengeID:  ch.ID,
+		BindingToken: "",
+		Code:         newCode,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if err != nil {
 		t.Fatalf("Verify of resent code failed: %v", err)
 	}

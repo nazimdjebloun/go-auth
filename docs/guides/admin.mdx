@@ -139,9 +139,10 @@ if err != nil {
 // result.RequiresTwoFactor is always true here — result.TwoFactorChallenge is
 // the challenge id, result.BindingToken() is what the handler sets as a cookie.
 
-verified, err := auth.Services().TwoFactor.Verify(
-    ctx, result.TwoFactorChallenge, result.BindingToken(), code, r.RemoteAddr, r.UserAgent(),
-)
+verified, err := auth.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+    ChallengeID: result.TwoFactorChallenge, BindingToken: result.BindingToken(), Code: code,
+    IP: r.RemoteAddr, UserAgent: r.UserAgent(),
+})
 if err != nil {
     // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
 }
@@ -1314,7 +1315,7 @@ curl -X DELETE https://api.myapp.com/admin/invites/9e2c... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Invite.RevokeInvite(ctx, inviteID, adminID)
+err := auth.Services().Invite.RevokeInvite(ctx, api.RevokeInviteInput{InviteID: inviteID, ActorID: adminID})
 ```
 
 ---
@@ -1355,7 +1356,7 @@ curl -X POST https://api.myapp.com/admin/invites/9e2c.../resend \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Invite.ResendInviteEmail(ctx, inviteID, adminID)
+err := auth.Services().Invite.ResendInviteEmail(ctx, api.ResendInviteEmailInput{InviteID: inviteID, ActorID: adminID})
 ```
 
 ---
@@ -1387,7 +1388,7 @@ curl -X DELETE https://api.myapp.com/admin/invites/9e2c.../hard \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Invite.HardDeleteInvite(ctx, inviteID, adminID)
+err := auth.Services().Invite.HardDeleteInvite(ctx, api.HardDeleteInviteInput{InviteID: inviteID, ActorID: adminID})
 ```
 
 ---

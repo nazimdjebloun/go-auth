@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
@@ -71,10 +72,18 @@ func TestInviteRevocationCannotBeOverwrittenByResendOrExpiryRead(t *testing.T) {
 			gen := &inviteGenerationBoundary{TokenGenerator: &testutil.MockTokenGen{Length: 32}}
 			read := &inviteExpiryReadBoundary{InviteRepository: repo}
 			svc := NewInviteService(f.users, f.sessions, read, f.hasher, gen, mail, f.db, defaultTestConfig(), nil, nil)
-			revoke := func() error { return svc.RevokeInvite(ctx, invite.ID, f.userID) }
+			revoke := func() error {
+				return svc.RevokeInvite(ctx, api.RevokeInviteInput{
+					InviteID: invite.ID,
+					ActorID:  f.userID,
+				})
+			}
 			if name == "resend" {
 				gen.before = revoke
-				if err := svc.ResendInviteEmail(ctx, invite.ID, f.userID); !errors.Is(err, domain.ErrInviteAlreadyUsed) {
+				if err := svc.ResendInviteEmail(ctx, api.ResendInviteEmailInput{
+					InviteID: invite.ID,
+					ActorID:  f.userID,
+				}); !errors.Is(err, domain.ErrInviteAlreadyUsed) {
 					t.Fatalf("resend error=%v, want invite_already_used", err)
 				}
 				if len(mail.Calls) != 0 {

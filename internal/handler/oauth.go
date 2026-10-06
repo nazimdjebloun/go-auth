@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
@@ -83,7 +84,11 @@ func (h *OAuthHandlers) InitiateLink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	provider := r.PathValue("provider")
-	flow, err := h.oauth.InitiateLink(r.Context(), provider, user.ID, session.TokenHash)
+	flow, err := h.oauth.InitiateLink(r.Context(), api.OAuthLinkInput{
+		Provider:         provider,
+		UserID:           user.ID,
+		SessionTokenHash: session.TokenHash,
+	})
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -143,7 +148,15 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		sessionToken = sessionCookie.Value
 	}
 
-	result, err := h.oauth.Callback(r.Context(), provider, code, state, browserState, sessionToken, middleware.ClientIP(r, h.clientIP), r.UserAgent())
+	result, err := h.oauth.Callback(r.Context(), api.OAuthCallbackInput{
+		Provider:     provider,
+		Code:         code,
+		State:        state,
+		BrowserState: browserState,
+		SessionToken: sessionToken,
+		IP:           middleware.ClientIP(r, h.clientIP),
+		UserAgent:    r.UserAgent(),
+	})
 	if err != nil {
 		errCode := "internal_error"
 		var authErr *domain.AuthError
@@ -232,7 +245,10 @@ func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 	}
 
 	provider := r.PathValue("provider")
-	if err := h.oauth.Unlink(r.Context(), user.ID, provider); err != nil {
+	if err := h.oauth.Unlink(r.Context(), api.OAuthUnlinkInput{
+		UserID:   user.ID,
+		Provider: provider,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}

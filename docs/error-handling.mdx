@@ -6,7 +6,7 @@ icon: "TriangleAlert"
 
 # Error Handling
 
-Most endpoints return errors as JSON with the same shape:
+The built-in HTTP handlers and middleware return errors as JSON with the same shape:
 
 ```json
 {
@@ -44,16 +44,15 @@ Use `errors.Is` for one specific outcome, such as `domain.ErrInvalidCredentials`
 
 Login, session validation, and initial credential-token lookups distinguish an absent row from a backend failure. These backend read failures are wrapped with context while preserving the cause, so direct callers can use `errors.Is(err, context.Canceled)` or `errors.Is(err, context.DeadlineExceeded)`. Login lookup failures do not become `invalid_credentials`, and `GetSession` backend failures do not become `session_expired`. Mounted handlers return the generic `internal_error` response for backend failures. Do not assume every service error is a `*domain.AuthError`, or expose a raw backend error to clients.
 
-## Not every layer uses this shape
+## HTTP contract and redirect exception
 
-Two paths do not use the JSON envelope:
+Authentication, authorization, organization, rate-limit, and CSRF middleware use the same two-field JSON envelope as the handlers, with `Content-Type: application/json`. Clients can decode failures the same way regardless of which layer rejected the request.
 
-- **CSRF origin/token middleware** (`middleware.OriginCheck`, `middleware.CSRFToken`) responds with a plain-text body via `http.Error`, e.g. `Forbidden - CSRF headers missing` (403), not JSON. It runs ahead of your handlers and has no domain error to format.
-- **OAuth callback errors** are never returned as a JSON body at all. The browser is mid-redirect at that point. They come back as a redirect to `{BaseURL}/auth/callback?error={code}&provider={provider}`, and your frontend reads `error` from the query string.
+**OAuth callback failures remain browser redirects**, carrying `error` and `provider` query parameters on `{BaseURL}/auth/callback`. Read the query string on that page instead of expecting a JSON body. Direct OAuth service calls still return Go errors.
 
-Organization membership middleware (`middleware.RequireOrgMember`, `RequireOrgRole`) uses the normal envelope. A non-member receives `org_member_not_found` (404); an under-privileged member receives `org_forbidden` (403).
+Errors produced by your own handlers or router, such as an unmatched route or method, are outside this contract. CORS preflight and successful responses keep their existing response formats.
 
-All remaining service and handler errors use the `{"error", "message"}` envelope.
+Organization membership middleware returns `org_member_not_found` (404) for a non-member and `org_forbidden` (403) for an insufficient role.
 
 ## General
 
@@ -64,6 +63,7 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 | `invalid_input` | 400 | Generic input validation failure (exact message varies, e.g. `sessionIds must not be empty`) |
 | `forbidden` | 403 | You do not have permission |
 | `rate_limit_exceeded` | 429 | Too many requests, please try again later |
+| `rate_limit_error` | 429 | Service temporarily unavailable |
 | `method_disabled` | 405 | This registration method is not available |
 
 `internal_error` always means: something failed that the caller cannot fix by changing their request (a database error, a failed hash, etc.). It is logged server-side with detail; the client only ever sees the generic message. This includes auth-middleware failures: when session validation, transparent refresh, or the post-rotation user lookup fails because the database is unavailable (or the request context is canceled), the middleware responds `500 internal_error` — never a misleading `401`. A refresh that has already rotated the session's tokens still delivers the new `Set-Cookie` headers before that 500, so a client retry uses the current credentials instead of the pre-rotation ones.
@@ -168,12 +168,13 @@ All remaining service and handler errors use the `{"error", "message"}` envelope
 | `unauthorized` | 401 | Authentication required | Link/unlink require an existing session. |
 | `email_already_exists` | 409 | An account with this email already exists | Logging in via OAuth when a password account already exists for that email. go-auth never auto-links the two; the user has to log in with the password and use [link](./guides/oauth.mdx#linking-a-provider) explicitly. See [OAuth guide](./guides/oauth.mdx#logging-in-with-an-email-that-already-has-a-password-account). |
 
-Callback errors do not arrive as JSON. See [Not every layer uses this shape](#not-every-layer-uses-this-shape) above.
+Callback errors do not arrive as JSON. See [HTTP contract and redirect exception](#http-contract-and-redirect-exception) above.
 
 ## Organizations
 
 | Code | Status | Message | Hint |
 |---|---|---|---|
+| `organizations_disabled` | 503 | Organizations are not enabled | Organization middleware was requested while organizations are disabled. |
 | `org_not_found` | 404 | Organization not found | |
 | `org_slug_exists` | 409 | Organization slug already in use | |
 | `org_slug_reserved` | 400 | Organization slug is reserved | |
@@ -192,7 +193,7 @@ Callback errors do not arrive as JSON. See [Not every layer uses this shape](#no
 | `invalid_role` | 400 | Invalid organization role | |
 | `invite_not_found` | 404 | Invite not found | Same code as the self-service invite system above. Org invites reuse it. |
 
-The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) uses the normal envelope too. See [Not every layer uses this shape](#not-every-layer-uses-this-shape) above: a non-member gets the same `org_member_not_found` 404 a direct `OrgService` call returns, and an under-privileged member gets `org_forbidden` 403.
+The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) uses the normal envelope too. See [HTTP contract and redirect exception](#http-contract-and-redirect-exception) above: a non-member gets the same `org_member_not_found` 404 a direct `OrgService` call returns, and an under-privileged member gets `org_forbidden` 403.
 
 ## Admin
 
@@ -210,11 +211,17 @@ The org-membership middleware (`RequireOrgMember`, `RequireOrgRole`) uses the no
 
 ## CSRF and rate limiting
 
-These respond outside the JSON envelope or with a narrower one. See [Not every layer uses this shape](#not-every-layer-uses-this-shape) for the CSRF middleware specifics.
+These failures use the normal JSON envelope. CSRF checks still reject the same requests; only their error representation has changed from plain text to JSON.
 
-| Where | Status | Body |
+| Code | Status | Cause |
 |---|---|---|
-| Missing Origin and Referer, `AllowMissingCSRFHeaders: false` | 403 | `Forbidden - CSRF headers missing` (plain text) |
-| Origin/Referer present but not allowed | 403 | `Forbidden` (plain text) |
-| Double-submit cookie missing, invalid, or mismatched | 403 | `Forbidden - CSRF token missing` / `invalid` / `mismatch` (plain text) |
-| Rate limit exceeded | 429 | `{"error": "rate_limit_exceeded", "message": "Too many requests, please try again later"}` (JSON, uses the normal envelope) |
+| `csrf_headers_missing` | 403 | Neither Origin nor Referer was sent, and `AllowMissingCSRFHeaders` is false. |
+| `csrf_origin_denied` | 403 | The request's Origin or Referer is not allowed. |
+| `csrf_token_missing` | 403 | The double-submit cookie or header is missing. |
+| `csrf_token_invalid` | 403 | The cookie's token signature is invalid. |
+| `csrf_token_mismatch` | 403 | The header does not match the signed cookie. |
+| `internal_error` | 500 | The CSRF signing key is missing or token generation failed. |
+| `rate_limit_exceeded` | 429 | The rate limit was exceeded. |
+| `rate_limit_error` | 429 | The rate-limit store failed; the middleware fails closed. |
+
+Both rate-limit errors include `Retry-After`. Clients should respect that delay and match the JSON `error` code, rather than parsing human-readable messages.

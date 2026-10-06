@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
@@ -36,7 +37,12 @@ func seedTwoFactorUser(t *testing.T, th *testHarness, id, email, password string
 		t.Fatal(err)
 	}
 	if enabled {
-		if aerr := th.twoFactor.Enable(context.Background(), user.ID, password, true, ""); aerr != nil {
+		if aerr := th.twoFactor.Enable(context.Background(), api.TwoFactorEnableInput{
+			UserID:            user.ID,
+			Password:          password,
+			KeepOtherSessions: true,
+			CallerSessionID:   "",
+		}); aerr != nil {
 			t.Fatal(aerr)
 		}
 	}

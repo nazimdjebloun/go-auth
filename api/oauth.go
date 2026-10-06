@@ -2,6 +2,33 @@ package api
 
 import "time"
 
+// OAuthLinkInput binds provider linking to an authenticated user and session.
+// UserID and SessionTokenHash must come from the validated initiating session.
+type OAuthLinkInput struct {
+	Provider         string `json:"provider"`
+	UserID           string `json:"-"`
+	SessionTokenHash string `json:"-"`
+}
+
+// OAuthCallbackInput completes provider login or linking.
+// State comes from the callback query; BrowserState and SessionToken come from
+// their respective cookies. IP and UserAgent are supplied by the transport.
+type OAuthCallbackInput struct {
+	Provider     string `json:"provider"`
+	Code         string `json:"code"`
+	State        string `json:"state"`
+	BrowserState string `json:"-"`
+	SessionToken string `json:"-"`
+	IP           string `json:"-"`
+	UserAgent    string `json:"-"`
+}
+
+// OAuthUnlinkInput removes a provider from the authenticated user's account.
+type OAuthUnlinkInput struct {
+	UserID   string `json:"-"`
+	Provider string `json:"provider"`
+}
+
 // OAuthCallbackResult contains the session or link result of an OAuth callback.
 // Callback handles the OAuth callback for both login and link flows.
 // OAuthCallbackResult is Callback's outcome. SessionToken/RefreshToken are

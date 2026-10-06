@@ -12,6 +12,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/nazimdjebloun/go-auth/internal/httperr"
 )
 
 // CSRFTokenConfig configures double-submit cookie CSRF token protection.
@@ -181,12 +183,13 @@ func CSRFToken(cfg *CSRFTokenConfig) func(http.Handler) http.Handler {
 							"check", "issue",
 							"path", r.URL.Path,
 						)
-						http.Error(w, "Internal server error", http.StatusInternalServerError)
+						httperr.Write(w, http.StatusInternalServerError, "internal_error", "Internal server error", cfg.Logger)
 						return
 					}
 					token, err := generateCSRFToken(cfg.TokenLength, cfg.Secret)
 					if err != nil {
-						http.Error(w, "Internal server error", http.StatusInternalServerError)
+						cfg.Logger.Error("csrf: failed to generate token", "err", err)
+						httperr.Write(w, http.StatusInternalServerError, "internal_error", "Internal server error", cfg.Logger)
 						return
 					}
 					setCSRFCookie(w, cfg, token)
@@ -201,13 +204,13 @@ func CSRFToken(cfg *CSRFTokenConfig) func(http.Handler) http.Handler {
 
 			cookie, cookieErr := r.Cookie(cfg.CookieName)
 			if cookieErr != nil || cookie.Value == "" {
-				http.Error(w, "Forbidden - CSRF token missing", http.StatusForbidden)
+				httperr.Write(w, http.StatusForbidden, "csrf_token_missing", "CSRF cookie and header are required", cfg.Logger)
 				return
 			}
 
 			header := r.Header.Get(cfg.HeaderName)
 			if header == "" {
-				http.Error(w, "Forbidden - CSRF token missing", http.StatusForbidden)
+				httperr.Write(w, http.StatusForbidden, "csrf_token_missing", "CSRF cookie and header are required", cfg.Logger)
 				return
 			}
 
@@ -216,17 +219,17 @@ func CSRFToken(cfg *CSRFTokenConfig) func(http.Handler) http.Handler {
 					"check", "verify",
 					"path", r.URL.Path,
 				)
-				http.Error(w, "Internal server error", http.StatusInternalServerError)
+				httperr.Write(w, http.StatusInternalServerError, "internal_error", "Internal server error", cfg.Logger)
 				return
 			}
 
 			if !verifyCSRFToken(cookie.Value, cfg.Secret) {
-				http.Error(w, "Forbidden - CSRF token invalid", http.StatusForbidden)
+				httperr.Write(w, http.StatusForbidden, "csrf_token_invalid", "CSRF token is invalid", cfg.Logger)
 				return
 			}
 
 			if subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(header)) != 1 {
-				http.Error(w, "Forbidden - CSRF token mismatch", http.StatusForbidden)
+				httperr.Write(w, http.StatusForbidden, "csrf_token_mismatch", "CSRF cookie and header do not match", cfg.Logger)
 				return
 			}
 

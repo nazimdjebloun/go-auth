@@ -307,7 +307,11 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 			return err
 		}
 		var err error
-		sessResult, err = s.sessionSvc.Create(txCtx, user.ID, input.IP, input.UserAgent)
+		sessResult, err = s.sessionSvc.Create(txCtx, api.CreateSessionInput{
+			UserID:    user.ID,
+			IP:        input.IP,
+			UserAgent: input.UserAgent,
+		})
 		return err
 	})
 	if err != nil {
@@ -375,40 +379,40 @@ func (s *InviteService) CountInvites(ctx context.Context, input api.ListInvitesI
 }
 
 // HardDeleteInvite permanently deletes an account invitation.
-func (s *InviteService) HardDeleteInvite(ctx context.Context, inviteID, actorID string) error {
-	if err := requireAdminRole(ctx, s.users, actorID); err != nil {
+func (s *InviteService) HardDeleteInvite(ctx context.Context, input api.HardDeleteInviteInput) error {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
 	}
 	// Read before deleting: the audit event names the recipient, and after the
 	// delete there is no row left to read it from.
-	invite, err := s.invites.GetByID(ctx, inviteID)
+	invite, err := s.invites.GetByID(ctx, input.InviteID)
 	if err != nil {
 		return fmt.Errorf("hard delete invite: lookup: %w", err)
 	}
 	if invite == nil {
 		return domain.ErrInviteNotFound
 	}
-	if err := s.invites.Delete(ctx, inviteID); err != nil {
-		s.log.Error("failed to delete invite", "err", err, "invite_id", inviteID)
+	if err := s.invites.Delete(ctx, input.InviteID); err != nil {
+		s.log.Error("failed to delete invite", "err", err, "invite_id", input.InviteID)
 		return domain.ErrInternal
 	}
 
 	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteDeleted, actorID, invite.ID, invite.Email)); err != nil {
+		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteDeleted, input.ActorID, invite.ID, invite.Email)); err != nil {
 			return err
 		}
 	}
 
-	s.log.Info("invite deleted", "invite_id", inviteID)
+	s.log.Info("invite deleted", "invite_id", input.InviteID)
 	return nil
 }
 
 // RevokeInvite revokes an account invitation.
-func (s *InviteService) RevokeInvite(ctx context.Context, inviteID, actorID string) error {
-	if err := requireAdminRole(ctx, s.users, actorID); err != nil {
+func (s *InviteService) RevokeInvite(ctx context.Context, input api.RevokeInviteInput) error {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
 	}
-	invite, err := s.invites.GetByID(ctx, inviteID)
+	invite, err := s.invites.GetByID(ctx, input.InviteID)
 	if err != nil {
 		return fmt.Errorf("revoke invite: lookup: %w", err)
 	}
@@ -420,7 +424,7 @@ func (s *InviteService) RevokeInvite(ctx context.Context, inviteID, actorID stri
 		return nil
 	}
 	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
-		changed, err := s.invites.Revoke(txCtx, inviteID)
+		changed, err := s.invites.Revoke(txCtx, input.InviteID)
 		if err != nil {
 			return err
 		}
@@ -428,27 +432,27 @@ func (s *InviteService) RevokeInvite(ctx context.Context, inviteID, actorID stri
 			return domain.ErrInviteAlreadyUsed
 		}
 		if s.audit != nil {
-			return s.audit.Record(txCtx, audit.NewInviteEvent(audit.EventAdminInviteRevoked, actorID, invite.ID, invite.Email))
+			return s.audit.Record(txCtx, audit.NewInviteEvent(audit.EventAdminInviteRevoked, input.ActorID, invite.ID, invite.Email))
 		}
 		return nil
 	}); err != nil {
 		if _, ok := errors.AsType[*domain.AuthError](err); ok {
 			return err
 		}
-		s.log.Error("failed to revoke invite", "err", err, "invite_id", inviteID)
+		s.log.Error("failed to revoke invite", "err", err, "invite_id", input.InviteID)
 		return domain.ErrInternal
 	}
 
-	s.log.Info("invite revoked", "invite_id", inviteID)
+	s.log.Info("invite revoked", "invite_id", input.InviteID)
 	return nil
 }
 
 // ResendInviteEmail sends an account invitation again.
-func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID string) error {
-	if err := requireAdminRole(ctx, s.users, actorID); err != nil {
+func (s *InviteService) ResendInviteEmail(ctx context.Context, input api.ResendInviteEmailInput) error {
+	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
 		return err
 	}
-	invite, err := s.invites.GetByID(ctx, inviteID)
+	invite, err := s.invites.GetByID(ctx, input.InviteID)
 	if err != nil {
 		return fmt.Errorf("resend invite email: lookup: %w", err)
 	}
@@ -467,13 +471,13 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID
 
 	raw, err := s.gen.Generate()
 	if err != nil {
-		s.log.Error("failed to generate invite code", "err", err, "invite_id", inviteID)
+		s.log.Error("failed to generate invite code", "err", err, "invite_id", input.InviteID)
 		return domain.ErrInternal
 	}
 
 	changed, err := s.invites.RotateCode(ctx, invite.ID, invite.Code, hashToken(raw), time.Now().UTC().Add(s.config.InviteTTL))
 	if err != nil {
-		s.log.Error("failed to update invite", "err", err, "invite_id", inviteID)
+		s.log.Error("failed to update invite", "err", err, "invite_id", input.InviteID)
 		return domain.ErrInternal
 	}
 	if !changed {
@@ -487,21 +491,21 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, inviteID, actorID
 		ExpiresIn: s.config.InviteTTL,
 	})
 	if tplErr != nil {
-		s.log.Error("failed to render invite email template", "err", tplErr, "invite_id", inviteID)
+		s.log.Error("failed to render invite email template", "err", tplErr, "invite_id", input.InviteID)
 		return domain.ErrInternal
 	}
 	if err := s.mailer.Send(ctx, invite.Email, result.Subject, result.HTML, result.Text); err != nil {
-		s.log.Error("failed to send invite email", "err", err, "invite_id", inviteID)
+		s.log.Error("failed to send invite email", "err", err, "invite_id", input.InviteID)
 		return domain.ErrInviteEmailFailed
 	}
 
 	if s.audit != nil {
-		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteResent, actorID, invite.ID, invite.Email)); err != nil {
+		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteResent, input.ActorID, invite.ID, invite.Email)); err != nil {
 			return err
 		}
 	}
 
-	s.log.Info("invite resent", "invite_id", inviteID, "email", invite.Email)
+	s.log.Info("invite resent", "invite_id", input.InviteID, "email", invite.Email)
 	return nil
 }
 
@@ -552,7 +556,10 @@ func (s *InviteService) BulkRevokeInvites(ctx context.Context, input api.BulkInv
 	}
 	result := &api.BulkInviteResult{Succeeded: []string{}, Failed: []api.BulkInviteFailure{}}
 	for _, id := range input.InviteIDs {
-		if err := s.RevokeInvite(ctx, id, input.ActorID); err != nil {
+		if err := s.RevokeInvite(ctx, api.RevokeInviteInput{
+			InviteID: id,
+			ActorID:  input.ActorID,
+		}); err != nil {
 			result.Failed = append(result.Failed, inviteFailure(id, "", err))
 			continue
 		}
@@ -573,7 +580,10 @@ func (s *InviteService) BulkDeleteInvites(ctx context.Context, input api.BulkInv
 	}
 	result := &api.BulkInviteResult{Succeeded: []string{}, Failed: []api.BulkInviteFailure{}}
 	for _, id := range input.InviteIDs {
-		if err := s.HardDeleteInvite(ctx, id, input.ActorID); err != nil {
+		if err := s.HardDeleteInvite(ctx, api.HardDeleteInviteInput{
+			InviteID: id,
+			ActorID:  input.ActorID,
+		}); err != nil {
 			result.Failed = append(result.Failed, inviteFailure(id, "", err))
 			continue
 		}
@@ -651,7 +661,10 @@ func (s *InviteService) BulkResendInvites(ctx context.Context, input api.BulkInv
 		return nil, domain.NewError("invalid_input", fmt.Sprintf("at most %d inviteIds per bulk resend", maxBulkInviteEmails))
 	}
 	out := runBulkEmail(ctx, input.InviteIDs, func(c context.Context, id string) error {
-		return s.ResendInviteEmail(c, id, input.ActorID)
+		return s.ResendInviteEmail(c, api.ResendInviteEmailInput{
+			InviteID: id,
+			ActorID:  input.ActorID,
+		})
 	})
 	// keyed by ID here, not email
 	for i := range out.Failed {

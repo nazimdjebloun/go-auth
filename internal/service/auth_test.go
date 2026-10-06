@@ -464,7 +464,10 @@ func TestDeleteAccount_PasswordRequired(t *testing.T) {
 	}
 	checkTestErrors(t).noError(users.Create(context.Background(), oauthUser))
 
-	err := svc.DeleteAccount(context.Background(), oauthUser.ID, "")
+	err := svc.DeleteAccount(context.Background(), api.DeleteAccountInput{
+		UserID:   oauthUser.ID,
+		Password: "",
+	})
 	if err == nil {
 		t.Fatal("Expected error for OAuth-only user, got nil")
 	}

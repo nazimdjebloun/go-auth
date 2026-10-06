@@ -50,8 +50,12 @@ The response is JSON, not a redirect — your frontend reads `url` and navigates
 
 #### Programmatic (Go)
 
+Import `github.com/nazimdjebloun/go-auth/api` for operation inputs.
+
 ```go
-flow, err := auth.Services().OAuth.InitiateLink(ctx, "github", userID, session.TokenHash)
+flow, err := auth.Services().OAuth.InitiateLink(ctx, api.OAuthLinkInput{
+    Provider: "github", UserID: userID, SessionTokenHash: session.TokenHash,
+})
 if err != nil {
     // wraps a *domain.AuthError — provider_not_found if the name is wrong
 }
@@ -125,7 +129,7 @@ curl -X POST https://api.myapp.com/auth/oauth/github/unlink \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().OAuth.Unlink(ctx, userID, "github")
+err := auth.Services().OAuth.Unlink(ctx, api.OAuthUnlinkInput{UserID: userID, Provider: "github"})
 ```
 
 ---

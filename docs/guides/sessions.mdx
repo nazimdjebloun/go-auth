@@ -342,7 +342,7 @@ curl "https://api.myapp.com/auth/sessions?offset=0&limit=20" -b cookies.txt -c c
 #### Programmatic (Go)
 
 ```go
-sessions, total, err := auth.Services().Session.List(ctx, userID, 0, 20)
+sessions, total, err := auth.Services().Session.List(ctx, api.ListSessionsInput{UserID: userID, Offset: 0, Limit: 20})
 ```
 
 ---
@@ -432,7 +432,7 @@ curl -X DELETE https://api.myapp.com/auth/sessions/9e2c... \
 #### Programmatic (Go)
 
 ```go
-revoked, err := auth.Services().Session.RevokeByIDForUser(ctx, sessionID, userID)
+revoked, err := auth.Services().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{SessionID: sessionID, UserID: userID})
 if err == nil && !revoked {
     // treat as session_not_found — it existed but wasn't this user's, or didn't exist at all
 }
@@ -483,7 +483,9 @@ curl -X POST https://api.myapp.com/auth/sessions/revoke \
 #### Programmatic (Go)
 
 ```go
-revoked, err := auth.Services().Session.RevokeManyForUser(ctx, []string{"9e2c...", "a71f..."}, userID)
+revoked, err := auth.Services().Session.RevokeManyForUser(ctx, api.RevokeSessionsForUserInput{
+    SessionIDs: []string{"9e2c...", "a71f..."}, UserID: userID,
+})
 ```
 
 ---
@@ -525,7 +527,7 @@ curl -X DELETE https://api.myapp.com/auth/sessions \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Session.RevokeAllExcept(ctx, userID, currentSessionID)
+err := auth.Services().Session.RevokeAllExcept(ctx, api.RevokeAllSessionsExceptInput{UserID: userID, ExceptSessionID: currentSessionID})
 // or, if you don't have a "current" session to preserve:
 err := auth.Services().Session.RevokeAll(ctx, userID)
 ```

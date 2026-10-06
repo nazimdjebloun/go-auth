@@ -207,7 +207,10 @@ func (h *Handler) ChangeName(w http.ResponseWriter, r *http.Request) {
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	if err := h.services.Auth.ChangeName(r.Context(), user.ID, body.Name); err != nil {
+	if err := h.services.Auth.ChangeName(r.Context(), api.ChangeNameInput{
+		UserID: user.ID,
+		Name:   body.Name,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}

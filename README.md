@@ -7,6 +7,12 @@ direct service APIs.
 > **Pre-1.0:** Public Go APIs, route paths, configuration options, and JSON
 > response shapes may change without a deprecation period until v1 is released.
 
+Service operations with multiple arguments now take named `api` input structs.
+CSRF failures use the same JSON error envelope as handlers and other middleware;
+OAuth callback failures remain redirects. See the
+[integration contract](docs/guides/integration.mdx) for the Go migration table,
+authentication policy, and startup/shutdown ownership rules.
+
 ## What it includes
 
 - Email/password and OAuth registration and login, with case-sensitive provider

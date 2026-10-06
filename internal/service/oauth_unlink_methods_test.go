@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 )
@@ -36,7 +37,10 @@ func TestOAuthUnlinkCountsMethodsRemainingAfterProviderDeletion(t *testing.T) {
 				}
 			}
 			svc := NewOAuthService(nil, repo, f.users, f.tokens, f.hasher, nil, nil, nil, f.db, OAuthServiceConfig{})
-			err := svc.Unlink(ctx, f.userID, "google")
+			err := svc.Unlink(ctx, api.OAuthUnlinkInput{
+				UserID:   f.userID,
+				Provider: "google",
+			})
 			accounts, lookupErr := repo.ListByUserID(ctx, f.userID)
 			if lookupErr != nil {
 				t.Fatal(lookupErr)

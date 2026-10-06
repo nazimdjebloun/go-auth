@@ -91,8 +91,8 @@ func (s *SessionService) withTx(ctx context.Context, fn func(context.Context) er
 
 // Create creates a session without second-factor assurance. Privileged HTTP
 // access requires a session issued by TwoFactorService.Verify by default.
-func (s *SessionService) Create(ctx context.Context, userID, ip, userAgent string) (*api.SessionResult, error) {
-	return s.create(ctx, userID, ip, userAgent, false)
+func (s *SessionService) Create(ctx context.Context, input api.CreateSessionInput) (*api.SessionResult, error) {
+	return s.create(ctx, input.UserID, input.IP, input.UserAgent, false)
 }
 
 func (s *SessionService) create(ctx context.Context, userID, ip, userAgent string, twoFactorVerified bool) (*api.SessionResult, error) {
@@ -261,11 +261,11 @@ func (s *SessionService) ValidateWithUser(ctx context.Context, token string) (*d
 }
 
 // Touch updates a session's activity time when needed.
-func (s *SessionService) Touch(ctx context.Context, token string, lastActiveAt time.Time) error {
-	if s.config.TouchDebounce > 0 && time.Since(lastActiveAt) < s.config.TouchDebounce {
+func (s *SessionService) Touch(ctx context.Context, input api.TouchSessionInput) error {
+	if s.config.TouchDebounce > 0 && time.Since(input.LastActiveAt) < s.config.TouchDebounce {
 		return nil
 	}
-	return s.repo.UpdateLastActiveAt(ctx, hashToken(token))
+	return s.repo.UpdateLastActiveAt(ctx, hashToken(input.Token))
 }
 
 // Revoke revokes a session by access token.
@@ -285,10 +285,10 @@ func (s *SessionService) RevokeByID(ctx context.Context, id string) error {
 }
 
 // RevokeByIDForUser revokes one of a user's sessions by ID.
-func (s *SessionService) RevokeByIDForUser(ctx context.Context, id, userID string) (bool, error) {
+func (s *SessionService) RevokeByIDForUser(ctx context.Context, input api.RevokeSessionForUserInput) (bool, error) {
 	var revoked bool
 	err := s.withTx(ctx, func(txCtx context.Context) error {
-		ok, err := s.repo.RevokeByIDForUser(txCtx, id, userID)
+		ok, err := s.repo.RevokeByIDForUser(txCtx, input.SessionID, input.UserID)
 		if err != nil {
 			return fmt.Errorf("session revoke by id: %w", err)
 		}
@@ -299,7 +299,7 @@ func (s *SessionService) RevokeByIDForUser(ctx context.Context, id, userID strin
 		// Only publish when the session actually belonged to the caller:
 		// a failed cross-user revoke is a no-op, not a security event, and
 		// auditing it would let a caller flood the log with probes.
-		return s.audit.Record(txCtx, audit.NewSessionEvent(audit.EventSessionRevoked, userID, id, nil, ""))
+		return s.audit.Record(txCtx, audit.NewSessionEvent(audit.EventSessionRevoked, input.UserID, input.SessionID, nil, ""))
 	})
 	if err != nil {
 		return false, err
@@ -308,10 +308,10 @@ func (s *SessionService) RevokeByIDForUser(ctx context.Context, id, userID strin
 }
 
 // RevokeManyForUser revokes multiple sessions for a user.
-func (s *SessionService) RevokeManyForUser(ctx context.Context, ids []string, userID string) (int, error) {
+func (s *SessionService) RevokeManyForUser(ctx context.Context, input api.RevokeSessionsForUserInput) (int, error) {
 	var revoked int
 	err := s.withTx(ctx, func(txCtx context.Context) error {
-		n, err := s.repo.RevokeManyForUser(txCtx, ids, userID)
+		n, err := s.repo.RevokeManyForUser(txCtx, input.SessionIDs, input.UserID)
 		if err != nil {
 			return fmt.Errorf("session revoke many: %w", err)
 		}
@@ -323,7 +323,7 @@ func (s *SessionService) RevokeManyForUser(ctx context.Context, ids []string, us
 		// mirroring session.revoked_all, which also publishes a single
 		// event for an unbounded set of sessions.
 		return s.audit.Record(txCtx, audit.NewEvent(audit.EventSessionRevoked,
-			audit.WithActor(userID), audit.WithMetadata("sessionCount", revoked)))
+			audit.WithActor(input.UserID), audit.WithMetadata("sessionCount", revoked)))
 	})
 	if err != nil {
 		return 0, err
@@ -347,16 +347,16 @@ func (s *SessionService) RevokeAll(ctx context.Context, userID string) error {
 }
 
 // RevokeAllExcept revokes every user session except one.
-func (s *SessionService) RevokeAllExcept(ctx context.Context, userID string, exceptSessionID string) error {
-	if err := s.repo.DeleteAllForUserExcept(ctx, userID, exceptSessionID); err != nil {
+func (s *SessionService) RevokeAllExcept(ctx context.Context, input api.RevokeAllSessionsExceptInput) error {
+	if err := s.repo.DeleteAllForUserExcept(ctx, input.UserID, input.ExceptSessionID); err != nil {
 		return fmt.Errorf("session revoke all except: %w", err)
 	}
 	return nil
 }
 
 // List returns a page of sessions for a user.
-func (s *SessionService) List(ctx context.Context, userID string, offset, limit int) ([]domain.Session, int, error) {
-	return s.repo.ListByUserID(ctx, userID, offset, limit)
+func (s *SessionService) List(ctx context.Context, input api.ListSessionsInput) ([]domain.Session, int, error) {
+	return s.repo.ListByUserID(ctx, input.UserID, input.Offset, input.Limit)
 }
 
 // ListAll returns all active sessions for a user.

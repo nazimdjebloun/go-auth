@@ -806,8 +806,12 @@ curl -X DELETE https://api.myapp.com/auth/orgs/a1b2.../invites/c4d5... \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().OrgInvite.ResendOrgInviteEmail(ctx, orgID, inviteID, callerUserID)
-err = auth.Services().OrgInvite.DeleteOrgInvite(ctx, orgID, inviteID, callerUserID)
+err := auth.Services().OrgInvite.ResendOrgInviteEmail(ctx, api.ResendOrgInviteEmailInput{
+    OrgID: orgID, InviteID: inviteID, ActorID: callerUserID,
+})
+err = auth.Services().OrgInvite.DeleteOrgInvite(ctx, api.DeleteOrgInviteInput{
+    OrgID: orgID, InviteID: inviteID, ActorID: callerUserID,
+})
 ```
 
 ---

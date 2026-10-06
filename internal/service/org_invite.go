@@ -309,23 +309,23 @@ func (s *OrgInviteService) CountOrgInvites(ctx context.Context, input api.ListOr
 // DeleteOrgInvite deletes inviteID, which must belong to orgID — this also
 // guards against an admin of one org deleting an invite that actually
 // belongs to a different org by guessing/enumerating its ID.
-func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, orgID, inviteID, actorID string) error {
-	if err := s.requireRole(ctx, orgID, actorID, domain.OrgRoleAdmin); err != nil {
+func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, input api.DeleteOrgInviteInput) error {
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return err
 	}
-	invite, err := s.orgInvites.GetByID(ctx, inviteID)
+	invite, err := s.orgInvites.GetByID(ctx, input.InviteID)
 	if err != nil {
-		s.log.Error("failed to get org invite for deletion", "err", err, "invite_id", inviteID)
+		s.log.Error("failed to get org invite for deletion", "err", err, "invite_id", input.InviteID)
 		return err
 	}
-	if invite == nil || invite.OrgID != orgID {
+	if invite == nil || invite.OrgID != input.OrgID {
 		return domain.ErrInviteNotFound
 	}
-	if err := s.orgInvites.Delete(ctx, inviteID); err != nil {
-		s.log.Error("failed to delete org invite", "err", err, "invite_id", inviteID)
+	if err := s.orgInvites.Delete(ctx, input.InviteID); err != nil {
+		s.log.Error("failed to delete org invite", "err", err, "invite_id", input.InviteID)
 		return err
 	}
-	s.log.Info("org invite deleted", "invite_id", inviteID)
+	s.log.Info("org invite deleted", "invite_id", input.InviteID)
 	return nil
 }
 
@@ -333,16 +333,16 @@ func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, orgID, inviteID,
 
 // ResendOrgInviteEmail resends inviteID, which must belong to orgID — same
 // cross-org guard as DeleteOrgInvite.
-func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, orgID, inviteID, actorID string) error {
-	if err := s.requireRole(ctx, orgID, actorID, domain.OrgRoleAdmin); err != nil {
+func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, input api.ResendOrgInviteEmailInput) error {
+	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return err
 	}
-	invite, err := s.orgInvites.GetByID(ctx, inviteID)
+	invite, err := s.orgInvites.GetByID(ctx, input.InviteID)
 	if err != nil {
-		s.log.Error("failed to get org invite for resend", "err", err, "invite_id", inviteID)
+		s.log.Error("failed to get org invite for resend", "err", err, "invite_id", input.InviteID)
 		return err
 	}
-	if invite == nil || invite.OrgID != orgID {
+	if invite == nil || invite.OrgID != input.OrgID {
 		return domain.ErrInviteNotFound
 	}
 
@@ -352,7 +352,7 @@ func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, orgID, invi
 
 	raw, err := s.gen.Generate()
 	if err != nil {
-		s.log.Error("failed to generate org invite code", "err", err, "invite_id", inviteID)
+		s.log.Error("failed to generate org invite code", "err", err, "invite_id", input.InviteID)
 		return domain.ErrInternal
 	}
 
@@ -361,16 +361,16 @@ func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, orgID, invi
 	invite.ExpiresAt = time.Now().UTC().Add(s.inviteTTL)
 
 	if err := s.orgInvites.Update(ctx, invite); err != nil {
-		s.log.Error("failed to update org invite for resend", "err", err, "invite_id", inviteID)
+		s.log.Error("failed to update org invite for resend", "err", err, "invite_id", input.InviteID)
 		return err
 	}
 
 	if err := s.sendOrgInviteEmail(ctx, invite); err != nil {
-		s.log.Error("failed to resend org invite email", "err", err, "invite_id", inviteID)
+		s.log.Error("failed to resend org invite email", "err", err, "invite_id", input.InviteID)
 		return domain.ErrInviteEmailFailed
 	}
 
-	s.log.Info("org invite resent", "invite_id", inviteID, "email", invite.Email)
+	s.log.Info("org invite resent", "invite_id", input.InviteID, "email", invite.Email)
 	return nil
 }
 

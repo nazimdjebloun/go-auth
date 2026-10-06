@@ -72,7 +72,12 @@ func TestEnableTwoFactor_RevocationFailureRollsBackFlagAndSessions(t *testing.T)
 	sessions := &failingAfterDeleteSessions{SessionRepository: f.sessions}
 	svc := NewTwoFactorService(f.db, f.users, sessions, f.tokens, f.hasher, nil, nil, defaultTestConfig(), nil)
 
-	if err := svc.Enable(ctx, f.userID, "OldPass1!", false, "other-caller-session"); !errors.Is(err, domain.ErrInternal) {
+	if err := svc.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            f.userID,
+		Password:          "OldPass1!",
+		KeepOtherSessions: false,
+		CallerSessionID:   "other-caller-session",
+	}); !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("Enable error = %v, want internal_error", err)
 	}
 	user, err := f.users.GetByID(ctx, f.userID)
@@ -142,7 +147,10 @@ func TestDisableTwoFactor_AuditFailureRollsBackFlag(t *testing.T) {
 	cfg.Audit = failingAuditPublisher{}
 	svc := NewTwoFactorService(f.db, f.users, f.sessions, f.tokens, f.hasher, nil, nil, cfg, nil)
 
-	if err := svc.Disable(ctx, f.userID, "OldPass1!"); !errors.Is(err, domain.ErrInternal) {
+	if err := svc.Disable(ctx, api.TwoFactorDisableInput{
+		UserID:   f.userID,
+		Password: "OldPass1!",
+	}); !errors.Is(err, domain.ErrInternal) {
 		t.Fatalf("Disable error = %v, want internal_error", err)
 	}
 	user, err := f.users.GetByID(ctx, f.userID)

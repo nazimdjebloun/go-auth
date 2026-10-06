@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -40,7 +41,15 @@ func TestOAuthCallback_VerificationMutation(t *testing.T) {
 				svc.userRepo = failingEmailVerifier{UserRepository: users}
 			}
 			seedOAuthState(t, tokens, "state", "raw-state")
-			result, err := svc.Callback(ctx, "test", "code", "raw-state", "raw-state", "", "127.0.0.1", "test")
+			result, err := svc.Callback(ctx, api.OAuthCallbackInput{
+				Provider:     "test",
+				Code:         "code",
+				State:        "raw-state",
+				BrowserState: "raw-state",
+				SessionToken: "",
+				IP:           "127.0.0.1",
+				UserAgent:    "test",
+			})
 			if scenario == "write failure" {
 				if result != nil || !errors.Is(err, domain.ErrInternal) {
 					t.Fatalf("result=%v err=%v", result, err)

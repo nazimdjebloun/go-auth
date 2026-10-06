@@ -6,6 +6,24 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
+// HardDeleteInviteInput identifies an invitation and the trusted administrator.
+type HardDeleteInviteInput struct {
+	InviteID string `json:"inviteId"`
+	ActorID  string `json:"-"`
+}
+
+// RevokeInviteInput identifies an invitation and the trusted administrator.
+type RevokeInviteInput struct {
+	InviteID string `json:"inviteId"`
+	ActorID  string `json:"-"`
+}
+
+// ResendInviteEmailInput identifies an invitation and the trusted administrator.
+type ResendInviteEmailInput struct {
+	InviteID string `json:"inviteId"`
+	ActorID  string `json:"-"`
+}
+
 // BulkInviteEmailsInput is the input for bulk send, which is keyed by address
 // rather than by ID — the invites don't exist yet.
 type BulkInviteEmailsInput struct {

@@ -93,7 +93,10 @@ func TestAccountDeletion_PasswordAndAdminPaths(t *testing.T) {
 			if path == "password" {
 				svc := NewAuthService(f.db, f.users, f.sessions, f.tokens, f.hasher, nil, nil, cfg, nil, nil, nil)
 				svc.AttachAccountDeletion(deletionCoordinator(f))
-				err = svc.DeleteAccount(context.Background(), f.userID, "OldPass1!")
+				err = svc.DeleteAccount(context.Background(), api.DeleteAccountInput{
+					UserID:   f.userID,
+					Password: "OldPass1!",
+				})
 			} else {
 				deletionExec(t, f, `UPDATE users SET role='admin' WHERE id='00000000-0000-4000-8000-000000000090'`)
 				svc := NewAdminService(f.db, f.users, f.sessions, nil, nil, f.hasher, cfg, nil)

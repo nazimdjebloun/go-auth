@@ -116,7 +116,10 @@ func TestChangeName_PublishesNameChanged(t *testing.T) {
 	svc, users, _ := newAuditTestAuthService(t, auditPub)
 	seedAuditPasswordUser(t, users, "user-1", "alice@example.com", "Passw0rd!")
 
-	if err := svc.ChangeName(context.Background(), "user-1", "New Name"); err != nil {
+	if err := svc.ChangeName(context.Background(), api.ChangeNameInput{
+		UserID: "user-1",
+		Name:   "New Name",
+	}); err != nil {
 		t.Fatalf("ChangeName: %v", err)
 	}
 
@@ -134,7 +137,10 @@ func TestDeleteAccount_PublishesAccountDeleted(t *testing.T) {
 	svc, users, _ := newAuditTestAuthService(t, auditPub)
 	seedAuditPasswordUser(t, users, "user-1", "alice@example.com", "Passw0rd!")
 
-	if err := svc.DeleteAccount(context.Background(), "user-1", "Passw0rd!"); err != nil {
+	if err := svc.DeleteAccount(context.Background(), api.DeleteAccountInput{
+		UserID:   "user-1",
+		Password: "Passw0rd!",
+	}); err != nil {
 		t.Fatalf("DeleteAccount: %v", err)
 	}
 
@@ -191,12 +197,19 @@ func TestRevokeByIDForUser_PublishesSessionRevoked(t *testing.T) {
 	auditPub := testutil.NewMockAuditPublisher()
 	svc := newAuditTestSessionService(auditPub)
 
-	created, err := svc.Create(context.Background(), "user-1", "", "")
+	created, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	ok, err := svc.RevokeByIDForUser(context.Background(), created.Session.ID, "user-1")
+	ok, err := svc.RevokeByIDForUser(context.Background(), api.RevokeSessionForUserInput{
+		SessionID: created.Session.ID,
+		UserID:    "user-1",
+	})
 	if err != nil || !ok {
 		t.Fatalf("RevokeByIDForUser = %v, %v", ok, err)
 	}
@@ -217,7 +230,11 @@ func TestRevokeByIDForUser_CrossUser_NoEvent(t *testing.T) {
 	auditPub := testutil.NewMockAuditPublisher()
 	svc := newAuditTestSessionService(auditPub)
 
-	created, err := svc.Create(context.Background(), "user-1", "", "")
+	created, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +242,10 @@ func TestRevokeByIDForUser_CrossUser_NoEvent(t *testing.T) {
 	// Bob tries to revoke Alice's session: the repo reports ok=false (a
 	// no-op), so no audit event must be published — that would let a
 	// caller flood the audit log with failed probes.
-	ok, err := svc.RevokeByIDForUser(context.Background(), created.Session.ID, "user-2")
+	ok, err := svc.RevokeByIDForUser(context.Background(), api.RevokeSessionForUserInput{
+		SessionID: created.Session.ID,
+		UserID:    "user-2",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,16 +261,27 @@ func TestRevokeManyForUser_PublishesOneRevokedEventWithCount(t *testing.T) {
 	auditPub := testutil.NewMockAuditPublisher()
 	svc := newAuditTestSessionService(auditPub)
 
-	first, err := svc.Create(context.Background(), "user-1", "", "")
+	first, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := svc.Create(context.Background(), "user-1", "", "")
+	second, err := svc.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	n, err := svc.RevokeManyForUser(context.Background(), []string{first.Session.ID, second.Session.ID}, "user-1")
+	n, err := svc.RevokeManyForUser(context.Background(), api.RevokeSessionsForUserInput{
+		SessionIDs: []string{first.Session.ID, second.Session.ID},
+		UserID:     "user-1",
+	})
 	if err != nil || n != 2 {
 		t.Fatalf("RevokeManyForUser = %d, %v", n, err)
 	}

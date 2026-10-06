@@ -81,7 +81,13 @@ func TestAdminAccessRequiresVerifiedSessionAcrossLoginAndRefresh(t *testing.T) {
 				t.Fatalf("ordinary admin login bypassed MFA: %+v", login)
 			}
 			code := extractCodeAfter(mailer.lastBody(), "Your code: ")
-			verified, err := a.Services().TwoFactor.Verify(ctx, login.TwoFactorChallenge, login.BindingToken(), code, "", "")
+			verified, err := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+				ChallengeID:  login.TwoFactorChallenge,
+				BindingToken: login.BindingToken(),
+				Code:         code,
+				IP:           "",
+				UserAgent:    "",
+			})
 			if err != nil || verified.Session.TwoFactorVerifiedAt == nil {
 				t.Fatalf("verified login lacks assurance: %+v, %v", verified, err)
 			}

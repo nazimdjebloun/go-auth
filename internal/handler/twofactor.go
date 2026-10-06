@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -19,8 +20,13 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.services.TwoFactor.Verify(
-		r.Context(), body.ChallengeID, h.twoFactorBindingCookieValue(r), body.Code,
-		h.ip(r), r.UserAgent(),
+		r.Context(), api.TwoFactorVerifyInput{
+			ChallengeID:  body.ChallengeID,
+			BindingToken: h.twoFactorBindingCookieValue(r),
+			Code:         body.Code,
+			IP:           h.ip(r),
+			UserAgent:    r.UserAgent(),
+		},
 	)
 	if err != nil {
 		h.writeError(w, err)
@@ -47,7 +53,10 @@ func (h *Handler) ResendTwoFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.services.TwoFactor.Resend(r.Context(), body.ChallengeID, h.twoFactorBindingCookieValue(r))
+	result, err := h.services.TwoFactor.Resend(r.Context(), api.TwoFactorResendInput{
+		ChallengeID:  body.ChallengeID,
+		BindingToken: h.twoFactorBindingCookieValue(r),
+	})
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -85,7 +94,12 @@ func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
 		callerSessionID = currentSession.ID
 	}
 
-	if err := h.services.TwoFactor.Enable(r.Context(), user.ID, body.Password, body.KeepOtherSessions, callerSessionID); err != nil {
+	if err := h.services.TwoFactor.Enable(r.Context(), api.TwoFactorEnableInput{
+		UserID:            user.ID,
+		Password:          body.Password,
+		KeepOtherSessions: body.KeepOtherSessions,
+		CallerSessionID:   callerSessionID,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -108,7 +122,10 @@ func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.services.TwoFactor.Disable(r.Context(), user.ID, body.Password); err != nil {
+	if err := h.services.TwoFactor.Disable(r.Context(), api.TwoFactorDisableInput{
+		UserID:   user.ID,
+		Password: body.Password,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}

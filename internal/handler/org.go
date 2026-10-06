@@ -568,7 +568,11 @@ func (h *Handler) ResendOrgInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID := r.PathValue("orgID")
 	inviteID := r.PathValue("inviteID")
-	if err := h.services.OrgInvite.ResendOrgInviteEmail(r.Context(), orgID, inviteID, user.ID); err != nil {
+	if err := h.services.OrgInvite.ResendOrgInviteEmail(r.Context(), api.ResendOrgInviteEmailInput{
+		OrgID:    orgID,
+		InviteID: inviteID,
+		ActorID:  user.ID,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -588,7 +592,11 @@ func (h *Handler) DeleteOrgInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID := r.PathValue("orgID")
 	inviteID := r.PathValue("inviteID")
-	if err := h.services.OrgInvite.DeleteOrgInvite(r.Context(), orgID, inviteID, user.ID); err != nil {
+	if err := h.services.OrgInvite.DeleteOrgInvite(r.Context(), api.DeleteOrgInviteInput{
+		OrgID:    orgID,
+		InviteID: inviteID,
+		ActorID:  user.ID,
+	}); err != nil {
 		h.writeError(w, err)
 		return
 	}

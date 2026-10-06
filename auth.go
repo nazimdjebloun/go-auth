@@ -165,7 +165,10 @@ func (a *Auth) AuditDeliveryStats(ctx context.Context) *audit.DeliveryStats {
 	return &stats
 }
 
-// Close stops background work and closes owned resources.
+// Close stops background work and closes owned resources. Stop and drain HTTP
+// requests and direct service calls before calling Close. Caller-supplied
+// databases, rate-limit stores, mailers, and sinks remain caller-owned.
+// Close has no overall deadline; worker dependencies must honor cancellation.
 func (a *Auth) Close() {
 	if a.recoveryWorker != nil {
 		a.recoveryWorker.Stop()
@@ -173,7 +176,7 @@ func (a *Auth) Close() {
 	if a.maintenance != nil {
 		a.maintenance.stop()
 	}
-	// Stop audit service first — workers may need DB to flush remaining events.
+	// Stop audit work before closing the database it uses for durable delivery.
 	if a.auditService != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

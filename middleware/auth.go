@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"time"
 
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -46,7 +45,7 @@ func ContextWithSession(ctx context.Context, session *domain.Session) context.Co
 type SessionAuthenticator interface {
 	ValidateWithUser(ctx context.Context, token string) (*domain.Session, *domain.User, error)
 	RefreshSession(ctx context.Context, rawRefreshToken string) (*api.SessionResult, error)
-	Touch(ctx context.Context, token string, lastActiveAt time.Time) error
+	Touch(ctx context.Context, input api.TouchSessionInput) error
 }
 
 // UserLookup resolves the session owner after a successful token refresh.
@@ -66,7 +65,10 @@ func AuthMiddleware(sessionSvc SessionAuthenticator, cookies CookieSettings, use
 				return
 			}
 
-			if err := sessionSvc.Touch(r.Context(), rawToken, session.LastActiveAt); err != nil {
+			if err := sessionSvc.Touch(r.Context(), api.TouchSessionInput{
+				Token:        rawToken,
+				LastActiveAt: session.LastActiveAt,
+			}); err != nil {
 				logger.Warn("goauth: update session activity", "err", err)
 			}
 

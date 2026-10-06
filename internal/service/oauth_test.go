@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -92,7 +93,15 @@ func TestOAuthCallback_RegistersUserAndLinksProvider(t *testing.T) {
 	)
 	seedOAuthState(t, tokens, "state-1", "raw-state-1")
 
-	res, err := svc.Callback(context.Background(), "test", "code", "raw-state-1", "raw-state-1", "", "127.0.0.1", "test-agent")
+	res, err := svc.Callback(context.Background(), api.OAuthCallbackInput{
+		Provider:     "test",
+		Code:         "code",
+		State:        "raw-state-1",
+		BrowserState: "raw-state-1",
+		SessionToken: "",
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if err != nil {
 		t.Fatalf("Callback failed: %v", err)
 	}
@@ -118,7 +127,15 @@ func TestOAuthCallback_RejectsStateWithoutBrowserBinding(t *testing.T) {
 	}, testutil.NewMockProviderAccountRepo(), users, tokens)
 	seedOAuthState(t, tokens, "state-1", "raw-state-1")
 
-	if _, err := svc.Callback(context.Background(), "test", "code", "raw-state-1", "", "", "", ""); authErrCode(err) != "invalid_state" {
+	if _, err := svc.Callback(context.Background(), api.OAuthCallbackInput{
+		Provider:     "test",
+		Code:         "code",
+		State:        "raw-state-1",
+		BrowserState: "",
+		SessionToken: "",
+		IP:           "",
+		UserAgent:    "",
+	}); authErrCode(err) != "invalid_state" {
 		t.Fatalf("missing browser binding: %v", err)
 	}
 	state, err := tokens.GetByID(context.Background(), "state-1")
@@ -138,27 +155,55 @@ func TestOAuthCallback_LinkRequiresOriginatingLiveSession(t *testing.T) {
 	svc, _ := newTestOAuthService(map[string]port.OAuthProvider{
 		"test": &stubOAuthProvider{name: "test", profile: oauthTestProfile("test", "pu-1", user.Email)},
 	}, testutil.NewMockProviderAccountRepo(), users, tokens)
-	origin, err := svc.sessionSvc.Create(ctx, user.ID, "", "")
+	origin, err := svc.sessionSvc.Create(ctx, api.CreateSessionInput{
+		UserID:    user.ID,
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := svc.sessionSvc.Create(ctx, user.ID, "", "")
+	other, err := svc.sessionSvc.Create(ctx, api.CreateSessionInput{
+		UserID:    user.ID,
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	flow, err := svc.InitiateLink(ctx, "test", user.ID, origin.Session.TokenHash)
+	flow, err := svc.InitiateLink(ctx, api.OAuthLinkInput{
+		Provider:         "test",
+		UserID:           user.ID,
+		SessionTokenHash: origin.Session.TokenHash,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, token := range []string{"", other.SessionToken} {
-		if _, err := svc.Callback(ctx, "test", "code", flow.State, flow.State, token, "", ""); authErrCode(err) != "unauthorized" {
+		if _, err := svc.Callback(ctx, api.OAuthCallbackInput{
+			Provider:     "test",
+			Code:         "code",
+			State:        flow.State,
+			BrowserState: flow.State,
+			SessionToken: token,
+			IP:           "",
+			UserAgent:    "",
+		}); authErrCode(err) != "unauthorized" {
 			t.Fatalf("link accepted wrong session: %v", err)
 		}
 	}
 	if err := svc.sessionSvc.Revoke(ctx, origin.SessionToken); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Callback(ctx, "test", "code", flow.State, flow.State, origin.SessionToken, "", ""); authErrCode(err) != "unauthorized" {
+	if _, err := svc.Callback(ctx, api.OAuthCallbackInput{
+		Provider:     "test",
+		Code:         "code",
+		State:        flow.State,
+		BrowserState: flow.State,
+		SessionToken: origin.SessionToken,
+		IP:           "",
+		UserAgent:    "",
+	}); authErrCode(err) != "unauthorized" {
 		t.Fatalf("link accepted revoked initiating session: %v", err)
 	}
 }
@@ -178,7 +223,15 @@ func TestOAuthCallback_ProviderLinkFailureSurfaces(t *testing.T) {
 	)
 	seedOAuthState(t, tokens, "state-1", "raw-state-1")
 
-	if _, err := svc.Callback(context.Background(), "test", "code", "raw-state-1", "raw-state-1", "", "127.0.0.1", "test-agent"); err == nil {
+	if _, err := svc.Callback(context.Background(), api.OAuthCallbackInput{
+		Provider:     "test",
+		Code:         "code",
+		State:        "raw-state-1",
+		BrowserState: "raw-state-1",
+		SessionToken: "",
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); err == nil {
 		t.Fatal("expected the provider failure to surface, got nil")
 	}
 }
@@ -207,7 +260,15 @@ func TestOAuthUnlink_LastProviderRefusedThenAllowed(t *testing.T) {
 	ctx := context.Background()
 
 	seedOAuthState(t, tokens, "state-1", "raw-state-1")
-	if _, err := svc.Callback(ctx, "test", "code", "raw-state-1", "raw-state-1", "", "127.0.0.1", "test-agent"); err != nil {
+	if _, err := svc.Callback(ctx, api.OAuthCallbackInput{
+		Provider:     "test",
+		Code:         "code",
+		State:        "raw-state-1",
+		BrowserState: "raw-state-1",
+		SessionToken: "",
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
 	user, _ := users.GetByEmail(ctx, "oauth@example.com")
@@ -215,7 +276,11 @@ func TestOAuthUnlink_LastProviderRefusedThenAllowed(t *testing.T) {
 	// Link the second provider through the link flow: a state token carrying
 	// the user ID routes Callback into its link branch.
 	seedLinkOAuthState(t, tokens, "link-1", "raw-link-1", user.ID)
-	linkSession, err := svc.sessionSvc.Create(ctx, user.ID, "127.0.0.1", "test-agent")
+	linkSession, err := svc.sessionSvc.Create(ctx, api.CreateSessionInput{
+		UserID:    user.ID,
+		IP:        "127.0.0.1",
+		UserAgent: "test-agent",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,14 +289,28 @@ func TestOAuthUnlink_LastProviderRefusedThenAllowed(t *testing.T) {
 		t.Fatal(err)
 	}
 	linkState.Email = linkSession.Session.TokenHash
-	if _, err := svc.Callback(ctx, "github", "code", "raw-link-1", "raw-link-1", linkSession.SessionToken, "127.0.0.1", "test-agent"); err != nil {
+	if _, err := svc.Callback(ctx, api.OAuthCallbackInput{
+		Provider:     "github",
+		Code:         "code",
+		State:        "raw-link-1",
+		BrowserState: "raw-link-1",
+		SessionToken: linkSession.SessionToken,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); err != nil {
 		t.Fatalf("link failed: %v", err)
 	}
 
-	if err := svc.Unlink(ctx, user.ID, "test"); err != nil {
+	if err := svc.Unlink(ctx, api.OAuthUnlinkInput{
+		UserID:   user.ID,
+		Provider: "test",
+	}); err != nil {
 		t.Fatalf("unlink of one of two providers failed: %v", err)
 	}
-	if err := svc.Unlink(ctx, user.ID, "github"); authErrCode(err) != "cannot_unlink_last_provider" {
+	if err := svc.Unlink(ctx, api.OAuthUnlinkInput{
+		UserID:   user.ID,
+		Provider: "github",
+	}); authErrCode(err) != "cannot_unlink_last_provider" {
 		t.Fatalf("unlink of the last provider: code = %q, want cannot_unlink_last_provider", authErrCode(err))
 	}
 
@@ -254,7 +333,15 @@ func TestOAuthUnlink_PasswordHolderMayUnlinkLast(t *testing.T) {
 	ctx := context.Background()
 
 	seedOAuthState(t, tokens, "state-1", "raw-state-1")
-	if _, err := svc.Callback(ctx, "test", "code", "raw-state-1", "raw-state-1", "", "127.0.0.1", "test-agent"); err != nil {
+	if _, err := svc.Callback(ctx, api.OAuthCallbackInput{
+		Provider:     "test",
+		Code:         "code",
+		State:        "raw-state-1",
+		BrowserState: "raw-state-1",
+		SessionToken: "",
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); err != nil {
 		t.Fatalf("register failed: %v", err)
 	}
 	user, _ := users.GetByEmail(ctx, "oauth@example.com")
@@ -264,7 +351,10 @@ func TestOAuthUnlink_PasswordHolderMayUnlinkLast(t *testing.T) {
 	if err := users.Update(ctx, user); err != nil {
 		t.Fatal(err)
 	}
-	if err := svc.Unlink(ctx, user.ID, "test"); err != nil {
+	if err := svc.Unlink(ctx, api.OAuthUnlinkInput{
+		UserID:   user.ID,
+		Provider: "test",
+	}); err != nil {
 		t.Fatalf("password holder unlinking last provider failed: %v", err)
 	}
 }
@@ -280,7 +370,10 @@ func TestOAuthUnlink_UnknownUser(t *testing.T) {
 		providerRepo, users, tokens,
 	)
 
-	if err := svc.Unlink(context.Background(), "missing", "test"); err != domain.ErrUserNotFound {
+	if err := svc.Unlink(context.Background(), api.OAuthUnlinkInput{
+		UserID:   "missing",
+		Provider: "test",
+	}); err != domain.ErrUserNotFound {
 		t.Fatalf("expected ErrUserNotFound, got %v", err)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -64,7 +65,13 @@ func TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim(t *testing.T) {
 				}
 				return nil
 			}
-			if result, err := svc.Verify(ctx, challenge.ID, "", code, "", ""); !errors.Is(err, domain.ErrTwoFactorCodeInvalid) || result != nil {
+			if result, err := svc.Verify(ctx, api.TwoFactorVerifyInput{
+				ChallengeID:  challenge.ID,
+				BindingToken: "",
+				Code:         code,
+				IP:           "",
+				UserAgent:    "",
+			}); !errors.Is(err, domain.ErrTwoFactorCodeInvalid) || result != nil {
 				t.Fatalf("stale verification accepted: result=%+v err=%v", result, err)
 			}
 			token, err := f.tokens.GetByID(ctx, challenge.ID)

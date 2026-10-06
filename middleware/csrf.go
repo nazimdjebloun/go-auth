@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/nazimdjebloun/go-auth/internal/httperr"
 )
 
 // OriginCheck returns middleware that validates Origin or Referer headers on
@@ -64,7 +66,7 @@ func OriginCheck(allowedOrigins []string, allowMissing bool, trustedIPs []string
 				}
 				// Debug: normal non-browser/strict-mode traffic, high volume, deliberately below default log level to avoid flooding — raise handler level to Debug to see these.
 				logRejectedRequest(r, logger, slog.LevelDebug, "csrf rejected", "missing origin and referer")
-				http.Error(w, "Forbidden - CSRF headers missing", http.StatusForbidden)
+				httperr.Write(w, http.StatusForbidden, "csrf_headers_missing", "CSRF Origin or Referer header is required", logger)
 				return
 			}
 
@@ -75,7 +77,7 @@ func OriginCheck(allowedOrigins []string, allowMissing bool, trustedIPs []string
 					return
 				}
 				logRejectedRequest(r, logger, slog.LevelWarn, "csrf rejected", "origin not allowed", slog.String("origin", origin))
-				http.Error(w, "Forbidden", http.StatusForbidden)
+				httperr.Write(w, http.StatusForbidden, "csrf_origin_denied", "Request origin is not allowed", logger)
 				return
 			}
 
@@ -89,7 +91,7 @@ func OriginCheck(allowedOrigins []string, allowMissing bool, trustedIPs []string
 			}
 
 			logRejectedRequest(r, logger, slog.LevelWarn, "csrf rejected", "referer not allowed", slog.String("referer", referer))
-			http.Error(w, "Forbidden", http.StatusForbidden)
+			httperr.Write(w, http.StatusForbidden, "csrf_origin_denied", "Request origin is not allowed", logger)
 		})
 	}
 }

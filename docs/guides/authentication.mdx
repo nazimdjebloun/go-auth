@@ -38,7 +38,7 @@ The **Client** examples below call a small `apiRequest(baseUrl, method, path, bo
 
 ## Origin checking
 
-Every state-changing route (`POST`/`PUT`/`PATCH`/`DELETE`) runs through `middleware.OriginCheck` before it reaches a handler. By default (`AllowMissingCSRFHeaders: false`), a request with **neither** an `Origin` nor a `Referer` header gets a flat `403 Forbidden - CSRF headers missing` — which is why every `curl` example on this page below sets `-H "Origin: https://myapp.com"`. Without it, they 403 against any real deployment.
+Routes protected by `middleware.OriginCheck` check state-changing requests (`POST`/`PUT`/`PATCH`/`DELETE`) before they reach a handler. By default (`AllowMissingCSRFHeaders: false`), a request with **neither** an `Origin` nor a `Referer` header gets a JSON `403` with error code `csrf_headers_missing` — which is why every `curl` example on this page below sets `-H "Origin: https://myapp.com"`. Without it, they 403 against any real deployment.
 
 <Callout type="warn" title="This is a plausibility check, not proof the request came from a browser">
   `Origin` is a browser signal, not a credential: a command-line client can send the same header. It protects a victim's browser from cross-site requests; it does not restrict direct API clients. CSRF tokens, rate limits, and application rules enforce the remaining controls.
@@ -106,7 +106,7 @@ The raw session and refresh tokens are never in this body — they're set as `Ht
 
 No cookies are set on this response. The account exists in the database, but there's nothing to authenticate with yet — the client has to go through [Verifying the email](#verifying-the-email) below.
 
-**Response — `TwoFactorConfig.RequireEmail2FA: true`** (`201 Created`) — a session is not issued; register gates on this flag alone, independent of `RequireEmailVerification`, so the two never stack (see [Two-factor authentication](#two-factor-authentication)):
+**Response — `TwoFactorConfig.RequireEmail2FA: true`** (`201 Created`) — a session is not issued; register reaches this gate only when `RequireEmailVerification` is off; otherwise it returns the verification response above (see [Two-factor authentication](#two-factor-authentication)):
 
 ```json
 {
@@ -250,7 +250,9 @@ if err != nil {
     // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
 }
 
-result, err := auth.Services().Session.Create(ctx, user.ID, r.RemoteAddr, r.UserAgent())
+result, err := auth.Services().Session.Create(ctx, api.CreateSessionInput{
+    UserID: user.ID, IP: r.RemoteAddr, UserAgent: r.UserAgent(),
+})
 // result.SessionToken / result.RefreshToken are the raw values — set them as cookies yourself
 ```
 
@@ -468,7 +470,7 @@ For a complete login form with branching logic and error handling, see [Client �
 
 ## Two-factor authentication
 
-Turned on globally with `TwoFactorConfig.RequireEmail2FA` (mandatory for every account) or per-user via `POST /auth/2fa/enable` (opt-in, unless `RequireEmail2FA` is on, in which case per-user toggling is rejected). Either way, `Login`/`Register`/`POST /auth/invite/register` return the gated `{user, requiresTwoFactor: true, codeSent, challengeId, expiresAt, message}` shape shown above instead of a session, plus a binding cookie. Full config reference on [Configuration](../configuration.mdx); the risk trade-offs behind this design are on [Security](../security.mdx).
+Turned on globally with `TwoFactorConfig.RequireEmail2FA` (mandatory for password login and, unless email verification takes precedence, password signup) or per-user via `POST /auth/2fa/enable` (opt-in, unless `RequireEmail2FA` is on, in which case per-user toggling is rejected). Password login applies either requirement. Password and invite registration gate only on the global flag, with email verification taking precedence for password registration. When gated, these paths return the `{user, requiresTwoFactor: true, codeSent, challengeId, expiresAt, message}` shape shown above instead of a session, plus a binding cookie. Non-admin OAuth skips local 2FA; see the [authentication policy matrix](../security.mdx#authentication-policy-matrix). Full config reference on [Configuration](../configuration.mdx); the risk trade-offs behind this design are on [Security](../security.mdx).
 
 <Callout type="warn" title="Requires a mailer">
   Same requirement as email verification — `TwoFactorConfig.RequireEmail2FA` or `TwoFactorConfig.DefaultEnabled` without `WithMailer`/`WithEmail` is rejected outright by `NewConfig`.
@@ -510,9 +512,10 @@ curl -X POST https://api.myapp.com/auth/2fa/verify \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services().TwoFactor.Verify(
-    ctx, challengeID, bindingToken, code, r.RemoteAddr, r.UserAgent(),
-)
+result, err := auth.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+    ChallengeID: challengeID, BindingToken: bindingToken, Code: code,
+    IP: r.RemoteAddr, UserAgent: r.UserAgent(),
+})
 if err != nil {
     // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
 }
@@ -557,7 +560,7 @@ curl -X POST https://api.myapp.com/auth/2fa/resend \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services().TwoFactor.Resend(ctx, challengeID, bindingToken)
+result, err := auth.Services().TwoFactor.Resend(ctx, api.TwoFactorResendInput{ChallengeID: challengeID, BindingToken: bindingToken})
 ```
 
 ---

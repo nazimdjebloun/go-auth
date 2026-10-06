@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
@@ -53,7 +54,11 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 		limit = 100
 	}
 
-	sessions, total, err := h.services.Session.List(r.Context(), user.ID, offset, limit)
+	sessions, total, err := h.services.Session.List(r.Context(), api.ListSessionsInput{
+		UserID: user.ID,
+		Offset: offset,
+		Limit:  limit,
+	})
 	if err != nil {
 		h.log.Error("failed to list sessions", "err", err, "user_id", user.ID)
 		h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
@@ -106,7 +111,10 @@ func (h *Handler) RevokeSession(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionID := r.PathValue("id")
 
-	revoked, err := h.services.Session.RevokeByIDForUser(r.Context(), sessionID, user.ID)
+	revoked, err := h.services.Session.RevokeByIDForUser(r.Context(), api.RevokeSessionForUserInput{
+		SessionID: sessionID,
+		UserID:    user.ID,
+	})
 	if err != nil {
 		h.log.Error("failed to revoke session", "err", err, "user_id", user.ID, "session_id", sessionID)
 		h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
@@ -142,7 +150,10 @@ func (h *Handler) RevokeManySessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	revoked, err := h.services.Session.RevokeManyForUser(r.Context(), body.SessionIDs, user.ID)
+	revoked, err := h.services.Session.RevokeManyForUser(r.Context(), api.RevokeSessionsForUserInput{
+		SessionIDs: body.SessionIDs,
+		UserID:     user.ID,
+	})
 	if err != nil {
 		h.log.Error("failed to revoke sessions", "err", err, "user_id", user.ID)
 		h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
@@ -161,7 +172,10 @@ func (h *Handler) RevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	currentSession := middleware.GetSessionFromContext(r.Context())
 
 	if currentSession != nil {
-		if err := h.services.Session.RevokeAllExcept(r.Context(), user.ID, currentSession.ID); err != nil {
+		if err := h.services.Session.RevokeAllExcept(r.Context(), api.RevokeAllSessionsExceptInput{
+			UserID:          user.ID,
+			ExceptSessionID: currentSession.ID,
+		}); err != nil {
 			h.log.Error("failed to revoke sessions", "err", err, "user_id", user.ID)
 			h.writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error", "message": "Internal server error"})
 			return

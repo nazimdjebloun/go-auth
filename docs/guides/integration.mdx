@@ -1,0 +1,93 @@
+---
+title: "Integration contract"
+description: "Named Go inputs, HTTP errors, authentication policy, and resource ownership."
+icon: "Plug"
+---
+
+# Integration contract
+
+The public `Auth.Services()` interfaces are the contract for custom transports and application code. Import `github.com/nazimdjebloun/go-auth/api` for operation inputs. Mounted HTTP routes call those same operations and add cookie handling, authentication middleware, CSRF checks, and rate limiting.
+
+## Migrating Go callers
+
+Service operations with multiple values after `context.Context` now take one named input. This is a breaking Go API change before v1; return values and HTTP request bodies are unchanged. Single-value operations, such as `Session.Validate(ctx, token)` and `OAuth.Initiate(ctx, provider)`, keep their direct argument.
+
+```go
+// Previously: ChangeName(ctx, userID, name)
+err := auth.Services().Auth.ChangeName(ctx, api.ChangeNameInput{
+    UserID: userID,
+    Name:   name,
+})
+
+verified, err := auth.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+    ChallengeID:  challengeID,
+    BindingToken: bindingCookie,
+    Code:         code,
+    IP:           clientIP,
+    UserAgent:    userAgent,
+})
+```
+
+Move the old positional arguments into the following fields, in the order shown. All types are in `api`.
+
+| Service operation | Input type | Fields replacing positional arguments |
+|---|---|---|
+| `Auth.ChangeName` | `ChangeNameInput` | `UserID`, `Name` |
+| `Auth.DeleteAccount` | `DeleteAccountInput` | `UserID`, `Password` |
+| `Session.Create` | `CreateSessionInput` | `UserID`, `IP`, `UserAgent` |
+| `Session.Touch` | `TouchSessionInput` | `Token`, `LastActiveAt` |
+| `Session.RevokeByIDForUser` | `RevokeSessionForUserInput` | `SessionID`, `UserID` |
+| `Session.RevokeManyForUser` | `RevokeSessionsForUserInput` | `SessionIDs`, `UserID` |
+| `Session.RevokeAllExcept` | `RevokeAllSessionsExceptInput` | `UserID`, `ExceptSessionID` |
+| `Session.List` | `ListSessionsInput` | `UserID`, `Offset`, `Limit` |
+| `OAuth.InitiateLink` | `OAuthLinkInput` | `Provider`, `UserID`, `SessionTokenHash` |
+| `OAuth.Callback` | `OAuthCallbackInput` | `Provider`, `Code`, `State`, `BrowserState`, `SessionToken`, `IP`, `UserAgent` |
+| `OAuth.Unlink` | `OAuthUnlinkInput` | `UserID`, `Provider` |
+| `TwoFactor.Verify` | `TwoFactorVerifyInput` | `ChallengeID`, `BindingToken`, `Code`, `IP`, `UserAgent` |
+| `TwoFactor.Resend` | `TwoFactorResendInput` | `ChallengeID`, `BindingToken` |
+| `TwoFactor.Enable` | `TwoFactorEnableInput` | `UserID`, `Password`, `KeepOtherSessions`, `CallerSessionID` |
+| `TwoFactor.Disable` | `TwoFactorDisableInput` | `UserID`, `Password` |
+| `Invite.HardDeleteInvite` | `HardDeleteInviteInput` | `InviteID`, `ActorID` |
+| `Invite.RevokeInvite` | `RevokeInviteInput` | `InviteID`, `ActorID` |
+| `Invite.ResendInviteEmail` | `ResendInviteEmailInput` | `InviteID`, `ActorID` |
+| `OrgInvite.DeleteOrgInvite` | `DeleteOrgInviteInput` | `OrgID`, `InviteID`, `ActorID` |
+| `OrgInvite.ResendOrgInviteEmail` | `ResendOrgInviteEmailInput` | `OrgID`, `InviteID`, `ActorID` |
+
+Update mocks and custom implementations of the public capability interfaces too. In particular, `middleware.SessionAuthenticator.Touch` now has this signature:
+
+```go
+Touch(ctx context.Context, input api.TouchSessionInput) error
+```
+
+Named fields do not establish trust. Set actor/user IDs from the authenticated identity, client metadata from your transport, and binding/session credentials from their original cookies or equivalent trusted storage. Those fields on the new inputs are excluded from JSON decoding and encoding with `json:"-"`. Business input fields use camelCase. Inputs can still contain passwords and one-time codes; do not log them wholesale.
+
+For OAuth callbacks, keep `State` (provider callback query) separate from `BrowserState` (the initiating browser's state cookie). Linking also needs the current raw session token in `SessionToken`. The service compares these credentials; an input struct does not replace the browser-binding checks.
+
+Direct service calls do not execute HTTP middleware. Your custom transport must supply authentication and route-level authorization, rate limiting, and any applicable browser CSRF protection. Low-level operations such as session creation assume the caller has already completed the required authentication flow. Optional service capabilities can be nil when disabled; check before using them.
+
+## Errors across transports
+
+Go operations return ordinary errors. Use `errors.Is` for a sentinel and `errors.As` for `*domain.AuthError`; backend errors may instead wrap their original cause. Do not send raw backend errors to clients.
+
+The built-in HTTP handlers and middleware use `{"error": code, "message": message}` with `Content-Type: application/json`. CSRF rejection bodies now use this envelope too, replacing their former plain-text bodies. Match the code rather than parsing the message. OAuth callback failures remain browser redirects with an `error` query parameter. Router-generated errors and your own handlers are outside this contract. See [Error Handling](../error-handling.mdx) for codes and statuses.
+
+## Authentication policy
+
+Named inputs do not change authentication requirements. In particular, non-admin OAuth continues to trust provider authentication without applying local password-login 2FA. Admin OAuth still applies local 2FA by default. The [policy matrix](../security.mdx#authentication-policy-matrix) specifies verification and second-factor behavior for each path.
+
+## Startup and shutdown
+
+`NewConfig` validates configuration and starts no background work. `New` clones and revalidates it, opens or adopts the database, constructs services, and starts the configured workers. Depending on configuration, these include maintenance, recovery-email delivery, audit delivery/retention, and cleanup for the library's in-memory rate-limit stores. Create an `Auth` for the application's lifetime, rather than per request.
+
+Stop accepting work and wait for HTTP requests and direct service callers to finish before calling `Auth.Close()`. `Close` does not stop or drain your HTTP server. Call it once as part of orderly application shutdown, then release resources you supplied.
+
+| Resource | Ownership and shutdown |
+|---|---|
+| Database opened from `DatabaseConfig.URL` | `Auth.Close` closes it. |
+| Supplied `DatabaseConfig.DB` (`*sql.DB`) | Remains open; the caller closes it after `Auth.Close`. |
+| Supplied `DatabaseConfig.Pool` (`*pgxpool.Pool`) | `Auth.Close` closes its SQL adapter, leaving the caller's pool open. |
+| Default route rate-limit store and internal 2FA notification store | Created and closed by go-auth. |
+| Supplied rate-limit store | Remains caller-owned, including its cleanup lifecycle. |
+| Supplied mailer, audit sinks, and OAuth providers | Their lifecycle remains caller-owned; `Auth.Close` does not close them. |
+
+`Close` stops the recovery worker and maintenance before stopping audit work, then releases the owned stores and database. The audit stop receives a five-second timeout. There is no deadline for the whole `Close` call and it returns no error; custom dependencies must honor cancellation so workers can exit. A stop timeout is not a guarantee that external audit delivery finished: undelivered durable outbox records remain for later processing. If you use an asynchronous mailer, stop/drain that caller-owned mailer after `Auth.Close`.

@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
@@ -185,7 +186,11 @@ func TestLogoutInvalidatesToken(t *testing.T) {
 
 func TestLogoutRevocationFailureKeepsCookiesAndReturnsError(t *testing.T) {
 	th := newTestHarness()
-	created, err := th.handler.services.Session.Create(context.Background(), "user-1", "", "")
+	created, err := th.handler.services.Session.Create(context.Background(), api.CreateSessionInput{
+		UserID:    "user-1",
+		IP:        "",
+		UserAgent: "",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

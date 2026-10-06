@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -37,7 +38,10 @@ func TestUserMutations_NamePreservesConcurrentIdentity(t *testing.T) {
 		}
 	}
 	svc := &AuthService{users: users, log: slog.Default()}
-	if err := svc.ChangeName(ctx, f.userID, "New name"); err != nil {
+	if err := svc.ChangeName(ctx, api.ChangeNameInput{
+		UserID: f.userID,
+		Name:   "New name",
+	}); err != nil {
 		t.Fatal(err)
 	}
 	u, err := f.users.GetByID(ctx, f.userID)

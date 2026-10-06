@@ -140,20 +140,14 @@ func writeJSONTo(log *slog.Logger, w http.ResponseWriter, status int, v any) {
 func writeErrorTo(log *slog.Logger, w http.ResponseWriter, err error) {
 	var authErr *domain.AuthError
 	if errors.As(err, &authErr) {
-		writeJSONTo(log, w, httperr.StatusFor(authErr.Code), map[string]string{
-			"error":   authErr.Code,
-			"message": authErr.Message,
-		})
+		httperr.Write(w, httperr.StatusFor(authErr.Code), authErr.Code, authErr.Message, log)
 		return
 	}
 	if log == nil {
 		log = slog.Default()
 	}
 	log.Error("writeError: non-AuthError reached the HTTP layer", "err", err)
-	writeJSONTo(log, w, http.StatusInternalServerError, map[string]string{
-		"error":   "internal_error",
-		"message": "Internal server error",
-	})
+	httperr.Write(w, http.StatusInternalServerError, domain.ErrInternal.Code, domain.ErrInternal.Message, log)
 }
 
 // parseOrgRole reads the optional ?role= filter shared by every org listing.

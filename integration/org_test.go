@@ -777,7 +777,11 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 		t.Errorf("expected 1, got %d", len(result.Invites))
 	}
 
-	if err := a.Services().OrgInvite.DeleteOrgInvite(ctx, org.ID, invite.ID, owner.User.ID); err != nil {
+	if err := a.Services().OrgInvite.DeleteOrgInvite(ctx, api.DeleteOrgInviteInput{
+		OrgID:    org.ID,
+		InviteID: invite.ID,
+		ActorID:  owner.User.ID,
+	}); err != nil {
 		t.Fatalf("DeleteOrgInvite failed: %v", err)
 	}
 

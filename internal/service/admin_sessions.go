@@ -113,7 +113,10 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, input api.RevokeUs
 		return err
 	}
 
-	revoked, err := s.sessionSvc.RevokeByIDForUser(ctx, input.SessionID, input.UserID)
+	revoked, err := s.sessionSvc.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
+		SessionID: input.SessionID,
+		UserID:    input.UserID,
+	})
 	if err != nil {
 		s.log.Error("failed to revoke session", "err", err, "user_id", input.UserID, "session_id", input.SessionID)
 		return domain.ErrInternal

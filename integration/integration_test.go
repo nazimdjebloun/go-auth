@@ -425,7 +425,10 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	revoked, err := a.Services().Session.RevokeByIDForUser(ctx, "not-a-uuid", alice.User.ID)
+	revoked, err := a.Services().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
+		SessionID: "not-a-uuid",
+		UserID:    alice.User.ID,
+	})
 	if err != nil {
 		t.Fatalf("malformed id should not error: %v", err)
 	}
@@ -433,7 +436,10 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 		t.Error("expected revoked=false for malformed id")
 	}
 
-	revoked, err = a.Services().Session.RevokeByIDForUser(ctx, alice.Session.ID, bob.User.ID)
+	revoked, err = a.Services().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
+		SessionID: alice.Session.ID,
+		UserID:    bob.User.ID,
+	})
 	if err != nil {
 		t.Fatalf("cross-user revoke should not error: %v", err)
 	}
@@ -446,7 +452,10 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 		t.Error("alice session should still be valid")
 	}
 
-	revoked, err = a.Services().Session.RevokeByIDForUser(ctx, alice.Session.ID, alice.User.ID)
+	revoked, err = a.Services().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
+		SessionID: alice.Session.ID,
+		UserID:    alice.User.ID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +493,10 @@ func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	n, err := a.Services().Session.RevokeManyForUser(ctx, []string{bob.Session.ID, "not-a-uuid"}, alice.User.ID)
+	n, err := a.Services().Session.RevokeManyForUser(ctx, api.RevokeSessionsForUserInput{
+		SessionIDs: []string{bob.Session.ID, "not-a-uuid"},
+		UserID:     alice.User.ID,
+	})
 	if err != nil {
 		t.Fatalf("mixed revoke should not error: %v", err)
 	}
@@ -492,7 +504,10 @@ func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
 		t.Errorf("expected 0 revoked for bob's session + malformed id, got %d", n)
 	}
 
-	n, err = a.Services().Session.RevokeManyForUser(ctx, []string{alice.Session.ID, "not-a-uuid"}, alice.User.ID)
+	n, err = a.Services().Session.RevokeManyForUser(ctx, api.RevokeSessionsForUserInput{
+		SessionIDs: []string{alice.Session.ID, "not-a-uuid"},
+		UserID:     alice.User.ID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1423,7 +1438,12 @@ func TestTwoFactor_VerifyThenEnable_LaterLoginRequiresTwoFactor(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	if aerr := a.Services().TwoFactor.Enable(ctx, user.ID, validTestPassword(), true, ""); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            user.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   "",
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -1445,7 +1465,13 @@ func TestTwoFactor_VerifyThenEnable_LaterLoginRequiresTwoFactor(t *testing.T) {
 	if twoFACode == "" {
 		t.Fatal("could not extract 2fa code")
 	}
-	verifyResult, aerr := a.Services().TwoFactor.Verify(ctx, login.TwoFactorChallenge, login.BindingToken(), twoFACode, "127.0.0.1", "test-agent")
+	verifyResult, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  login.TwoFactorChallenge,
+		BindingToken: login.BindingToken(),
+		Code:         twoFACode,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1484,7 +1510,13 @@ func TestTwoFactor_RegisterWithRequireEmail2FA_ChallengeThenVerify(t *testing.T)
 	if code == "" {
 		t.Fatal("could not extract 2fa code")
 	}
-	verifyResult, aerr := a.Services().TwoFactor.Verify(ctx, reg.TwoFactorChallenge, reg.BindingToken(), code, "127.0.0.1", "test-agent")
+	verifyResult, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  reg.TwoFactorChallenge,
+		BindingToken: reg.BindingToken(),
+		Code:         code,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1517,14 +1549,22 @@ func TestTwoFactor_EnableDisable_PersistsToDB(t *testing.T) {
 		t.Fatal("2fa should start disabled")
 	}
 
-	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, ""); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            reg.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   "",
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 	if !twoFactorEnabledInDB(t, db, reg.User.ID) {
 		t.Error("Enable did not persist two_factor_enabled=true")
 	}
 
-	if aerr := a.Services().TwoFactor.Disable(ctx, reg.User.ID, validTestPassword()); aerr != nil {
+	if aerr := a.Services().TwoFactor.Disable(ctx, api.TwoFactorDisableInput{
+		UserID:   reg.User.ID,
+		Password: validTestPassword(),
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 	if twoFactorEnabledInDB(t, db, reg.User.ID) {
@@ -1548,7 +1588,12 @@ func TestTwoFactor_AttemptCap_ResendFails_FreshLoginIssuesNewCode(t *testing.T) 
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, ""); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            reg.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   "",
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -1563,18 +1608,33 @@ func TestTwoFactor_AttemptCap_ResendFails_FreshLoginIssuesNewCode(t *testing.T) 
 	wrong := wrongTwoFactorCode(realCode)
 
 	for i := 0; i < 5; i++ {
-		if _, aerr := a.Services().TwoFactor.Verify(ctx, login.TwoFactorChallenge, login.BindingToken(), wrong, "127.0.0.1", "test-agent"); aerr == nil {
+		if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+			ChallengeID:  login.TwoFactorChallenge,
+			BindingToken: login.BindingToken(),
+			Code:         wrong,
+			IP:           "127.0.0.1",
+			UserAgent:    "test-agent",
+		}); aerr == nil {
 			t.Fatalf("wrong guess %d unexpectedly succeeded", i+1)
 		}
 	}
 
 	// The cap is real: even the correct code is now rejected.
-	if _, aerr := a.Services().TwoFactor.Verify(ctx, login.TwoFactorChallenge, login.BindingToken(), realCode, "127.0.0.1", "test-agent"); aerr == nil {
+	if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  login.TwoFactorChallenge,
+		BindingToken: login.BindingToken(),
+		Code:         realCode,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); aerr == nil {
 		t.Fatal("expected correct code to be rejected once the lineage is capped")
 	}
 
 	// Resend on a capped lineage does not hand out a fresh guess budget.
-	if _, aerr := a.Services().TwoFactor.Resend(ctx, login.TwoFactorChallenge, login.BindingToken()); aerr == nil {
+	if _, aerr := a.Services().TwoFactor.Resend(ctx, api.TwoFactorResendInput{
+		ChallengeID:  login.TwoFactorChallenge,
+		BindingToken: login.BindingToken(),
+	}); aerr == nil {
 		t.Fatal("expected Resend to fail on a capped lineage")
 	}
 
@@ -1594,7 +1654,13 @@ func TestTwoFactor_AttemptCap_ResendFails_FreshLoginIssuesNewCode(t *testing.T) 
 	if newCode == "" {
 		t.Fatal("could not extract new 2fa code")
 	}
-	if _, aerr := a.Services().TwoFactor.Verify(ctx, login2.TwoFactorChallenge, login2.BindingToken(), newCode, "127.0.0.1", "test-agent"); aerr != nil {
+	if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  login2.TwoFactorChallenge,
+		BindingToken: login2.BindingToken(),
+		Code:         newCode,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); aerr != nil {
 		t.Fatalf("verify on fresh lineage should succeed: %v", aerr)
 	}
 }
@@ -1622,7 +1688,12 @@ func TestTwoFactor_NoAccountLevelRefusal_AcrossManyLineages(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, ""); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            reg.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   "",
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -1644,7 +1715,13 @@ func TestTwoFactor_NoAccountLevelRefusal_AcrossManyLineages(t *testing.T) {
 		realCode := extractCodeAfter(mailer.lastBody(), "Your code: ")
 		wrong := wrongTwoFactorCode(realCode)
 		for j := 0; j < 5; j++ {
-			if _, aerr := a.Services().TwoFactor.Verify(ctx, login.TwoFactorChallenge, login.BindingToken(), wrong, "127.0.0.1", "test-agent"); aerr == nil {
+			if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+				ChallengeID:  login.TwoFactorChallenge,
+				BindingToken: login.BindingToken(),
+				Code:         wrong,
+				IP:           "127.0.0.1",
+				UserAgent:    "test-agent",
+			}); aerr == nil {
 				t.Fatalf("login %d guess %d: wrong code unexpectedly succeeded", i, j)
 			}
 		}
@@ -1667,7 +1744,12 @@ func TestTwoFactor_ResendCeiling(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, ""); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            reg.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   "",
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 	login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "ivy@example.com", Password: validTestPassword()})
@@ -1676,11 +1758,17 @@ func TestTwoFactor_ResendCeiling(t *testing.T) {
 	}
 
 	for i := 0; i < 3; i++ {
-		if _, aerr := a.Services().TwoFactor.Resend(ctx, login.TwoFactorChallenge, login.BindingToken()); aerr != nil {
+		if _, aerr := a.Services().TwoFactor.Resend(ctx, api.TwoFactorResendInput{
+			ChallengeID:  login.TwoFactorChallenge,
+			BindingToken: login.BindingToken(),
+		}); aerr != nil {
 			t.Fatalf("resend %d should succeed: %v", i+1, aerr)
 		}
 	}
-	if _, aerr := a.Services().TwoFactor.Resend(ctx, login.TwoFactorChallenge, login.BindingToken()); aerr == nil {
+	if _, aerr := a.Services().TwoFactor.Resend(ctx, api.TwoFactorResendInput{
+		ChallengeID:  login.TwoFactorChallenge,
+		BindingToken: login.BindingToken(),
+	}); aerr == nil {
 		t.Fatal("expected the 4th resend to fail")
 	}
 }
@@ -1701,7 +1789,12 @@ func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, ""); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            reg.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   "",
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 	login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "jack@example.com", Password: validTestPassword()})
@@ -1718,7 +1811,13 @@ func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, aerr := a.Services().TwoFactor.Verify(ctx, login.TwoFactorChallenge, login.BindingToken(), wrong, "127.0.0.1", "test-agent")
+			_, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+				ChallengeID:  login.TwoFactorChallenge,
+				BindingToken: login.BindingToken(),
+				Code:         wrong,
+				IP:           "127.0.0.1",
+				UserAgent:    "test-agent",
+			})
 			if aerr == nil {
 				atomic.AddInt32(&succeeded, 1)
 			}
@@ -1803,14 +1902,24 @@ func TestTwoFactor_ChallengeBinding_RequiredByDefault(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, regA.User.ID, validTestPassword(), true, ""); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            regA.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   "",
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 	regB, aerr := a.Register(ctx, api.RegisterInput{Email: "leo@example.com", Password: validTestPassword(), Name: "Leo"})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, regB.User.ID, validTestPassword(), true, ""); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            regB.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   "",
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -1830,15 +1939,33 @@ func TestTwoFactor_ChallengeBinding_RequiredByDefault(t *testing.T) {
 	}
 
 	// Missing binding cookie.
-	if _, aerr := a.Services().TwoFactor.Verify(ctx, loginA.TwoFactorChallenge, "", codeA, "127.0.0.1", "test-agent"); aerr == nil {
+	if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  loginA.TwoFactorChallenge,
+		BindingToken: "",
+		Code:         codeA,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); aerr == nil {
 		t.Fatal("expected verify to fail with a missing binding token")
 	}
 	// Binding token from a different challenge.
-	if _, aerr := a.Services().TwoFactor.Verify(ctx, loginA.TwoFactorChallenge, loginB.BindingToken(), codeA, "127.0.0.1", "test-agent"); aerr == nil {
+	if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  loginA.TwoFactorChallenge,
+		BindingToken: loginB.BindingToken(),
+		Code:         codeA,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); aerr == nil {
 		t.Fatal("expected verify to fail with a mismatched binding token")
 	}
 	// The correct binding token still works.
-	if _, aerr := a.Services().TwoFactor.Verify(ctx, loginA.TwoFactorChallenge, loginA.BindingToken(), codeA, "127.0.0.1", "test-agent"); aerr != nil {
+	if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  loginA.TwoFactorChallenge,
+		BindingToken: loginA.BindingToken(),
+		Code:         codeA,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); aerr != nil {
 		t.Fatalf("expected verify to succeed with the matching binding token: %v", aerr)
 	}
 }
@@ -1855,7 +1982,12 @@ func TestTwoFactor_ChallengeBinding_DisabledSkipsCheck(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, ""); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            reg.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   "",
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 	login, aerr := a.Services().Auth.Login(ctx, api.LoginInput{Email: "mona@example.com", Password: validTestPassword()})
@@ -1866,7 +1998,13 @@ func TestTwoFactor_ChallengeBinding_DisabledSkipsCheck(t *testing.T) {
 		t.Error("expected an empty binding token when binding is disabled")
 	}
 	code := extractCodeAfter(mailer.lastBody(), "Your code: ")
-	if _, aerr := a.Services().TwoFactor.Verify(ctx, login.TwoFactorChallenge, "", code, "127.0.0.1", "test-agent"); aerr != nil {
+	if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  login.TwoFactorChallenge,
+		BindingToken: "",
+		Code:         code,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); aerr != nil {
 		t.Fatalf("expected verify to succeed with no binding token when binding is disabled: %v", aerr)
 	}
 }
@@ -1903,13 +2041,22 @@ func TestTwoFactor_DefaultTwoFactorEnabled_GatedUntilDisabled(t *testing.T) {
 		t.Fatal("expected the next login to require two-factor")
 	}
 	code := extractCodeAfter(mailer.lastBody(), "Your code: ")
-	verifyResult, aerr := a.Services().TwoFactor.Verify(ctx, login.TwoFactorChallenge, login.BindingToken(), code, "127.0.0.1", "test-agent")
+	verifyResult, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  login.TwoFactorChallenge,
+		BindingToken: login.BindingToken(),
+		Code:         code,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
 	user := verifyResult.User
 
-	if aerr := a.Services().TwoFactor.Disable(ctx, user.ID, validTestPassword()); aerr != nil {
+	if aerr := a.Services().TwoFactor.Disable(ctx, api.TwoFactorDisableInput{
+		UserID:   user.ID,
+		Password: validTestPassword(),
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -1943,7 +2090,13 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 		t.Fatal("expected registration to require two-factor under RequireEmail2FA")
 	}
 	code := extractCodeAfter(mailer.lastBody(), "Your code: ")
-	verifyResult, aerr := a.Services().TwoFactor.Verify(ctx, reg.TwoFactorChallenge, reg.BindingToken(), code, "127.0.0.1", "test-agent")
+	verifyResult, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  reg.TwoFactorChallenge,
+		BindingToken: reg.BindingToken(),
+		Code:         code,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -1963,7 +2116,13 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 		t.Error("gated admin login must not issue a session")
 	}
 	adminCode := extractCodeAfter(mailer.lastBody(), "Your code: ")
-	if _, aerr := a.Services().TwoFactor.Verify(ctx, adminLogin.TwoFactorChallenge, adminLogin.BindingToken(), adminCode, "127.0.0.1", "test-agent"); aerr != nil {
+	if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  adminLogin.TwoFactorChallenge,
+		BindingToken: adminLogin.BindingToken(),
+		Code:         adminCode,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); aerr != nil {
 		t.Fatalf("admin verify should succeed: %v", aerr)
 	}
 
@@ -1994,7 +2153,13 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 		t.Error("gated invite registration must not issue a session")
 	}
 	inviteCode := extractCodeAfter(mailer.lastBody(), "Your code: ")
-	if _, aerr := a.Services().TwoFactor.Verify(ctx, inviteResult.TwoFactorChallenge, inviteResult.BindingToken(), inviteCode, "127.0.0.1", "test-agent"); aerr != nil {
+	if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+		ChallengeID:  inviteResult.TwoFactorChallenge,
+		BindingToken: inviteResult.BindingToken(),
+		Code:         inviteCode,
+		IP:           "127.0.0.1",
+		UserAgent:    "test-agent",
+	}); aerr != nil {
 		t.Fatalf("invite verify should succeed: %v", aerr)
 	}
 }
@@ -2024,7 +2189,12 @@ func TestTwoFactor_Enable_RevokesOtherSessionsByDefault(t *testing.T) {
 		t.Fatalf("expected 2 sessions before Enable, got %d", len(sessions))
 	}
 
-	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), false, reg.Session.ID); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            reg.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: false,
+		CallerSessionID:   reg.Session.ID,
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -2056,7 +2226,12 @@ func TestTwoFactor_Enable_KeepOtherSessionsLeavesBoth(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	if aerr := a.Services().TwoFactor.Enable(ctx, reg.User.ID, validTestPassword(), true, reg.Session.ID); aerr != nil {
+	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+		UserID:            reg.User.ID,
+		Password:          validTestPassword(),
+		KeepOtherSessions: true,
+		CallerSessionID:   reg.Session.ID,
+	}); aerr != nil {
 		t.Fatal(aerr)
 	}
 
