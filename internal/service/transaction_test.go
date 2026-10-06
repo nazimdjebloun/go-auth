@@ -57,7 +57,7 @@ func TestServiceConstructorsRequireTransactionManager(t *testing.T) {
 					constructor.new(missing.tx)
 				})
 			}
-			t.Run("configured", func(t *testing.T) {
+			t.Run("configured", func(_ *testing.T) {
 				constructor.new(&testutil.MockTxManager{})
 			})
 		})
