@@ -36,13 +36,14 @@ func TestHTTPBackendSecurityContract(t *testing.T) {
 		name, body, origin string
 		csrf               bool
 		status             int
+		code               string
 	}{
-		{"malformed JSON", "{", "http://localhost:8080", true, http.StatusBadRequest},
-		{"missing CSRF", `{"email":"http@example.com","password":"Passw0rd!"}`, "http://localhost:8080", false, http.StatusForbidden},
-		{"foreign origin", `{"email":"http@example.com","password":"Passw0rd!"}`, "https://attacker.example", true, http.StatusForbidden},
-		{"unknown account", `{"email":"missing@example.com","password":"Passw0rd!"}`, "http://localhost:8080", true, http.StatusUnauthorized},
-		{"wrong password", `{"email":"http@example.com","password":"Wrongpass1!"}`, "http://localhost:8080", true, http.StatusUnauthorized},
-		{"SQL metacharacters", `{"email":"http@example.com","password":"' OR 1=1; --"}`, "http://localhost:8080", true, http.StatusUnauthorized},
+		{"malformed JSON", "{", "http://localhost:8080", true, http.StatusBadRequest, "invalid_json"},
+		{"missing CSRF", `{"email":"http@example.com","password":"Passw0rd!"}`, "http://localhost:8080", false, http.StatusForbidden, "csrf_token_missing"},
+		{"foreign origin", `{"email":"http@example.com","password":"Passw0rd!"}`, "https://attacker.example", true, http.StatusForbidden, "csrf_origin_denied"},
+		{"unknown account", `{"email":"missing@example.com","password":"Passw0rd!"}`, "http://localhost:8080", true, http.StatusUnauthorized, "invalid_credentials"},
+		{"wrong password", `{"email":"http@example.com","password":"Wrongpass1!"}`, "http://localhost:8080", true, http.StatusUnauthorized, "invalid_credentials"},
+		{"SQL metacharacters", `{"email":"http@example.com","password":"' OR 1=1; --"}`, "http://localhost:8080", true, http.StatusUnauthorized, "invalid_credentials"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(tc.body))
@@ -58,18 +59,17 @@ func TestHTTPBackendSecurityContract(t *testing.T) {
 			if w.Code != tc.status {
 				t.Fatalf("status=%d body=%s want %d", w.Code, w.Body, tc.status)
 			}
-			if tc.status != http.StatusForbidden {
-				var body map[string]any
-				if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-					t.Fatal(err)
-				}
-				code, _ := body["error"].(string)
-				message, _ := body["message"].(string)
-				if len(body) != 2 || code == "" || message == "" {
-					t.Fatalf("invalid error envelope: %s", w.Body)
-				}
-			} else if !strings.Contains(w.Body.String(), "Forbidden") {
-				t.Fatalf("invalid CSRF refusal: %s", w.Body)
+			if contentType := w.Header().Get("Content-Type"); contentType != "application/json" {
+				t.Fatalf("content-type=%q body=%s want application/json", contentType, w.Body)
+			}
+			var body map[string]any
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			code, _ := body["error"].(string)
+			message, _ := body["message"].(string)
+			if len(body) != 2 || code != tc.code || message == "" {
+				t.Fatalf("invalid error envelope: %s want error=%q and message only", w.Body, tc.code)
 			}
 			for _, cookie := range w.Result().Cookies() {
 				if cookie.Name == "goauth_session" && cookie.Value != "" {
