@@ -10,7 +10,7 @@ on:
         required: false
         default: "15"
       stress:
-        description: Run repeated database concurrency and rollback tests
+        description: Run extended database concurrency and rollback stress tests
         type: boolean
         default: false
       stress_count:
@@ -118,9 +118,8 @@ jobs:
       - name: Full database behavior and schema suite
         run: python3 .github/scripts/test_backends.py "${{ matrix.backend }}"
       - name: Repeat concurrency and rollback suite
-        if: github.event_name == 'workflow_dispatch' && inputs.stress
         env:
-          STRESS_COUNT: ${{ inputs.stress_count || '25' }}
+          STRESS_COUNT: ${{ github.event_name == 'workflow_dispatch' && inputs.stress && inputs.stress_count || '3' }}
         run: python3 .github/scripts/test_backends.py "${{ matrix.backend }}" --stress --count "$STRESS_COUNT"
       - name: Preserve results, shuffle seeds, and coverage
         if: always()

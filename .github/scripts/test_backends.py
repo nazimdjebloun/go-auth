@@ -10,14 +10,15 @@ import subprocess
 import sys
 
 
-PACKAGES = ["./integration", "./internal/service", "./internal/sqlstore", "./cmd/goauth/cmd"]
+PACKAGES = [".", "./integration", "./internal/service", "./internal/sqlstore", "./cmd/goauth/cmd"]
 MODULE = "github.com/nazimdjebloun/go-auth/"
 REQUIRED = {
-    (MODULE + package, name)
+    (MODULE.rstrip("/") if package == "." else MODULE + package, name)
     for package, names in {
+        ".": ["TestAppPermissionsHTTPUserRoleJSON", "TestAppPermissionsHTTPAssuranceAndOptionalManagement", "TestAppPermissionsStatsAuthorization", "TestAppPermissionsSameRoleAssignmentPreservesAccessRevision", "TestAppPermissionsTargetAccessHTTP", "TestAppPermissionsDisabledCapabilityFailsClosed"],
         "integration": ["TestMigrations_CreateTables", "TestHTTPBackendSecurityContract"],
         "cmd/goauth/cmd": ["TestApplySchema_SelectedBackend"],
-        "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack", "TestAppSameRoleAssignmentIsNoOp", "TestAppConcurrentSameRoleAssignmentsPreserveRevision"],
+        "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack", "TestAppSameRoleAssignmentIsNoOp", "TestAppConcurrentSameRoleAssignmentsPreserveRevision", "TestAppConcurrentRoleReplacementHasOneWinner", "TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess"],
         "internal/sqlstore": ["TestRecoveryClaimIsExclusiveAndStaleCompletionCannotDeleteReclaimedJob", "TestAdminGuard_ConcurrentReductionsAcrossPools", "TestBackendTokenClaimConcurrentAcrossPools", "TestBackendProviderIdentityIsExact", "TestBackendRefreshZeroGraceRejectsFutureRotation", "TestBackendSessionAssuranceRoundTrip", "TestAppDefaultRoleSharedReadRequiresTransaction", "TestAppPermissionNamespaceOwnership"],
     }.items()
     for name in names
@@ -27,7 +28,7 @@ STRESS_PATTERN = (
     "TestLoginCredentialReplacement|TestTwoFactorVerify|"
     "TestAdminGuard|TestAdminAccessRequires|TestOrgMutationChecks|"
     "TestInviteRevocationCannot|TestOAuthUnlinkCounts|"
-    "TestAppSignup|Test(Postgres|MySQL)_AppSignup|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole"
+    "TestAppSignup|Test(Postgres|MySQL)_App|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole|TestAppPermissions"
 )
 
 
@@ -37,6 +38,11 @@ def required_tests(backend, stress=False):
     prefix = {"postgres": "Postgres", "mysql": "MySQL"}.get(backend)
     if prefix:
         expected.add((MODULE + "internal/service", f"Test{prefix}_AppSignupRoleLocksAcrossPools"))
+        expected.add((MODULE + "internal/service", f"Test{prefix}_AppAuthorizationDeadlockRollsBackAcrossPools"))
+    if backend == "mysql":
+        expected.add((MODULE + "internal/service", "TestMySQL_AppAuthorizationRejectsRevokedSessionFromOldSnapshot"))
+    if backend == "postgres" and not stress:
+        expected.add((MODULE.rstrip("/"), "TestDatabaseBudget_PostgresURL"))
     return expected
 
 
@@ -71,12 +77,14 @@ def main():
     required_dsn = {"postgres": "GOAUTH_POSTGRES_DSN", "mysql": "GOAUTH_MYSQL_TEST_DSN"}.get(args.backend)
     if required_dsn and not env.get(required_dsn):
         parser.error(f"{required_dsn} is required; CI must not skip its backend")
+    if args.backend == "postgres":
+        env["GOAUTH_POSTGRES_TEST_DSN"] = env["GOAUTH_POSTGRES_DSN"]
     mode = "stress" if args.stress else "full"
     artifacts = Path(".test-results") / args.backend / mode
     artifacts.mkdir(parents=True, exist_ok=True)
     excluded = []
     if args.backend != "postgres":
-        excluded.append("^TestPostgres_")
+        excluded.extend(["^TestPostgres_", "^TestDatabaseBudget_PostgresURL$"])
     if args.backend != "mysql":
         excluded.extend(["^TestMySQL_", "^TestApplySchema_MySQL$"])
     command = ["go", "test", "-json", "-race", "-shuffle=on", "-count=" + str(args.count if args.stress else 1)]

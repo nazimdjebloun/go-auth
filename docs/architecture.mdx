@@ -174,3 +174,19 @@ Everywhere the library needs to talk to the outside world, it does so through a 
 Unit tests live alongside the code they test (`internal/service/*_test.go`, `internal/handler/*_test.go`, ...) and use hand-written fakes for the `port` interfaces (see `internal/testutil`). The user fake stores and returns detached snapshots. `MockTxManager` restores participating repository rows after callback errors, cancellation, or panics; operations must use the callback context. It models callback rollback, and does not establish SQL isolation, constraints, savepoints, or durable audit guarantees. Handler callback stubs test HTTP behavior only.
 
 Database contract and transaction tests use real, isolated databases through `internal/testdb`. `GOAUTH_TEST_DRIVER` selects SQLite (the default), PostgreSQL, or MySQL. Explicitly selecting an external backend requires `GOAUTH_POSTGRES_DSN` or `GOAUTH_MYSQL_TEST_DSN` and fails if the database is unavailable. These SQL fixtures verify concurrency, guarded claims, rollback, and cross-repository invariants against the canonical schemas.
+
+The database CI matrix runs the root HTTP tests, integration tests, services,
+SQL stores, and CLI against all three backends with race detection and shuffled
+test order. Each normal run also repeats the concurrency and rollback suite
+three times at CPU settings one and four. Manual dispatch can request a larger
+stress count. The runner fails if required tests are absent, skipped, or do not
+pass every required repetition. Results, shuffle seeds, and coverage are saved
+under `.test-results/{backend}/` and uploaded as CI artifacts.
+
+Native PostgreSQL and MySQL tests force an actual deadlock across independent
+pools after role, permission, and audit writes. They require a typed engine
+deadlock, exactly one committed transaction, complete victim rollback, reusable
+connections, and a successful retry of the complete operation. MySQL also tests
+management from an older repeatable-read snapshot after session revocation,
+deletion, and removal of MFA assurance. These tests exercise database behavior;
+SQLite's serialized writes are not used as evidence for row-locking engines.

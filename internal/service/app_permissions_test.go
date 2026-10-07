@@ -22,7 +22,7 @@ import (
 type appFixture struct {
 	s     *AppPermissionsService
 	db    *sqlstore.DB
-	users *sqlstore.UserRepository
+	users port.UserRepository
 	repo  *sqlstore.AppPermissionsRepository
 	admin api.AppPermissionActor
 }
@@ -352,6 +352,7 @@ func TestAppBusinessDeletionDeniesAndGrantCleanupRestricts(t *testing.T) {
 
 func TestAppConcurrentRoleReplacementHasOneWinner(t *testing.T) {
 	f := newAppFixture(t)
+	other := appSecondPool(t, f)
 	actor := f.account(t)
 	r := f.role(t, "operator")
 	u, _ := f.users.GetByID(t.Context(), actor.UserID)
@@ -359,9 +360,9 @@ func TestAppConcurrentRoleReplacementHasOneWinner(t *testing.T) {
 	results := make(chan error, 2)
 	start := make(chan struct{})
 	var wg sync.WaitGroup
-	for range 2 {
+	for _, service := range []*AppPermissionsService{f.s, other.s} {
 		wg.Add(1)
-		go func() { defer wg.Done(); <-start; _, err := f.s.SetUserRole(t.Context(), input); results <- err }()
+		go func() { defer wg.Done(); <-start; _, err := service.SetUserRole(t.Context(), input); results <- err }()
 	}
 	close(start)
 	wg.Wait()
@@ -370,6 +371,8 @@ func TestAppConcurrentRoleReplacementHasOneWinner(t *testing.T) {
 	for err := range results {
 		if err == nil {
 			winners++
+		} else if !errors.Is(err, domain.ErrAppAuthorizationConflict) {
+			t.Fatalf("replacement failed without a revision conflict: %v", err)
 		}
 	}
 	if winners != 1 {
@@ -438,6 +441,7 @@ func TestAppProtectedRolesAndDefaultCannotBeChanged(t *testing.T) {
 
 func TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess(t *testing.T) {
 	f := newAppFixture(t)
+	other := appSecondPool(t, f)
 	ctx := t.Context()
 	key := "goauth.app.sessions.revoke"
 	f.install(t, key)
@@ -457,7 +461,7 @@ func TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess(t *testing.
 	go func() {
 		defer wg.Done()
 		<-start
-		_, err := f.s.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Delete: []string{key}})
+		_, err := other.s.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Delete: []string{key}})
 		results <- err
 	}()
 	close(start)

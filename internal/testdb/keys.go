@@ -19,6 +19,9 @@ var checks = regexp.MustCompile(`CHECK\s*\(`)
 var checkCast = regexp.MustCompile(`::(?:character varying|bigint|integer|text)(?:\[\])?`)
 var checkIn = regexp.MustCompile(`(?i)([a-z_]+) IN \(([^)]+)\)`)
 var numericCheckCast = regexp.MustCompile(`'([0-9]+)'::(?:bigint|integer)`)
+var checkCharset = regexp.MustCompile(`(?i)_[a-z0-9]+(')`)
+var checkFalse = regexp.MustCompile(`\b0\s*=\s*([a-z_]+)\b`)
+var checkTrue = regexp.MustCompile(`\b0\s*<>\s*([a-z_]+)\b`)
 
 // AssertKeys checks primary/unique keys, every foreign-key relationship and
 // deletion action, and the expressions of explicit CHECK constraints in each DDL.
@@ -185,7 +188,14 @@ func checkExpressions(ddl string) []string {
 			if ddl[i] == ')' {
 				depth--
 				if depth == 0 {
-					expr := numericCheckCast.ReplaceAllString(ddl[start:i], "$1")
+					expr := ddl[start:i]
+					// MySQL's catalog quotes identifiers, escapes string literals,
+					// adds charset introducers, and expands boolean predicates.
+					expr = strings.NewReplacer("`", "", `\'`, "'").Replace(expr)
+					expr = checkCharset.ReplaceAllString(expr, "$1")
+					expr = checkFalse.ReplaceAllString(expr, "NOT $1")
+					expr = checkTrue.ReplaceAllString(expr, "$1")
+					expr = numericCheckCast.ReplaceAllString(expr, "$1")
 					expr = checkCast.ReplaceAllString(expr, "")
 					expr = checkIn.ReplaceAllString(expr, "$1=ANY(ARRAY[$2])")
 					expr = strings.NewReplacer("(", "", ")", "", " ", "", "\n", "", "\t", "").Replace(expr)

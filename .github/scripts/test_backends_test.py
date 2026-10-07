@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+import re
 import unittest
 
 spec = importlib.util.spec_from_file_location("test_backends", Path(__file__).with_name("test_backends.py"))
@@ -10,6 +11,29 @@ spec.loader.exec_module(runner)
 
 
 class BackendEvidenceTests(unittest.TestCase):
+    def test_root_authorization_http_tests_run_on_every_backend(self):
+        self.assertIn(".", runner.PACKAGES)
+        root = runner.MODULE.rstrip("/")
+        for backend in ["sqlite", "postgres", "mysql"]:
+            for stress in [False, True]:
+                with self.subTest(backend=backend, stress=stress):
+                    expected = runner.required_tests(backend, stress)
+                    for name in ["TestAppPermissionsTargetAccessHTTP", "TestAppPermissionsStatsAuthorization", "TestAppPermissionsSameRoleAssignmentPreservesAccessRevision"]:
+                        self.assertIn((root, name), expected)
+
+    def test_native_deadlock_and_snapshot_evidence_cannot_be_omitted(self):
+        package = runner.MODULE + "internal/service"
+        for backend, prefix in [("sqlite", None), ("postgres", "Postgres"), ("mysql", "MySQL")]:
+            for stress in [False, True]:
+                with self.subTest(backend=backend, stress=stress):
+                    expected = runner.required_tests(backend, stress)
+                    for candidate in ["Postgres", "MySQL"]:
+                        self.assertEqual((package, f"Test{candidate}_AppAuthorizationDeadlockRollsBackAcrossPools") in expected, candidate == prefix)
+                    self.assertEqual((package, "TestMySQL_AppAuthorizationRejectsRevokedSessionFromOldSnapshot") in expected, backend == "mysql")
+                    for _, name in expected:
+                        if stress:
+                            self.assertRegex(name, re.compile(runner.STRESS_PATTERN))
+
     def test_signup_lock_evidence_is_required_for_selected_backend(self):
         package = runner.MODULE + "internal/service"
         for backend, prefix in [("sqlite", None), ("postgres", "Postgres"), ("mysql", "MySQL")]:

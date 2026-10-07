@@ -288,7 +288,7 @@ func TestAppSignupInviteClaimFailureRollsBack(t *testing.T) {
 	}
 }
 
-func appSignupSecondPool(t *testing.T, f appFixture) appFixture {
+func appSecondPool(t *testing.T, f appFixture) appFixture {
 	t.Helper()
 	raw := testdb.SecondPool(t, f.db.DB)
 	db := sqlstore.NewDB(raw, testdb.Driver(raw))
@@ -305,6 +305,16 @@ func appSignupSecondPool(t *testing.T, f appFixture) appFixture {
 type signupSharedRoleSignal struct {
 	port.AppRoleStore
 	reached chan struct{}
+}
+
+type signupCreateSignal struct {
+	port.UserRepository
+	reached chan struct{}
+}
+
+func (r signupCreateSignal) Create(ctx context.Context, user *domain.User) error {
+	close(r.reached)
+	return r.UserRepository.Create(ctx, user)
 }
 
 func (r signupSharedRoleSignal) RoleBySlugForShare(ctx context.Context, slug string) (*domain.AppRole, error) {
@@ -330,7 +340,7 @@ func testAppSignupRoleLocksAcrossPools(t *testing.T) {
 	t.Helper()
 	t.Run("management_state_does_not_block_signup", func(t *testing.T) {
 		f := newAppFixture(t)
-		other := appSignupSecondPool(t, f)
+		other := appSecondPool(t, f)
 		signup := appSignupAction(t, other, "password", "state-lock@signup.example")
 		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
@@ -345,7 +355,7 @@ func testAppSignupRoleLocksAcrossPools(t *testing.T) {
 	})
 	t.Run("shared_default_allows_another_signup", func(t *testing.T) {
 		f := newAppFixture(t)
-		other := appSignupSecondPool(t, f)
+		other := appSecondPool(t, f)
 		signup := appSignupAction(t, other, "password", "shared-lock@signup.example")
 		now := time.Now().UTC()
 		first := &domain.User{
@@ -390,9 +400,17 @@ func testAppSignupRoleLocksAcrossPools(t *testing.T) {
 			f := newAppFixture(t)
 			role := f.role(t, "custom-default")
 			f.s.config.DefaultRoleSlug = role.Slug
-			other := appSignupSecondPool(t, f)
+			other := appSecondPool(t, f)
 			reached := make(chan struct{})
-			other.s.roles = signupSharedRoleSignal{AppRoleStore: other.repo, reached: reached}
+			if action == "delete" && testdb.Selected() == "mysql" {
+				// A role DELETE can gap-lock users.app_role_id while checking
+				// its foreign key, blocking even the provisional NULL insert.
+				// Release after signup enters Create instead of waiting for a
+				// later shared read that cannot happen until DELETE commits.
+				other.users = signupCreateSignal{UserRepository: other.users, reached: reached}
+			} else {
+				other.s.roles = signupSharedRoleSignal{AppRoleStore: other.repo, reached: reached}
+			}
 			email := action + "@signup.example"
 			signup := appSignupAction(t, other, "password", email)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -418,7 +436,7 @@ func testAppSignupRoleLocksAcrossPools(t *testing.T) {
 				go func() { done <- signup(ctx) }()
 				select {
 				case <-reached:
-					return nil // release the role writer after signup's state read
+					return nil // release after the backend-specific signup barrier
 				case <-ctx.Done():
 					return ctx.Err()
 				}

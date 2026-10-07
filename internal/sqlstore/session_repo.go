@@ -105,9 +105,18 @@ func (r *SessionRepository) GetByTokenHashWithUser(ctx context.Context, hash str
 }
 
 // GetByID resolves a session's current ownership and assurance without a raw token.
+// In a transaction, a shared locking read prevents a MySQL repeatable-read
+// snapshot from retaining revoked sessions or removed second-factor assurance.
 func (r *SessionRepository) GetByID(ctx context.Context, id string) (*domain.Session, error) {
 	s := &domain.Session{}
-	err := scanSession(s, r.db.QueryRowContext(ctx, "SELECT "+sessionCols+" FROM sessions WHERE id=$1", id))
+	query := "SELECT " + sessionCols + " FROM sessions WHERE id=$1"
+	if _, inTx := txFromContext(ctx); inTx {
+		switch r.db.Driver() {
+		case "mysql", "postgres", "pgx":
+			query += " FOR SHARE"
+		}
+	}
+	err := scanSession(s, r.db.QueryRowContext(ctx, query, id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
