@@ -273,6 +273,9 @@ func TestAppPermissionsHTTPAssuranceAndOptionalManagement(t *testing.T) {
 	if _, ok := f.a.Handler(routes.AppLibraryPermissions); ok {
 		t.Fatal("management exposed without opt-in")
 	}
+	if _, ok := f.a.Handler(routes.GetAppUserAccess); ok {
+		t.Fatal("target access exposed without management opt-in")
+	}
 	f.request(t, "GET", "/admin/users", "", f.token, 403)
 	if _, err := f.a.Services().Admin.ListUsers(t.Context(), api.AdminListUsersInput{ActorID: f.admin.UserID}); !errors.Is(err, domain.ErrTwoFactorRequired) {
 		t.Fatalf("direct MFA bypass: %v", err)
@@ -484,7 +487,7 @@ func TestAppPermissionsDisabledCapabilityFailsClosed(t *testing.T) {
 	if a.Services().AppPermissions != nil {
 		t.Fatal("disabled capability is typed nil")
 	}
-	for _, pattern := range []string{routes.AppAccess, routes.AppLibraryPermissions, routes.ListAppRoles} {
+	for _, pattern := range []string{routes.AppAccess, routes.AppLibraryPermissions, routes.ListAppRoles, routes.GetAppUserAccess} {
 		if _, ok := a.Handler(pattern); ok {
 			t.Fatalf("disabled route exposed: %s", pattern)
 		}

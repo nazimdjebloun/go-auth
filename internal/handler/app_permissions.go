@@ -259,6 +259,19 @@ func (h *Handler) GetAppUserRole(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, result)
 }
 
+// GetAppUserAccess inspects a target account using the authenticated actor.
+func (h *Handler) GetAppUserAccess(w http.ResponseWriter, r *http.Request) {
+	result, err := h.services.AppPermissions.ListEffectivePermissions(r.Context(), api.ListAppEffectivePermissionsInput{
+		Actor:  appRequestActor(r),
+		UserID: r.PathValue("id"),
+	})
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, result)
+}
+
 // SetAppUserRole replaces exactly one role assignment.
 func (h *Handler) SetAppUserRole(w http.ResponseWriter, r *http.Request) {
 	var body struct {

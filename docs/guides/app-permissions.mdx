@@ -244,6 +244,30 @@ An app permission does not check organization membership or resource ownership.
 app permissions are enabled, even if management HTTP is off. Use it to render
 buttons; browser flags never authorize backend actions.
 
+Keep self-service clients on `/auth/access`, alongside `/auth/me` and
+`/auth/sessions`. This response describes application access. Organization
+membership and roles have their own endpoints and authorization rules.
+
+With `EnableManagementHTTP:true`, an operator can inspect another account using
+`GET /admin/authorization/users/{id}/access`. It returns the same shape for the
+target's current enabled role and effective grants. Inspection requires
+`goauth.app.roles.read` or protected-admin access, plus the operator's required
+MFA. The management route enforces this even when inspecting the operator's own
+account. A missing, banned, unassigned, or disabled-role target returns 403.
+Use the existing service method for direct backend inspection:
+
+```go
+access, err := permissions.ListEffectivePermissions(ctx, api.ListAppEffectivePermissionsInput{
+    Actor: api.AppPermissionActor{UserID: authenticatedUser.ID, SessionID: session.ID},
+    UserID: targetUserID,
+})
+```
+
+Omitting `UserID` selects the actor's own access. Supplying another user's ID
+requires the same inspection permission and assurance as the management route.
+Explicit target IDs must be UUIDs. Disabling or removing a grant changes
+subsequent access responses in existing sessions.
+
 Checks reload primary-database state rather than caching grants in sessions.
 Changes affect subsequent checks, including existing sessions. A check does not
 cancel an action already authorized or automatically make a consumer's later
@@ -264,6 +288,7 @@ business write part of the authorization transaction.
 | Signup invite create/resend/revoke/delete and corresponding bulk action | `goauth.app.invites.create` / `resend` / `revoke` / `delete` |
 | Business permission list/create/update/delete | `goauth.app.permissions.read` / `create` / `update` / `delete` |
 | Role list/create/update/delete | `goauth.app.roles.read` / `create` / `update` / `delete` |
+| Target role and effective-access inspection | `goauth.app.roles.read` |
 | Role assignment and legacy role-update route in enabled mode | `goauth.app.roles.assign` |
 
 Every enabled-mode administrative service method checks its action key.

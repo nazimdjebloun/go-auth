@@ -293,6 +293,11 @@ func (s *AppPermissionsService) LibraryPermissionCatalog() []domain.AppLibraryPe
 
 // ListEffectivePermissions is informational; current backend checks remain mandatory.
 func (s *AppPermissionsService) ListEffectivePermissions(ctx context.Context, input api.ListAppEffectivePermissionsInput) (*api.AppAccess, error) {
+	if input.UserID != "" {
+		if err := validateAppID(input.UserID); err != nil {
+			return nil, err
+		}
+	}
 	target := input.UserID
 	if target == "" {
 		target = input.Actor.UserID

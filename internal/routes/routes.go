@@ -22,6 +22,7 @@ const (
 	SetAppRolePermissions       = "PUT /admin/authorization/roles/{roleID}/permissions"
 	DeleteAppRole               = "DELETE /admin/authorization/roles/{roleID}"
 	GetAppUserRole              = "GET /admin/authorization/users/{id}/role"
+	GetAppUserAccess            = "GET /admin/authorization/users/{id}/access"
 	SetAppUserRole              = "PUT /admin/authorization/users/{id}/role"
 	Register                    = "POST /auth/register"
 	Login                       = "POST /auth/login"

@@ -25,6 +25,7 @@ token and origin checks. Every route is wrapped with rate limiting.
 | `PUT /admin/authorization/roles/{roleID}/permissions` | `goauth.app.roles.update` | `{expectedRevision,permissionKeys:[...]}`; replaces entire grant set |
 | `DELETE /admin/authorization/roles/{roleID}` | `goauth.app.roles.delete` | Required `expectedRevision` query; 204 |
 | `GET /admin/authorization/users/{id}/role` | `goauth.app.roles.read` | None; `{role,assignmentRevision}` |
+| `GET /admin/authorization/users/{id}/access` | `goauth.app.roles.read` | None; target account's `{role,isFullAccess,permissionKeys,assignmentRevision,revision}` |
 | `PUT /admin/authorization/users/{id}/role` | `goauth.app.roles.assign` | `{roleId,expectedRoleRevision,expectedAssignmentRevision}`; returns assignment |
 
 All other successful reads/updates return 200. Optional description defaults
@@ -35,7 +36,7 @@ accept limits 1–100 (0 selects default), and require nonnegative offsets.
 Permission and role responses contain IDs, metadata, enabled state, revision
 and timestamps. Definitions also contain `key` and `isSystem`. Roles contain
 `slug`, optional `systemKey` and explicit `permissionKeys`. Protected admin's
-unrestricted policy is reported through self access's `isFullAccess`, rather
+unrestricted policy is reported through access responses' `isFullAccess`, rather
 than an invented wildcard grant.
 
 ```json
@@ -48,9 +49,23 @@ than an invented wildcard grant.
 }
 ```
 
-The self access `role` field supplies identity metadata; effective keys are in
-the top-level `permissionKeys`. Treat this response as UI information. Use
+Both access routes use this response shape. The `role` field supplies identity
+metadata; effective keys are in the top-level `permissionKeys` and exclude
+disabled definitions. These responses describe application access; organization
+membership and roles remain separate. Treat them as UI information. Use
 server-side `RequirePermission` or `RequireAppPermission` for enforcement.
+
+`GET /auth/access` is the canonical self-service route, alongside `/auth/me`
+and `/auth/sessions`. The target-access route belongs to authorization management
+and is exposed only with `EnableManagementHTTP:true`. It requires the current
+`goauth.app.roles.read` grant or protected-admin access, plus required MFA, even
+when `{id}` is the caller's own ID. The caller's session supplies actor identity;
+`{id}` selects only the account being inspected. It does not impersonate that
+account or check assurance against that account's sessions.
+
+Malformed target IDs return 400. A missing, banned, unassigned, or disabled-role
+target returns 403; inspecting it does not return an effective access snapshot.
+Backend failures remain errors. All access checks still reload current state.
 
 Permission-key checks, ownership protection, delegation limits and revision
 checks also run inside the services. Installation/removal of library keys

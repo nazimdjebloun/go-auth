@@ -127,6 +127,7 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 			Entry{routes.SetAppRolePermissions, write(h.SetAppRolePermissions, "goauth.app.roles.update")},
 			Entry{routes.DeleteAppRole, write(h.DeleteAppRole, "goauth.app.roles.delete")},
 			Entry{routes.GetAppUserRole, read(h.GetAppUserRole, "goauth.app.roles.read")},
+			Entry{routes.GetAppUserAccess, read(h.GetAppUserAccess, "goauth.app.roles.read")},
 			Entry{routes.SetAppUserRole, write(h.SetAppUserRole, "goauth.app.roles.assign")},
 		)
 	}
