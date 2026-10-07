@@ -28,6 +28,7 @@ type Config struct {
 	cookie         CookieConfig
 	registration   RegistrationConfig
 	organizations  OrganizationConfig
+	appPermissions AppPermissionsConfig
 	audit          AuditConfig
 	maintenance    MaintenanceConfig
 	email          *EmailConfig

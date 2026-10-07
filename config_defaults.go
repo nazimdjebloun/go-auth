@@ -24,6 +24,7 @@ func (c *Config) applyDefaults() {
 	c.applyMailerDefaults()
 	c.applyRegistrationDefaults()
 	c.applyOrganizationDefaults()
+	c.applyAppPermissionDefaults()
 	c.applySessionDefaults()
 	c.applyTwoFactorDefaults()
 	c.applySecurityDefaults()

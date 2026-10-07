@@ -15,10 +15,44 @@ CREATE TABLE IF NOT EXISTS recovery_requests (
 CREATE INDEX idx_recovery_requests_claim ON recovery_requests(dead_lettered, available_at, lease_until);
 CREATE INDEX idx_recovery_requests_created ON recovery_requests(created_at);
 
+CREATE TABLE IF NOT EXISTS app_roles (
+    id VARCHAR(36) PRIMARY KEY,
+    slug VARCHAR(80) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    system_key VARCHAR(40) UNIQUE,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CHECK (system_key IS NULL OR system_key IN ('platform_admin', 'user'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS app_permissions (
+    id VARCHAR(36) PRIMARY KEY,
+    permission_key VARCHAR(160) COLLATE utf8mb4_bin NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    is_system BOOLEAN NOT NULL DEFAULT false,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CHECK (NOT is_system OR is_enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS app_authorization_state (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT,
+    app_role_id VARCHAR(36),
+    app_role_assignment_revision BIGINT NOT NULL DEFAULT 0 CHECK (app_role_assignment_revision >= 0),
     password_pepper_version INT UNSIGNED,
     name TEXT NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'user',
@@ -30,10 +64,27 @@ CREATE TABLE IF NOT EXISTS users (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     org_owner_count INT NOT NULL DEFAULT 0,
-    last_login_at DATETIME
+    last_login_at DATETIME,
+    FOREIGN KEY (app_role_id) REFERENCES app_roles(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_users_password_pepper_version ON users(password_pepper_version);
+
+CREATE INDEX idx_users_app_role ON users(app_role_id, id);
+
+CREATE TABLE IF NOT EXISTS app_role_permissions (
+    role_id VARCHAR(36) NOT NULL,
+    permission_id VARCHAR(36) NOT NULL,
+    granted_by VARCHAR(36),
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES app_roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES app_permissions(id) ON DELETE RESTRICT,
+    FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_app_role_permissions_permission ON app_role_permissions(permission_id, role_id);
+
 
 CREATE TABLE IF NOT EXISTS organizations (
     id VARCHAR(36) PRIMARY KEY,

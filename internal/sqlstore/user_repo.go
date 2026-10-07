@@ -48,6 +48,7 @@ func userScanDest(u *domain.User, n *userNullables) []any {
 		&u.ID, &u.Email, &u.PasswordHash, &u.PasswordPepperVersion, &u.Name, &u.Role,
 		&u.IsVerified, &n.verifiedAt, &u.IsBanned, &n.bannedAt, &u.TwoFactorEnabled,
 		&u.OrgOwnerCount, &n.lastLoginAt, &u.CreatedAt, &u.UpdatedAt,
+		&u.AppRoleID, &u.AppRoleAssignmentRevision,
 	}
 }
 
@@ -80,7 +81,7 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	_, err := r.db.ExecContext(ctx, userCreateQuery,
 		user.ID, user.Email, user.PasswordHash, user.PasswordPepperVersion, user.Name, user.Role,
 		user.IsVerified, user.VerifiedAt, user.IsBanned, user.TwoFactorEnabled,
-		user.OrgOwnerCount, user.CreatedAt, user.UpdatedAt)
+		user.OrgOwnerCount, user.CreatedAt, user.UpdatedAt, user.AppRoleID, user.AppRoleAssignmentRevision)
 	return wrapCreateErr(r.db.Driver(), err)
 }
 

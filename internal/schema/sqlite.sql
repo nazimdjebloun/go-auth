@@ -15,10 +15,44 @@ CREATE TABLE IF NOT EXISTS recovery_requests (
 CREATE INDEX IF NOT EXISTS idx_recovery_requests_claim ON recovery_requests(dead_lettered, available_at, lease_until);
 CREATE INDEX IF NOT EXISTS idx_recovery_requests_created ON recovery_requests(created_at);
 
+CREATE TABLE IF NOT EXISTS app_roles (
+    id TEXT PRIMARY KEY,
+    slug VARCHAR(80) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    system_key VARCHAR(40) UNIQUE,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    CHECK (system_key IS NULL OR system_key IN ('platform_admin', 'user'))
+);
+
+CREATE TABLE IF NOT EXISTS app_permissions (
+    id TEXT PRIMARY KEY,
+    permission_key VARCHAR(160) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    is_system BOOLEAN NOT NULL DEFAULT false,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    CHECK (NOT is_system OR is_enabled)
+);
+
+CREATE TABLE IF NOT EXISTS app_authorization_state (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
+    app_role_id TEXT,
+    app_role_assignment_revision BIGINT NOT NULL DEFAULT 0 CHECK (app_role_assignment_revision >= 0),
     password_pepper_version INTEGER CHECK (password_pepper_version > 0 AND password_pepper_version <= 4294967295),
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user',
@@ -30,10 +64,27 @@ CREATE TABLE IF NOT EXISTS users (
     org_owner_count INTEGER NOT NULL DEFAULT 0,
     last_login_at DATETIME,
     created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL
+    updated_at DATETIME NOT NULL,
+    FOREIGN KEY (app_role_id) REFERENCES app_roles(id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
+
+CREATE INDEX IF NOT EXISTS idx_users_app_role ON users(app_role_id, id);
+
+CREATE TABLE IF NOT EXISTS app_role_permissions (
+    role_id TEXT NOT NULL,
+    permission_id TEXT NOT NULL,
+    granted_by TEXT,
+    created_at DATETIME NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES app_roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES app_permissions(id) ON DELETE RESTRICT,
+    FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_role_permissions_permission ON app_role_permissions(permission_id, role_id);
+
 
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,

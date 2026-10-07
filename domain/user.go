@@ -13,21 +13,23 @@ const (
 
 // User holds account identity, status, and authentication metadata.
 type User struct {
-	ID                    string     `json:"id"`
-	Email                 string     `json:"email"`
-	PasswordHash          *string    `json:"-"`
-	PasswordPepperVersion *uint32    `json:"-"`
-	Name                  string     `json:"name"`
-	Role                  Role       `json:"role"`
-	IsVerified            bool       `json:"isVerified"`
-	VerifiedAt            *time.Time `json:"verifiedAt,omitempty"`
-	IsBanned              bool       `json:"isBanned"`
-	BannedAt              *time.Time `json:"bannedAt,omitempty"`
-	TwoFactorEnabled      bool       `json:"twoFactorEnabled"`
-	LastLoginAt           *time.Time `json:"lastLoginAt,omitempty"`
-	OrgOwnerCount         int        `json:"orgOwnerCount"`
-	CreatedAt             time.Time  `json:"createdAt"`
-	UpdatedAt             time.Time  `json:"updatedAt"`
+	ID                        string     `json:"id"`
+	Email                     string     `json:"email"`
+	PasswordHash              *string    `json:"-"`
+	PasswordPepperVersion     *uint32    `json:"-"`
+	Name                      string     `json:"name"`
+	Role                      Role       `json:"role"`
+	AppRoleID                 *string    `json:"appRoleId,omitempty"`
+	AppRoleAssignmentRevision uint64     `json:"appRoleAssignmentRevision,omitempty"`
+	IsVerified                bool       `json:"isVerified"`
+	VerifiedAt                *time.Time `json:"verifiedAt,omitempty"`
+	IsBanned                  bool       `json:"isBanned"`
+	BannedAt                  *time.Time `json:"bannedAt,omitempty"`
+	TwoFactorEnabled          bool       `json:"twoFactorEnabled"`
+	LastLoginAt               *time.Time `json:"lastLoginAt,omitempty"`
+	OrgOwnerCount             int        `json:"orgOwnerCount"`
+	CreatedAt                 time.Time  `json:"createdAt"`
+	UpdatedAt                 time.Time  `json:"updatedAt"`
 }
 
 // HasPassword reports whether the user has a password login method.

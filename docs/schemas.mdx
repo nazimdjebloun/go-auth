@@ -31,6 +31,18 @@ names are identical on SQLite and MySQL; types and constraints differ (see
 
 ## Applying the schema
 
+The fresh-install schema also includes application authorization storage:
+`app_roles`, `app_permissions`, `app_role_permissions`, and the singleton
+`app_authorization_state`. `users.app_role_id` references one role;
+`app_role_assignment_revision` tracks replacements. An assigned role cannot be
+deleted. Protected role identity uses a unique nullable `system_key` rather
+than a display name.
+
+Permission keys are stored in `app_permissions.permission_key`. Library-owned
+rows have `is_system=true` and must remain enabled. Grant links use a composite
+primary key, and the permission foreign key restricts deletion until grant
+cleanup occurs. Applying DDL creates no role or permission records.
+
 Three routes to the same SQL. Pick whichever fits how you deploy.
 
 <Tabs items={['CLI migrate', 'CLI generate', 'From Go']}>
