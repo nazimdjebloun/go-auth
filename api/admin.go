@@ -6,6 +6,13 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
+// GetAdminStatsInput carries the authenticated actor and current session.
+// Populate these trusted IDs server-side, never from a client request body.
+type GetAdminStatsInput struct {
+	ActorID        string `json:"-"`
+	ActorSessionID string `json:"-"`
+}
+
 // AdminAuditLogEntry adds resolved actor/target emails to a raw audit row —
 // the row itself only stores IDs, and an admin reading a log wants to know
 // *who*, not just a UUID. Both are nil if the corresponding *_id is nil, or

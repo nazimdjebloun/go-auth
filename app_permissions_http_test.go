@@ -285,6 +285,71 @@ func TestAppPermissionsHTTPAssuranceAndOptionalManagement(t *testing.T) {
 	f.request(t, "GET", "/auth/access", "", f.token, 200)
 }
 
+func TestAppPermissionsStatsAuthorization(t *testing.T) {
+	f := newAppHTTPFixture(t, true, true)
+	ctx := t.Context()
+	stats := func(actor api.AppPermissionActor) (*api.AdminStats, error) {
+		return f.a.Services().Admin.GetStats(ctx, api.GetAdminStatsInput{
+			ActorID: actor.UserID, ActorSessionID: actor.SessionID,
+		})
+	}
+	for _, actor := range []api.AppPermissionActor{{UserID: f.admin.UserID}, f.admin} {
+		if result, err := stats(actor); !errors.Is(err, domain.ErrTwoFactorRequired) || result != nil {
+			t.Fatalf("stats without assurance: %+v, %v", result, err)
+		}
+	}
+	f.request(t, "GET", "/admin/stats", "", f.token, 403)
+	now := time.Now().UTC()
+	if _, err := f.db.ExecContext(ctx, "UPDATE sessions SET two_factor_verified_at=$1 WHERE id=$2", now, f.admin.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := stats(f.admin); err != nil || result.TotalUsers != 1 || result.ActiveSessions != 1 {
+		t.Fatalf("admin stats: %+v, %v", result, err)
+	}
+	f.request(t, "GET", "/admin/stats", "", f.token, 200)
+	account, err := f.a.Register(ctx, api.RegisterInput{Email: "stats-operator@example.com", Name: "Stats operator", Password: "Passw0rd!"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operator := api.AppPermissionActor{UserID: account.User.ID, SessionID: account.Session.ID}
+	if _, err := f.a.Services().AppPermissions.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Create: []string{"goauth.app.stats.read"}}); err != nil {
+		t.Fatal(err)
+	}
+	role, err := f.a.Services().AppPermissions.CreateRole(ctx, api.CreateAppRoleInput{Actor: f.admin, Slug: "stats-reader", Name: "Stats reader", PermissionKeys: []string{"goauth.app.stats.read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.a.Services().AppPermissions.SetUserRole(ctx, api.SetAppUserRoleInput{Actor: f.admin, UserID: operator.UserID, RoleID: role.ID, ExpectedRoleRevision: role.Revision, ExpectedAssignmentRevision: account.User.AppRoleAssignmentRevision}); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := stats(operator); !errors.Is(err, domain.ErrTwoFactorRequired) || result != nil {
+		t.Fatalf("delegated stats without assurance: %+v, %v", result, err)
+	}
+	if _, err := f.db.ExecContext(ctx, "UPDATE sessions SET two_factor_verified_at=$1 WHERE id=$2", now, operator.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := stats(operator); err != nil || result.TotalUsers != 2 {
+		t.Fatalf("delegated stats: %+v, %v", result, err)
+	}
+	f.request(t, "GET", "/admin/stats", "", account.SessionToken, 200)
+	if result, err := stats(api.AppPermissionActor{UserID: operator.UserID, SessionID: f.admin.SessionID}); !errors.Is(err, domain.ErrForbidden) || result != nil {
+		t.Fatalf("foreign session accepted: %+v, %v", result, err)
+	}
+	if _, err := f.a.Services().AppPermissions.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Delete: []string{"goauth.app.stats.read"}}); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := stats(operator); !errors.Is(err, domain.ErrForbidden) || result != nil {
+		t.Fatalf("removed stats permission accepted: %+v, %v", result, err)
+	}
+	f.request(t, "GET", "/admin/stats", "", account.SessionToken, 403)
+	if _, err := f.db.ExecContext(ctx, "UPDATE sessions SET is_revoked=true WHERE id=$1", f.admin.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := stats(f.admin); !errors.Is(err, domain.ErrSessionExpired) || result != nil {
+		t.Fatalf("revoked session accepted: %+v, %v", result, err)
+	}
+}
+
 func TestAppPermissionsHTTPPromotionRequiresFreshAssurance(t *testing.T) {
 	f := newAppHTTPFixture(t, true, true)
 	ctx := t.Context()

@@ -118,8 +118,7 @@ type InviteOperations interface {
 
 // AdminOperations exposes the admin service methods available to callers.
 type AdminOperations interface {
-	GetStats(ctx context.Context, actorID string) (*api.AdminStats, error)
-	GetStatsForActor(ctx context.Context, actor api.AppPermissionActor) (*api.AdminStats, error)
+	GetStats(ctx context.Context, input api.GetAdminStatsInput) (*api.AdminStats, error)
 	GetRegistrationTrend(ctx context.Context, input api.StatsRangeInput) ([]api.DailyCount, error)
 	GetLoginActivity(ctx context.Context, input api.LoginActivityInput) ([]api.DailyCount, error)
 	RevokeUserSessions(ctx context.Context, input api.RevokeUserSessionsInput) error

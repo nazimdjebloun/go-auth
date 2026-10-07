@@ -11,15 +11,10 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-// GetStats returns platform-wide counts for the admin dashboard — one Count
-// call per field, each an exact COUNT(*), not an estimate.
-func (s *AdminService) GetStats(ctx context.Context, actorID string) (*api.AdminStats, error) {
-	return s.GetStatsForActor(ctx, api.AppPermissionActor{UserID: actorID})
-}
-
-// GetStatsForActor carries session assurance for HTTP and privileged direct calls.
-func (s *AdminService) GetStatsForActor(ctx context.Context, actor api.AppPermissionActor) (*api.AdminStats, error) {
-	if err := s.requireOperation(ctx, actor.UserID, actor.SessionID, "goauth.app.stats.read"); err != nil {
+// GetStats returns exact platform-wide counts after authorization and required
+// session assurance. Direct callers supply the same trusted IDs as HTTP.
+func (s *AdminService) GetStats(ctx context.Context, input api.GetAdminStatsInput) (*api.AdminStats, error) {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.stats.read"); err != nil {
 		return nil, err
 	}
 

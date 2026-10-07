@@ -32,6 +32,7 @@ Move the old positional arguments into the following fields, in the order shown.
 
 | Service operation | Input type | Fields replacing positional arguments |
 |---|---|---|
+| `Admin.GetStats` | `GetAdminStatsInput` | `ActorID`, `ActorSessionID` |
 | `Auth.ChangeName` | `ChangeNameInput` | `UserID`, `Name` |
 | `Auth.DeleteAccount` | `DeleteAccountInput` | `UserID`, `Password` |
 | `Session.Create` | `CreateSessionInput` | `UserID`, `IP`, `UserAgent` |
@@ -87,8 +88,10 @@ App permission operations take a trusted `api.AppPermissionActor` containing
 the authenticated user ID and current session ID. Existing administrative
 inputs use `ActorSessionID` alongside their actor/admin ID. Direct service
 calls enforce the action key and required session assurance too. For stats,
-`Admin.GetStatsForActor` supplies both IDs; `GetStats(ctx, id)` cannot supply
-required assurance.
+use `Admin.GetStats(ctx, api.GetAdminStatsInput{ActorID: id, ActorSessionID: sessionID})`.
+It replaces both `GetStats(ctx, id)` and `GetStatsForActor`; the permission and
+required assurance checks are unchanged. Obtain these IDs from authenticated
+server context, never a client request body.
 
 Protected administrators and current library-grant holders require local
 second-factor verification by default, including OAuth login. Custom operators

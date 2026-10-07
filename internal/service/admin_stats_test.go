@@ -20,7 +20,7 @@ func TestGetStats_ActorNotAdmin_Forbidden(t *testing.T) {
 	nonAdmin := &domain.User{ID: "not-admin", Email: "not-admin@example.com", Role: domain.RoleUser}
 	checkTestErrors(t).noError(users.Create(context.Background(), nonAdmin))
 
-	_, err := svc.GetStats(context.Background(), "not-admin")
+	_, err := svc.GetStats(context.Background(), api.GetAdminStatsInput{ActorID: "not-admin"})
 	if err != domain.ErrForbidden {
 		t.Errorf("expected ErrForbidden, got %v", err)
 	}
@@ -36,7 +36,7 @@ func TestGetStats_HappyPath(t *testing.T) {
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u2", Email: "u2@example.com", IsBanned: true}))
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{ID: "u3", Email: "u3@example.com", TwoFactorEnabled: true}))
 
-	stats, err := svc.GetStats(context.Background(), actorID)
+	stats, err := svc.GetStats(context.Background(), api.GetAdminStatsInput{ActorID: actorID})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

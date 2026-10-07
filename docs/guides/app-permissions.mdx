@@ -265,8 +265,9 @@ business write part of the authorization transaction.
 Every enabled-mode administrative service method checks its action key.
 Supply `ActorSessionID` along with the existing actor/admin ID in direct
 administrative inputs. For statistics, use
-`Admin.GetStatsForActor(ctx, api.AppPermissionActor{UserID: id, SessionID: sessionID})`;
-the older `GetStats(ctx, id)` method cannot supply required session assurance.
+`Admin.GetStats(ctx, api.GetAdminStatsInput{ActorID: id, ActorSessionID: sessionID})`.
+This is the single stats method in both modes. Omitting the session ID fails
+when second-factor assurance is required.
 An absent definition leaves the action protected-admin-only, rather than
 unprotected. `Auth.RequireAdmin` always requires the protected admin identity.
 Platform organization oversight also remains protected-admin-only; organization

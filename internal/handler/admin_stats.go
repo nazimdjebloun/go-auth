@@ -17,7 +17,9 @@ func (h *Handler) GetAdminStats(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
-	stats, err := h.services.Admin.GetStatsForActor(r.Context(), appRequestActor(r))
+	stats, err := h.services.Admin.GetStats(r.Context(), api.GetAdminStatsInput{
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r),
+	})
 	if err != nil {
 		h.writeError(w, err)
 		return

@@ -769,7 +769,10 @@ curl https://api.myapp.com/admin/stats -H "Origin: https://myapp.com" -b admin-c
 #### Programmatic (Go)
 
 ```go
-stats, err := auth.Services().Admin.GetStats(ctx, adminID)
+stats, err := auth.Services().Admin.GetStats(ctx, api.GetAdminStatsInput{
+    ActorID:        adminID,
+    ActorSessionID: adminSessionID,
+})
 ```
 
 ---

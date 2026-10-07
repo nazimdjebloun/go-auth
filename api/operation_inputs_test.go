@@ -14,6 +14,11 @@ func TestOperationInputsDoNotSerializeTransportCredentials(t *testing.T) {
 		want  string
 	}{
 		{
+			name:  "admin stats",
+			input: GetAdminStatsInput{ActorID: "actor", ActorSessionID: "session"},
+			want:  `{}`,
+		},
+		{
 			name: "oauth callback",
 			input: OAuthCallbackInput{
 				Provider: "provider", Code: "code", State: "state",
