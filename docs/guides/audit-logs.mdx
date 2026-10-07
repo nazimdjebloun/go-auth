@@ -103,11 +103,21 @@ Every event carries a `type`, a `severity` (`info` / `warning` / `error` / `crit
 | Sessions | `session.created`, `session.refreshed`, `session.revoked`, `session.revoked_all`, `session.refresh_reuse_detected` |
 | OAuth | `oauth.login`, `oauth.linked`, `oauth.unlinked` |
 | Admin | `admin.user.created`, `admin.user.updated`, `admin.user.deleted`, `admin.user.banned`, `admin.user.unbanned` |
+| App authorization | `app.authorization.initialized`, `app.library_permissions.changed`, `app.permission.created`, `app.permission.updated`, `app.permission.deleted`, `app.role.created`, `app.role.updated`, `app.role.deleted`, `app.role.grants_changed`, `app.user.role_changed` |
+| App-mode administrative session revocation | `admin.session.revoked`, `admin.sessions.revoked` |
 | Roles | `role.changed` |
 | Organizations | `organization.created`, `organization.deleted`, `organization.member.invited`, `organization.member.removed`, `organization.member.role_changed` |
 | Admin — organizations | `admin.org.deleted`, `admin.org.member.added`, `admin.org.member.removed`, `admin.org.member.role_changed`, `admin.org.viewed` |
 
 This list can grow across versions — treat `event_type` as an opaque string in your filters rather than an exhaustive enum you validate against.
+
+With [app permissions](./app-permissions.mdx) enabled, querying audit records
+requires `goauth.app.audit.read` or the protected administrator identity, with
+required MFA assurance. Supply `ActorSessionID` in direct administrative calls.
+Authorization changes record through the existing configured audit publisher
+inside their database transaction; the local permission CLI always uses
+database-only, fail-closed audit. Removing library definitions records their
+removed role links, and reinstalling never restores those links.
 
 Events emitted before an account is resolved — failed/locked login, admin login failure, verification send, and password-reset request — leave `actor_id` null and put the submitted address in `metadata.email`. This keeps PostgreSQL's UUID-typed actor column valid while preserving the security signal.
 

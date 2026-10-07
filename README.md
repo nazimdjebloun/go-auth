@@ -24,12 +24,26 @@ authentication policy, and startup/shutdown ownership rules.
 - Multi-tenant organizations, roles, invitations, and active-organization
   sessions whose scope stays synchronized with membership changes
 - Administrative user, session, organization, invitation, and audit-log APIs
+- Opt-in [application roles and granular permissions](docs/guides/app-permissions.mdx),
+  with one role per account and selective delegation of library actions
 - CSRF protection, route-specific rate limiting, and enumeration-resistant
   credential flows
 - PostgreSQL, MySQL, and SQLite schemas embedded in the library
 - Durable audit pipeline with a transactional outbox, retry + dead-letter delivery, and custom sink support
 - Replaceable mailer, templates, OAuth providers, password hasher, rate-limit
   store, and audit sinks
+
+Application permissions are off by default. Enable them with
+`WithAppPermissions(AppPermissionsConfig{Enable: true, EnableManagementHTTP: true})`,
+then initialize the protected administrator with `seed-admin --app-permissions`
+before accepting signups. The built-in admin keeps full library access;
+custom roles receive only explicitly installed and granted permissions.
+The [app permission guide](docs/guides/app-permissions.mdx) covers selective
+seeding, atomic bulk changes, single-role assignment, and backend checks.
+
+The canonical schema includes the app authorization tables and account role
+columns even when the feature is disabled. This change provides fresh-install
+schemas; it does not migrate or backfill existing databases.
 
 ## Install
 

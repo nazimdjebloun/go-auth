@@ -6,6 +6,31 @@ icon: "Layers"
 
 # Architecture
 
+## Optional app authorization
+
+`config_app_permissions.go` owns the opt-in functional option. Wiring constructs
+`AppPermissionsService` and the public `Services.AppPermissions` capability only
+when enabled. `api/app_permissions.go` contains operation inputs; trusted actor
+and session IDs are supplied by transport context. `domain/app_permissions.go`
+contains role/definition/catalog shapes.
+
+The service uses narrow permission reader/writer, role and singleton-state ports
+implemented by `internal/sqlstore/app_permissions_repo.go` and
+`app_roles_repo.go`. Management takes the existing all-user account guard before
+locking app state, reloads current actor authorization, writes changes and durable
+audit records in that transaction, then advances revisions. SQL constraints
+prevent duplicate grants and deletion of assigned roles/referenced definitions.
+
+Library catalog data lives in code and is independent of optional SQL definition
+installation. HTTP handlers are thin adapters; `internal/httproutes` selects
+operation-specific middleware. Local CLI provisioning shares the private bulk
+writer through an internal collaborator with a database-administration trust
+boundary. Ordinary direct service methods retain session assurance enforcement.
+No permissions are cached in sessions and startup does not seed definitions.
+
+See the [usage guide](./guides/app-permissions.mdx) and
+[route reference](./routes/authorization.mdx).
+
 go-auth uses ports and adapters. The `service` package depends on interfaces in `port`, not on HTTP types or database drivers. `New()` in `auth.go` wires repositories, mail delivery, and OAuth adapters at startup.
 
 ## Package map
@@ -69,7 +94,10 @@ Not every route uses every layer. A layer is only present when the route needs i
 - **RateLimit** wraps abuse-prone and expensive routes, including `GET /auth/me` and most admin reads. Some session-management routes are intentionally unwrapped; the handler wiring is the source of truth for an individual route.
 - **CSRFToken** and **OriginCheck** wrap browser mutations that use the usual request CSRF checks. OAuth initiation and callback use the OAuth state cookie flow instead; inspect the route registry for each endpoint's exact chain.
 - **Auth** wraps anything that needs to know who is calling. It resolves the session cookie, transparently refreshes an expired session using the refresh cookie if present, and puts the user and session in `context.Context` for the handler.
-- **Admin** (`RequireRole(domain.RoleAdmin)`) additionally wraps every `/admin/*` route.
+- **Admin** checks the legacy admin role and required session assurance when app
+  permissions are disabled. Enabled app administrative routes use exact
+  permission middleware; catalog provisioning and organization oversight use
+  protected-admin middleware.
 - **OrgMember** / **OrgRole** additionally wrap `/auth/orgs/{orgID}/*` routes: membership is required to read, a minimum role (admin or owner) is required to mutate. See the table in [Organizations](#organizations-access-model) below.
 
 Four concrete examples, outermost first:

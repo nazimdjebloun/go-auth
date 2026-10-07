@@ -81,7 +81,7 @@ func (h *Handler) CreateInvite(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.services.Invite.CreateInvite(r.Context(), api.CreateInviteInput{
 		Email:   body.Email,
-		AdminID: user.ID,
+		AdminID: user.ID, ActorSessionID: actorSessionID(r),
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -112,7 +112,7 @@ func (h *Handler) ListInvites(w http.ResponseWriter, r *http.Request) {
 	}
 
 	invites, err := h.services.Invite.ListInvites(r.Context(), api.ListInvitesInput{
-		ActorID:        actor.ID,
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r),
 		Offset:         offset,
 		Limit:          limit,
 		Search:         r.URL.Query().Get("search"),
@@ -135,9 +135,9 @@ func (h *Handler) CountInvites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	n, err := h.services.Invite.CountInvites(r.Context(), api.ListInvitesInput{
-		ActorID: actor.ID,
-		Search:  r.URL.Query().Get("search"),
-		Status:  r.URL.Query().Get("status"),
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r),
+		Search: r.URL.Query().Get("search"),
+		Status: r.URL.Query().Get("status"),
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -156,7 +156,7 @@ func (h *Handler) HardDeleteInvite(w http.ResponseWriter, r *http.Request) {
 	inviteID := r.PathValue("id")
 	if err := h.services.Invite.HardDeleteInvite(r.Context(), api.HardDeleteInviteInput{
 		InviteID: inviteID,
-		ActorID:  actor.ID,
+		ActorID:  actor.ID, ActorSessionID: actorSessionID(r),
 	}); err != nil {
 		h.writeError(w, err)
 		return
@@ -174,7 +174,7 @@ func (h *Handler) RevokeInvite(w http.ResponseWriter, r *http.Request) {
 	inviteID := r.PathValue("id")
 	if err := h.services.Invite.RevokeInvite(r.Context(), api.RevokeInviteInput{
 		InviteID: inviteID,
-		ActorID:  actor.ID,
+		ActorID:  actor.ID, ActorSessionID: actorSessionID(r),
 	}); err != nil {
 		h.writeError(w, err)
 		return
@@ -192,7 +192,7 @@ func (h *Handler) ResendInvite(w http.ResponseWriter, r *http.Request) {
 	inviteID := r.PathValue("id")
 	if err := h.services.Invite.ResendInviteEmail(r.Context(), api.ResendInviteEmailInput{
 		InviteID: inviteID,
-		ActorID:  actor.ID,
+		ActorID:  actor.ID, ActorSessionID: actorSessionID(r),
 	}); err != nil {
 		h.writeError(w, err)
 		return
@@ -220,7 +220,7 @@ func (h *Handler) BulkSendInvites(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result, err := h.services.Invite.BulkSendInvites(r.Context(), api.BulkInviteEmailsInput{
-		Emails: body.Emails, ActorID: actor.ID,
+		Emails: body.Emails, ActorID: actor.ID, ActorSessionID: actorSessionID(r),
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -261,7 +261,7 @@ func (h *Handler) bulkInviteAction(
 		return
 	}
 	result, err := run(r.Context(), api.BulkInviteIDsInput{
-		InviteIDs: body.InviteIDs, ActorID: actor.ID,
+		InviteIDs: body.InviteIDs, ActorID: actor.ID, ActorSessionID: actorSessionID(r),
 	})
 	if err != nil {
 		h.writeError(w, err)

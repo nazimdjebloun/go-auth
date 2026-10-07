@@ -27,8 +27,8 @@ func AssertSchema(t *testing.T, db *sql.DB) {
 		t.Fatal(err)
 	}
 	tables := tableDefinition.FindAllStringSubmatch(ddl, -1)
-	if len(tables) != 11 {
-		t.Fatalf("canonical table inventory = %d, want 11", len(tables))
+	if len(tables) != 15 {
+		t.Fatalf("canonical table inventory = %d, want 15", len(tables))
 	}
 	for _, table := range tables {
 		t.Run(table[1], func(t *testing.T) {

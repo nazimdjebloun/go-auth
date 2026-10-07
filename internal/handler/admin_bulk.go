@@ -24,7 +24,7 @@ func (h *Handler) BulkBanUsers(w http.ResponseWriter, r *http.Request) {
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := h.services.Admin.BulkBanUsers(r.Context(), api.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID})
+	result, err := h.services.Admin.BulkBanUsers(r.Context(), api.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID, ActorSessionID: actorSessionID(r)})
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -43,7 +43,7 @@ func (h *Handler) BulkUnbanUsers(w http.ResponseWriter, r *http.Request) {
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := h.services.Admin.BulkUnbanUsers(r.Context(), api.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID})
+	result, err := h.services.Admin.BulkUnbanUsers(r.Context(), api.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID, ActorSessionID: actorSessionID(r)})
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -62,7 +62,7 @@ func (h *Handler) BulkDeleteUsers(w http.ResponseWriter, r *http.Request) {
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := h.services.Admin.BulkDeleteUsers(r.Context(), api.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID})
+	result, err := h.services.Admin.BulkDeleteUsers(r.Context(), api.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID, ActorSessionID: actorSessionID(r)})
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -81,7 +81,7 @@ func (h *Handler) BulkRevokeUserSessions(w http.ResponseWriter, r *http.Request)
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	result, err := h.services.Admin.BulkRevokeUserSessions(r.Context(), api.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID})
+	result, err := h.services.Admin.BulkRevokeUserSessions(r.Context(), api.BulkUserActionInput{UserIDs: body.UserIDs, ActorID: actor.ID, ActorSessionID: actorSessionID(r)})
 	if err != nil {
 		h.writeError(w, err)
 		return

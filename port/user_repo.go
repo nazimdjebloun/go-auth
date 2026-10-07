@@ -17,6 +17,7 @@ type UserFilter struct {
 	IDs              []string
 	Email            *string
 	Role             *domain.Role
+	AppRoleID        *string
 	IsBanned         *bool
 	IsVerified       *bool
 	TwoFactorEnabled *bool

@@ -2,7 +2,7 @@ package domain
 
 import "time"
 
-// Role identifies an account's application-wide permission level.
+// Role identifies legacy account access when app permissions are disabled.
 type Role string
 
 // RoleUser and RoleAdmin are the supported account roles.
@@ -13,12 +13,14 @@ const (
 
 // User holds account identity, status, and authentication metadata.
 type User struct {
-	ID                        string     `json:"id"`
-	Email                     string     `json:"email"`
-	PasswordHash              *string    `json:"-"`
-	PasswordPepperVersion     *uint32    `json:"-"`
-	Name                      string     `json:"name"`
-	Role                      Role       `json:"role"`
+	ID                    string  `json:"id"`
+	Email                 string  `json:"email"`
+	PasswordHash          *string `json:"-"`
+	PasswordPepperVersion *uint32 `json:"-"`
+	Name                  string  `json:"name"`
+	Role                  Role    `json:"role"`
+	// AppRoleID is authoritative when WithAppPermissions is enabled. Role is
+	// retained for disabled installations; it is not a second grant source.
 	AppRoleID                 *string    `json:"appRoleId,omitempty"`
 	AppRoleAssignmentRevision uint64     `json:"appRoleAssignmentRevision,omitempty"`
 	IsVerified                bool       `json:"isVerified"`

@@ -26,8 +26,16 @@ func lockPasswordIdentity(ctx context.Context, users port.UserAuthenticationLock
 	// Metadata changes that alter authentication requirements also require a
 	// fresh login rather than completing a decision made before that change.
 	if current.Role != expected.Role || current.Email != expected.Email ||
-		current.IsVerified != expected.IsVerified || current.TwoFactorEnabled != expected.TwoFactorEnabled {
+		current.IsVerified != expected.IsVerified || current.TwoFactorEnabled != expected.TwoFactorEnabled ||
+		current.AppRoleAssignmentRevision != expected.AppRoleAssignmentRevision || !sameAppRoleID(current.AppRoleID, expected.AppRoleID) {
 		return nil, domain.ErrInvalidCredentials
 	}
 	return current, nil
+}
+
+func sameAppRoleID(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
 }

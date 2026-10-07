@@ -17,7 +17,7 @@ func (h *Handler) GetAdminStats(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
-	stats, err := h.services.Admin.GetStats(r.Context(), actor.ID)
+	stats, err := h.services.Admin.GetStatsForActor(r.Context(), appRequestActor(r))
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -60,7 +60,7 @@ func (h *Handler) GetRegistrationTrend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	counts, err := h.services.Admin.GetRegistrationTrend(r.Context(), api.StatsRangeInput{
-		ActorID: actor.ID, From: from, To: to,
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r), From: from, To: to,
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -87,7 +87,7 @@ func (h *Handler) GetLoginActivity(w http.ResponseWriter, r *http.Request) {
 		userID = &v
 	}
 	counts, err := h.services.Admin.GetLoginActivity(r.Context(), api.LoginActivityInput{
-		ActorID: actor.ID, UserID: userID, From: from, To: to,
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r), UserID: userID, From: from, To: to,
 	})
 	if err != nil {
 		h.writeError(w, err)

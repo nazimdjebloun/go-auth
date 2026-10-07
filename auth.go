@@ -47,17 +47,18 @@ type Auth struct {
 // serviceSet keeps the concrete instances needed by internal HTTP wiring.
 // The public Services value exposes their operation methods through interfaces.
 type serviceSet struct {
-	Auth      *service.AuthService
-	Password  *service.PasswordService
-	Session   *service.SessionService
-	Verify    *service.VerificationService
-	Invite    *service.InviteService
-	Admin     *service.AdminService
-	OAuth     *service.OAuthService
-	Org       *service.OrgService
-	OrgInvite *service.OrgInviteService
-	TwoFactor *service.TwoFactorService
-	AuditLog  port.AuditLogRepository
+	Auth           *service.AuthService
+	Password       *service.PasswordService
+	Session        *service.SessionService
+	Verify         *service.VerificationService
+	Invite         *service.InviteService
+	Admin          *service.AdminService
+	OAuth          *service.OAuthService
+	Org            *service.OrgService
+	OrgInvite      *service.OrgInviteService
+	TwoFactor      *service.TwoFactorService
+	AuditLog       port.AuditLogRepository
+	AppPermissions *service.AppPermissionsService
 }
 
 // Services returns a copy of the configured programmatic capabilities.
@@ -78,6 +79,9 @@ func (a *Auth) Services() Services {
 	}
 	if a.services.OrgInvite != nil {
 		s.OrgInvite = a.services.OrgInvite
+	}
+	if a.services.AppPermissions != nil {
+		s.AppPermissions = a.services.AppPermissions
 	}
 	return s
 }

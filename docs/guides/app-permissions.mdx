@@ -1,0 +1,283 @@
+---
+title: "App roles and permissions"
+description: "Opt-in application authorization, one role per account, explicit delegation, and backend checks."
+---
+
+# App roles and permissions
+
+Application authorization is optional and independent of organization membership.
+Each account has one app role. A custom role has an explicit set of permission
+keys; there is no role hierarchy, wildcard matching, or direct user grant.
+
+## Enable and initialize
+
+Add this option to your existing `NewConfig` setup:
+
+```go
+goauth.WithAppPermissions(goauth.AppPermissionsConfig{
+    Enable:               true,
+    EnableManagementHTTP: true, // optional built-in management API
+    DefaultRoleSlug:      "user",
+})
+```
+
+Apply the fresh-install schema and seed the initial protected administrator
+before accepting signups:
+
+```bash
+go run ./cmd/goauth migrate --driver sqlite --dsn "file:goauth.db"
+ADMIN_EMAIL=owner@example.com ADMIN_PASSWORD='StrongPassw0rd!' \
+go run ./cmd/goauth seed-admin --driver sqlite --dsn "file:goauth.db" \
+  --env dev --non-interactive --app-permissions
+```
+
+Use your actual driver, DSN and mailer settings in production. The existing
+seed-admin mailer check runs before database writes. `--force --app-permissions`
+creates another protected administrator in an initialized installation.
+
+Trusted programmatic setup can call
+`auth.InitializeAppPermissions(ctx, api.InitializeAppPermissionsInput{AdministratorUserID: id})`
+for an existing eligible setup account. This operation has no HTTP endpoint.
+It creates the protected roles and singleton state, assigns that account to
+admin, and returns `app_permissions_already_initialized` on repeat initialization.
+It does not assign existing accounts or install any permission definitions.
+
+`New` never initializes or seeds records. Registration before initialization
+fails without creating an account. This feature uses the new canonical schema;
+there is no automatic migration or backfill of an existing installation.
+
+## Protected roles and ordinary actions
+
+| Role | Behavior |
+|---|---|
+| Built-in `admin` (`systemKey: platform_admin`) | All known library actions, including actions whose optional definition is absent. All existing enabled business definitions. |
+| Built-in `user` (`systemKey: user`) | Empty grants; normal authenticated actions still work under their existing ownership and business rules. |
+| Custom role | Only its explicit installed, enabled permission grants. Names containing `admin` confer no access. |
+
+Both built-in roles have protected metadata, state and grant sets. Create a
+custom role to tailor access. Built-in admin cannot be renamed, disabled or
+given a restricted grant set. Assignment to or from protected admin requires
+a protected admin actor. Demotion, banning and deletion cannot remove the last
+usable protected administrator.
+
+In enabled mode, `users.app_role_id` is authoritative. The retained legacy
+`users.role` and JSON `role` field confer no additional access. Use `appRoleId`
+and `/auth/access` in your UI. In disabled mode the existing hardcoded
+`admin`/`user` behavior remains authoritative, and
+`auth.Services().AppPermissions` is nil.
+
+Public routes remain public. `RequireAuth` alone requires authentication and
+does not acquire a permission requirement. A custom role or baseline user can
+use actions you deliberately leave without a permission guard. Disabling a
+custom role denies permission checks; it does not ban the account or remove
+ordinary authenticated account operations.
+
+## Library definitions: enable delegation selectively
+
+The library owns a fixed code catalog under `goauth.app.*`. Its definitions
+cannot be edited, renamed or disabled. Installing a catalog key creates an
+optional SQL definition that can be linked to custom roles. Creation grants
+nobody access by itself.
+
+`GET /admin/authorization/library-permissions` returns the fixed catalog with
+`key`, `name` and `description`, without querying the permission table or adding
+installation status. Use `GET /admin/authorization/permissions` to inspect
+installed definitions separately.
+
+Both catalog routes require the current protected administrator and required
+session assurance. They have no delegable permission check. A role holding
+every `goauth.app.permissions.*` key still cannot install or remove library
+definitions.
+
+```http
+PATCH /admin/authorization/library-permissions
+Content-Type: application/json
+
+{
+  "create": ["goauth.app.sessions.revoke", "goauth.app.users.read"],
+  "delete": ["goauth.app.roles.create", "goauth.app.roles.delete"]
+}
+```
+
+The batch is atomic and accepts 1–100 total keys. Unknown keys, duplicates and
+create/delete overlap reject the entire request. Installing an installed key
+or removing an absent key returns it in `unchanged` without changing revisions
+or grants. The result contains `created`, `deleted` and `unchanged` arrays.
+
+Removing a definition also deletes all its role links in that transaction,
+increments each affected custom role's revision once and advances the app
+revision once. A protected admin can still execute that known library action.
+Custom roles lose it on subsequent checks. Reinstalling creates a new definition
+ID with no grants; deleted links never reappear automatically.
+
+The CLI reuses the same transactional writer and records local CLI attribution:
+
+```bash
+go run ./cmd/goauth permissions catalog
+go run ./cmd/goauth permissions seed --driver sqlite --dsn "file:goauth.db" \
+  --actor-id "$ADMIN_ID" --keys goauth.app.sessions.revoke,goauth.app.users.read
+go run ./cmd/goauth permissions seed --driver sqlite --dsn "file:goauth.db" \
+  --actor-id "$ADMIN_ID" --all
+go run ./cmd/goauth permissions update --driver sqlite --dsn "file:goauth.db" \
+  --actor-id "$ADMIN_ID" --create goauth.app.users.read \
+  --delete goauth.app.roles.create,goauth.app.roles.delete
+```
+
+Catalog needs no database. CLI writes require an initialized installation and
+an existing, non-banned protected admin for attribution. Local access to the
+database is the CLI trust boundary, so it does not require a browser session
+or email challenge. Its audit records are database-only and fail closed. The
+runtime service API has no public flag that bypasses session assurance.
+
+## Business permissions, roles and assignments
+
+The app owns keys such as `app.posts.create` and `app.posts.delete`. Keys are
+immutable lowercase dot-separated identifiers, at most 160 bytes, with at
+least a resource and action segment after `app.`. Each segment starts with a
+letter and contains letters, digits or underscores.
+
+Create a definition, create a custom role with its keys, then assign the role:
+
+```http
+POST /admin/authorization/permissions
+{"key":"app.posts.delete","name":"Delete posts","description":"Remove a post"}
+
+POST /admin/authorization/roles
+{"slug":"moderator","name":"Moderator","permissionKeys":["app.posts.delete"]}
+
+PUT /admin/authorization/users/ACCOUNT_ID/role
+{"roleId":"ROLE_ID","expectedRoleRevision":1,"expectedAssignmentRevision":1}
+```
+
+Use IDs and revisions returned by your actual responses. Role slugs are
+immutable lowercase identifiers, at most 80 characters, starting with a letter,
+then letters, digits or hyphens. `admin` and `user` are reserved. Names are
+required, at most 120 characters; descriptions are at most 4096 bytes.
+
+Grant replacement uses
+`PUT /admin/authorization/roles/ROLE_ID/permissions` with
+`{"expectedRevision":1,"permissionKeys":[...]}`. An empty array clears grants.
+At most 256 distinct installed, enabled keys can be supplied. Read the latest
+role revision before editing or assigning; stale updates return
+`authorization_conflict`. Assignment replaces the sole previous role and
+increments the account's `appRoleAssignmentRevision`.
+
+Business definitions support metadata updates and `isEnabled`. Disabled or
+missing business keys deny everyone, including protected admin. Deleting a
+business definition requires removing all grants first. Library definitions
+must instead use the protected bulk catalog endpoint. Deleting a role requires
+it to be custom, unassigned, and different from the configured default.
+
+The default role is assigned inside registration, invitation redemption and
+OAuth account creation transactions. To use a custom default, initialize with
+`user`, create the custom role, then configure its slug. An absent or disabled
+configured default fails account creation; the library does not silently fall
+back. Administrative creation also defaults to this role. Passing an explicit
+`appRoleId` additionally requires `goauth.app.roles.assign` and the observed
+`expectedRoleRevision`.
+
+A delegated role manager can grant or assign only keys it currently holds.
+Editing, clearing or deleting another role also requires holding its existing
+keys. A delegated actor cannot edit its own role or assign itself a role.
+Protected-admin transitions remain protected-admin-only. A delegated business
+permission updater must hold the key it updates; it cannot re-enable a disabled
+key to regain its own access.
+
+## Check access on the backend
+
+The optional service capability is exposed through
+`auth.Services().AppPermissions`. Its methods use the input structs in `api`.
+Actor IDs and session IDs come from trusted backend authentication, never the
+JSON body. A caller with no session ID is accepted only where required assurance
+does not demand one; privileged direct calls obey the same MFA policy as HTTP.
+
+```go
+permissions := auth.Services().AppPermissions
+if permissions == nil {
+    return domain.ErrAppPermissionsDisabled
+}
+err := permissions.RequirePermission(ctx, api.CheckAppPermissionInput{
+    Actor: api.AppPermissionActor{UserID: authenticatedUser.ID, SessionID: session.ID},
+    PermissionKey: "app.posts.delete",
+})
+if err != nil {
+    return err
+}
+// Apply your resource ownership and tenant constraints, then perform the action.
+```
+
+`CheckPermission` returns `{allowed:false}` for denial and an error for invalid
+keys, assurance failures or infrastructure errors. `RequirePermission` turns
+denial into `forbidden`. Unknown reserved library keys deny even admin; a typo
+never grants access.
+
+For your own HTTP routes, compose authentication and permission middleware:
+
+```go
+mux.Handle("DELETE /posts/{id}", auth.RequireAuth(
+    auth.RequireAppPermission("app.posts.delete")(http.HandlerFunc(deletePost)),
+))
+```
+
+Apply your CSRF and rate-limit policy to these consumer routes as appropriate.
+An app permission does not check organization membership or resource ownership.
+
+`GET /auth/access` returns the current role, `isFullAccess`, effective
+`permissionKeys`, `assignmentRevision` and app `revision`. It is available when
+app permissions are enabled, even if management HTTP is off. Use it to render
+buttons; browser flags never authorize backend actions.
+
+Checks reload primary-database state rather than caching grants in sessions.
+Changes affect subsequent checks, including existing sessions. A check does not
+cancel an action already authorized or automatically make a consumer's later
+business write part of the authorization transaction.
+
+## Existing library operations and MFA
+
+| Operations | Delegable key |
+|---|---|
+| User list/count/detail | `goauth.app.users.read` |
+| User creation | `goauth.app.users.create` |
+| Ban / unban / delete (including corresponding bulk action) | `goauth.app.users.ban` / `unban` / `delete` |
+| Session list/count, including per-account sessions | `goauth.app.sessions.read` |
+| Session revocation, including bulk | `goauth.app.sessions.revoke` |
+| Audit list/count | `goauth.app.audit.read` |
+| Stats, registrations, login activity | `goauth.app.stats.read` |
+| Signup invite list/count | `goauth.app.invites.read` |
+| Signup invite create/resend/revoke/delete and corresponding bulk action | `goauth.app.invites.create` / `resend` / `revoke` / `delete` |
+| Business permission list/create/update/delete | `goauth.app.permissions.read` / `create` / `update` / `delete` |
+| Role list/create/update/delete | `goauth.app.roles.read` / `create` / `update` / `delete` |
+| Role assignment and legacy role-update route in enabled mode | `goauth.app.roles.assign` |
+
+Every enabled-mode administrative service method checks its action key.
+Supply `ActorSessionID` along with the existing actor/admin ID in direct
+administrative inputs. For statistics, use
+`Admin.GetStatsForActor(ctx, api.AppPermissionActor{UserID: id, SessionID: sessionID})`;
+the older `GetStats(ctx, id)` method cannot supply required session assurance.
+An absent definition leaves the action protected-admin-only, rather than
+unprotected. `Auth.RequireAdmin` always requires the protected admin identity.
+Platform organization oversight also remains protected-admin-only; organization
+owner/admin/member roles and their existing powers remain separate.
+
+Enabled-mode invite creation and resend commit the authorization check, invite
+change and configured audit record before sending email. Delivery happens
+outside database locks. An email delivery failure leaves the committed invite
+or rotated code in place; use resend to retry delivery.
+
+Protected admin and accounts with any installed library grant require email
+2FA at login by default, including OAuth login. Promoting a live session does
+not add assurance: privileged operations return `two_factor_required` until a
+new challenged login succeeds. `DisableAdminTwoFactor` removes the default
+requirement; global and per-account requirements still apply. Business-only
+roles do not acquire the library's default administrative MFA requirement.
+Custom operators sign in through ordinary login; the admin login endpoint is
+reserved for protected administrators in enabled mode.
+
+Existing `/admin/users` filters should use `appRoleId` in enabled mode; the
+legacy `role` filter is rejected. The existing role PATCH body uses
+`appRoleId`, `expectedRoleRevision` and `expectedAssignmentRevision` when enabled;
+its disabled-mode `role: admin|user` behavior is unchanged.
+
+See the [authorization route reference](../routes/authorization.mdx) for methods,
+request bodies and the [error reference](../error-handling.mdx#app-authorization)
+for failure codes.

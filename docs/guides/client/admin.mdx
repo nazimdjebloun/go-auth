@@ -6,7 +6,14 @@ icon: "UserCog"
 
 # Admin client
 
-`adminApi` covers common dashboard operations from the [Admin](../admin.mdx) and [Audit Logs](../audit-logs.mdx) guides. Add any remaining admin route with the same [`apiRequest`](./index.mdx) helper. The `login` method is public; every `/admin/*` method requires a logged-in user with `role: "admin"`.
+`adminApi` covers common dashboard operations from the [Admin](../admin.mdx) and
+[Audit Logs](../audit-logs.mdx) guides. The examples below use disabled-mode
+legacy roles. When app permissions are enabled, use `GET /auth/access` to render
+the current `isFullAccess` and `permissionKeys`, and use the enabled-mode
+`appRoleId` payloads/filters described in the
+[app permission guide](../app-permissions.mdx). Delegated operators sign in
+through ordinary login. Every backend action still checks current access;
+frontend flags are informational.
 
 ```ts
 import { apiRequest } from "./client";

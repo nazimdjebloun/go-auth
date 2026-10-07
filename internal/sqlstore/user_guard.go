@@ -67,6 +67,9 @@ func (r *UserRepository) WithAdminGuard(ctx context.Context, fn func(context.Con
 // snapshot if a caller already queried before joining the guard.
 func (r *UserRepository) adminReductionAllowed(ctx context.Context, userID string) (bool, error) {
 	query := "SELECT id, role, is_banned FROM users ORDER BY id"
+	if r.appPermissions {
+		query = "SELECT u.id, CASE WHEN EXISTS (SELECT 1 FROM app_roles r WHERE r.id=u.app_role_id AND r.system_key='platform_admin' AND r.is_enabled=TRUE) THEN 'admin' ELSE 'user' END, u.is_banned FROM users u ORDER BY u.id"
+	}
 	if r.db.Driver() != "sqlite" && r.db.Driver() != "sqlite3" {
 		query += " FOR UPDATE"
 	}

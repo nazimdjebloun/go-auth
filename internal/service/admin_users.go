@@ -15,8 +15,16 @@ import (
 
 // ListUsers returns users matching the input filters.
 func (s *AdminService) ListUsers(ctx context.Context, input api.AdminListUsersInput) (*api.AdminListUsersResult, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.read"); err != nil {
 		return nil, err
+	}
+	if s.config.AppPermissions != nil && input.Role != nil {
+		return nil, appInvalid("Use appRoleId to filter app roles")
+	}
+	if input.AppRoleID != nil {
+		if err := validateAppID(*input.AppRoleID); err != nil {
+			return nil, err
+		}
 	}
 	limit := input.Limit
 	if limit <= 0 {
@@ -27,6 +35,7 @@ func (s *AdminService) ListUsers(ctx context.Context, input api.AdminListUsersIn
 	filter := port.UserFilter{
 		Email:            input.Email,
 		Role:             input.Role,
+		AppRoleID:        input.AppRoleID,
 		IsBanned:         input.IsBanned,
 		IsVerified:       input.IsVerified,
 		TwoFactorEnabled: input.TwoFactorEnabled,
@@ -56,12 +65,21 @@ func (s *AdminService) ListUsers(ctx context.Context, input api.AdminListUsersIn
 // ordering are ignored). Split from ListUsers so a paginated UI doesn't pay
 // for a COUNT(*) on every page.
 func (s *AdminService) CountUsers(ctx context.Context, input api.AdminListUsersInput) (int, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.read"); err != nil {
 		return 0, err
+	}
+	if s.config.AppPermissions != nil && input.Role != nil {
+		return 0, appInvalid("Use appRoleId to filter app roles")
+	}
+	if input.AppRoleID != nil {
+		if err := validateAppID(*input.AppRoleID); err != nil {
+			return 0, err
+		}
 	}
 	n, err := s.users.Count(ctx, port.UserFilter{
 		Email:            input.Email,
 		Role:             input.Role,
+		AppRoleID:        input.AppRoleID,
 		IsBanned:         input.IsBanned,
 		IsVerified:       input.IsVerified,
 		TwoFactorEnabled: input.TwoFactorEnabled,
@@ -84,7 +102,11 @@ const maxStatsRangeDays = 400
 
 // BanUser bans a user.
 func (s *AdminService) BanUser(ctx context.Context, input api.BanUserInput) error {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if s.config.AppPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runAppMutationVoid(ctx, s.config.AppPermissions, appActor(input.ActorID, input.ActorSessionID), "goauth.app.users.ban", func(txCtx context.Context) error { return s.BanUser(txCtx, input) })
+	}
+
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.ban"); err != nil {
 		return err
 	}
 	user, err := s.targetUser(ctx, input.UserID)
@@ -144,7 +166,11 @@ func (s *AdminService) BanUser(ctx context.Context, input api.BanUserInput) erro
 
 // UnbanUser unbans a user.
 func (s *AdminService) UnbanUser(ctx context.Context, input api.UnbanUserInput) error {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if s.config.AppPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runAppMutationVoid(ctx, s.config.AppPermissions, appActor(input.ActorID, input.ActorSessionID), "goauth.app.users.unban", func(txCtx context.Context) error { return s.UnbanUser(txCtx, input) })
+	}
+
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.unban"); err != nil {
 		return err
 	}
 	user, err := s.targetUser(ctx, input.UserID)
@@ -182,7 +208,14 @@ func (s *AdminService) UnbanUser(ctx context.Context, input api.UnbanUserInput) 
 
 // UpdateUserRole changes a user's role.
 func (s *AdminService) UpdateUserRole(ctx context.Context, input api.UpdateUserRoleInput) error {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if s.config.AppPermissions != nil {
+		if input.Role != "" {
+			return appInvalid("Use appRoleId when app permissions are enabled")
+		}
+		_, err := s.config.AppPermissions.SetUserRole(ctx, api.SetAppUserRoleInput{Actor: appActor(input.ActorID, input.ActorSessionID), UserID: input.UserID, RoleID: input.AppRoleID, ExpectedRoleRevision: input.ExpectedRoleRevision, ExpectedAssignmentRevision: input.ExpectedAssignmentRevision})
+		return err
+	}
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.roles.assign"); err != nil {
 		return err
 	}
 	if input.Role != "user" && input.Role != "admin" {
@@ -231,7 +264,11 @@ func (s *AdminService) UpdateUserRole(ctx context.Context, input api.UpdateUserR
 
 // DeleteUser deletes a user account.
 func (s *AdminService) DeleteUser(ctx context.Context, input api.DeleteUserInput) error {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if s.config.AppPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runAppMutationVoid(ctx, s.config.AppPermissions, appActor(input.ActorID, input.ActorSessionID), "goauth.app.users.delete", func(txCtx context.Context) error { return s.DeleteUser(txCtx, input) })
+	}
+
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.delete"); err != nil {
 		return err
 	}
 	if _, err := s.targetUser(ctx, input.UserID); err != nil {
@@ -271,7 +308,11 @@ func (s *AdminService) DeleteUser(ctx context.Context, input api.DeleteUserInput
 
 // CreateUser creates a user.
 func (s *AdminService) CreateUser(ctx context.Context, input api.CreateUserInput) (*domain.User, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if s.config.AppPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runAppMutation(ctx, s.config.AppPermissions, appActor(input.ActorID, input.ActorSessionID), "goauth.app.users.create", func(txCtx context.Context) (*domain.User, error) { return s.CreateUser(txCtx, input) })
+	}
+
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.create"); err != nil {
 		return nil, err
 	}
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
@@ -287,6 +328,9 @@ func (s *AdminService) CreateUser(ctx context.Context, input api.CreateUserInput
 	input.Name = strings.TrimSpace(input.Name)
 
 	role := domain.RoleUser
+	if s.config.AppPermissions != nil && input.Role != "" {
+		return nil, appInvalid("Use appRoleId when app permissions are enabled")
+	}
 	if input.Role == "admin" {
 		role = domain.RoleAdmin
 	}
@@ -311,6 +355,11 @@ func (s *AdminService) CreateUser(ctx context.Context, input api.CreateUserInput
 		UpdatedAt:             now,
 	}
 
+	if s.config.AppPermissions != nil {
+		if err := s.config.AppPermissions.AssignCreatedRole(ctx, appActor(input.ActorID, input.ActorSessionID), user, input.AppRoleID, input.ExpectedRoleRevision); err != nil {
+			return nil, err
+		}
+	}
 	if err := s.users.Create(ctx, user); err != nil {
 		if errors.Is(err, port.ErrDuplicateKey) {
 			return nil, domain.ErrEmailAlreadyExists
@@ -332,7 +381,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input api.CreateUserInput
 
 // GetUserDetail returns a user's administrative details.
 func (s *AdminService) GetUserDetail(ctx context.Context, input api.GetUserDetailInput) (*api.AdminUserDetail, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.read"); err != nil {
 		return nil, err
 	}
 	user, err := s.targetUser(ctx, input.UserID)

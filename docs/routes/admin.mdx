@@ -6,7 +6,21 @@ icon: "ShieldUser"
 
 # Admin
 
-Every route here needs an admin session. Authentication runs before the current-role and second-factor checks: missing/expired sessions get `401`, a non-admin gets `403 forbidden`, and an admin session without required second-factor assurance gets `403 two_factor_required`. On every list route, an explicitly supplied unsupported or empty `orderBy` or `orderDirection` is `400 invalid_input`; omit either parameter to use its documented default. See the [Admin guide](../guides/admin.mdx) for flows and examples.
+With app permissions disabled, these routes require an admin session. With
+`WithAppPermissions` enabled, app administrative actions use their exact
+[delegable library keys](../guides/app-permissions.mdx#existing-library-operations-and-mfa);
+organization oversight remains protected-admin-only. Authentication runs before
+authorization and required MFA checks: missing/expired sessions get `401`,
+denial gets `403 forbidden`, and missing required assurance gets
+`403 two_factor_required`. On every list route, an explicitly supplied
+unsupported or empty `orderBy` or `orderDirection` is `400 invalid_input`.
+
+The reference below describes legacy `role` payloads/filters. In enabled mode,
+user filters use `appRoleId`; the role PATCH uses `appRoleId`,
+`expectedRoleRevision` and `expectedAssignmentRevision`. User creation accepts
+optional `appRoleId` with `expectedRoleRevision`; omit it for the configured
+default role and omit the legacy `role` field. The legacy field is rejected in
+enabled mode. See the [Admin guide](../guides/admin.mdx).
 
 ## Login
 
@@ -14,7 +28,12 @@ Every route here needs an admin session. Authentication runs before the current-
 
 POST /auth/admin/login
 
-Same body as [Login](./auth.mdx) (`{ "email": "...", "password": "..." }`), but only `role: "admin"` accounts pass (a correct non-admin password fails exactly like a wrong one). Returns the 2FA challenge below by default. `DisableAdminTwoFactor` opts out of the default admin requirement; global/per-user requirements still apply. See [Admin login](../guides/admin.mdx#admin-login).
+Same body as [Login](./auth.mdx) (`{ "email": "...", "password": "..." }`).
+Only legacy `role: admin` accounts pass when app permissions are disabled; only
+protected app administrators pass when enabled. Custom operators use ordinary
+login. A correct non-admin password fails exactly like a wrong one. Returns the
+2FA challenge below by default. `DisableAdminTwoFactor` opts out of the default
+requirement; global/per-user requirements still apply.
 
 **Response** (`200 OK`):
 

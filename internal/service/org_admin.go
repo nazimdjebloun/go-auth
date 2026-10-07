@@ -11,7 +11,7 @@ import (
 
 // Platform-admin oversight of organizations.
 //
-// Everything in this file is a platform-admin operation — gated by requireAdminRole
+// Everything in this file is a platform-admin operation — gated by requirePlatformAdmin
 // (is the caller a platform admin?), not requireRole (is the caller a member
 // of this specific org?). These exist because org self-service has no
 // concept of a platform operator: today, nobody outside an org's own
@@ -32,7 +32,7 @@ import (
 // name/slug search and creation-date range — the cross-org counterpart to
 // ListUserOrgs, which is scoped to one user's memberships.
 func (s *OrgService) AdminListOrgs(ctx context.Context, input api.AdminListOrgsInput) (*api.AdminListOrgsResult, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return nil, err
 	}
 	limit := 20
@@ -65,7 +65,7 @@ func (s *OrgService) AdminListOrgs(ctx context.Context, input api.AdminListOrgsI
 // CountOrgs returns how many organizations match the input's filters
 // (pagination ignored).
 func (s *OrgService) CountOrgs(ctx context.Context, input api.AdminListOrgsInput) (int, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return 0, err
 	}
 	return s.orgs.Count(ctx, port.OrgFilter{
@@ -93,7 +93,7 @@ func (s *OrgService) CountUserOrgs(ctx context.Context, input api.ListUserOrgsIn
 
 // AdminListUserOrgs returns a user's organizations to an administrator.
 func (s *OrgService) AdminListUserOrgs(ctx context.Context, input api.AdminListUserOrgsInput) (*api.ListUserOrgsResult, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return nil, err
 	}
 	// GetByID reports a missing row as (nil, nil), so the nil check is what
@@ -130,7 +130,7 @@ func (s *OrgService) AdminListUserOrgs(ctx context.Context, input api.AdminListU
 
 // AdminCountUserOrgs returns a user's organization count to an administrator.
 func (s *OrgService) AdminCountUserOrgs(ctx context.Context, input api.AdminListUserOrgsInput) (int, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return 0, err
 	}
 	if user, err := s.users.GetByID(ctx, input.UserID); err != nil || user == nil {
@@ -144,7 +144,7 @@ func (s *OrgService) AdminCountUserOrgs(ctx context.Context, input api.AdminList
 // platform staff who may not be members, and that access itself is worth an
 // audit trail entry.
 func (s *OrgService) AdminGetOrg(ctx context.Context, input api.AdminGetOrgInput) (*domain.Organization, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return nil, err
 	}
 	org, err := s.orgs.GetByID(ctx, input.OrgID)
@@ -171,7 +171,7 @@ func (s *OrgService) AdminGetOrg(ctx context.Context, input api.AdminGetOrgInput
 // for the same reason as AdminGetOrg: this is cross-tenant member data
 // (emails, roles) being exposed to platform staff.
 func (s *OrgService) AdminListOrgMembers(ctx context.Context, input api.AdminListOrgMembersInput) (*api.ListMembersResult, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return nil, err
 	}
 	limit := 20
@@ -212,7 +212,7 @@ func (s *OrgService) AdminListOrgMembers(ctx context.Context, input api.AdminLis
 // ignored. Unlike AdminListOrgMembers it publishes no audit event — it
 // exposes only a count, not member data.
 func (s *OrgService) AdminCountOrgMembers(ctx context.Context, input api.AdminListOrgMembersInput) (int, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return 0, err
 	}
 	return s.orgs.CountMembers(ctx, input.OrgID, port.OrgMemberFilter{
@@ -227,7 +227,10 @@ func (s *OrgService) AdminCountOrgMembers(ctx context.Context, input api.AdminLi
 // the event metadata, since the organizations row won't survive the delete
 // for anything to join against later.
 func (s *OrgService) AdminDeleteOrg(ctx context.Context, input api.AdminOrgActionInput) error {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if s.appPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runProtectedAppMutation(ctx, s.appPermissions, appActor(input.ActorID, input.ActorSessionID), func(ctx context.Context) error { return s.AdminDeleteOrg(ctx, input) })
+	}
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return err
 	}
 	_, err := s.deleteOrgTx(ctx, input.OrgID, func(txCtx context.Context, org *domain.Organization) error {
@@ -248,10 +251,13 @@ func (s *OrgService) AdminDeleteOrg(ctx context.Context, input api.AdminOrgActio
 // since both require the target to already be a member. Publishes
 // EventAdminOrgMemberAdded.
 func (s *OrgService) AdminAddMember(ctx context.Context, input api.AdminAddMemberInput) error {
+	if s.appPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runProtectedAppMutation(ctx, s.appPermissions, appActor(input.ActorID, input.ActorSessionID), func(ctx context.Context) error { return s.AdminAddMember(ctx, input) })
+	}
 	if !input.Role.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return err
 	}
 	return s.addMemberTx(ctx, input.OrgID, input.UserID, input.Role, func(txCtx context.Context) error {
@@ -266,7 +272,10 @@ func (s *OrgService) AdminAddMember(ctx context.Context, input api.AdminAddMembe
 // caller's own membership. Publishes EventAdminOrgMemberRemoved — distinct
 // from the self-service EventOrgMemberRemoved.
 func (s *OrgService) AdminRemoveMember(ctx context.Context, input api.AdminRemoveMemberInput) error {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if s.appPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runProtectedAppMutation(ctx, s.appPermissions, appActor(input.ActorID, input.ActorSessionID), func(ctx context.Context) error { return s.AdminRemoveMember(ctx, input) })
+	}
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return err
 	}
 	_, err := s.removeMemberTx(ctx, input.OrgID, input.UserID, func(txCtx context.Context, _ domain.OrgRole) error {
@@ -285,10 +294,13 @@ func (s *OrgService) AdminRemoveMember(ctx context.Context, input api.AdminRemov
 // self-promoting, and doesn't apply to a platform admin acting from outside
 // the org. Publishes EventAdminOrgMemberRoleChanged.
 func (s *OrgService) AdminUpdateMemberRole(ctx context.Context, input api.AdminUpdateMemberRoleInput) error {
+	if s.appPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runProtectedAppMutation(ctx, s.appPermissions, appActor(input.ActorID, input.ActorSessionID), func(ctx context.Context) error { return s.AdminUpdateMemberRole(ctx, input) })
+	}
 	if !input.NewRole.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return err
 	}
 	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole, func(txCtx context.Context, _ domain.OrgRole) error {

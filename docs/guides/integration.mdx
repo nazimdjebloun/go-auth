@@ -59,7 +59,7 @@ Update mocks and custom implementations of the public capability interfaces too.
 Touch(ctx context.Context, input api.TouchSessionInput) error
 ```
 
-Named fields do not establish trust. Set actor/user IDs from the authenticated identity, client metadata from your transport, and binding/session credentials from their original cookies or equivalent trusted storage. Those fields on the new inputs are excluded from JSON decoding and encoding with `json:"-"`. Business input fields use camelCase. Inputs can still contain passwords and one-time codes; do not log them wholesale.
+Named fields do not establish trust. Set actor/user IDs from the authenticated identity, client metadata from your transport, and binding/session credentials from their original cookies or equivalent trusted storage. Built-in handlers decode transport-specific bodies and supply actor identity separately; never accept it from request JSON. Public HTTP business fields use camelCase. Inputs can still contain passwords and one-time codes; do not log them wholesale.
 
 For OAuth callbacks, keep `State` (provider callback query) separate from `BrowserState` (the initiating browser's state cookie). Linking also needs the current raw session token in `SessionToken`. The service compares these credentials; an input struct does not replace the browser-binding checks.
 
@@ -73,7 +73,33 @@ The built-in HTTP handlers and middleware use `{"error": code, "message": messag
 
 ## Authentication policy
 
-Named inputs do not change authentication requirements. In particular, non-admin OAuth continues to trust provider authentication without applying local password-login 2FA. Admin OAuth still applies local 2FA by default. The [policy matrix](../security.mdx#authentication-policy-matrix) specifies verification and second-factor behavior for each path.
+Named inputs do not change authentication requirements. With app permissions disabled, non-admin OAuth continues to trust provider authentication without applying local password-login 2FA. Admin OAuth still applies local 2FA by default. The [policy matrix](../security.mdx#authentication-policy-matrix) specifies verification and second-factor behavior for each path.
+
+## Optional application authorization
+
+`WithAppPermissions(AppPermissionsConfig{Enable:true})` exposes
+`Services.AppPermissions`. It is nil when disabled. Enabled mode authorizes
+through the account's single `appRoleId`; the retained legacy `role` field is
+not an additional grant source. Organization membership roles remain separate.
+
+App permission operations take a trusted `api.AppPermissionActor` containing
+the authenticated user ID and current session ID. Existing administrative
+inputs use `ActorSessionID` alongside their actor/admin ID. Direct service
+calls enforce the action key and required session assurance too. For stats,
+`Admin.GetStatsForActor` supplies both IDs; `GetStats(ctx, id)` cannot supply
+required assurance.
+
+Protected administrators and current library-grant holders require local
+second-factor verification by default, including OAuth login. Custom operators
+use ordinary login; admin login remains reserved for protected administrators.
+Use `AppPermissions.RequirePermission` for backend checks and
+`Auth.RequireAppPermission` after authentication on consumer HTTP routes.
+Self-access responses are informational and do not authorize writes.
+
+See [App roles and permissions](./app-permissions.mdx) for initialization,
+selective library provisioning, business definitions, revisions and delegation
+limits. The feature uses the new canonical schema without automatic migration
+or backfill, and startup installs no permissions.
 
 ## Startup and shutdown
 

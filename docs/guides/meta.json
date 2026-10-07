@@ -9,6 +9,7 @@
     "security",
     "oauth",
     "admin",
+    "app-permissions",
     "audit-logs",
     "deployment",
     "rate-limiting",

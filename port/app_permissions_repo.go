@@ -13,6 +13,8 @@ type AppPermissionReader interface {
 	PermissionByID(context.Context, string) (*domain.AppPermission, error)
 	ListAppPermissions(context.Context, int, int) ([]domain.AppPermission, error)
 	RolePermissionKeys(context.Context, string) ([]string, error)
+	RoleGrantKeys(context.Context, string) ([]string, error)
+	EnabledBusinessPermissionKeys(context.Context) ([]string, error)
 }
 
 // AppPermissionWriter changes installed definitions; services own authorization.
@@ -33,6 +35,7 @@ type AppRoleStore interface {
 	UpdateAppRole(context.Context, *domain.AppRole, uint64) (bool, error)
 	DeleteAppRole(context.Context, string) error
 	RoleUserCount(context.Context, string) (int, error)
+	UsableAppAdminCount(context.Context) (int, error)
 	ReplaceRoleGrants(context.Context, string, []string, string, time.Time) error
 	BumpRoleRevision(context.Context, string, time.Time) error
 	SetUserAppRole(context.Context, string, string, uint64, time.Time) (bool, error)

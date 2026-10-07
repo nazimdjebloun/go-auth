@@ -6,6 +6,12 @@ icon: "Download"
 
 # Installation
 
+Optional application roles require the fresh canonical schema and explicit
+initialization before signups. Use `seed-admin --app-permissions` to create the
+first protected administrator, then configure `WithAppPermissions`. Initialization
+does not install any library permissions. See the
+[setup and permission guide](./guides/app-permissions.mdx#enable-and-initialize).
+
 ## Prerequisites
 
 - Go 1.26 or later

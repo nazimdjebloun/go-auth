@@ -96,7 +96,8 @@ func (s *InviteService) GetInviteByToken(ctx context.Context, rawToken string) (
 
 // CreateInvite creates an account invitation.
 func (s *InviteService) CreateInvite(ctx context.Context, input api.CreateInviteInput) (*domain.Invite, error) {
-	if err := requireAdminRole(ctx, s.users, input.AdminID); err != nil {
+
+	if err := s.requireOperation(ctx, input.AdminID, input.ActorSessionID, "goauth.app.invites.create"); err != nil {
 		return nil, err
 	}
 	if !s.config.EnableInvite {
@@ -150,7 +151,26 @@ func (s *InviteService) CreateInvite(ctx context.Context, input api.CreateInvite
 		ExpiresAt: now.Add(s.config.InviteTTL),
 	}
 
-	if err := s.invites.Create(ctx, invite); err != nil {
+	create := func(ctx context.Context) error {
+		if err := s.invites.Create(ctx, invite); err != nil {
+			return err
+		}
+		if s.config.AppPermissions != nil && s.audit != nil {
+			return s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteCreated, input.AdminID, invite.ID, invite.Email))
+		}
+		return nil
+	}
+	if s.config.AppPermissions != nil {
+		original := create
+		create = func(ctx context.Context) error {
+			return s.config.AppPermissions.withMutation(ctx, appActor(input.AdminID, input.ActorSessionID), "goauth.app.invites.create", original)
+		}
+	}
+	if err := create(ctx); err != nil {
+		var authErr *domain.AuthError
+		if errors.As(err, &authErr) {
+			return nil, err
+		}
 		s.log.Error("failed to create invite", "err", err, "email", input.Email)
 		return nil, domain.ErrInternal
 	}
@@ -172,7 +192,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input api.CreateInvite
 
 	invite.RawCode = ""
 
-	if s.audit != nil {
+	if s.audit != nil && s.config.AppPermissions == nil {
 		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteCreated, input.AdminID, invite.ID, invite.Email)); err != nil {
 			return nil, err
 		}
@@ -244,7 +264,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 	// redemptions serialize on it — losers see invite_already_used and no
 	// user is created for them — and a failed user insert rolls the claim
 	// back, leaving the invite redeemable.
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+	err = withAppAccountCreation(ctx, s.config.AppPermissions, s.users, s.txManager, func(txCtx context.Context) error {
 		claimed, err := s.invites.ClaimInvite(txCtx, invite.Code, time.Now().UTC())
 		if err != nil {
 			return err
@@ -254,6 +274,11 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 			// lookup above and this claim. A revoked invite redeems as
 			// invite_already_used by convention, not invite_revoked.
 			return domain.ErrInviteAlreadyUsed
+		}
+		if s.config.AppPermissions != nil {
+			if err := s.config.AppPermissions.AssignBaseline(txCtx, user); err != nil {
+				return err
+			}
 		}
 		if err := s.users.Create(txCtx, user); err != nil {
 			if errors.Is(err, port.ErrDuplicateKey) {
@@ -286,7 +311,11 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 	// effective check — a code mailed to the address that just accepted the
 	// invite proves nothing here. The invite is already claimed above, so a
 	// gated response does not strand it.
-	if s.config.RequireEmail2FA && s.twoFactorSvc != nil {
+	required, err := signupRequiresTwoFactor(ctx, s.config, user)
+	if err != nil {
+		return nil, err
+	}
+	if required && s.twoFactorSvc != nil {
 		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr
@@ -353,7 +382,7 @@ func inviteFilterFromInput(input api.ListInvitesInput) port.InviteFilter {
 
 // ListInvites returns account invitations.
 func (s *InviteService) ListInvites(ctx context.Context, input api.ListInvitesInput) ([]domain.Invite, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.invites.read"); err != nil {
 		return nil, err
 	}
 	invites, err := s.invites.List(ctx, inviteFilterFromInput(input))
@@ -367,7 +396,7 @@ func (s *InviteService) ListInvites(ctx context.Context, input api.ListInvitesIn
 // CountInvites returns how many invites match the input's filters (pagination
 // ignored).
 func (s *InviteService) CountInvites(ctx context.Context, input api.ListInvitesInput) (int, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.invites.read"); err != nil {
 		return 0, err
 	}
 	n, err := s.invites.Count(ctx, inviteFilterFromInput(input))
@@ -380,7 +409,11 @@ func (s *InviteService) CountInvites(ctx context.Context, input api.ListInvitesI
 
 // HardDeleteInvite permanently deletes an account invitation.
 func (s *InviteService) HardDeleteInvite(ctx context.Context, input api.HardDeleteInviteInput) error {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if s.config.AppPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runAppMutationVoid(ctx, s.config.AppPermissions, appActor(input.ActorID, input.ActorSessionID), "goauth.app.invites.delete", func(txCtx context.Context) error { return s.HardDeleteInvite(txCtx, input) })
+	}
+
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.invites.delete"); err != nil {
 		return err
 	}
 	// Read before deleting: the audit event names the recipient, and after the
@@ -409,7 +442,11 @@ func (s *InviteService) HardDeleteInvite(ctx context.Context, input api.HardDele
 
 // RevokeInvite revokes an account invitation.
 func (s *InviteService) RevokeInvite(ctx context.Context, input api.RevokeInviteInput) error {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if s.config.AppPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runAppMutationVoid(ctx, s.config.AppPermissions, appActor(input.ActorID, input.ActorSessionID), "goauth.app.invites.revoke", func(txCtx context.Context) error { return s.RevokeInvite(txCtx, input) })
+	}
+
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.invites.revoke"); err != nil {
 		return err
 	}
 	invite, err := s.invites.GetByID(ctx, input.InviteID)
@@ -449,7 +486,8 @@ func (s *InviteService) RevokeInvite(ctx context.Context, input api.RevokeInvite
 
 // ResendInviteEmail sends an account invitation again.
 func (s *InviteService) ResendInviteEmail(ctx context.Context, input api.ResendInviteEmailInput) error {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.invites.resend"); err != nil {
 		return err
 	}
 	invite, err := s.invites.GetByID(ctx, input.InviteID)
@@ -475,8 +513,33 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, input api.ResendI
 		return domain.ErrInternal
 	}
 
-	changed, err := s.invites.RotateCode(ctx, invite.ID, invite.Code, hashToken(raw), time.Now().UTC().Add(s.config.InviteTTL))
+	var changed bool
+	rotate := func(ctx context.Context) error {
+		var err error
+		changed, err = s.invites.RotateCode(ctx, invite.ID, invite.Code, hashToken(raw), time.Now().UTC().Add(s.config.InviteTTL))
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return domain.ErrInviteAlreadyUsed
+		}
+		if s.config.AppPermissions != nil && s.audit != nil {
+			return s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteResent, input.ActorID, invite.ID, invite.Email))
+		}
+		return nil
+	}
+	if s.config.AppPermissions != nil {
+		original := rotate
+		rotate = func(ctx context.Context) error {
+			return s.config.AppPermissions.withMutation(ctx, appActor(input.ActorID, input.ActorSessionID), "goauth.app.invites.resend", original)
+		}
+	}
+	err = rotate(ctx)
 	if err != nil {
+		var authErr *domain.AuthError
+		if errors.As(err, &authErr) {
+			return err
+		}
 		s.log.Error("failed to update invite", "err", err, "invite_id", input.InviteID)
 		return domain.ErrInternal
 	}
@@ -499,7 +562,7 @@ func (s *InviteService) ResendInviteEmail(ctx context.Context, input api.ResendI
 		return domain.ErrInviteEmailFailed
 	}
 
-	if s.audit != nil {
+	if s.audit != nil && s.config.AppPermissions == nil {
 		if err := s.audit.Record(ctx, audit.NewInviteEvent(audit.EventAdminInviteResent, input.ActorID, invite.ID, invite.Email)); err != nil {
 			return err
 		}
@@ -548,7 +611,7 @@ func validateBulkIDs(ids []string) error {
 
 // BulkRevokeInvites revokes each invite, reporting per-invite outcome.
 func (s *InviteService) BulkRevokeInvites(ctx context.Context, input api.BulkInviteIDsInput) (*api.BulkInviteResult, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.invites.revoke"); err != nil {
 		return nil, err
 	}
 	if err := validateBulkIDs(input.InviteIDs); err != nil {
@@ -557,8 +620,9 @@ func (s *InviteService) BulkRevokeInvites(ctx context.Context, input api.BulkInv
 	result := &api.BulkInviteResult{Succeeded: []string{}, Failed: []api.BulkInviteFailure{}}
 	for _, id := range input.InviteIDs {
 		if err := s.RevokeInvite(ctx, api.RevokeInviteInput{
-			InviteID: id,
-			ActorID:  input.ActorID,
+			InviteID:       id,
+			ActorID:        input.ActorID,
+			ActorSessionID: input.ActorSessionID,
 		}); err != nil {
 			result.Failed = append(result.Failed, inviteFailure(id, "", err))
 			continue
@@ -572,7 +636,7 @@ func (s *InviteService) BulkRevokeInvites(ctx context.Context, input api.BulkInv
 // the row is gone either way, and the audit trail lives in the audit log, not
 // in a status on a deleted row.
 func (s *InviteService) BulkDeleteInvites(ctx context.Context, input api.BulkInviteIDsInput) (*api.BulkInviteResult, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.invites.delete"); err != nil {
 		return nil, err
 	}
 	if err := validateBulkIDs(input.InviteIDs); err != nil {
@@ -581,8 +645,9 @@ func (s *InviteService) BulkDeleteInvites(ctx context.Context, input api.BulkInv
 	result := &api.BulkInviteResult{Succeeded: []string{}, Failed: []api.BulkInviteFailure{}}
 	for _, id := range input.InviteIDs {
 		if err := s.HardDeleteInvite(ctx, api.HardDeleteInviteInput{
-			InviteID: id,
-			ActorID:  input.ActorID,
+			InviteID:       id,
+			ActorID:        input.ActorID,
+			ActorSessionID: input.ActorSessionID,
 		}); err != nil {
 			result.Failed = append(result.Failed, inviteFailure(id, "", err))
 			continue
@@ -632,7 +697,7 @@ func runBulkEmail(ctx context.Context, items []string, work func(context.Context
 // already have an account, or already have a live invite, come back in Failed
 // with the same codes a single CreateInvite would have returned.
 func (s *InviteService) BulkSendInvites(ctx context.Context, input api.BulkInviteEmailsInput) (*api.BulkInviteResult, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.invites.create"); err != nil {
 		return nil, err
 	}
 	if len(input.Emails) == 0 {
@@ -642,7 +707,7 @@ func (s *InviteService) BulkSendInvites(ctx context.Context, input api.BulkInvit
 		return nil, domain.NewError("invalid_input", fmt.Sprintf("at most %d emails per bulk request", maxBulkInviteEmails))
 	}
 	return runBulkEmail(ctx, input.Emails, func(c context.Context, email string) error {
-		_, err := s.CreateInvite(c, api.CreateInviteInput{Email: email, AdminID: input.ActorID})
+		_, err := s.CreateInvite(c, api.CreateInviteInput{Email: email, AdminID: input.ActorID, ActorSessionID: input.ActorSessionID})
 		return err
 	}), nil
 }
@@ -651,7 +716,7 @@ func (s *InviteService) BulkSendInvites(ctx context.Context, input api.BulkInvit
 // by invite ID, but capped and fanned out like a send because it is one SMTP
 // round-trip per item.
 func (s *InviteService) BulkResendInvites(ctx context.Context, input api.BulkInviteIDsInput) (*api.BulkInviteResult, error) {
-	if err := requireAdminRole(ctx, s.users, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.invites.resend"); err != nil {
 		return nil, err
 	}
 	if len(input.InviteIDs) == 0 {
@@ -662,8 +727,9 @@ func (s *InviteService) BulkResendInvites(ctx context.Context, input api.BulkInv
 	}
 	out := runBulkEmail(ctx, input.InviteIDs, func(c context.Context, id string) error {
 		return s.ResendInviteEmail(c, api.ResendInviteEmailInput{
-			InviteID: id,
-			ActorID:  input.ActorID,
+			InviteID:       id,
+			ActorID:        input.ActorID,
+			ActorSessionID: input.ActorSessionID,
 		})
 	})
 	// keyed by ID here, not email

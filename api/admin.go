@@ -21,7 +21,8 @@ type AdminAuditLogEntry struct {
 // admin (for requireAdmin), distinct from EventActorID/EventActorEmail,
 // which filter the logged events themselves.
 type AdminListAuditLogsInput struct {
-	ActorID string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 
 	EventTypes []string
 	// EventActorID/EventActorEmail filter by who performed the logged
@@ -56,6 +57,7 @@ type AdminListAuditLogsResult struct {
 // beyond ActorID is optional and composable (e.g. UserID + IP together).
 type AdminListSessionsInput struct {
 	ActorID          string
+	ActorSessionID   string `json:"-"`
 	UserID           *string
 	IP               *string
 	Search           *string
@@ -80,15 +82,18 @@ type AdminListSessionsResult struct {
 
 // AdminListUserSessionsInput contains pagination for a user's sessions.
 type AdminListUserSessionsInput struct {
-	ActorID string // the admin performing this call
-	UserID  string
-	Offset  int
-	Limit   int
+	ActorID        string // the admin performing this call
+	ActorSessionID string `json:"-"`
+	UserID         string
+	Offset         int
+	Limit          int
 }
 
 // AdminListUsersInput contains administrator user filters.
 type AdminListUsersInput struct {
-	ActorID          string // the admin performing this call
+	AppRoleID        *string `json:"appRoleId,omitempty"`
+	ActorID          string  // the admin performing this call
+	ActorSessionID   string  `json:"-"`
 	Offset           int
 	Limit            int // default 20, max 100
 	Email            *string
@@ -135,8 +140,9 @@ type AdminUserDetail struct {
 
 // BanUserInput identifies the user to ban.
 type BanUserInput struct {
-	UserID  string
-	ActorID string
+	UserID         string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // BulkActionFailure reports why one user in a bulk request didn't succeed —
@@ -150,8 +156,9 @@ type BulkActionFailure struct {
 
 // BulkUserActionInput is the shared input shape for every Bulk*Users method.
 type BulkUserActionInput struct {
-	UserIDs []string
-	ActorID string
+	UserIDs        []string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // BulkUserActionResult reports per-user outcome, not overall success — a
@@ -165,63 +172,77 @@ type BulkUserActionResult struct {
 
 // CreateUserInput contains values used to create a user.
 type CreateUserInput struct {
-	ActorID  string // the admin performing this call
-	Email    string
-	Password string
-	Name     string
-	Role     string
+	AppRoleID            string
+	ExpectedRoleRevision uint64
+	ActorID              string // the admin performing this call
+	ActorSessionID       string `json:"-"`
+	Email                string
+	Password             string
+	Name                 string
+	Role                 string
 }
 
 // DeleteUserInput identifies the user to delete.
 type DeleteUserInput struct {
-	UserID  string
-	ActorID string
+	UserID         string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // GetUserDetailInput identifies the user to return.
 type GetUserDetailInput struct {
-	UserID  string
-	ActorID string
+	UserID         string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // LoginActivityInput scopes a login-activity heatmap query. UserID nil means
 // a global heatmap (every user's successful logins); set, it's one user's.
 type LoginActivityInput struct {
-	ActorID string
-	UserID  *string
-	From    time.Time
-	To      time.Time
+	ActorID        string
+	ActorSessionID string `json:"-"`
+	UserID         *string
+	From           time.Time
+	To             time.Time
 }
 
 // RevokeUserSessionInput identifies one user session to revoke.
 type RevokeUserSessionInput struct {
-	UserID    string
-	SessionID string
-	ActorID   string
+	UserID         string
+	SessionID      string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // RevokeUserSessionsInput identifies the user whose sessions to revoke.
 type RevokeUserSessionsInput struct {
-	UserID  string
-	ActorID string
+	UserID         string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // StatsRangeInput scopes a day-bucketed analytics query to [From, To].
 type StatsRangeInput struct {
-	ActorID string
-	From    time.Time
-	To      time.Time
+	ActorID        string
+	ActorSessionID string `json:"-"`
+	From           time.Time
+	To             time.Time
 }
 
 // UnbanUserInput identifies the user to unban.
 type UnbanUserInput struct {
-	UserID  string
-	ActorID string
+	UserID         string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // UpdateUserRoleInput identifies a user and their new role.
 type UpdateUserRoleInput struct {
-	UserID  string
-	Role    string
-	ActorID string
+	AppRoleID                  string
+	ExpectedRoleRevision       uint64
+	ExpectedAssignmentRevision uint64
+	UserID                     string
+	Role                       string
+	ActorID                    string
+	ActorSessionID             string `json:"-"`
 }

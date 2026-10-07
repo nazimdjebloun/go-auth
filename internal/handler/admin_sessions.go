@@ -60,7 +60,7 @@ func (h *Handler) AdminListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	input := api.AdminListSessionsInput{
-		ActorID:          actor.ID,
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r),
 		UserID:           userID,
 		IP:               ip,
 		Search:           search,

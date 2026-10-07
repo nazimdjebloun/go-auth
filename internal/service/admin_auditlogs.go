@@ -81,7 +81,7 @@ func (s *AdminService) resolveUserEmail(ctx context.Context, email *string) (*st
 // audit logging was never turned on (WithAudit(Enabled: true)) — the table
 // simply has no rows in that case.
 func (s *AdminService) ListAuditLogs(ctx context.Context, input api.AdminListAuditLogsInput) (*api.AdminListAuditLogsResult, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.audit.read"); err != nil {
 		return nil, err
 	}
 
@@ -152,7 +152,7 @@ func (s *AdminService) auditFilterFromInput(ctx context.Context, input api.Admin
 // CountAuditLogs returns how many audit entries match the input's filters
 // (pagination ignored).
 func (s *AdminService) CountAuditLogs(ctx context.Context, input api.AdminListAuditLogsInput) (int, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.audit.read"); err != nil {
 		return 0, err
 	}
 	filter, err := s.auditFilterFromInput(ctx, input)

@@ -75,7 +75,8 @@ func parseListUsersInput(r *http.Request, actorID string) (api.AdminListUsersInp
 	}
 
 	return api.AdminListUsersInput{
-		ActorID:          actorID,
+		AppRoleID: optionalAppRoleID(r),
+		ActorID:   actorID, ActorSessionID: actorSessionID(r),
 		Offset:           offset,
 		Limit:            limit,
 		Email:            email,
@@ -139,7 +140,7 @@ func (h *Handler) BanUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.BanUser(r.Context(), api.BanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.BanUser(r.Context(), api.BanUserInput{UserID: userID, ActorID: actor.ID, ActorSessionID: actorSessionID(r)}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -154,7 +155,7 @@ func (h *Handler) UnbanUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.UnbanUser(r.Context(), api.UnbanUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.UnbanUser(r.Context(), api.UnbanUserInput{UserID: userID, ActorID: actor.ID, ActorSessionID: actorSessionID(r)}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -170,12 +171,15 @@ func (h *Handler) UpdateUserRole(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := r.PathValue("id")
 	var body struct {
-		Role string `json:"role"`
+		Role                       string `json:"role"`
+		AppRoleID                  string `json:"appRoleId"`
+		ExpectedRoleRevision       uint64 `json:"expectedRoleRevision"`
+		ExpectedAssignmentRevision uint64 `json:"expectedAssignmentRevision"`
 	}
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	if err := h.services.Admin.UpdateUserRole(r.Context(), api.UpdateUserRoleInput{UserID: userID, Role: body.Role, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.UpdateUserRole(r.Context(), api.UpdateUserRoleInput{UserID: userID, Role: body.Role, AppRoleID: body.AppRoleID, ExpectedRoleRevision: body.ExpectedRoleRevision, ExpectedAssignmentRevision: body.ExpectedAssignmentRevision, ActorID: actor.ID, ActorSessionID: actorSessionID(r)}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -190,7 +194,7 @@ func (h *Handler) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.DeleteUser(r.Context(), api.DeleteUserInput{UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.DeleteUser(r.Context(), api.DeleteUserInput{UserID: userID, ActorID: actor.ID, ActorSessionID: actorSessionID(r)}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -205,7 +209,7 @@ func (h *Handler) RevokeUserSessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := r.PathValue("id")
-	if err := h.services.Admin.RevokeUserSessions(r.Context(), api.RevokeUserSessionsInput{UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Admin.RevokeUserSessions(r.Context(), api.RevokeUserSessionsInput{UserID: userID, ActorID: actor.ID, ActorSessionID: actorSessionID(r)}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -220,21 +224,25 @@ func (h *Handler) AdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-		Name     string `json:"name"`
-		Role     string `json:"role"`
+		Email                string `json:"email"`
+		Password             string `json:"password"`
+		Name                 string `json:"name"`
+		Role                 string `json:"role"`
+		AppRoleID            string `json:"appRoleId"`
+		ExpectedRoleRevision uint64 `json:"expectedRoleRevision"`
 	}
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
 	result, err := h.services.Admin.CreateUser(r.Context(), api.CreateUserInput{
-		ActorID:  actor.ID,
-		Email:    body.Email,
-		Password: body.Password,
-		Name:     body.Name,
-		Role:     body.Role,
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r),
+		Email:                body.Email,
+		Password:             body.Password,
+		Name:                 body.Name,
+		Role:                 body.Role,
+		AppRoleID:            body.AppRoleID,
+		ExpectedRoleRevision: body.ExpectedRoleRevision,
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -260,10 +268,10 @@ func (h *Handler) AdminListUserSessions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	sessions, total, aerr := h.services.Admin.ListUserSessions(r.Context(), api.AdminListUserSessionsInput{
-		ActorID: actor.ID,
-		UserID:  userID,
-		Offset:  offset,
-		Limit:   limit,
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r),
+		UserID: userID,
+		Offset: offset,
+		Limit:  limit,
 	})
 	if aerr != nil {
 		h.writeError(w, aerr)
@@ -281,7 +289,7 @@ func (h *Handler) GetUserDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	userID := r.PathValue("id")
 
-	detail, aerr := h.services.Admin.GetUserDetail(r.Context(), api.GetUserDetailInput{UserID: userID, ActorID: actor.ID})
+	detail, aerr := h.services.Admin.GetUserDetail(r.Context(), api.GetUserDetailInput{UserID: userID, ActorID: actor.ID, ActorSessionID: actorSessionID(r)})
 	if aerr != nil {
 		h.writeError(w, aerr)
 		return
@@ -299,7 +307,7 @@ func (h *Handler) AdminRevokeUserSession(w http.ResponseWriter, r *http.Request)
 	userID := r.PathValue("id")
 	sessionID := r.PathValue("sessionId")
 
-	if aerr := h.services.Admin.RevokeUserSession(r.Context(), api.RevokeUserSessionInput{UserID: userID, SessionID: sessionID, ActorID: actor.ID}); aerr != nil {
+	if aerr := h.services.Admin.RevokeUserSession(r.Context(), api.RevokeUserSessionInput{UserID: userID, SessionID: sessionID, ActorID: actor.ID, ActorSessionID: actorSessionID(r)}); aerr != nil {
 		h.writeError(w, aerr)
 		return
 	}

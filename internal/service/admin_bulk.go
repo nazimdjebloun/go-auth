@@ -37,7 +37,7 @@ func bulkFailure(userID string, err error) api.BulkActionFailure {
 // not one atomic operation. A failure on one user (already banned, last
 // admin) doesn't stop or roll back the rest.
 func (s *AdminService) BulkBanUsers(ctx context.Context, input api.BulkUserActionInput) (*api.BulkUserActionResult, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.ban"); err != nil {
 		return nil, err
 	}
 	if err := validateBulkUserActionInput(input); err != nil {
@@ -45,7 +45,8 @@ func (s *AdminService) BulkBanUsers(ctx context.Context, input api.BulkUserActio
 	}
 	result := &api.BulkUserActionResult{Succeeded: []string{}, Failed: []api.BulkActionFailure{}}
 	for _, id := range input.UserIDs {
-		if err := s.BanUser(ctx, api.BanUserInput{UserID: id, ActorID: input.ActorID}); err != nil {
+		if err := s.BanUser(ctx, api.BanUserInput{UserID: id, ActorID: input.ActorID,
+			ActorSessionID: input.ActorSessionID}); err != nil {
 			result.Failed = append(result.Failed, bulkFailure(id, err))
 			continue
 		}
@@ -57,7 +58,7 @@ func (s *AdminService) BulkBanUsers(ctx context.Context, input api.BulkUserActio
 // BulkUnbanUsers is BulkBanUsers's counterpart — see its comment for the
 // partial-failure contract.
 func (s *AdminService) BulkUnbanUsers(ctx context.Context, input api.BulkUserActionInput) (*api.BulkUserActionResult, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.unban"); err != nil {
 		return nil, err
 	}
 	if err := validateBulkUserActionInput(input); err != nil {
@@ -65,7 +66,8 @@ func (s *AdminService) BulkUnbanUsers(ctx context.Context, input api.BulkUserAct
 	}
 	result := &api.BulkUserActionResult{Succeeded: []string{}, Failed: []api.BulkActionFailure{}}
 	for _, id := range input.UserIDs {
-		if err := s.UnbanUser(ctx, api.UnbanUserInput{UserID: id, ActorID: input.ActorID}); err != nil {
+		if err := s.UnbanUser(ctx, api.UnbanUserInput{UserID: id, ActorID: input.ActorID,
+			ActorSessionID: input.ActorSessionID}); err != nil {
 			result.Failed = append(result.Failed, bulkFailure(id, err))
 			continue
 		}
@@ -77,7 +79,7 @@ func (s *AdminService) BulkUnbanUsers(ctx context.Context, input api.BulkUserAct
 // BulkDeleteUsers is BulkBanUsers's counterpart for deletion — see its
 // comment for the partial-failure contract.
 func (s *AdminService) BulkDeleteUsers(ctx context.Context, input api.BulkUserActionInput) (*api.BulkUserActionResult, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.users.delete"); err != nil {
 		return nil, err
 	}
 	if err := validateBulkUserActionInput(input); err != nil {
@@ -85,7 +87,8 @@ func (s *AdminService) BulkDeleteUsers(ctx context.Context, input api.BulkUserAc
 	}
 	result := &api.BulkUserActionResult{Succeeded: []string{}, Failed: []api.BulkActionFailure{}}
 	for _, id := range input.UserIDs {
-		if err := s.DeleteUser(ctx, api.DeleteUserInput{UserID: id, ActorID: input.ActorID}); err != nil {
+		if err := s.DeleteUser(ctx, api.DeleteUserInput{UserID: id, ActorID: input.ActorID,
+			ActorSessionID: input.ActorSessionID}); err != nil {
 			result.Failed = append(result.Failed, bulkFailure(id, err))
 			continue
 		}
@@ -98,7 +101,7 @@ func (s *AdminService) BulkDeleteUsers(ctx context.Context, input api.BulkUserAc
 // "sign everyone out" action — see its comment for the partial-failure
 // contract.
 func (s *AdminService) BulkRevokeUserSessions(ctx context.Context, input api.BulkUserActionInput) (*api.BulkUserActionResult, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.sessions.revoke"); err != nil {
 		return nil, err
 	}
 	if err := validateBulkUserActionInput(input); err != nil {
@@ -106,7 +109,8 @@ func (s *AdminService) BulkRevokeUserSessions(ctx context.Context, input api.Bul
 	}
 	result := &api.BulkUserActionResult{Succeeded: []string{}, Failed: []api.BulkActionFailure{}}
 	for _, id := range input.UserIDs {
-		if err := s.RevokeUserSessions(ctx, api.RevokeUserSessionsInput{UserID: id, ActorID: input.ActorID}); err != nil {
+		if err := s.RevokeUserSessions(ctx, api.RevokeUserSessionsInput{UserID: id, ActorID: input.ActorID,
+			ActorSessionID: input.ActorSessionID}); err != nil {
 			result.Failed = append(result.Failed, bulkFailure(id, err))
 			continue
 		}

@@ -62,6 +62,7 @@ func (s *AuthService) AttachAccountDeletion(d *AccountDeletion) {
 // Config configures AuthService.
 type Config struct {
 	CommonConfig
+	AppPermissions *AppPermissionsService
 
 	InviteOnly                 bool
 	EnableEmailPassword        bool
@@ -171,8 +172,11 @@ func NewAuthService(
 // enforceTwoFactor reports whether this login must stop for a second factor.
 // Nil-guarded: a consumer wiring AuthService directly without the 2FA service
 // gets today's behaviour rather than a panic.
-func (s *AuthService) enforceTwoFactor(user *domain.User) bool {
-	return s.twoFactorSvc != nil && s.twoFactorSvc.Enforce(user)
+func (s *AuthService) enforceTwoFactor(ctx context.Context, user *domain.User) (bool, error) {
+	if s.twoFactorSvc == nil {
+		return false, nil
+	}
+	return s.twoFactorSvc.EnforceContext(ctx, user)
 }
 
 // createAuditedLoginSession commits the new session and the login-success
@@ -265,6 +269,11 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 	// them would otherwise leave a registered account with no record that it
 	// was registered.
 	createUser := func(txCtx context.Context) error {
+		if s.config.AppPermissions != nil {
+			if err := s.config.AppPermissions.AssignBaseline(txCtx, user); err != nil {
+				return err
+			}
+		}
 		if err := s.users.Create(txCtx, user); err != nil {
 			if errors.Is(err, port.ErrDuplicateKey) {
 				// The GetByEmail check above lost a race — another request
@@ -284,7 +293,7 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 		return nil
 	}
 
-	if err := s.txManager.WithTx(ctx, createUser); err != nil {
+	if err := withAppAccountCreation(ctx, s.config.AppPermissions, s.users, s.txManager, createUser); err != nil {
 		return nil, err
 	}
 
@@ -305,7 +314,11 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 	// yet still gets a session here — the code would go to the address they
 	// just typed in, so it proves nothing at registration time. The gate first
 	// applies on their next login. Intentional; do not "fix" to enforceTwoFactor.
-	if s.config.RequireEmail2FA && s.twoFactorSvc != nil {
+	required, err := signupRequiresTwoFactor(ctx, s.config, user)
+	if err != nil {
+		return nil, err
+	}
+	if required && s.twoFactorSvc != nil {
 		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr
@@ -385,7 +398,11 @@ func (s *AuthService) authenticate(ctx context.Context, input api.LoginInput) (*
 		return nil, false, domain.ErrUserBanned
 	}
 
-	if s.config.RequireEmailVerification && !user.IsVerified && user.Role != domain.RoleAdmin {
+	protected, err := appProtectedIdentity(ctx, s.config.AppPermissions, user)
+	if err != nil {
+		return nil, false, err
+	}
+	if s.config.RequireEmailVerification && !user.IsVerified && !protected {
 		return user, true, nil
 	}
 
@@ -499,7 +516,11 @@ func (s *AuthService) Login(ctx context.Context, input api.LoginInput) (*api.Log
 	}
 
 	// Ordering: banned → email-verify → password → 2FA → session.
-	if s.enforceTwoFactor(user) {
+	required, err := s.enforceTwoFactor(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if required {
 		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr
@@ -554,7 +575,11 @@ func (s *AuthService) AdminLogin(ctx context.Context, input api.LoginInput) (*ap
 		return nil, aerr
 	}
 
-	if requiresVerification || user.Role != domain.RoleAdmin {
+	protected, err := appProtectedIdentity(ctx, s.config.AppPermissions, user)
+	if err != nil {
+		return nil, err
+	}
+	if requiresVerification || !protected {
 		if s.audit != nil {
 			if err := s.audit.Record(ctx, audit.NewAdminLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent)); err != nil {
 				s.log.Error("admin login-failed audit record error", "err", err)
@@ -565,7 +590,11 @@ func (s *AuthService) AdminLogin(ctx context.Context, input api.LoginInput) (*ap
 
 	// Apply the same account policy used by ordinary login. An explicit admin
 	// opt-out does not bypass a global or per-user second-factor requirement.
-	if s.enforceTwoFactor(user) {
+	required, err := s.enforceTwoFactor(ctx, user)
+	if err != nil {
+		return nil, err
+	}
+	if required {
 		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr

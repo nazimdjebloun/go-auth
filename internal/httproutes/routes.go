@@ -16,15 +16,18 @@ type Entry struct {
 
 // Features selects the route groups enabled by the validated configuration.
 type Features struct {
-	EmailRegistration bool
-	Invite            bool
-	OAuth             bool
-	Organizations     bool
+	AppPermissions          bool
+	AppPermissionManagement bool
+	EmailRegistration       bool
+	Invite                  bool
+	OAuth                   bool
+	Organizations           bool
 }
 
 // Middleware contains the exact wrappers used by the built-in HTTP routes.
 // The order in each Build entry is outermost to innermost.
 type Middleware struct {
+	AppOperation                                  func(string) func(http.Handler) http.Handler
 	CORS, RateLimit, CSRFToken, CSRF, Auth, Admin func(http.Handler) http.Handler
 	OrgMember, OrgAdmin, OrgOwner                 func(http.Handler) http.Handler
 }
@@ -35,12 +38,18 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 	corsMW, rateLimitMW := mw.CORS, mw.RateLimit
 	csrfTokenMW, csrfMW := mw.CSRFToken, mw.CSRF
 	authMW, adminMW := mw.Auth, mw.Admin
+	operation := func(key string) func(http.Handler) http.Handler {
+		if mw.AppOperation != nil {
+			return mw.AppOperation(key)
+		}
+		return adminMW
+	}
 	orgMemberMW, orgAdminMW, orgOwnerMW := mw.OrgMember, mw.OrgAdmin, mw.OrgOwner
 
 	// CORS remains outermost so preflight exits before rate limiting or auth.
-	wrappedAdminListAuditLogs := corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListAuditLogs)))))
-	wrappedAdminListUserAuditLogs := corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserAuditLogs)))))
-	wrappedAdminListSessions := corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListSessions)))))
+	wrappedAdminListAuditLogs := corsMW(rateLimitMW(authMW(operation("goauth.app.audit.read")(http.HandlerFunc(h.AdminListAuditLogs)))))
+	wrappedAdminListUserAuditLogs := corsMW(rateLimitMW(authMW(operation("goauth.app.audit.read")(http.HandlerFunc(h.AdminListUserAuditLogs)))))
+	wrappedAdminListSessions := corsMW(rateLimitMW(authMW(operation("goauth.app.sessions.read")(http.HandlerFunc(h.AdminListSessions)))))
 	entries := []Entry{
 		{routes.Login, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Login)))))},
 		{routes.AdminLogin, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.AdminLogin)))))},
@@ -69,32 +78,58 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 		{routes.ResendVerification, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendVerification))))))},
 		{routes.ResendVerificationPublic, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendVerificationPublic)))))},
 		{routes.RefreshToken, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.RefreshToken)))))},
-		{routes.ListUsers, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListUsers)))))},
-		{routes.AdminCountUsers, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.CountUsers)))))},
-		{routes.GetUserDetail, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetUserDetail)))))},
-		{routes.UpdateUserRole, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateUserRole)))))))},
-		{routes.BanUser, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BanUser)))))))},
-		{routes.UnbanUser, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UnbanUser)))))))},
-		{routes.DeleteUser, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.DeleteUser)))))))},
-		{routes.AdminCreateUser, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminCreateUser)))))))},
-		{routes.AdminListUserSessions, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminListUserSessions)))))},
-		{routes.AdminRevokeUserSession, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.AdminRevokeUserSession)))))))},
-		{routes.RevokeUserSessions, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeUserSessions)))))))},
+		{routes.ListUsers, corsMW(rateLimitMW(authMW(operation("goauth.app.users.read")(http.HandlerFunc(h.ListUsers)))))},
+		{routes.AdminCountUsers, corsMW(rateLimitMW(authMW(operation("goauth.app.users.read")(http.HandlerFunc(h.CountUsers)))))},
+		{routes.GetUserDetail, corsMW(rateLimitMW(authMW(operation("goauth.app.users.read")(http.HandlerFunc(h.GetUserDetail)))))},
+		{routes.UpdateUserRole, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.roles.assign")(http.HandlerFunc(h.UpdateUserRole)))))))},
+		{routes.BanUser, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.users.ban")(http.HandlerFunc(h.BanUser)))))))},
+		{routes.UnbanUser, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.users.unban")(http.HandlerFunc(h.UnbanUser)))))))},
+		{routes.DeleteUser, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.users.delete")(http.HandlerFunc(h.DeleteUser)))))))},
+		{routes.AdminCreateUser, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.users.create")(http.HandlerFunc(h.AdminCreateUser)))))))},
+		{routes.AdminListUserSessions, corsMW(rateLimitMW(authMW(operation("goauth.app.sessions.read")(http.HandlerFunc(h.AdminListUserSessions)))))},
+		{routes.AdminRevokeUserSession, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.sessions.revoke")(http.HandlerFunc(h.AdminRevokeUserSession)))))))},
+		{routes.RevokeUserSessions, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.sessions.revoke")(http.HandlerFunc(h.RevokeUserSessions)))))))},
 		{routes.AdminListAuditLogs, wrappedAdminListAuditLogs},
 		{routes.AdminCountAuditLogs, wrappedAdminListAuditLogs},
 		{routes.AdminListUserAuditLogs, wrappedAdminListUserAuditLogs},
 		{routes.AdminCountUserAuditLogs, wrappedAdminListUserAuditLogs},
-		{routes.AdminStats, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetAdminStats)))))},
-		{routes.AdminRegistrationTrend, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetRegistrationTrend)))))},
-		{routes.AdminLoginActivity, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.GetLoginActivity)))))},
+		{routes.AdminStats, corsMW(rateLimitMW(authMW(operation("goauth.app.stats.read")(http.HandlerFunc(h.GetAdminStats)))))},
+		{routes.AdminRegistrationTrend, corsMW(rateLimitMW(authMW(operation("goauth.app.stats.read")(http.HandlerFunc(h.GetRegistrationTrend)))))},
+		{routes.AdminLoginActivity, corsMW(rateLimitMW(authMW(operation("goauth.app.stats.read")(http.HandlerFunc(h.GetLoginActivity)))))},
 		{routes.AdminListSessions, wrappedAdminListSessions},
 		{routes.AdminCountSessions, wrappedAdminListSessions},
-		{routes.BulkBanUsers, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkBanUsers)))))))},
-		{routes.BulkUnbanUsers, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkUnbanUsers)))))))},
-		{routes.BulkDeleteUsers, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkDeleteUsers)))))))},
-		{routes.BulkRevokeUserSessions, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkRevokeUserSessions)))))))},
+		{routes.BulkBanUsers, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.users.ban")(http.HandlerFunc(h.BulkBanUsers)))))))},
+		{routes.BulkUnbanUsers, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.users.unban")(http.HandlerFunc(h.BulkUnbanUsers)))))))},
+		{routes.BulkDeleteUsers, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.users.delete")(http.HandlerFunc(h.BulkDeleteUsers)))))))},
+		{routes.BulkRevokeUserSessions, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.sessions.revoke")(http.HandlerFunc(h.BulkRevokeUserSessions)))))))},
 	}
 
+	if features.AppPermissions {
+		entries = append(entries, Entry{routes.AppAccess, corsMW(rateLimitMW(authMW(http.HandlerFunc(h.AppAccess))))})
+	}
+	if features.AppPermissionManagement {
+		read := func(fn http.HandlerFunc, key string) http.Handler {
+			return corsMW(rateLimitMW(authMW(operation(key)(fn))))
+		}
+		write := func(fn http.HandlerFunc, key string) http.Handler {
+			return corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation(key)(fn))))))
+		}
+		entries = append(entries,
+			Entry{routes.AppLibraryPermissions, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AppLibraryPermissions)))))},
+			Entry{routes.UpdateAppLibraryPermissions, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.UpdateAppLibraryPermissions)))))))},
+			Entry{routes.ListAppPermissions, read(h.ListAppPermissions, "goauth.app.permissions.read")},
+			Entry{routes.CreateAppPermission, write(h.CreateAppPermission, "goauth.app.permissions.create")},
+			Entry{routes.UpdateAppPermission, write(h.UpdateAppPermission, "goauth.app.permissions.update")},
+			Entry{routes.DeleteAppPermission, write(h.DeleteAppPermission, "goauth.app.permissions.delete")},
+			Entry{routes.ListAppRoles, read(h.ListAppRoles, "goauth.app.roles.read")},
+			Entry{routes.CreateAppRole, write(h.CreateAppRole, "goauth.app.roles.create")},
+			Entry{routes.UpdateAppRole, write(h.UpdateAppRole, "goauth.app.roles.update")},
+			Entry{routes.SetAppRolePermissions, write(h.SetAppRolePermissions, "goauth.app.roles.update")},
+			Entry{routes.DeleteAppRole, write(h.DeleteAppRole, "goauth.app.roles.delete")},
+			Entry{routes.GetAppUserRole, read(h.GetAppUserRole, "goauth.app.roles.read")},
+			Entry{routes.SetAppUserRole, write(h.SetAppUserRole, "goauth.app.roles.assign")},
+		)
+	}
 	if features.EmailRegistration {
 		entries = append(entries,
 			Entry{routes.Register, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Register)))))},
@@ -105,16 +140,16 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 		entries = append(entries,
 			Entry{routes.InviteInfo, corsMW(rateLimitMW(http.HandlerFunc(h.GetInviteInfo)))},
 			Entry{routes.InviteRegister, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.InviteRegister)))))},
-			Entry{routes.CreateInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.CreateInvite)))))))},
-			Entry{routes.ListInvites, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.ListInvites)))))},
-			Entry{routes.AdminCountInvites, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.CountInvites)))))},
-			Entry{routes.RevokeInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.RevokeInvite)))))))},
-			Entry{routes.ResendInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.ResendInvite)))))))},
-			Entry{routes.HardDeleteInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.HardDeleteInvite)))))))},
-			Entry{routes.BulkSendInvites, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkSendInvites)))))))},
-			Entry{routes.BulkResendInvites, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkResendInvites)))))))},
-			Entry{routes.BulkRevokeInvites, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkRevokeInvites)))))))},
-			Entry{routes.BulkDeleteInvites, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(adminMW(http.HandlerFunc(h.BulkDeleteInvites)))))))},
+			Entry{routes.CreateInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.invites.create")(http.HandlerFunc(h.CreateInvite)))))))},
+			Entry{routes.ListInvites, corsMW(rateLimitMW(authMW(operation("goauth.app.invites.read")(http.HandlerFunc(h.ListInvites)))))},
+			Entry{routes.AdminCountInvites, corsMW(rateLimitMW(authMW(operation("goauth.app.invites.read")(http.HandlerFunc(h.CountInvites)))))},
+			Entry{routes.RevokeInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.invites.revoke")(http.HandlerFunc(h.RevokeInvite)))))))},
+			Entry{routes.ResendInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.invites.resend")(http.HandlerFunc(h.ResendInvite)))))))},
+			Entry{routes.HardDeleteInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.invites.delete")(http.HandlerFunc(h.HardDeleteInvite)))))))},
+			Entry{routes.BulkSendInvites, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.invites.create")(http.HandlerFunc(h.BulkSendInvites)))))))},
+			Entry{routes.BulkResendInvites, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.invites.resend")(http.HandlerFunc(h.BulkResendInvites)))))))},
+			Entry{routes.BulkRevokeInvites, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.invites.revoke")(http.HandlerFunc(h.BulkRevokeInvites)))))))},
+			Entry{routes.BulkDeleteInvites, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.invites.delete")(http.HandlerFunc(h.BulkDeleteInvites)))))))},
 		)
 	}
 

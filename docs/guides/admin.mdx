@@ -6,7 +6,17 @@ icon: "ShieldUser"
 
 # Admin
 
-Everything here requires the calling user's current `role: "admin"` and a session that completed 2FA by default. Normal authentication runs first: a missing or expired session fails as usual, a non-admin gets `403 forbidden`, and an admin session without second-factor assurance gets `403 two_factor_required`. Sign in again and finish the challenge to recover access. `Auth.RequireAdmin` applies the same policy to your own routes.
+This guide's legacy role examples apply when app permissions are disabled.
+With `WithAppPermissions` enabled, app administrative operations can be
+delegated individually to custom roles through installed library keys;
+organization oversight and catalog provisioning remain protected-admin-only.
+See the [app permission guide](./app-permissions.mdx) for bootstrap, enabled-mode
+role payloads/filters, direct service calls and current MFA enforcement.
+
+Normal authentication runs first. Missing/expired sessions fail as usual;
+authorization denial returns `403 forbidden`, and missing required second-factor
+assurance returns `403 two_factor_required`. `Auth.RequireAdmin` always requires
+the protected administrator, even when other routes permit delegated operators.
 
 One distinction that applies to every admin route: `user_not_found` (404) is returned only when the target user genuinely does not exist. If the database read for the target user fails instead — an outage, a canceled context — the route answers `internal_error` (500) and logs the cause server-side, so a temporary backend problem is never reported as a missing user. The same rule covers the middleware: session validation or transparent-refresh failures due to backend trouble produce `internal_error`, never `401 unauthorized` — see [Error handling](../error-handling.mdx#general).
 
@@ -14,7 +24,10 @@ For the full path/param reference see [Routes](../routes/admin.mdx#user-manageme
 
 ## Configuration
 
-There's no `WithAdmin` flag — these routes are always mounted. Access checks the `role` column on `domain.User` and the session's second-factor assurance. `TwoFactorConfig.DisableAdminTwoFactor` opts out of the default admin requirement; global and per-user requirements still apply.
+There's no `WithAdmin` flag — the existing administrative routes are always
+mounted. Access uses the legacy role when app permissions are off and current
+app authorization when on. `TwoFactorConfig.DisableAdminTwoFactor` opts out of
+the default privileged requirement; global and per-user requirements still apply.
 
 <Callout type="warn" title="Bootstrapping the first admin">
   Every admin-management endpoint below requires an admin session to call — including `POST /admin/users`. That's a chicken-and-egg problem for the very first admin: there's no API route that creates one from nothing. Use the `goauth seed-admin` CLI command — see [Creating the first admin](#creating-the-first-admin) below.

@@ -93,6 +93,19 @@ func (r *SessionRepository) GetByTokenHashWithUser(ctx context.Context, hash str
 	return s, u, nil
 }
 
+// GetByID resolves a session's current ownership and assurance without a raw token.
+func (r *SessionRepository) GetByID(ctx context.Context, id string) (*domain.Session, error) {
+	s := &domain.Session{}
+	err := scanSession(s, r.db.QueryRowContext(ctx, "SELECT "+sessionCols+" FROM sessions WHERE id=$1", id))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
 // Create stores a session.
 func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error {
 	_, err := r.db.ExecContext(ctx, sessionCreateQuery,

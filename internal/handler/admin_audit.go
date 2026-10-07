@@ -94,7 +94,7 @@ func (h *Handler) listAuditLogs(w http.ResponseWriter, r *http.Request, userID *
 	}
 
 	input := api.AdminListAuditLogsInput{
-		ActorID:         actor.ID,
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r),
 		EventTypes:      eventTypes,
 		EventActorID:    actorID,
 		EventActorEmail: actorEmail,

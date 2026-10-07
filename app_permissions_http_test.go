@@ -1,0 +1,303 @@
+package goauth
+
+import (
+	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/nazimdjebloun/go-auth/api"
+	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/routes"
+	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
+)
+
+type appHTTPFixture struct {
+	a     *Auth
+	db    *sqlstore.DB
+	users *sqlstore.UserRepository
+	admin api.AppPermissionActor
+	token string
+	mux   *http.ServeMux
+}
+
+func newAppHTTPFixture(t *testing.T, management, requireMFA bool) appHTTPFixture {
+	t.Helper()
+	raw := testdb.OpenSelected(t)
+	testdb.Apply(t, raw)
+	db := sqlstore.NewDB(raw, testdb.Driver(raw))
+	users := sqlstore.NewUserRepository(db).WithAppPermissions()
+	now := time.Now().UTC()
+	id := uuid.NewString()
+	if err := users.Create(t.Context(), &domain.User{ID: id, Email: id + "@example.com", Role: domain.RoleAdmin, IsVerified: true, CreatedAt: now, UpdatedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	driver := DriverSQLite
+	switch testdb.Driver(raw) {
+	case "mysql":
+		driver = DriverMySQL
+	case "postgres", "pgx":
+		driver = DriverPostgres
+	}
+	cfg, err := NewConfig(WithApp(AppConfig{Name: "Permissions", BaseURL: "http://localhost", Environment: EnvironmentDev, Database: DatabaseConfig{DB: raw, Driver: driver}}), WithSecret("0123456789abcdef0123456789abcdef"), WithBcryptCost(4), WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))), WithRegistration(RegistrationConfig{EnableEmailPassword: true, AllowPublic: true, EnableInvite: true}), WithSecurity(SecurityConfig{AllowedOrigins: []string{"http://localhost"}, DisableCSRFToken: true, AllowHTTPURLs: AllowPlaintextEmailLinks()}), WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: !requireMFA}), WithAppPermissions(AppPermissionsConfig{Enable: true, EnableManagementHTTP: management}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.Close)
+	if err := a.InitializeAppPermissions(t.Context(), api.InitializeAppPermissionsInput{AdministratorUserID: id}); err != nil {
+		t.Fatal(err)
+	}
+	session, err := a.Services().Session.Create(t.Context(), api.CreateSessionInput{UserID: id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	a.Mount(mux)
+	return appHTTPFixture{a: a, db: db, users: users, admin: api.AppPermissionActor{UserID: id, SessionID: session.Session.ID}, token: session.SessionToken, mux: mux}
+}
+
+func (f appHTTPFixture) request(t *testing.T, method, path, body, token string, want int) *httptest.ResponseRecorder {
+	t.Helper()
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.Header.Set("Origin", "http://localhost")
+	r.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		r.AddCookie(&http.Cookie{Name: f.a.cfg.cookie.Name, Value: token})
+	}
+	w := httptest.NewRecorder()
+	f.mux.ServeHTTP(w, r)
+	if w.Code != want {
+		t.Fatalf("%s %s status=%d want=%d: %s", method, path, w.Code, want, w.Body.String())
+	}
+	return w
+}
+
+func TestAppPermissionsHTTPDelegationAndRevocation(t *testing.T) {
+	f := newAppHTTPFixture(t, true, false)
+	result, err := f.a.Register(t.Context(), api.RegisterInput{Email: "operator@example.com", Name: "Operator", Password: "Passw0rd!"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.User.AppRoleID == nil || result.User.AppRoleAssignmentRevision != 1 {
+		t.Fatal("signup did not assign baseline")
+	}
+	f.request(t, "GET", "/auth/me", "", result.SessionToken, 200)
+	f.request(t, "GET", "/auth/access", "", result.SessionToken, 200)
+	f.request(t, "GET", "/admin/users", "", result.SessionToken, 403)
+	keys := `["goauth.app.users.read","goauth.app.sessions.revoke"]`
+	f.request(t, "PATCH", "/admin/authorization/library-permissions", `{"create":`+keys+`}`, f.token, 200)
+	w := f.request(t, "POST", "/admin/authorization/roles", `{"slug":"support","name":"Support","permissionKeys":`+keys+`}`, f.token, 201)
+	var role domain.AppRole
+	if err := json.Unmarshal(w.Body.Bytes(), &role); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"roleId":"` + role.ID + `","expectedRoleRevision":1,"expectedAssignmentRevision":1}`
+	f.request(t, "PUT", "/admin/authorization/users/"+result.User.ID+"/role", body, f.token, 200)
+	f.request(t, "GET", "/admin/users", "", result.SessionToken, 200)
+	f.request(t, "GET", "/admin/users/count", "", result.SessionToken, 200)
+	f.request(t, "GET", "/admin/stats", "", result.SessionToken, 403)
+	f.request(t, "GET", "/admin/authorization/library-permissions", "", result.SessionToken, 403)
+	f.request(t, "PATCH", "/admin/authorization/library-permissions", `{"create":["goauth.app.roles.create"]}`, result.SessionToken, 403)
+	if _, err := f.a.Services().Admin.ListUsers(t.Context(), api.AdminListUsersInput{ActorID: result.User.ID, ActorSessionID: result.Session.ID}); err != nil {
+		t.Fatal("direct call denied", err)
+	}
+	f.request(t, "PATCH", "/admin/authorization/library-permissions", `{"delete":["goauth.app.users.read"]}`, f.token, 200)
+	f.request(t, "GET", "/admin/users", "", result.SessionToken, 403)
+	f.request(t, "GET", "/admin/users", "", f.token, 200)
+	f.request(t, "PATCH", "/admin/authorization/library-permissions", `{"create":["goauth.app.users.read"]}`, f.token, 200)
+	f.request(t, "GET", "/admin/users", "", result.SessionToken, 403)
+	// Actor context cannot be supplied through browser JSON.
+	f.request(t, "PATCH", "/admin/authorization/library-permissions", `{"create":["goauth.app.stats.read"],"actor":{"userId":"x"}}`, f.token, 400)
+	f.request(t, "PATCH", "/admin/authorization/library-permissions", `{"create":["goauth.app.stats.read"]} {}`, f.token, 400)
+	// Last-admin checks use app identity even if the legacy column is stale.
+	if _, err := f.db.ExecContext(t.Context(), "UPDATE users SET role='user' WHERE id=$1", f.admin.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.a.Services().Admin.BanUser(t.Context(), api.BanUserInput{ActorID: f.admin.UserID, ActorSessionID: f.admin.SessionID, UserID: f.admin.UserID}); err == nil {
+		t.Fatal("last protected admin ban allowed")
+	}
+}
+
+func TestAppPermissionsHTTPCatalogWithoutDefinitionTable(t *testing.T) {
+	f := newAppHTTPFixture(t, true, false)
+	if _, err := f.db.ExecContext(t.Context(), "DROP TABLE app_role_permissions"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.db.ExecContext(t.Context(), "DROP TABLE app_permissions"); err != nil {
+		t.Fatal(err)
+	}
+	w := f.request(t, "GET", "/admin/authorization/library-permissions", "", f.token, 200)
+	if strings.Contains(w.Body.String(), "isInstalled") {
+		t.Fatal("catalog includes database state")
+	}
+}
+
+func TestAppPermissionsHTTPAccountCreationAndSessionDelegation(t *testing.T) {
+	f := newAppHTTPFixture(t, true, false)
+	operator, err := f.a.Register(t.Context(), api.RegisterInput{Email: "creator@example.com", Name: "Creator", Password: "Passw0rd!"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.request(t, "PATCH", "/admin/authorization/library-permissions", `{"create":["goauth.app.users.create","goauth.app.sessions.revoke"]}`, f.token, 200)
+	w := f.request(t, "POST", "/admin/authorization/roles", `{"slug":"creator","name":"Creator","permissionKeys":["goauth.app.users.create","goauth.app.sessions.revoke"]}`, f.token, 201)
+	var role domain.AppRole
+	if err := json.Unmarshal(w.Body.Bytes(), &role); err != nil {
+		t.Fatal(err)
+	}
+	f.request(t, "PUT", "/admin/authorization/users/"+operator.User.ID+"/role", `{"roleId":"`+role.ID+`","expectedRoleRevision":1,"expectedAssignmentRevision":1}`, f.token, 200)
+	f.request(t, "POST", "/admin/users", `{"email":"created@example.com","name":"Created","password":"Passw0rd!"}`, operator.SessionToken, 201)
+	created, err := f.users.GetByEmail(t.Context(), "created@example.com")
+	if err != nil || created == nil || created.AppRoleID == nil || *created.AppRoleID != *operator.User.AppRoleID {
+		t.Fatalf("created account missing baseline: %+v %v", created, err)
+	}
+	admin, err := f.users.GetByID(t.Context(), f.admin.UserID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.request(t, "POST", "/admin/users", `{"email":"escalated@example.com","name":"Escalated","password":"Passw0rd!","appRoleId":"`+*admin.AppRoleID+`","expectedRoleRevision":1}`, operator.SessionToken, 403)
+	if u, err := f.users.GetByEmail(t.Context(), "escalated@example.com"); err != nil || u != nil {
+		t.Fatalf("failed creation left an account: %+v %v", u, err)
+	}
+	session, err := f.a.Services().Session.Create(t.Context(), api.CreateSessionInput{UserID: created.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := "/admin/users/" + created.ID + "/sessions"
+	f.request(t, "GET", path, "", operator.SessionToken, 403)
+	f.request(t, "DELETE", path+"/"+session.Session.ID, "", operator.SessionToken, 200)
+	f.request(t, "GET", "/auth/me", "", session.SessionToken, 401)
+	f.request(t, "GET", "/admin/users", "", operator.SessionToken, 403)
+	f.request(t, "GET", "/admin/users?appRoleId=invalid", "", f.token, 400)
+}
+
+func TestAppPermissionsHTTPAssuranceAndOptionalManagement(t *testing.T) {
+	f := newAppHTTPFixture(t, false, true)
+	if _, ok := f.a.Handler(routes.AppAccess); !ok {
+		t.Fatal("missing self access")
+	}
+	if _, ok := f.a.Handler(routes.AppLibraryPermissions); ok {
+		t.Fatal("management exposed without opt-in")
+	}
+	f.request(t, "GET", "/admin/users", "", f.token, 403)
+	if _, err := f.a.Services().Admin.ListUsers(t.Context(), api.AdminListUsersInput{ActorID: f.admin.UserID}); !errors.Is(err, domain.ErrTwoFactorRequired) {
+		t.Fatalf("direct MFA bypass: %v", err)
+	}
+	now := time.Now().UTC()
+	if _, err := f.db.ExecContext(t.Context(), "UPDATE sessions SET two_factor_verified_at=$1 WHERE id=$2", now, f.admin.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	f.request(t, "GET", "/admin/users", "", f.token, 200)
+	f.request(t, "GET", "/auth/access", "", f.token, 200)
+}
+
+func TestAppPermissionsHTTPPromotionRequiresFreshAssurance(t *testing.T) {
+	f := newAppHTTPFixture(t, true, true)
+	ctx := t.Context()
+	now := time.Now().UTC()
+	if _, err := f.db.ExecContext(ctx, "UPDATE sessions SET two_factor_verified_at=$1 WHERE id=$2", now, f.admin.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	account, err := f.a.Register(ctx, api.RegisterInput{Email: "promoted@example.com", Name: "Promoted", Password: "Passw0rd!"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.RequiresTwoFactor || account.Session == nil {
+		t.Fatal("baseline signup unexpectedly privileged")
+	}
+	permissions := f.a.Services().AppPermissions
+	if _, err := permissions.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Create: []string{"goauth.app.users.read"}}); err != nil {
+		t.Fatal(err)
+	}
+	r, err := permissions.CreateRole(ctx, api.CreateAppRoleInput{Actor: f.admin, Slug: "reader", Name: "Reader", PermissionKeys: []string{"goauth.app.users.read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := permissions.SetUserRole(ctx, api.SetAppUserRoleInput{Actor: f.admin, UserID: account.User.ID, RoleID: r.ID, ExpectedRoleRevision: r.Revision, ExpectedAssignmentRevision: 1}); err != nil {
+		t.Fatal(err)
+	}
+	w := f.request(t, "GET", "/admin/users", "", account.SessionToken, 403)
+	if !strings.Contains(w.Body.String(), "two_factor_required") {
+		t.Fatal("promotion did not require assurance", w.Body.String())
+	}
+	login, err := f.a.Login(ctx, api.LoginInput{Email: account.User.Email, Password: "Passw0rd!"})
+	if err != nil || !login.RequiresTwoFactor {
+		t.Fatalf("privileged login did not challenge: %+v %v", login, err)
+	}
+	if _, err := permissions.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Delete: []string{"goauth.app.users.read"}}); err != nil {
+		t.Fatal(err)
+	}
+	login, err = f.a.Login(ctx, api.LoginInput{Email: account.User.Email, Password: "Passw0rd!"})
+	if err != nil || login.RequiresTwoFactor || login.Session == nil {
+		t.Fatalf("removed grant still imposed default MFA: %+v %v", login, err)
+	}
+}
+
+func TestAppPermissionsHTTPBusinessGuardAndProtectedLegacyPayloads(t *testing.T) {
+	f := newAppHTTPFixture(t, true, false)
+	ctx := t.Context()
+	account, err := f.a.Register(ctx, api.RegisterInput{Email: "business@example.com", Name: "Business", Password: "Passw0rd!"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	permissions := f.a.Services().AppPermissions
+	p, err := permissions.CreatePermission(ctx, api.CreateAppPermissionInput{Actor: f.admin, Key: "app.posts.delete", Name: "Delete posts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := permissions.CreateRole(ctx, api.CreateAppRoleInput{Actor: f.admin, Slug: "business-admin", Name: "Admin", PermissionKeys: []string{p.Key}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := permissions.SetUserRole(ctx, api.SetAppUserRoleInput{Actor: f.admin, UserID: account.User.ID, RoleID: r.ID, ExpectedRoleRevision: r.Revision, ExpectedAssignmentRevision: 1}); err != nil {
+		t.Fatal(err)
+	}
+	f.mux.Handle("DELETE /posts/{id}", f.a.RequireAuth(f.a.RequireAppPermission(p.Key)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))))
+	f.request(t, "DELETE", "/posts/one", "", account.SessionToken, 204)
+	f.request(t, "GET", "/admin/users", "", account.SessionToken, 403)
+	f.request(t, "POST", "/admin/users", `{"email":"evil@example.com","name":"Evil","password":"Passw0rd!","role":"admin"}`, f.token, 400)
+	f.request(t, "PATCH", "/admin/users/"+account.User.ID+"/role", `{"role":"admin"}`, f.token, 400)
+	f.request(t, "PUT", "/admin/authorization/roles/"+r.ID+"/permissions", `{"expectedRevision":1}`, f.token, 400)
+	f.request(t, "PATCH", "/admin/authorization/roles/not-a-uuid", `{"expectedRevision":1,"name":"x"}`, f.token, 400)
+	disabled := false
+	if _, err := permissions.UpdatePermission(ctx, api.UpdateAppPermissionInput{Actor: f.admin, PermissionID: p.ID, ExpectedRevision: p.Revision, IsEnabled: &disabled}); err != nil {
+		t.Fatal(err)
+	}
+	f.request(t, "DELETE", "/posts/one", "", account.SessionToken, 403)
+	f.request(t, "DELETE", "/posts/one", "", f.token, 403)
+	f.request(t, "GET", "/auth/me", "", account.SessionToken, 200)
+}
+
+func TestAppPermissionsDisabledCapabilityFailsClosed(t *testing.T) {
+	f := newAppHTTPFixture(t, false, false)
+	cfg := f.a.cfg
+	cfg.appPermissions = AppPermissionsConfig{}
+	a, err := New(&cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(a.Close)
+	if a.Services().AppPermissions != nil {
+		t.Fatal("disabled capability is typed nil")
+	}
+	for _, pattern := range []string{routes.AppAccess, routes.AppLibraryPermissions, routes.ListAppRoles} {
+		if _, ok := a.Handler(pattern); ok {
+			t.Fatalf("disabled route exposed: %s", pattern)
+		}
+	}
+	w := httptest.NewRecorder()
+	a.RequireAppPermission("app.posts.delete")(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("disabled guard allowed") })).ServeHTTP(w, httptest.NewRequest("DELETE", "/posts/one", nil))
+	if w.Code != 503 {
+		t.Fatalf("disabled guard status=%d", w.Code)
+	}
+}

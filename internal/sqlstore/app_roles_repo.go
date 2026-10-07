@@ -11,6 +11,12 @@ import (
 
 const appRoleColumns = "id,slug,name,description,is_enabled,system_key,revision,created_at,updated_at"
 
+// UsableAppAdminCount participates in the common all-user guard for last-admin checks.
+func (r *AppPermissionsRepository) UsableAppAdminCount(ctx context.Context) (int, error) {
+	ids, err := r.strings(ctx, `SELECT u.id FROM users u JOIN app_roles r ON r.id=u.app_role_id WHERE u.is_banned=false AND r.is_enabled=true AND r.system_key='platform_admin' ORDER BY u.id`)
+	return len(ids), err
+}
+
 func scanAppRole(s scanner) (*domain.AppRole, error) {
 	var role domain.AppRole
 	err := s.Scan(&role.ID, &role.Slug, &role.Name, &role.Description, &role.IsEnabled, &role.SystemKey, &role.Revision, &role.CreatedAt, &role.UpdatedAt)
@@ -23,12 +29,12 @@ func scanAppRole(s scanner) (*domain.AppRole, error) {
 
 // RoleByID reads the persistent identity, not grants or a legacy role string.
 func (r *AppPermissionsRepository) RoleByID(ctx context.Context, id string) (*domain.AppRole, error) {
-	return scanAppRole(r.db.QueryRowContext(ctx, "SELECT "+appRoleColumns+" FROM app_roles WHERE id=$1", id))
+	return scanAppRole(r.db.QueryRowContext(ctx, r.currentQuery(ctx, "SELECT "+appRoleColumns+" FROM app_roles WHERE id=$1"), id))
 }
 
 // RoleBySlug resolves protected/default roles through unique immutable slugs.
 func (r *AppPermissionsRepository) RoleBySlug(ctx context.Context, slug string) (*domain.AppRole, error) {
-	return scanAppRole(r.db.QueryRowContext(ctx, "SELECT "+appRoleColumns+" FROM app_roles WHERE slug=$1", slug))
+	return scanAppRole(r.db.QueryRowContext(ctx, r.currentQuery(ctx, "SELECT "+appRoleColumns+" FROM app_roles WHERE slug=$1"), slug))
 }
 
 // ListAppRoles returns a page in deterministic slug order.
@@ -68,9 +74,8 @@ func (r *AppPermissionsRepository) DeleteAppRole(ctx context.Context, id string)
 
 // RoleUserCount supports explicit in-use errors before restrictive deletion.
 func (r *AppPermissionsRepository) RoleUserCount(ctx context.Context, id string) (int, error) {
-	var n int
-	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE app_role_id=$1`, id).Scan(&n)
-	return n, err
+	ids, err := r.strings(ctx, `SELECT id FROM users WHERE app_role_id=$1 ORDER BY id`, id)
+	return len(ids), err
 }
 
 // ReplaceRoleGrants joins the service transaction and records the grant actor.

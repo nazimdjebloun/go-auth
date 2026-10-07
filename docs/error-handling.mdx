@@ -19,6 +19,33 @@ The built-in HTTP handlers and middleware return errors as JSON with the same sh
 
 This page covers **runtime** errors from mounted HTTP handlers. For configuration errors returned by `NewConfig` before the server starts, see [Configuration](./configuration.mdx).
 
+## App authorization
+
+| Code | HTTP status | Meaning |
+|---|---|---|
+| `app_permissions_disabled` | 503 | Permission middleware/capability is unavailable. |
+| `app_permissions_not_initialized` | 503 | Trusted initialization has not created app state. |
+| `app_permissions_already_initialized` | 409 | Initialization cannot be repeated. |
+| `invalid_permission_key` | 400 | Noncanonical or overlong key. |
+| `unknown_library_permission` | 400 | Batch/grant includes an unsupported catalog key. |
+| `permission_not_found` | 404 | Installed definition is absent or unavailable for granting. |
+| `permission_exists` | 409 | Business key already exists. |
+| `permission_in_use` | 409 | Business definition still has role grants. |
+| `role_not_found` | 404 | Target/configured role is missing or unavailable. |
+| `role_exists` | 409 | Role slug already exists. |
+| `role_in_use` | 409 | Role is assigned or is the configured default. |
+| `authorization_conflict` | 409 | Expected definition/role/assignment revision is stale. |
+| `protected_role` | 403 | Attempt to customize a built-in role. |
+| `protected_permission` | 403 | Library definitions require protected install/remove rather than business CRUD. |
+
+Permission denials and delegation violations use `forbidden` (403). Privileged
+calls without required session assurance use `two_factor_required` (403).
+Malformed batches/pagination/metadata use `invalid_input` (400); invalid JSON or
+unknown management fields use `invalid_json` (400). Last usable admin reduction
+uses `last_admin` (400). Refresh data after a revision conflict; do not blindly
+overwrite concurrent changes. Missing or disabled business keys deny through
+`RequirePermission`, including for admin.
+
 ## Handling errors programmatically
 
 Import `github.com/nazimdjebloun/go-auth/api` for the operation input types in Go examples.

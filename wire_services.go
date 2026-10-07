@@ -38,6 +38,9 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	}
 
 	userRepo := sqlstore.NewUserRepository(sqlDB)
+	if cfg.appPermissions.Enable {
+		userRepo.WithAppPermissions()
+	}
 	// Keep the zero-config path lazy: historically New with a borrowed pgx
 	// pool did not dial it. Once any pepper key is configured, validate every
 	// version present in the database before serving requests. Omitting the
@@ -126,8 +129,14 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	// Direct session API calls must get the same record-iff-commit guarantee
 	// as login: the session mutation and its audit record share one tx.
 	sessSvc := service.NewSessionService(sqlDB, sessionRepo, genImpl, sessionCfg)
+	var appPermissionsSvc *service.AppPermissionsService
+	if cfg.appPermissions.Enable {
+		appRepo := sqlstore.NewAppPermissionsRepository(sqlDB)
+		appPermissionsSvc = service.NewAppPermissionsService(sqlDB, userRepo, sessionRepo, sessSvc, appRepo, appRepo, appRepo, appRepo, service.AppPermissionsServiceConfig{DefaultRoleSlug: cfg.appPermissions.DefaultRoleSlug, RequireAdminTwoFactor: !cfg.twoFactor.DisableAdminTwoFactor || cfg.twoFactor.RequireEmail2FA, Audit: auditPub})
+	}
 
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, sqlDB, serviceCfg)
+	serviceCfg.AppPermissions = appPermissionsSvc
 
 	// The 2FA failure counter gets its own store, deliberately not the
 	// rate-limit one.
@@ -172,6 +181,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 			}
 		}
 		oauthCfg := service.OAuthServiceConfig{
+			AppPermissions:           appPermissionsSvc,
 			CommonConfig:             commonCfg,
 			RequireEmailVerification: cfg.registration.RequireEmailVerification,
 			EnableOAuth:              cfg.registration.EnableOAuth,
@@ -190,6 +200,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		orgRepo = sqlstore.NewOrgRepository(sqlDB)
 		orgInviteRepo := sqlstore.NewOrgInviteRepository(sqlDB)
 		orgSvc = service.NewOrgService(orgRepo, userRepo, sessionRepo, sqlDB, service.OrgServiceConfig{
+			AppPermissions: appPermissionsSvc,
 			MaxOrgsPerUser: cfg.organizations.MaxOrgsPerUser,
 			Logger:         cfg.logger,
 			Audit:          auditPub,
@@ -222,6 +233,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 			Verify: verifySvc, Invite: inviteSvc, Admin: adminSvc,
 			OAuth: oauthSvc, Org: orgSvc, OrgInvite: orgInviteSvc,
 			TwoFactor: twoFactorSvc, AuditLog: auditLogRepo,
+			AppPermissions: appPermissionsSvc,
 		},
 		sessionRepo: sessionRepo, tokenRepo: tokenRepo, userRepo: userRepo,
 		orgRepo: orgRepo, cookies: cookies, auditService: auditSvc,

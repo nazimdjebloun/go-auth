@@ -1,0 +1,58 @@
+---
+title: "App authorization"
+description: "Optional app role, business permission, assignment and library catalog routes."
+---
+
+# App authorization
+
+`WithAppPermissions(AppPermissionsConfig{Enable:true})` exposes self access.
+`EnableManagementHTTP:true` additionally exposes the management routes below.
+All require a valid session. Management writes also use the configured CSRF
+token and origin checks. Every route is wrapped with rate limiting.
+
+| Method and path | Access | Request |
+|---|---|---|
+| `GET /auth/access` | Authenticated account with an enabled current role | None |
+| `GET /admin/authorization/library-permissions` | Protected admin plus required MFA | None; fixed `{permissions:[{key,name,description}]}` without installation status |
+| `PATCH /admin/authorization/library-permissions` | Protected admin plus required MFA | `{create:[keys],delete:[keys]}`; 1–100 total, atomic |
+| `GET /admin/authorization/permissions` | `goauth.app.permissions.read` | Optional `limit`, `offset` query; `{permissions:[...]}` |
+| `POST /admin/authorization/permissions` | `goauth.app.permissions.create` | `{key,name,description}`; returns definition, 201 |
+| `PATCH /admin/authorization/permissions/{permissionID}` | `goauth.app.permissions.update` | `{expectedRevision,name?,description?,isEnabled?}`; business only |
+| `DELETE /admin/authorization/permissions/{permissionID}` | `goauth.app.permissions.delete` | Required `expectedRevision` query; 204 |
+| `GET /admin/authorization/roles` | `goauth.app.roles.read` | Optional `limit`, `offset` query; `{roles:[...]}` with explicit keys |
+| `POST /admin/authorization/roles` | `goauth.app.roles.create` | `{slug,name,description?,permissionKeys?}`; returns role, 201 |
+| `PATCH /admin/authorization/roles/{roleID}` | `goauth.app.roles.update` | `{expectedRevision,name?,description?,isEnabled?}` |
+| `PUT /admin/authorization/roles/{roleID}/permissions` | `goauth.app.roles.update` | `{expectedRevision,permissionKeys:[...]}`; replaces entire grant set |
+| `DELETE /admin/authorization/roles/{roleID}` | `goauth.app.roles.delete` | Required `expectedRevision` query; 204 |
+| `GET /admin/authorization/users/{id}/role` | `goauth.app.roles.read` | None; `{role,assignmentRevision}` |
+| `PUT /admin/authorization/users/{id}/role` | `goauth.app.roles.assign` | `{roleId,expectedRoleRevision,expectedAssignmentRevision}`; returns assignment |
+
+All other successful reads/updates return 200. Optional description defaults
+to empty. Management JSON rejects unknown fields and trailing documents and is
+limited to 64 KiB. Actor identity comes from the session. Lists default to 20,
+accept limits 1–100 (0 selects default), and require nonnegative offsets.
+
+Permission and role responses contain IDs, metadata, enabled state, revision
+and timestamps. Definitions also contain `key` and `isSystem`. Roles contain
+`slug`, optional `systemKey` and explicit `permissionKeys`. Protected admin's
+unrestricted policy is reported through self access's `isFullAccess`, rather
+than an invented wildcard grant.
+
+```json
+{
+  "role": {"id":"ROLE_ID","slug":"support","name":"Support","description":"","isEnabled":true,"revision":2,"permissionKeys":[],"createdAt":"2026-10-07T12:00:00Z","updatedAt":"2026-10-07T12:00:00Z"},
+  "isFullAccess": false,
+  "permissionKeys": ["goauth.app.sessions.revoke"],
+  "assignmentRevision": 2,
+  "revision": 4
+}
+```
+
+The self access `role` field supplies identity metadata; effective keys are in
+the top-level `permissionKeys`. Treat this response as UI information. Use
+server-side `RequirePermission` or `RequireAppPermission` for enforcement.
+
+Permission-key checks, ownership protection, delegation limits and revision
+checks also run inside the services. Installation/removal of library keys
+never becomes a delegable permission. See the
+[implementation and usage guide](../guides/app-permissions.mdx).

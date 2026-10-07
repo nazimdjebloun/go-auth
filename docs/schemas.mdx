@@ -1209,6 +1209,31 @@ CREATE INDEX idx_audit_outbox_created_at ON audit_outbox(created_at);
 </Tab>
 </Tabs>
 
+## App authorization tables
+
+DDL includes these tables on all three drivers, even when the runtime feature
+is disabled. Applying the schema creates no records. Initialization is explicit.
+
+| Table | Columns and constraints |
+|---|---|
+| `app_roles` | `id` PK, unique immutable `slug`, `name`, `description`, `is_enabled`, nullable unique `system_key`, positive `revision`, `created_at`, `updated_at`. Protected identity is `platform_admin` or `user`. |
+| `app_permissions` | `id` PK, unique immutable `permission_key`, `name`, `description`, `is_enabled`, `is_system`, positive `revision`, timestamps. Library definitions must remain enabled. |
+| `app_role_permissions` | Composite PK `(role_id,permission_id)`, role FK `CASCADE`, permission FK `RESTRICT`, nullable `granted_by` user FK `SET NULL`, `created_at`. Reverse index on `(permission_id,role_id)`. |
+| `app_authorization_state` | Single row with PK `id=1`, positive `revision`, `created_at`. Serializes authorization writes after the account guard. |
+| `users` additions | Nullable `app_role_id` role FK `RESTRICT`, nonnegative `app_role_assignment_revision` default 0; index `(app_role_id,id)`. |
+
+Initial admin/user roles start at revision 1. Assignment stores one role ID
+on the account, rather than a many-to-many user-role join. Grant replacement
+increments role revision; assignment increments account assignment revision.
+Definitions have their own metadata revision. The app revision marks management
+changes; it is not used as a session permission cache.
+
+MySQL permission keys use binary collation. Role/permission names are at most
+120 characters, slugs 80 and keys 160; services validate canonical identifiers
+before queries. IDs use UUID/TEXT/VARCHAR(36) according to the existing driver
+conventions. Authorization timestamps use `TIMESTAMPTZ`, `DATETIME` and
+`DATETIME(6)` on PostgreSQL, SQLite and MySQL respectively.
+
 ## Driver differences
 
 Three files living in `internal/schema/` and embedded
@@ -1222,8 +1247,8 @@ Only types and defaults differ.
 | Recovery queue times | `BIGINT` UTC Unix seconds | `BIGINT` UTC Unix seconds | `BIGINT` UTC Unix seconds |
 | Booleans | `BOOLEAN` | `INTEGER` (`0`/`1`) | `BOOLEAN` |
 | JSON columns | `JSONB` | `TEXT` | `JSON` for `metadata` and `parsed_ua` |
-| `CHECK` constraints | 7: pepper version, user role, member role, invite role, invite status, token type, and the session active-org pair | 1: pepper version only | none |
-| Indexes | 47 | 45 | 43 |
+| `CHECK` constraints | Existing domain checks plus app identity/revision/ownership checks | Pepper version plus app identity/revision/ownership checks | App identity/revision/ownership checks |
+| App indexes | User-role and reverse grant indexes | User-role and reverse grant indexes | User-role and reverse grant indexes |
 | Re-runnable | yes: every statement is `IF NOT EXISTS` | yes | **no**: `CREATE INDEX` is unguarded |
 | Foreign keys | inline `REFERENCES` | inline `REFERENCES` | named `CONSTRAINT ... FOREIGN KEY` |
 | Timestamp precision | `TIMESTAMPTZ` | `DATETIME` | `DATETIME(6)` (microseconds) on the org tables |
@@ -1233,12 +1258,11 @@ Queries are written once with `$N` placeholders and rewritten per driver at
 runtime, so none of this leaks into application code.
 
 <Callout type="warn" title="Constraints are not portable">
-  The `CHECK` constraints listed against each table above exist **only on
-  PostgreSQL**. On SQLite and MySQL the same columns are plain `TEXT`/`VARCHAR`
-  with no database-level restriction, so an invalid `role` or `status` written
-  by something other than this library will be accepted by the database. The
-  service layer validates these values regardless of driver. The constraints
-  are a second line of defence that only PostgreSQL gives you.
+  Legacy role/status constraints vary by driver. Application authorization
+  identity/revision/ownership checks exist in all three fresh-install schemas;
+  MySQL requires a version that enforces `CHECK` constraints. Service validation
+  remains authoritative on every driver. Database access can bypass service
+  policies such as protected metadata and last-admin invariants.
 </Callout>
 
 ## Next

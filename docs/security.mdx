@@ -151,7 +151,30 @@ Every endpoint that reads or mutates a specific resource by ID checks ownership,
 - **Sessions**: revoking a session by ID returns the same `session_not_found` whether it does not exist or belongs to someone else, so one user cannot distinguish "no such session" from "that is not yours" by probing IDs.
 - **Organizations**: every `/auth/orgs/{orgID}/*` route requires membership in that specific org, and mutating routes additionally require a minimum role (`admin` to manage members/invites/settings, `owner` to delete the org or touch another owner). Demoting or removing the last owner is blocked outright (`cannot_remove_last_owner`), the same way admin management blocks removing the last admin (`last_admin`).
 - **Active organization**: selecting an active org locks the membership until the session update commits. Concurrent removal or role change then clears or updates the session scope before its own transaction commits, so a delayed selection cannot restore an old role.
-- **Admin**: every `/admin/*` route checks the current `role: admin` after authentication and requires a session that completed 2FA by default. `DisableAdminTwoFactor` opts out of the default admin requirement; global and per-user requirements still apply. Direct programmatic admin methods take a trusted actor ID, so custom transports must apply `Auth.RequireAuth` and `Auth.RequireAdmin` before calling them. Standalone `middleware.RequireRole` checks only a role.
+- **Admin**: with app permissions disabled, `/admin/*` checks the current legacy `role: admin` and required session assurance. With app permissions enabled, administrative app actions check their current exact library key; an absent definition leaves the action protected-admin-only. Catalog provisioning and organization oversight require the protected admin identity. Privileged direct service calls also enforce current authorization and required assurance through trusted actor/session IDs. `Auth.RequireAdmin` always guards the protected administrator. Standalone `middleware.RequireRole` remains a legacy role-string check and should not be used for app authorization.
+
+### App permission boundaries
+
+`WithAppPermissions` selects `users.app_role_id` as the sole app grant source.
+Built-in admin identity is the immutable `app_roles.system_key=platform_admin`,
+not a role name or retained legacy user column. Library install/remove is
+non-delegable. Delegated role management is bounded by the actor's currently
+held keys and blocks self role editing/assignment and protected-admin transitions.
+Permission checks do not replace resource ownership or organization membership.
+
+Library permission removal cleans all grants atomically and affects subsequent
+checks in existing sessions. Reinstallation grants nobody automatically. Business
+keys that are missing or disabled deny admin too. Authorization writes recheck
+the current actor under the common account guard and app singleton lock; stale
+writes fail rather than overwrite newer revisions. This does not cancel work
+already authorized by a consumer's earlier check.
+
+Protected admin and current library-grant holders require second-factor
+assurance by default. A newly promoted live session must complete a challenged
+login before using privileged actions. Disabling default admin MFA leaves
+global and per-user requirements in force. Trusted local CLI provisioning uses
+database access instead of a browser session and records fail-closed database
+audit events. Runtime APIs expose no equivalent assurance bypass.
 
 ## Audit logging
 

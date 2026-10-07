@@ -10,6 +10,29 @@ All configuration goes through `NewConfig(opts ...Option)`: apply every option y
 
 `NewConfig` returns every problem it finds at once, joined into a single error. Not just the first one. Each section below lists the exact error text and what causes it. `New` clones the configuration, reapplies defaults, and validates the complete result before deriving keys or initializing services. Options applied after `NewConfig` are therefore also checked; startup does not modify the caller's configuration.
 
+## `WithAppPermissions`: Optional
+
+```go
+goauth.WithAppPermissions(goauth.AppPermissionsConfig{
+    Enable:               true,
+    EnableManagementHTTP: true,
+    DefaultRoleSlug:      "user",
+})
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Enable` | `false` | Use one SQL app role per account and current permission checks for library administrative actions. |
+| `EnableManagementHTTP` | `false` | Mount role/permission/catalog management endpoints; requires `Enable:true`. |
+| `DefaultRoleSlug` | `"user"` | Enabled non-admin role for new accounts; lowercase identifier of 1–80 characters. |
+
+The default slug starts with a letter and then permits letters, digits and
+hyphens; `admin` is forbidden. Startup validates its syntax without querying
+role records. Account creation resolves the role in its transaction and fails
+if authorization is uninitialized or that role is absent/disabled. There is no
+startup initialization or automatic permission seeding. See the
+[app permission guide](./guides/app-permissions.mdx) for bootstrap and delegation.
+
 ## `WithApp`: Required
 
 App identity, the database connection, and the deployment environment.

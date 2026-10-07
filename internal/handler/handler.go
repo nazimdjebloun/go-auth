@@ -14,17 +14,18 @@ import (
 // a dependency bundle — rather than Services, which collided with the
 // goauth.Services a consumer actually reads off Auth.
 type Deps struct {
-	Auth      *service.AuthService
-	Password  *service.PasswordService
-	Session   *service.SessionService
-	Verify    *service.VerificationService
-	Invite    *service.InviteService
-	Admin     *service.AdminService
-	OAuth     *service.OAuthService
-	Org       *service.OrgService
-	OrgInvite *service.OrgInviteService
-	TwoFactor *service.TwoFactorService
-	AuditLog  port.AuditLogRepository
+	AppPermissions *service.AppPermissionsService
+	Auth           *service.AuthService
+	Password       *service.PasswordService
+	Session        *service.SessionService
+	Verify         *service.VerificationService
+	Invite         *service.InviteService
+	Admin          *service.AdminService
+	OAuth          *service.OAuthService
+	Org            *service.OrgService
+	OrgInvite      *service.OrgInviteService
+	TwoFactor      *service.TwoFactorService
+	AuditLog       port.AuditLogRepository
 }
 
 // Handler serves the go-auth HTTP endpoints.

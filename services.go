@@ -12,18 +12,42 @@ import (
 
 // Services groups the configured programmatic capabilities.
 type Services struct {
-	Auth      AuthOperations
-	Password  PasswordOperations
-	Session   SessionOperations
-	Verify    VerifyOperations
-	Invite    InviteOperations
-	Admin     AdminOperations
-	OAuth     OAuthOperations
-	Org       OrgOperations
-	OrgInvite OrgInviteOperations
-	TwoFactor TwoFactorOperations
-	AuditLog  port.AuditLogRepository
+	Auth           AuthOperations
+	Password       PasswordOperations
+	Session        SessionOperations
+	Verify         VerifyOperations
+	Invite         InviteOperations
+	Admin          AdminOperations
+	OAuth          OAuthOperations
+	Org            OrgOperations
+	OrgInvite      OrgInviteOperations
+	TwoFactor      TwoFactorOperations
+	AuditLog       port.AuditLogRepository
+	AppPermissions AppPermissionsOperations
 }
+
+// AppPermissionsOperations is available only with WithAppPermissions enabled.
+// Actor identity must come from trusted backend authentication.
+type AppPermissionsOperations interface {
+	CreatePermission(context.Context, api.CreateAppPermissionInput) (*domain.AppPermission, error)
+	UpdatePermission(context.Context, api.UpdateAppPermissionInput) (*domain.AppPermission, error)
+	DeletePermission(context.Context, api.DeleteAppPermissionInput) error
+	ListPermissions(context.Context, api.ListAppPermissionsInput) ([]domain.AppPermission, error)
+	CreateRole(context.Context, api.CreateAppRoleInput) (*domain.AppRole, error)
+	UpdateRole(context.Context, api.UpdateAppRoleInput) (*domain.AppRole, error)
+	DeleteRole(context.Context, api.DeleteAppRoleInput) error
+	ListRoles(context.Context, api.ListAppRolesInput) ([]domain.AppRole, error)
+	SetRolePermissions(context.Context, api.SetAppRolePermissionsInput) (*domain.AppRole, error)
+	SetUserRole(context.Context, api.SetAppUserRoleInput) (*api.AppUserRoleResult, error)
+	GetUserRole(context.Context, api.GetAppUserRoleInput) (*api.AppUserRoleResult, error)
+	CheckPermission(context.Context, api.CheckAppPermissionInput) (*api.AppPermissionDecision, error)
+	RequirePermission(context.Context, api.CheckAppPermissionInput) error
+	ListEffectivePermissions(context.Context, api.ListAppEffectivePermissionsInput) (*api.AppAccess, error)
+	LibraryPermissionCatalog() []domain.AppLibraryPermissionDefinition
+	UpdateLibraryPermissions(context.Context, api.UpdateAppLibraryPermissionsInput) (*api.UpdateAppLibraryPermissionsResult, error)
+}
+
+var _ AppPermissionsOperations = (*service.AppPermissionsService)(nil)
 
 // AuthOperations exposes the auth service methods available to callers.
 type AuthOperations interface {
@@ -95,6 +119,7 @@ type InviteOperations interface {
 // AdminOperations exposes the admin service methods available to callers.
 type AdminOperations interface {
 	GetStats(ctx context.Context, actorID string) (*api.AdminStats, error)
+	GetStatsForActor(ctx context.Context, actor api.AppPermissionActor) (*api.AdminStats, error)
 	GetRegistrationTrend(ctx context.Context, input api.StatsRangeInput) ([]api.DailyCount, error)
 	GetLoginActivity(ctx context.Context, input api.LoginActivityInput) ([]api.DailyCount, error)
 	RevokeUserSessions(ctx context.Context, input api.RevokeUserSessionsInput) error

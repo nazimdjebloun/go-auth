@@ -45,6 +45,7 @@ type OAuthService struct {
 // using the top-level CookieConfig, not by OAuthService itself.
 type OAuthServiceConfig struct {
 	CommonConfig
+	AppPermissions *AppPermissionsService
 
 	RequireEmailVerification bool
 	EnableOAuth              bool
@@ -323,11 +324,22 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 			return &api.OAuthCallbackResult{RequiresVerification: true, VerifyEmail: user.Email}, nil
 		}
 
-		if user.Role == domain.RoleAdmin {
+		privileged, err := appAdministrativeIdentity(ctx, s.config.AppPermissions, user)
+		if err != nil {
+			return nil, err
+		}
+		if privileged {
 			if s.twoFactorSvc == nil && !s.config.DisableAdminTwoFactor {
 				return nil, domain.ErrInternal
 			}
-			if s.twoFactorSvc != nil && s.twoFactorSvc.Enforce(user) {
+			required := false
+			if s.twoFactorSvc != nil {
+				required, err = s.twoFactorSvc.EnforceContext(ctx, user)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if required {
 				challenge, err := s.twoFactorSvc.Challenge(ctx, user.ID)
 				if err != nil {
 					return nil, err
@@ -393,7 +405,12 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 	// Create the user and its provider link in one transaction: a
 	// provider-account insert failure must not leave a passwordless user
 	// row behind that subsequent retries reject as an existing email.
-	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+	if err := withAppAccountCreation(ctx, s.config.AppPermissions, s.userRepo, s.txManager, func(txCtx context.Context) error {
+		if s.config.AppPermissions != nil {
+			if err := s.config.AppPermissions.AssignBaseline(txCtx, newUser); err != nil {
+				return err
+			}
+		}
 		if err := s.userRepo.Create(txCtx, newUser); err != nil {
 			if errors.Is(err, port.ErrDuplicateKey) {
 				return domain.ErrEmailAlreadyExists
@@ -427,6 +444,22 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 		return &api.OAuthCallbackResult{IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email}, nil
 	}
 
+	if s.config.AppPermissions != nil && !s.config.DisableAdminTwoFactor {
+		privileged, err := s.config.AppPermissions.HasAdministrativeAccess(ctx, newUser.ID)
+		if err != nil {
+			return nil, err
+		}
+		if privileged {
+			if s.twoFactorSvc == nil {
+				return nil, domain.ErrInternal
+			}
+			challenge, err := s.twoFactorSvc.Challenge(ctx, newUser.ID)
+			if err != nil {
+				return nil, err
+			}
+			return api.NewOAuthCallbackResult(api.OAuthCallbackResult{IsNewUser: true, RequiresTwoFactor: true, CodeSent: challenge.Sent, TwoFactorChallenge: challenge.ID, TwoFactorExpiresAt: challenge.ExpiresAt}, challenge.BindingToken), nil
+		}
+	}
 	sessResult, sessionErr := s.sessionSvc.Create(ctx, api.CreateSessionInput{
 		UserID:    newUser.ID,
 		IP:        input.IP,

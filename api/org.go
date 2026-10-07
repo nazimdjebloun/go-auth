@@ -36,22 +36,25 @@ type AddMemberInput struct {
 
 // AdminAddMemberInput identifies the member and role an administrator adds.
 type AdminAddMemberInput struct {
-	OrgID   string
-	UserID  string
-	Role    domain.OrgRole
-	ActorID string
+	OrgID          string
+	UserID         string
+	Role           domain.OrgRole
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // AdminGetOrgInput identifies an organization to return to an administrator.
 type AdminGetOrgInput struct {
-	OrgID   string
-	ActorID string
+	OrgID          string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // AdminListOrgMembersInput contains administrator member filters.
 type AdminListOrgMembersInput struct {
 	OrgID          string
 	ActorID        string
+	ActorSessionID string `json:"-"`
 	Role           *domain.OrgRole
 	Search         *string
 	OrderBy        OrgMemberSortField
@@ -63,6 +66,7 @@ type AdminListOrgMembersInput struct {
 // AdminListOrgsInput contains administrator organization filters.
 type AdminListOrgsInput struct {
 	ActorID        string
+	ActorSessionID string `json:"-"`
 	Search         *string
 	CreatedAfter   *time.Time
 	CreatedBefore  *time.Time
@@ -82,6 +86,7 @@ type AdminListOrgsResult struct {
 // AdminListUserOrgsInput contains filters for a user's organizations.
 type AdminListUserOrgsInput struct {
 	ActorID        string
+	ActorSessionID string `json:"-"`
 	UserID         string
 	Search         *string
 	Role           *domain.OrgRole
@@ -93,23 +98,26 @@ type AdminListUserOrgsInput struct {
 
 // AdminOrgActionInput identifies an organization and administrator.
 type AdminOrgActionInput struct {
-	OrgID   string
-	ActorID string
+	OrgID          string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // AdminRemoveMemberInput identifies the member an administrator removes.
 type AdminRemoveMemberInput struct {
-	OrgID   string
-	UserID  string
-	ActorID string
+	OrgID          string
+	UserID         string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // AdminUpdateMemberRoleInput identifies the role change an administrator makes.
 type AdminUpdateMemberRoleInput struct {
-	OrgID   string
-	UserID  string
-	NewRole domain.OrgRole
-	ActorID string
+	OrgID          string
+	UserID         string
+	NewRole        domain.OrgRole
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // ClearActiveOrgInput identifies the session whose active organization to clear.

@@ -4,13 +4,18 @@ import (
 	"context"
 
 	"github.com/nazimdjebloun/go-auth/api"
+	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
 // RevokeUserSessions revokes every session for a user.
 func (s *AdminService) RevokeUserSessions(ctx context.Context, input api.RevokeUserSessionsInput) error {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if s.config.AppPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runAppMutationVoid(ctx, s.config.AppPermissions, appActor(input.ActorID, input.ActorSessionID), "goauth.app.sessions.revoke", func(txCtx context.Context) error { return s.RevokeUserSessions(txCtx, input) })
+	}
+
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.sessions.revoke"); err != nil {
 		return err
 	}
 	_, err := s.targetUser(ctx, input.UserID)
@@ -24,6 +29,13 @@ func (s *AdminService) RevokeUserSessions(ctx context.Context, input api.RevokeU
 	}
 
 	s.log.Info("user sessions revoked by admin", "user_id", input.UserID)
+	if s.config.AppPermissions != nil && s.audit != nil {
+		e := audit.NewAdminEvent(audit.EventAdminSessionsRevoked, input.ActorID, input.UserID)
+		if input.ActorSessionID != "" {
+			e.SessionID = &input.ActorSessionID
+		}
+		return s.audit.Record(ctx, e)
+	}
 	return nil
 }
 
@@ -31,7 +43,7 @@ func (s *AdminService) RevokeUserSessions(ctx context.Context, input api.RevokeU
 // incident-response view ("who's logged in right now", "every session from
 // this IP"), as opposed to ListUserSessions which is scoped to one user.
 func (s *AdminService) ListSessions(ctx context.Context, input api.AdminListSessionsInput) (*api.AdminListSessionsResult, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.sessions.read"); err != nil {
 		return nil, err
 	}
 	limit := input.Limit
@@ -71,7 +83,7 @@ func (s *AdminService) sessionFilterFromInput(input api.AdminListSessionsInput, 
 // CountSessions returns how many sessions match the input's filters
 // (pagination ignored).
 func (s *AdminService) CountSessions(ctx context.Context, input api.AdminListSessionsInput) (int, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.sessions.read"); err != nil {
 		return 0, err
 	}
 	f := s.sessionFilterFromInput(input, 0)
@@ -86,7 +98,7 @@ func (s *AdminService) CountSessions(ctx context.Context, input api.AdminListSes
 
 // ListUserSessions returns a page of sessions for a user.
 func (s *AdminService) ListUserSessions(ctx context.Context, input api.AdminListUserSessionsInput) ([]domain.Session, int, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.sessions.read"); err != nil {
 		return nil, 0, err
 	}
 	_, err := s.targetUser(ctx, input.UserID)
@@ -105,7 +117,11 @@ func (s *AdminService) ListUserSessions(ctx context.Context, input api.AdminList
 
 // RevokeUserSession revokes one session for a user.
 func (s *AdminService) RevokeUserSession(ctx context.Context, input api.RevokeUserSessionInput) error {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if s.config.AppPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
+		return runAppMutationVoid(ctx, s.config.AppPermissions, appActor(input.ActorID, input.ActorSessionID), "goauth.app.sessions.revoke", func(txCtx context.Context) error { return s.RevokeUserSession(txCtx, input) })
+	}
+
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.sessions.revoke"); err != nil {
 		return err
 	}
 	_, err := s.targetUser(ctx, input.UserID)
@@ -126,5 +142,13 @@ func (s *AdminService) RevokeUserSession(ctx context.Context, input api.RevokeUs
 	}
 
 	s.log.Info("user session revoked by admin", "user_id", input.UserID, "session_id", input.SessionID)
+	if s.config.AppPermissions != nil && s.audit != nil {
+		e := audit.NewAdminEvent(audit.EventAdminSessionRevoked, input.ActorID, input.UserID)
+		if input.ActorSessionID != "" {
+			e.SessionID = &input.ActorSessionID
+		}
+		e.Metadata = map[string]any{"revokedSessionId": input.SessionID}
+		return s.audit.Record(ctx, e)
+	}
 	return nil
 }

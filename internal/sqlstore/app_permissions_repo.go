@@ -39,12 +39,12 @@ func scanAppPermission(s scanner) (*domain.AppPermission, error) {
 
 // PermissionByKey returns nil for an uninstalled definition.
 func (r *AppPermissionsRepository) PermissionByKey(ctx context.Context, key string) (*domain.AppPermission, error) {
-	return scanAppPermission(r.db.QueryRowContext(ctx, "SELECT "+appPermissionColumns+" FROM app_permissions WHERE permission_key=$1", key))
+	return scanAppPermission(r.db.QueryRowContext(ctx, r.currentQuery(ctx, "SELECT "+appPermissionColumns+" FROM app_permissions WHERE permission_key=$1"), key))
 }
 
 // PermissionByID resolves an installed definition for guarded CRUD.
 func (r *AppPermissionsRepository) PermissionByID(ctx context.Context, id string) (*domain.AppPermission, error) {
-	return scanAppPermission(r.db.QueryRowContext(ctx, "SELECT "+appPermissionColumns+" FROM app_permissions WHERE id=$1", id))
+	return scanAppPermission(r.db.QueryRowContext(ctx, r.currentQuery(ctx, "SELECT "+appPermissionColumns+" FROM app_permissions WHERE id=$1"), id))
 }
 
 // ListAppPermissions lists installed records, never uninstalled catalog entries.
@@ -99,7 +99,7 @@ func (r *AppPermissionsRepository) RolePermissionKeys(ctx context.Context, id st
 }
 
 func (r *AppPermissionsRepository) strings(ctx context.Context, query string, args ...any) ([]string, error) {
-	rows, err := r.db.QueryContext(ctx, query, args...)
+	rows, err := r.db.QueryContext(ctx, r.currentQuery(ctx, query), args...)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +113,23 @@ func (r *AppPermissionsRepository) strings(ctx context.Context, query string, ar
 		result = append(result, value)
 	}
 	return result, rows.Err()
+}
+
+func (r *AppPermissionsRepository) currentQuery(ctx context.Context, query string) string {
+	if _, ok := txFromContext(ctx); ok && (r.db.Driver() == "mysql" || r.db.Driver() == "postgres") {
+		return query + " FOR UPDATE"
+	}
+	return query
+}
+
+// RoleGrantKeys includes disabled definitions for management/delegation checks.
+func (r *AppPermissionsRepository) RoleGrantKeys(ctx context.Context, id string) ([]string, error) {
+	return r.strings(ctx, `SELECT p.permission_key FROM app_permissions p JOIN app_role_permissions g ON g.permission_id=p.id WHERE g.role_id=$1 ORDER BY p.permission_key`, id)
+}
+
+// EnabledBusinessPermissionKeys supplies the database portion of full admin access.
+func (r *AppPermissionsRepository) EnabledBusinessPermissionKeys(ctx context.Context) ([]string, error) {
+	return r.strings(ctx, `SELECT permission_key FROM app_permissions WHERE is_system=false AND is_enabled=true ORDER BY permission_key`)
 }
 
 // AppStateRevision is zero until trusted initialization completes.

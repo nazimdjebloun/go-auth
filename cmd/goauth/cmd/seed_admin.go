@@ -51,6 +51,7 @@ func init() {
 	seedAdminCmd.Flags().Bool("non-interactive", false, "Disable TTY prompts; missing ADMIN_EMAIL is a hard error")
 	seedAdminCmd.Flags().Bool("skip-mailer-check", false, "Skip sending a real verification email before creating the admin")
 	seedAdminCmd.Flags().Bool("force", false, "Allow creating an admin even if one already exists")
+	seedAdminCmd.Flags().Bool("app-permissions", false, "Initialize opt-in app roles or seed another protected administrator with --force")
 	seedAdminCmd.Flags().String("smtp-host", "", "SMTP host (or SMTP_HOST)")
 	seedAdminCmd.Flags().Int("smtp-port", 587, "SMTP port (or SMTP_PORT)")
 	seedAdminCmd.Flags().String("smtp-from", "", "SMTP From address (or SMTP_FROM)")
@@ -70,6 +71,7 @@ func runSeedAdminCmd(cmd *cobra.Command, _ []string) {
 	nonInteractive, _ := cmd.Flags().GetBool("non-interactive")
 	skipMailerCheck, _ := cmd.Flags().GetBool("skip-mailer-check")
 	force, _ := cmd.Flags().GetBool("force")
+	appPermissions, _ := cmd.Flags().GetBool("app-permissions")
 
 	env, err := parseEnvironment(envFlag)
 	if err != nil {
@@ -103,6 +105,12 @@ func runSeedAdminCmd(cmd *cobra.Command, _ []string) {
 	}
 
 	sqlDriver := sqldriver.SQLName(driver)
+	if appPermissions && (sqlDriver == "sqlite" || sqlDriver == "sqlite3") {
+		dsn, err = sqldriver.SQLiteForeignKeyDSN(sqlDriver, dsn)
+		if err != nil {
+			abort(err)
+		}
+	}
 	db, err := sql.Open(sqlDriver, dsn)
 	if err != nil {
 		abort(fmt.Errorf("seed-admin: failed to connect: %w", err))
@@ -112,6 +120,9 @@ func runSeedAdminCmd(cmd *cobra.Command, _ []string) {
 			log.Printf("seed-admin: close database: %v", err)
 		}
 	}()
+	if appPermissions && (sqlDriver == "sqlite" || sqlDriver == "sqlite3") {
+		db.SetMaxOpenConns(1)
+	}
 	if err := db.Ping(); err != nil {
 		abort(fmt.Errorf("seed-admin: ping failed: %w", err))
 	}
@@ -131,6 +142,9 @@ func runSeedAdminCmd(cmd *cobra.Command, _ []string) {
 		password:        password,
 		force:           force,
 		skipMailerCheck: skipMailerCheck,
+	}
+	if appPermissions {
+		deps.appDB = sqlstore.NewDB(db, sqlDriver)
 	}
 
 	if _, err := seedAdmin(context.Background(), params, deps); err != nil {
@@ -381,6 +395,7 @@ func resolveMailer(env goauth.Environment, smtp smtpConfig, skipCheck bool) (por
 // ─── Core seeding logic ─────────────────────────────────────
 
 type seedAdminDeps struct {
+	appDB  *sqlstore.DB
 	repo   port.UserRepository
 	mailer port.Mailer // nil only when skipMailerCheck left no mailer to build
 	hash   func(string) (string, error)
@@ -408,7 +423,7 @@ func seedAdmin(ctx context.Context, p seedAdminParams, d seedAdminDeps) (*domain
 		return nil, fmt.Errorf("seed-admin: a user with email %q already exists", p.email)
 	}
 
-	if !p.force {
+	if !p.force && d.appDB == nil {
 		adminRole := domain.RoleAdmin
 		total, err := d.repo.Count(ctx, port.UserFilter{Role: &adminRole})
 		if err != nil {
@@ -443,6 +458,12 @@ func seedAdmin(ctx context.Context, p seedAdminParams, d seedAdminDeps) (*domain
 		IsVerified:   true,
 		CreatedAt:    now,
 		UpdatedAt:    now,
+	}
+	if d.appDB != nil {
+		if err := seedAppAdministrator(ctx, user, p.force, d.appDB); err != nil {
+			return nil, err
+		}
+		return user, nil
 	}
 	if err := d.repo.Create(ctx, user); err != nil {
 		return nil, fmt.Errorf("seed-admin: creating user: %w", err)

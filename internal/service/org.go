@@ -14,17 +14,19 @@ import (
 
 // OrgService manages organizations and memberships.
 type OrgService struct {
-	orgs      port.OrgRepository
-	users     port.UserRepository
-	sessions  port.ActiveOrgSessionStore
-	txManager port.TxManager
-	maxOrgs   int
-	log       *slog.Logger
-	audit     AuditPublisher
+	appPermissions *AppPermissionsService
+	orgs           port.OrgRepository
+	users          port.UserRepository
+	sessions       port.ActiveOrgSessionStore
+	txManager      port.TxManager
+	maxOrgs        int
+	log            *slog.Logger
+	audit          AuditPublisher
 }
 
 // OrgServiceConfig configures organization limits.
 type OrgServiceConfig struct {
+	AppPermissions *AppPermissionsService
 	MaxOrgsPerUser int
 	Logger         *slog.Logger
 	Audit          AuditPublisher
@@ -43,13 +45,14 @@ func NewOrgService(
 	}
 	resolvedMaxOrgs := resolveMaxOrgsPerUser(cfg.MaxOrgsPerUser)
 	return &OrgService{
-		orgs:      orgs,
-		users:     users,
-		sessions:  sessions,
-		txManager: txManager,
-		maxOrgs:   resolvedMaxOrgs,
-		log:       cfg.Logger,
-		audit:     cfg.Audit,
+		appPermissions: cfg.AppPermissions,
+		orgs:           orgs,
+		users:          users,
+		sessions:       sessions,
+		txManager:      txManager,
+		maxOrgs:        resolvedMaxOrgs,
+		log:            cfg.Logger,
+		audit:          cfg.Audit,
 	}
 }
 

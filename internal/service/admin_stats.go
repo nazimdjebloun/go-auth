@@ -14,7 +14,12 @@ import (
 // GetStats returns platform-wide counts for the admin dashboard — one Count
 // call per field, each an exact COUNT(*), not an estimate.
 func (s *AdminService) GetStats(ctx context.Context, actorID string) (*api.AdminStats, error) {
-	if err := s.requireAdmin(ctx, actorID); err != nil {
+	return s.GetStatsForActor(ctx, api.AppPermissionActor{UserID: actorID})
+}
+
+// GetStatsForActor carries session assurance for HTTP and privileged direct calls.
+func (s *AdminService) GetStatsForActor(ctx context.Context, actor api.AppPermissionActor) (*api.AdminStats, error) {
+	if err := s.requireOperation(ctx, actor.UserID, actor.SessionID, "goauth.app.stats.read"); err != nil {
 		return nil, err
 	}
 
@@ -82,7 +87,7 @@ func validateStatsRangeInput(input api.StatsRangeInput) error {
 // GetRegistrationTrend returns registrations per day over [From, To], for a
 // registrations-over-time chart.
 func (s *AdminService) GetRegistrationTrend(ctx context.Context, input api.StatsRangeInput) ([]api.DailyCount, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.stats.read"); err != nil {
 		return nil, err
 	}
 	if err := validateStatsRangeInput(input); err != nil {
@@ -101,7 +106,7 @@ func (s *AdminService) GetRegistrationTrend(ctx context.Context, input api.Stats
 // Counts domain.EventLoginSuccess only (email/password logins); OAuth and
 // admin logins are a separate audit event type and aren't folded in here.
 func (s *AdminService) GetLoginActivity(ctx context.Context, input api.LoginActivityInput) ([]api.DailyCount, error) {
-	if err := s.requireAdmin(ctx, input.ActorID); err != nil {
+	if err := s.requireOperation(ctx, input.ActorID, input.ActorSessionID, "goauth.app.stats.read"); err != nil {
 		return nil, err
 	}
 	rangeInput := api.StatsRangeInput{ActorID: input.ActorID, From: input.From, To: input.To}

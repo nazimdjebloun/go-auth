@@ -14,8 +14,13 @@ import (
 
 // UserRepository stores user accounts.
 type UserRepository struct {
-	db *DB
+	db             *DB
+	appPermissions bool
 }
+
+// WithAppPermissions selects the protected app identity for last-admin guards.
+// Configure once during wiring, before serving requests.
+func (r *UserRepository) WithAppPermissions() *UserRepository { r.appPermissions = true; return r }
 
 // NewUserRepository returns a user repository.
 func NewUserRepository(db *DB) *UserRepository {
@@ -262,6 +267,11 @@ func (r *UserRepository) buildWhere(filter port.UserFilter) (string, []any) {
 	if filter.Role != nil {
 		where = append(where, fmt.Sprintf("role = $%d", argIdx))
 		args = append(args, *filter.Role)
+		argIdx++
+	}
+	if filter.AppRoleID != nil {
+		where = append(where, fmt.Sprintf("app_role_id = $%d", argIdx))
+		args = append(args, *filter.AppRoleID)
 		argIdx++
 	}
 	if filter.IsBanned != nil {

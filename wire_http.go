@@ -40,17 +40,18 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 	}
 
 	h := handler.NewWithLogger(handler.Deps{
-		Auth:      svc.Auth,
-		Password:  svc.Password,
-		Session:   sessSvc,
-		Verify:    svc.Verify,
-		Invite:    svc.Invite,
-		Admin:     svc.Admin,
-		OAuth:     oauthSvc,
-		Org:       orgSvc,
-		OrgInvite: svc.OrgInvite,
-		TwoFactor: svc.TwoFactor,
-		AuditLog:  svc.AuditLog,
+		AppPermissions: svc.AppPermissions,
+		Auth:           svc.Auth,
+		Password:       svc.Password,
+		Session:        sessSvc,
+		Verify:         svc.Verify,
+		Invite:         svc.Invite,
+		Admin:          svc.Admin,
+		OAuth:          oauthSvc,
+		Org:            orgSvc,
+		OrgInvite:      svc.OrgInvite,
+		TwoFactor:      svc.TwoFactor,
+		AuditLog:       svc.AuditLog,
 	}, cfg.logger, cfg.security.CSRFToken, clientIPCfg, cookies)
 
 	// OAuth handlers (separate because they need baseURL for redirects).
@@ -59,6 +60,9 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 
 	authMW := middleware.AuthMiddleware(sessSvc, cookies, userRepo, cfg.logger)
 	adminMW := middleware.RequireAdminSession(!cfg.twoFactor.DisableAdminTwoFactor || cfg.twoFactor.RequireEmail2FA, cfg.logger)
+	if svc.AppPermissions != nil {
+		adminMW = middleware.RequireProtectedAppAdmin(svc.AppPermissions)
+	}
 	var trustedIPs []string
 	if cfg.rateLimit != nil {
 		cfg.rateLimit.Logger = cfg.logger
@@ -97,11 +101,19 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 	orgAdminMW := middleware.RequireOrgRole(domain.OrgRoleAdmin)
 	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 	routes := httproutes.Build(httproutes.Features{
-		EmailRegistration: cfg.registration.EnableEmailPassword,
-		Invite:            cfg.registration.EnableInvite,
-		OAuth:             cfg.registration.EnableOAuth && oauthSvc != nil,
-		Organizations:     orgSvc != nil,
+		AppPermissions:          cfg.appPermissions.Enable,
+		AppPermissionManagement: cfg.appPermissions.EnableManagementHTTP,
+		EmailRegistration:       cfg.registration.EnableEmailPassword,
+		Invite:                  cfg.registration.EnableInvite,
+		OAuth:                   cfg.registration.EnableOAuth && oauthSvc != nil,
+		Organizations:           orgSvc != nil,
 	}, h, oauthHandlers, httproutes.Middleware{
+		AppOperation: func(key string) func(http.Handler) http.Handler {
+			if svc.AppPermissions != nil {
+				return middleware.RequireAppPermission(svc.AppPermissions, key)
+			}
+			return adminMW
+		},
 		CORS: corsMW, RateLimit: rateLimitMW, CSRFToken: csrfTokenMW,
 		CSRF: csrfMW, Auth: authMW, Admin: adminMW,
 		OrgMember: orgMemberMW, OrgAdmin: orgAdminMW, OrgOwner: orgOwnerMW,

@@ -11,6 +11,22 @@ import (
 // EventType identifies an audited operation.
 type EventType string
 
+// Application authorization mutations retain the existing durable audit contract.
+const (
+	EventAppAuthorizationInitialized  EventType = "app.authorization.initialized"
+	EventAppLibraryPermissionsChanged EventType = "app.library_permissions.changed"
+	EventAppPermissionCreated         EventType = "app.permission.created"
+	EventAppPermissionUpdated         EventType = "app.permission.updated"
+	EventAppPermissionDeleted         EventType = "app.permission.deleted"
+	EventAppRoleCreated               EventType = "app.role.created"
+	EventAppRoleUpdated               EventType = "app.role.updated"
+	EventAppRoleDeleted               EventType = "app.role.deleted"
+	EventAppRoleGrantsChanged         EventType = "app.role.grants_changed"
+	EventAppUserRoleChanged           EventType = "app.user.role_changed"
+	EventAdminSessionRevoked          EventType = "admin.session.revoked"
+	EventAdminSessionsRevoked         EventType = "admin.sessions.revoked"
+)
+
 // EventLoginSuccess and the following constants identify audit event types.
 const (
 	// EventLoginSuccess and the following values identify authentication events.

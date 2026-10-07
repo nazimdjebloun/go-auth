@@ -8,27 +8,31 @@ import (
 
 // HardDeleteInviteInput identifies an invitation and the trusted administrator.
 type HardDeleteInviteInput struct {
-	InviteID string `json:"inviteId"`
-	ActorID  string `json:"-"`
+	InviteID       string `json:"inviteId"`
+	ActorID        string `json:"-"`
+	ActorSessionID string `json:"-"`
 }
 
 // RevokeInviteInput identifies an invitation and the trusted administrator.
 type RevokeInviteInput struct {
-	InviteID string `json:"inviteId"`
-	ActorID  string `json:"-"`
+	InviteID       string `json:"inviteId"`
+	ActorID        string `json:"-"`
+	ActorSessionID string `json:"-"`
 }
 
 // ResendInviteEmailInput identifies an invitation and the trusted administrator.
 type ResendInviteEmailInput struct {
-	InviteID string `json:"inviteId"`
-	ActorID  string `json:"-"`
+	InviteID       string `json:"inviteId"`
+	ActorID        string `json:"-"`
+	ActorSessionID string `json:"-"`
 }
 
 // BulkInviteEmailsInput is the input for bulk send, which is keyed by address
 // rather than by ID — the invites don't exist yet.
 type BulkInviteEmailsInput struct {
-	Emails  []string
-	ActorID string
+	Emails         []string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // BulkInviteFailure names the invite (by ID, or by email for a send) that
@@ -42,8 +46,9 @@ type BulkInviteFailure struct {
 
 // BulkInviteIDsInput is the input for the ID-keyed bulk actions.
 type BulkInviteIDsInput struct {
-	InviteIDs []string
-	ActorID   string
+	InviteIDs      []string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // BulkInviteResult reports per-item outcome, not overall success.
@@ -83,13 +88,15 @@ func (r *CompleteInviteResult) BindingToken() string { return r.bindingToken }
 
 // CreateInviteInput contains values used to create an account invitation.
 type CreateInviteInput struct {
-	Email   string
-	AdminID string
+	Email          string
+	AdminID        string
+	ActorSessionID string `json:"-"`
 }
 
 // ListInvitesInput contains account invitation filters.
 type ListInvitesInput struct {
 	ActorID        string
+	ActorSessionID string `json:"-"`
 	Offset         int
 	Limit          int
 	Search         string
