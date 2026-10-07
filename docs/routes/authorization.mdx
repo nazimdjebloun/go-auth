@@ -56,3 +56,7 @@ Permission-key checks, ownership protection, delegation limits and revision
 checks also run inside the services. Installation/removal of library keys
 never becomes a delegable permission. See the
 [implementation and usage guide](../guides/app-permissions.mdx).
+
+Assigning the user's current role returns 200 without changing the assignment
+or global revision or recording a role-change audit event. The actor must still
+pass authorization and required MFA, and both expected revisions must be current.

@@ -248,6 +248,15 @@ func (s *AppPermissionsService) requireProtectedAdmin(ctx context.Context, actor
 // withMutation shares the existing all-user admin guard before taking app state.
 // This also serializes demotion/ban/deletion with actor authorization rechecks.
 func (s *AppPermissionsService) withMutation(ctx context.Context, actor api.AppPermissionActor, key string, fn func(context.Context) error) error {
+	return s.withConditionalMutation(ctx, actor, key, func(ctx context.Context) (bool, error) {
+		err := fn(ctx)
+		return err == nil, err
+	})
+}
+
+// withConditionalMutation preserves the same guards and authorization checks,
+// but advances the global revision only when the callback reports a change.
+func (s *AppPermissionsService) withConditionalMutation(ctx context.Context, actor api.AppPermissionActor, key string, fn func(context.Context) (bool, error)) error {
 	return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
 		if err := s.state.LockAppState(ctx); err != nil {
 			return err
@@ -256,8 +265,12 @@ func (s *AppPermissionsService) withMutation(ctx context.Context, actor api.AppP
 		if err := s.require(ctx, actor, key); err != nil {
 			return err
 		}
-		if err := fn(ctx); err != nil {
+		changed, err := fn(ctx)
+		if err != nil {
 			return err
+		}
+		if !changed {
+			return nil
 		}
 		return s.state.BumpAppState(ctx)
 	})

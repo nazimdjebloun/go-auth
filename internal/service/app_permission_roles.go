@@ -274,85 +274,86 @@ func (s *AppPermissionsService) SetUserRole(ctx context.Context, input api.SetAp
 		return nil, err
 	}
 	var result *api.AppUserRoleResult
-	err := s.withMutation(ctx, input.Actor, "goauth.app.roles.assign", func(ctx context.Context) error {
+	err := s.withConditionalMutation(ctx, input.Actor, "goauth.app.roles.assign", func(ctx context.Context) (bool, error) {
 		target, err := s.users.GetByIDForUpdate(ctx, input.UserID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if target == nil {
-			return domain.ErrUserNotFound
+			return false, domain.ErrUserNotFound
 		}
 		if target.AppRoleAssignmentRevision != input.ExpectedAssignmentRevision {
-			return domain.ErrAppAuthorizationConflict
+			return false, domain.ErrAppAuthorizationConflict
 		}
 		role, err := s.roles.RoleByID(ctx, input.RoleID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if role == nil || !role.IsEnabled {
-			return domain.ErrAppRoleNotFound
+			return false, domain.ErrAppRoleNotFound
 		}
 		if role.Revision != input.ExpectedRoleRevision {
-			return domain.ErrAppAuthorizationConflict
+			return false, domain.ErrAppAuthorizationConflict
 		}
 		_, actorRole, err := s.current(ctx, input.Actor.UserID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if !actorRole.IsAdmin() && target.ID == input.Actor.UserID {
-			return domain.ErrForbidden
+			return false, domain.ErrForbidden
 		}
 		var old *domain.AppRole
 		oldKeys := []string{}
 		if target.AppRoleID != nil {
 			old, err = s.roles.RoleByID(ctx, *target.AppRoleID)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if old == nil {
-				return domain.ErrAppRoleNotFound
+				return false, domain.ErrAppRoleNotFound
 			}
 			oldKeys, err = s.permissions.RoleGrantKeys(ctx, old.ID)
 			if err != nil {
-				return err
+				return false, err
 			}
 		}
 		keys, err := s.permissions.RoleGrantKeys(ctx, role.ID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if (role.IsAdmin() || (old != nil && old.IsAdmin())) && !actorRole.IsAdmin() {
-			return domain.ErrForbidden
+			return false, domain.ErrForbidden
 		}
 		if err := s.delegation(ctx, input.Actor, "", append(slices.Clone(oldKeys), keys...)); err != nil {
-			return err
+			return false, err
 		}
 		if old != nil && old.IsAdmin() && !role.IsAdmin() && !target.IsBanned {
 			n, err := s.roles.UsableAppAdminCount(ctx)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if n <= 1 {
-				return domain.ErrCannotDeleteLastAdmin
+				return false, domain.ErrCannotDeleteLastAdmin
 			}
 		}
 		role.PermissionKeys = keys
 		revision := target.AppRoleAssignmentRevision
-		if target.AppRoleID == nil || *target.AppRoleID != role.ID {
+		assignmentChanged := target.AppRoleID == nil || *target.AppRoleID != role.ID
+		if assignmentChanged {
 			changed, err := s.roles.SetUserAppRole(ctx, target.ID, role.ID, revision, time.Now().UTC())
 			if err != nil {
-				return err
+				return false, err
 			}
 			if !changed {
-				return domain.ErrAppAuthorizationConflict
+				return false, domain.ErrAppAuthorizationConflict
 			}
 			revision++
 			if err := s.record(ctx, input.Actor, audit.EventAppUserRoleChanged, map[string]any{"userId": target.ID, "oldRoleId": target.AppRoleID, "roleId": role.ID, "assignmentRevision": revision}); err != nil {
-				return err
+				return false, err
 			}
 		}
 		result = &api.AppUserRoleResult{Role: *role, AssignmentRevision: revision}
-		return nil
+		return assignmentChanged, nil
 	})
 	return result, err
 }

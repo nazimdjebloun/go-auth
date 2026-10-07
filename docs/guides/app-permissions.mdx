@@ -162,8 +162,12 @@ Grant replacement uses
 `{"expectedRevision":1,"permissionKeys":[...]}`. An empty array clears grants.
 At most 256 distinct installed, enabled keys can be supplied. Read the latest
 role revision before editing or assigning; stale updates return
-`authorization_conflict`. Assignment replaces the sole previous role and
-increments the account's `appRoleAssignmentRevision`.
+`authorization_conflict`. A changed assignment replaces the sole previous role
+and increments the account's `appRoleAssignmentRevision` and global app revision.
+Assigning the current role with valid expected revisions is a no-op: it preserves
+both revisions, account timestamps and role grants, and records no role-change
+audit event. Authorization, required assurance and delegation checks still run.
+This also applies to the enabled-mode `Admin.UpdateUserRole` API and its route.
 
 Business definitions support metadata updates and `isEnabled`. Disabled or
 missing business keys deny everyone, including protected admin. Deleting a

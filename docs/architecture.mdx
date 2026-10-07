@@ -21,6 +21,11 @@ locking app state, reloads current actor authorization, writes changes and durab
 audit records in that transaction, then advances revisions. SQL constraints
 prevent duplicate grants and deletion of assigned roles/referenced definitions.
 
+Role assignment uses the same management guards and authorization rechecks,
+but advances the global revision only after an actual assignment change.
+Same-role retries preserve assignment/global revisions and account timestamps
+without a role-change audit event; stale expected revisions still fail.
+
 Ordinary account creation uses a separate transaction, without the all-user
 guard or singleton write lock. The new unassigned user row is inserted before
 locking the selected default role. `RoleBySlugForShare` uses `FOR SHARE` on

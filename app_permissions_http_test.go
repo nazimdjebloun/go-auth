@@ -350,6 +350,51 @@ func TestAppPermissionsStatsAuthorization(t *testing.T) {
 	}
 }
 
+func TestAppPermissionsSameRoleAssignmentPreservesAccessRevision(t *testing.T) {
+	f := newAppHTTPFixture(t, true, true)
+	ctx := t.Context()
+	account, err := f.a.Register(ctx, api.RegisterInput{Email: "same-role@example.com", Name: "Same role", Password: "Passw0rd!"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo := sqlstore.NewAppPermissionsRepository(f.db)
+	role, err := repo.RoleByID(ctx, *account.User.AppRoleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := api.SetAppUserRoleInput{Actor: f.admin, UserID: account.User.ID, RoleID: role.ID, ExpectedRoleRevision: role.Revision, ExpectedAssignmentRevision: account.User.AppRoleAssignmentRevision}
+	body := `{"roleId":"` + role.ID + `","expectedRoleRevision":1,"expectedAssignmentRevision":1}`
+	path := "/admin/authorization/users/" + account.User.ID + "/role"
+	if _, err := f.a.Services().AppPermissions.SetUserRole(ctx, input); !errors.Is(err, domain.ErrTwoFactorRequired) {
+		t.Fatalf("same-role bypassed assurance: %v", err)
+	}
+	f.request(t, "PUT", path, body, f.token, 403)
+	now := time.Now().UTC()
+	if _, err := f.db.ExecContext(ctx, "UPDATE sessions SET two_factor_verified_at=$1 WHERE id=$2", now, f.admin.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	access := func() api.AppAccess {
+		t.Helper()
+		w := f.request(t, "GET", "/auth/access", "", account.SessionToken, 200)
+		var result api.AppAccess
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	before := access()
+	f.request(t, "PUT", path, body, f.token, 200)
+	legacyBody := `{"appRoleId":"` + role.ID + `","expectedRoleRevision":1,"expectedAssignmentRevision":1}`
+	f.request(t, "PATCH", "/admin/users/"+account.User.ID+"/role", legacyBody, f.token, 200)
+	if err := f.a.Services().Admin.UpdateUserRole(ctx, api.UpdateUserRoleInput{ActorID: f.admin.UserID, ActorSessionID: f.admin.SessionID, UserID: account.User.ID, AppRoleID: role.ID, ExpectedRoleRevision: role.Revision, ExpectedAssignmentRevision: account.User.AppRoleAssignmentRevision}); err != nil {
+		t.Fatal(err)
+	}
+	after := access()
+	if before.Revision != after.Revision || before.AssignmentRevision != after.AssignmentRevision || before.Role.ID != after.Role.ID {
+		t.Fatalf("no-op changed exposed access: %+v -> %+v", before, after)
+	}
+}
+
 func TestAppPermissionsHTTPPromotionRequiresFreshAssurance(t *testing.T) {
 	f := newAppHTTPFixture(t, true, true)
 	ctx := t.Context()

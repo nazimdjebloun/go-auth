@@ -42,6 +42,8 @@ custom roles receive only explicitly installed and granted permissions.
 Ordinary signup assigns its default role atomically without global management locks.
 Enabled-mode user results omit the legacy `role` field; use `appRoleId` and
 `/auth/access` for application access information.
+Assigning the current app role preserves assignment and global revisions after
+the usual authorization and expected-revision checks.
 The [app permission guide](docs/guides/app-permissions.mdx) covers selective
 seeding, atomic bulk changes, single-role assignment, and backend checks.
 
