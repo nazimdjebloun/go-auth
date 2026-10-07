@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS app_permissions (
     revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
     created_at TIMESTAMPTZ NOT NULL,
     updated_at TIMESTAMPTZ NOT NULL,
-    CHECK (NOT is_system OR is_enabled)
+    CHECK (NOT is_system OR is_enabled),
+    CONSTRAINT app_permissions_namespace_owner
+        CHECK (is_system = (substr(permission_key, 1, 11) = 'goauth.app.'))
 );
 
 CREATE TABLE IF NOT EXISTS app_authorization_state (

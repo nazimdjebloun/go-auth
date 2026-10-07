@@ -162,6 +162,11 @@ non-delegable. Delegated role management is bounded by the actor's currently
 held keys and blocks self role editing/assignment and protected-admin transitions.
 Permission checks do not replace resource ownership or organization membership.
 
+The schema binds `app_permissions.is_system` to the exact lowercase `goauth.app.`
+key prefix with a CHECK constraint. Direct inserts and updates cannot mark a
+library key as business-owned or a business key as library-owned. The service
+also validates key syntax and the fixed library catalog.
+
 Library permission removal cleans all grants atomically and affects subsequent
 checks in existing sessions. Reinstallation grants nobody automatically. Business
 keys that are missing or disabled deny admin too. Authorization management writes recheck

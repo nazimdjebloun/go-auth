@@ -39,8 +39,15 @@ deleted. Protected role identity uses a unique nullable `system_key` rather
 than a display name.
 
 Permission keys are stored in `app_permissions.permission_key`. Library-owned
-rows have `is_system=true` and must remain enabled. Grant links use a composite
-primary key, and the permission foreign key restricts deletion until grant
+rows have `is_system=true` and must remain enabled. All three schemas enforce
+`is_system = (substr(permission_key, 1, 11) = 'goauth.app.')` through the named
+`app_permissions_namespace_owner` CHECK constraint. Ownership is true exactly
+when the key starts with the lowercase `goauth.app.` prefix. Inconsistent inserts
+and updates fail, including direct SQL writes. Full key syntax and library
+catalog membership are still validated by the service.
+
+Grant links use a composite primary key, and the permission foreign key
+restricts deletion until grant
 cleanup occurs. Applying DDL creates no role or permission records.
 
 Three routes to the same SQL. Pick whichever fits how you deploy.
@@ -1217,7 +1224,7 @@ is disabled. Applying the schema creates no records. Initialization is explicit.
 | Table | Columns and constraints |
 |---|---|
 | `app_roles` | `id` PK, unique immutable `slug`, `name`, `description`, `is_enabled`, nullable unique `system_key`, positive `revision`, `created_at`, `updated_at`. Protected identity is `platform_admin` or `user`. |
-| `app_permissions` | `id` PK, unique immutable `permission_key`, `name`, `description`, `is_enabled`, `is_system`, positive `revision`, timestamps. Library definitions must remain enabled. |
+| `app_permissions` | `id` PK, unique immutable `permission_key`, `name`, `description`, `is_enabled`, `is_system`, positive `revision`, timestamps. `app_permissions_namespace_owner` requires `is_system` exactly for the lowercase `goauth.app.` prefix. Library definitions must remain enabled. |
 | `app_role_permissions` | Composite PK `(role_id,permission_id)`, role FK `CASCADE`, permission FK `RESTRICT`, nullable `granted_by` user FK `SET NULL`, `created_at`. Reverse index on `(permission_id,role_id)`. |
 | `app_authorization_state` | Single row with PK `id=1`, positive `revision`, `created_at`. Serializes authorization writes after the account guard. |
 | `users` additions | Nullable `app_role_id` role FK `RESTRICT`, nonnegative `app_role_assignment_revision` default 0; index `(app_role_id,id)`. |
