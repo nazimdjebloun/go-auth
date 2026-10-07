@@ -60,9 +60,12 @@ given a restricted grant set. Assignment to or from protected admin requires
 a protected admin actor. Demotion, banning and deletion cannot remove the last
 usable protected administrator.
 
-In enabled mode, `users.app_role_id` is authoritative. The retained legacy
-`users.role` and JSON `role` field confer no additional access. Use `appRoleId`
-and `/auth/access` in your UI. In disabled mode the existing hardcoded
+In enabled mode, `users.app_role_id` is authoritative. Returned users have an
+empty Go `User.Role`, and the legacy account `role` field is omitted from JSON,
+including nested organization member users. Organization membership `role`
+remains present. New account inserts leave `users.role` at its unused schema
+default; existing values are ignored. Use `appRoleId` and `/auth/access` in your
+UI. In disabled mode the existing hardcoded
 `admin`/`user` behavior remains authoritative, and
 `auth.Services().AppPermissions` is nil.
 

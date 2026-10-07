@@ -10,6 +10,10 @@ Identity and credential flows. `Auth` is either `Public` (no session needed) or 
 
 `POST /auth/register` is only mounted when `EnableEmailPassword` is true. Invite routes are only mounted when `EnableInvite` is true.
 
+User examples below show the default mode. With app permissions enabled, user
+objects omit the legacy `role` field and include `appRoleId` and
+`appRoleAssignmentRevision`; `/auth/access` describes effective app access.
+
 Shared shapes used below:
 
 ```json

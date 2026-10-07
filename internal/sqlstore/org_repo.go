@@ -48,12 +48,20 @@ var orgInviteOrderByWhitelist = map[string]string{
 
 // OrgRepository stores organizations and their memberships.
 type OrgRepository struct {
-	db *DB
+	db             *DB
+	appPermissions bool
 }
 
 // NewOrgRepository returns an organization repository.
 func NewOrgRepository(db *DB) *OrgRepository {
 	return &OrgRepository{db: db}
+}
+
+// WithAppPermissions omits the legacy role from nested member users.
+// Configure once during wiring, before serving requests.
+func (r *OrgRepository) WithAppPermissions() *OrgRepository {
+	r.appPermissions = true
+	return r
 }
 
 func scanOrg(sc interface{ Scan(dest ...any) error }) (*domain.Organization, error) {
@@ -260,9 +268,13 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 		if err := rows.Scan(
 			&md.OrgID, &md.UserID, &md.Role, &md.JoinedAt,
 			&u.ID, &u.Email, &u.Name, &u.Role, &u.IsVerified, &u.IsBanned, &u.CreatedAt, &u.UpdatedAt,
+			&u.AppRoleID, &u.AppRoleAssignmentRevision,
 		); err != nil {
 			_ = rows.Close()
 			return nil, err
+		}
+		if r.appPermissions {
+			u.Role = ""
 		}
 		md.User = u
 		members = append(members, md)

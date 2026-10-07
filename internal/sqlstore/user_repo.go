@@ -18,7 +18,8 @@ type UserRepository struct {
 	appPermissions bool
 }
 
-// WithAppPermissions selects the protected app identity for last-admin guards.
+// WithAppPermissions selects the protected app identity for last-admin guards
+// and omits the unused legacy role from account writes and returned users.
 // Configure once during wiring, before serving requests.
 func (r *UserRepository) WithAppPermissions() *UserRepository { r.appPermissions = true; return r }
 
@@ -71,18 +72,31 @@ func finishUser(u *domain.User, n *userNullables) {
 	}
 }
 
-func scanRow(s scanner) (*domain.User, error) {
+func (r *UserRepository) scanRow(s scanner) (*domain.User, error) {
 	u := &domain.User{}
 	var n userNullables
 	if err := s.Scan(userScanDest(u, &n)...); err != nil {
 		return nil, err
 	}
 	finishUser(u, &n)
+	if r.appPermissions {
+		u.Role = ""
+	}
 	return u, nil
 }
 
 // Create stores a user.
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
+	if r.appPermissions {
+		_, err := r.db.ExecContext(ctx, userCreateAppQuery,
+			user.ID, user.Email, user.PasswordHash, user.PasswordPepperVersion, user.Name,
+			user.IsVerified, user.VerifiedAt, user.IsBanned, user.TwoFactorEnabled,
+			user.OrgOwnerCount, user.CreatedAt, user.UpdatedAt, user.AppRoleID, user.AppRoleAssignmentRevision)
+		if err == nil {
+			user.Role = ""
+		}
+		return wrapCreateErr(r.db.Driver(), err)
+	}
 	_, err := r.db.ExecContext(ctx, userCreateQuery,
 		user.ID, user.Email, user.PasswordHash, user.PasswordPepperVersion, user.Name, user.Role,
 		user.IsVerified, user.VerifiedAt, user.IsBanned, user.TwoFactorEnabled,
@@ -92,7 +106,7 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 
 // GetByID returns a user by ID or nil when absent.
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
-	user, err := scanRow(r.db.QueryRowContext(ctx, userByIDQuery, id))
+	user, err := r.scanRow(r.db.QueryRowContext(ctx, userByIDQuery, id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -104,7 +118,7 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, 
 
 // GetByEmail returns a user by email or nil when absent.
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
-	user, err := scanRow(r.db.QueryRowContext(ctx, userByEmailQuery, email))
+	user, err := r.scanRow(r.db.QueryRowContext(ctx, userByEmailQuery, email))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -359,7 +373,7 @@ func (r *UserRepository) List(ctx context.Context, filter port.UserFilter) ([]do
 
 	users := []domain.User{}
 	for rows.Next() {
-		u, err := scanRow(rows)
+		u, err := r.scanRow(rows)
 		if err != nil {
 			_ = rows.Close()
 			return nil, err

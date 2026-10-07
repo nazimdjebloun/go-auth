@@ -39,6 +39,8 @@ then initialize the protected administrator with `seed-admin --app-permissions`
 before accepting signups. The built-in admin keeps full library access;
 custom roles receive only explicitly installed and granted permissions.
 Ordinary signup assigns its default role atomically without global management locks.
+Enabled-mode user results omit the legacy `role` field; use `appRoleId` and
+`/auth/access` for application access information.
 The [app permission guide](docs/guides/app-permissions.mdx) covers selective
 seeding, atomic bulk changes, single-role assignment, and backend checks.
 

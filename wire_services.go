@@ -40,6 +40,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	userRepo := sqlstore.NewUserRepository(sqlDB)
 	if cfg.appPermissions.Enable {
 		userRepo.WithAppPermissions()
+		sessionRepo.WithAppPermissions()
 	}
 	// Keep the zero-config path lazy: historically New with a borrowed pgx
 	// pool did not dial it. Once any pepper key is configured, validate every
@@ -197,7 +198,11 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	var orgInviteSvc *service.OrgInviteService
 	var orgRepo port.OrgRepository
 	if cfg.organizations.Enable {
-		orgRepo = sqlstore.NewOrgRepository(sqlDB)
+		orgStore := sqlstore.NewOrgRepository(sqlDB)
+		if cfg.appPermissions.Enable {
+			orgStore.WithAppPermissions()
+		}
+		orgRepo = orgStore
 		orgInviteRepo := sqlstore.NewOrgInviteRepository(sqlDB)
 		orgSvc = service.NewOrgService(orgRepo, userRepo, sessionRepo, sqlDB, service.OrgServiceConfig{
 			AppPermissions: appPermissionsSvc,

@@ -79,8 +79,9 @@ Named inputs do not change authentication requirements. With app permissions dis
 
 `WithAppPermissions(AppPermissionsConfig{Enable:true})` exposes
 `Services.AppPermissions`. It is nil when disabled. Enabled mode authorizes
-through the account's single `appRoleId`; the retained legacy `role` field is
-not an additional grant source. Organization membership roles remain separate.
+through the account's single `appRoleId`. Enabled-mode returned users have an
+empty Go `User.Role` and omit the legacy account `role` JSON field. Disabled
+mode still populates it. Organization membership roles remain separate.
 
 App permission operations take a trusted `api.AppPermissionActor` containing
 the authenticated user ID and current session ID. Existing administrative

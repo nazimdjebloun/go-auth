@@ -18,13 +18,21 @@ var _ port.SessionRepository = (*SessionRepository)(nil)
 
 // SessionRepository stores user sessions.
 type SessionRepository struct {
-	db  *DB
-	log *slog.Logger
+	db             *DB
+	log            *slog.Logger
+	appPermissions bool
 }
 
 // NewSessionRepository returns a session repository.
 func NewSessionRepository(db *DB) *SessionRepository {
 	return &SessionRepository{db: db, log: slog.Default()}
+}
+
+// WithAppPermissions omits the legacy role from joined user reads.
+// Configure once during wiring, before serving requests.
+func (r *SessionRepository) WithAppPermissions() *SessionRepository {
+	r.appPermissions = true
+	return r
 }
 
 // WithLogger sets the logger used for refresh-token events.
@@ -90,6 +98,9 @@ func (r *SessionRepository) GetByTokenHashWithUser(ctx context.Context, hash str
 	}
 	finishSession(s)
 	finishUser(u, &n)
+	if r.appPermissions {
+		u.Role = ""
+	}
 	return s, u, nil
 }
 

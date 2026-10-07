@@ -18,9 +18,10 @@ type User struct {
 	PasswordHash          *string `json:"-"`
 	PasswordPepperVersion *uint32 `json:"-"`
 	Name                  string  `json:"name"`
-	Role                  Role    `json:"role"`
+	// Role is populated only when app permissions are disabled.
+	Role Role `json:"role,omitempty"`
 	// AppRoleID is authoritative when WithAppPermissions is enabled. Role is
-	// retained for disabled installations; it is not a second grant source.
+	// omitted in enabled-mode results; it is not a second grant source.
 	AppRoleID                 *string    `json:"appRoleId,omitempty"`
 	AppRoleAssignmentRevision uint64     `json:"appRoleAssignmentRevision,omitempty"`
 	IsVerified                bool       `json:"isVerified"`

@@ -29,7 +29,8 @@ const (
 	// dynamically in org_repo.go (filter/search/sort are runtime-chosen), so
 	// only the fixed SELECT column lists live here as consts.
 	orgMemberSelectCols = `om.org_id, om.user_id, om.role, om.joined_at,
-		u.id, u.email, u.name, u.role, u.is_verified, u.is_banned, u.created_at, u.updated_at`
+		u.id, u.email, u.name, u.role, u.is_verified, u.is_banned, u.created_at, u.updated_at,
+		u.app_role_id, u.app_role_assignment_revision`
 
 	orgSelectColsAliased = `o.id, o.name, o.slug, o.created_by, o.owner_count, o.member_count,
 		o.metadata, o.created_at, o.updated_at`

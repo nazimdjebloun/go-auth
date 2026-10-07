@@ -23,7 +23,7 @@ func (r *UserRepository) GetByIDForUpdate(ctx context.Context, id string) (*doma
 		}
 		query = userByIDQuery
 	}
-	user, err := scanRow(r.db.QueryRowContext(ctx, query, id))
+	user, err := r.scanRow(r.db.QueryRowContext(ctx, query, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

@@ -28,7 +28,7 @@ type appHTTPFixture struct {
 	mux   *http.ServeMux
 }
 
-func newAppHTTPFixture(t *testing.T, management, requireMFA bool) appHTTPFixture {
+func newAppHTTPFixture(t *testing.T, management, requireMFA bool, options ...Option) appHTTPFixture {
 	t.Helper()
 	raw := testdb.OpenSelected(t)
 	testdb.Apply(t, raw)
@@ -46,7 +46,17 @@ func newAppHTTPFixture(t *testing.T, management, requireMFA bool) appHTTPFixture
 	case "postgres", "pgx":
 		driver = DriverPostgres
 	}
-	cfg, err := NewConfig(WithApp(AppConfig{Name: "Permissions", BaseURL: "http://localhost", Environment: EnvironmentDev, Database: DatabaseConfig{DB: raw, Driver: driver}}), WithSecret("0123456789abcdef0123456789abcdef"), WithBcryptCost(4), WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))), WithRegistration(RegistrationConfig{EnableEmailPassword: true, AllowPublic: true, EnableInvite: true}), WithSecurity(SecurityConfig{AllowedOrigins: []string{"http://localhost"}, DisableCSRFToken: true, AllowHTTPURLs: AllowPlaintextEmailLinks()}), WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: !requireMFA}), WithAppPermissions(AppPermissionsConfig{Enable: true, EnableManagementHTTP: management}))
+	baseOptions := []Option{
+		WithApp(AppConfig{Name: "Permissions", BaseURL: "http://localhost", Environment: EnvironmentDev, Database: DatabaseConfig{DB: raw, Driver: driver}}),
+		WithSecret("0123456789abcdef0123456789abcdef"),
+		WithBcryptCost(4),
+		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
+		WithRegistration(RegistrationConfig{EnableEmailPassword: true, AllowPublic: true, EnableInvite: true}),
+		WithSecurity(SecurityConfig{AllowedOrigins: []string{"http://localhost"}, DisableCSRFToken: true, AllowHTTPURLs: AllowPlaintextEmailLinks()}),
+		WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: !requireMFA}),
+		WithAppPermissions(AppPermissionsConfig{Enable: true, EnableManagementHTTP: management}),
+	}
+	cfg, err := NewConfig(append(baseOptions, options...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,6 +91,80 @@ func (f appHTTPFixture) request(t *testing.T, method, path, body, token string, 
 		t.Fatalf("%s %s status=%d want=%d: %s", method, path, w.Code, want, w.Body.String())
 	}
 	return w
+}
+
+func TestAppPermissionsHTTPUserRoleJSON(t *testing.T) {
+	f := newAppHTTPFixture(t, true, false, WithOrganizations(OrganizationConfig{Enable: true}))
+	decode := func(w *httptest.ResponseRecorder) map[string]json.RawMessage {
+		t.Helper()
+		var result map[string]json.RawMessage
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	checkUser := func(user map[string]json.RawMessage) {
+		t.Helper()
+		if _, exists := user["role"]; exists {
+			t.Fatalf("enabled user includes legacy role: %s", user["role"])
+		}
+		if _, exists := user["appRoleId"]; !exists {
+			t.Fatal("enabled user lost appRoleId")
+		}
+	}
+	w := f.request(t, "POST", "/auth/register", `{"email":"json-user@example.com","name":"JSON user","password":"Passw0rd!"}`, "", 201)
+	var registered map[string]json.RawMessage
+	if err := json.Unmarshal(decode(w)["user"], &registered); err != nil {
+		t.Fatal(err)
+	}
+	checkUser(registered)
+	me := decode(f.request(t, "GET", "/auth/me", "", f.token, 200))
+	checkUser(me)
+	if _, ok := me["hasPassword"]; !ok {
+		t.Fatal("me response lost hasPassword")
+	}
+	if _, ok := me["session"]; !ok {
+		t.Fatal("me response lost session")
+	}
+	created := decode(f.request(t, "POST", "/admin/users", `{"email":"json-created@example.com","name":"Created","password":"Passw0rd!"}`, f.token, 201))
+	checkUser(created)
+	var createdID string
+	if err := json.Unmarshal(created["id"], &createdID); err != nil {
+		t.Fatal(err)
+	}
+	detail := decode(f.request(t, "GET", "/admin/users/"+createdID, "", f.token, 200))
+	var detailedUser map[string]json.RawMessage
+	if err := json.Unmarshal(detail["user"], &detailedUser); err != nil {
+		t.Fatal(err)
+	}
+	checkUser(detailedUser)
+	listed := decode(f.request(t, "GET", "/admin/users", "", f.token, 200))
+	var users []map[string]json.RawMessage
+	if err := json.Unmarshal(listed["users"], &users); err != nil || len(users) != 3 {
+		t.Fatalf("user list: %s, %v", listed["users"], err)
+	}
+	for _, user := range users {
+		checkUser(user)
+	}
+	org := decode(f.request(t, "POST", "/auth/orgs", `{"name":"JSON team","slug":"json-team"}`, f.token, 201))
+	var orgID string
+	if err := json.Unmarshal(org["id"], &orgID); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/auth/orgs/" + orgID + "/members", "/admin/orgs/" + orgID + "/members"} {
+		body := decode(f.request(t, "GET", path, "", f.token, 200))
+		var members []struct {
+			Role string                     `json:"role"`
+			User map[string]json.RawMessage `json:"user"`
+		}
+		if err := json.Unmarshal(body["members"], &members); err != nil || len(members) != 1 {
+			t.Fatalf("member list: %s, %v", body["members"], err)
+		}
+		if members[0].Role != "owner" {
+			t.Fatal("organization role changed")
+		}
+		checkUser(members[0].User)
+	}
 }
 
 func TestAppPermissionsHTTPDelegationAndRevocation(t *testing.T) {
