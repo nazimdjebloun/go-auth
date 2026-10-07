@@ -125,7 +125,7 @@ or `sqlite3`, and `mysql`.
 
 <Callout title="PostgreSQL: the schema opens with two CREATE EXTENSION statements">
   The PostgreSQL schema opens with `CREATE EXTENSION IF NOT EXISTS "pgcrypto"`
-  (which supplies the `gen_random_uuid()` default on every primary key),
+  (which supplies the `gen_random_uuid()` default used by account and other IDs),
   followed by `CREATE EXTENSION IF NOT EXISTS "pg_trgm"` (which supplies the
   trigram indexes behind admin substring search). Both need privileges some
   managed providers do not hand out, so these are the statements most likely to
@@ -154,12 +154,14 @@ or `sqlite3`, and `mysql`.
 
 ## The tables
 
-Eleven tables. Foreign keys to `users` are `ON DELETE CASCADE`, so deleting a
+Fifteen tables. Most foreign keys to `users` are `ON DELETE CASCADE`, so deleting a
 user takes their sessions, tokens, linked OAuth accounts, and org memberships
-with it. Three exceptions: `sessions.active_org_id` and
-`organizations.created_by` are `ON DELETE SET NULL` (deleting an org clears it
-from sessions pointing at it; an org outlives its creator's account), and
-`invites.created_by` declares no delete action (it does not cascade).
+with it. `sessions.active_org_id` and `organizations.created_by` use
+`ON DELETE SET NULL`: deleting an org clears it from sessions pointing at it,
+and an org outlives its creator's account. `invites.created_by` declares no
+delete action. `app_role_permissions.granted_by` uses `ON DELETE SET NULL`.
+`users.app_role_id` and grant links to permission definitions use
+`ON DELETE RESTRICT`, so referenced roles and definitions cannot be deleted.
 
 `recovery_requests` has no account foreign key: the same row is written for
 known and unknown addresses, and the worker discards it if no eligible account
@@ -170,9 +172,10 @@ No table stores a raw credential. Passwords are bcrypt or Argon2id hashes, optio
 refresh tokens, verification tokens, and both kinds of invite code are stored as
 SHA-256 hashes, and the raw value exists only in the response to the client.
 
-Each table gives a column-by-column summary. The types shown are the
-PostgreSQL ones. Each summary is followed by the exact DDL the library applies
-on each driver, indexes included.
+The summaries describe PostgreSQL types and constraints. Each table includes
+the exact DDL the library applies
+on each driver, indexes included. Table sections follow PostgreSQL dependency
+order; apply its extension statements first, as described above.
 
 ### `recovery_requests`
 
@@ -259,6 +262,185 @@ CREATE INDEX idx_recovery_requests_created ON recovery_requests(created_at);
 </Tab>
 </Tabs>
 
+### `app_roles`
+
+One application role per account. Protected identity uses the unique nullable
+`system_key`; display names do not confer administrator access. See
+[App authorization tables](#app-authorization-tables) for column constraints.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS app_roles (
+    id UUID PRIMARY KEY,
+    slug VARCHAR(80) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    system_key VARCHAR(40) UNIQUE,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    CHECK (system_key IS NULL OR system_key IN ('platform_admin', 'user'))
+);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS app_roles (
+    id TEXT PRIMARY KEY,
+    slug VARCHAR(80) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    system_key VARCHAR(40) UNIQUE,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    CHECK (system_key IS NULL OR system_key IN ('platform_admin', 'user'))
+);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS app_roles (
+    id VARCHAR(36) PRIMARY KEY,
+    slug VARCHAR(80) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    system_key VARCHAR(40) UNIQUE,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CHECK (system_key IS NULL OR system_key IN ('platform_admin', 'user'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `app_permissions`
+
+Installed business and library definitions. The namespace ownership CHECK
+binds `is_system` to the exact lowercase `goauth.app.` prefix; library-owned
+definitions must remain enabled. Creating a definition grants nobody access.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS app_permissions (
+    id UUID PRIMARY KEY,
+    permission_key VARCHAR(160) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    is_system BOOLEAN NOT NULL DEFAULT false,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    CHECK (NOT is_system OR is_enabled),
+    CONSTRAINT app_permissions_namespace_owner
+        CHECK (is_system = (substr(permission_key, 1, 11) = 'goauth.app.'))
+);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS app_permissions (
+    id TEXT PRIMARY KEY,
+    permission_key VARCHAR(160) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    is_system BOOLEAN NOT NULL DEFAULT false,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    CHECK (NOT is_system OR is_enabled),
+    CONSTRAINT app_permissions_namespace_owner
+        CHECK (is_system = (substr(permission_key, 1, 11) = 'goauth.app.'))
+);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS app_permissions (
+    id VARCHAR(36) PRIMARY KEY,
+    permission_key VARCHAR(160) COLLATE utf8mb4_bin NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    is_system BOOLEAN NOT NULL DEFAULT false,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CHECK (NOT is_system OR is_enabled),
+    CONSTRAINT app_permissions_namespace_owner
+        CHECK (is_system = (substr(permission_key, 1, 11) = 'goauth.app.'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `app_authorization_state`
+
+A single row (`id=1`) records initialization and the global authorization
+revision. Applying DDL creates no state row; trusted initialization does.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS app_authorization_state (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at TIMESTAMPTZ NOT NULL
+);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS app_authorization_state (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME NOT NULL
+);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS app_authorization_state (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+</Tab>
+</Tabs>
+
+---
+
 ### `users`
 
 Accounts. One row per person.
@@ -270,6 +452,8 @@ Accounts. One row per person.
 | `password_hash` | `TEXT` | **Nullable**: OAuth-only accounts have no password |
 | `password_pepper_version` | `BIGINT` | **Nullable**: `NULL` is unpeppered; a positive `uint32` value selects one configured password-pepper key |
 | `name` | `TEXT` | Defaults to `''` |
+| `app_role_id` | `UUID` | Nullable role FK; deletion is restricted while assigned |
+| `app_role_assignment_revision` | `BIGINT` | Nonnegative, defaults to 0 |
 | `role` | `TEXT` | `CHECK (role IN ('user', 'admin'))`, defaults to `user` |
 | `is_verified` / `verified_at` | `BOOLEAN` / `TIMESTAMPTZ` | Email verification state |
 | `is_banned` / `banned_at` | `BOOLEAN` / `TIMESTAMPTZ` | Ban state |
@@ -288,6 +472,8 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
+    app_role_id UUID,
+    app_role_assignment_revision BIGINT NOT NULL DEFAULT 0 CHECK (app_role_assignment_revision >= 0),
     password_pepper_version BIGINT CHECK (password_pepper_version > 0 AND password_pepper_version <= 4294967295),
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
@@ -299,10 +485,12 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     org_owner_count INT NOT NULL DEFAULT 0,
-    last_login_at TIMESTAMPTZ
+    last_login_at TIMESTAMPTZ,
+    FOREIGN KEY (app_role_id) REFERENCES app_roles(id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
+CREATE INDEX IF NOT EXISTS idx_users_app_role ON users(app_role_id, id);
 CREATE INDEX IF NOT EXISTS idx_users_role_created_at ON users (role, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users (updated_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users (last_login_at);
@@ -321,6 +509,8 @@ CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT,
+    app_role_id TEXT,
+    app_role_assignment_revision BIGINT NOT NULL DEFAULT 0 CHECK (app_role_assignment_revision >= 0),
     password_pepper_version INTEGER CHECK (password_pepper_version > 0 AND password_pepper_version <= 4294967295),
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'user',
@@ -332,10 +522,12 @@ CREATE TABLE IF NOT EXISTS users (
     org_owner_count INTEGER NOT NULL DEFAULT 0,
     last_login_at DATETIME,
     created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL
+    updated_at DATETIME NOT NULL,
+    FOREIGN KEY (app_role_id) REFERENCES app_roles(id) ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
+CREATE INDEX IF NOT EXISTS idx_users_app_role ON users(app_role_id, id);
 CREATE INDEX IF NOT EXISTS idx_users_role_created_at ON users (role, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_users_updated_at ON users (updated_at, id);
 CREATE INDEX IF NOT EXISTS idx_users_last_login_at ON users (last_login_at);
@@ -354,6 +546,8 @@ CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash TEXT,
+    app_role_id VARCHAR(36),
+    app_role_assignment_revision BIGINT NOT NULL DEFAULT 0 CHECK (app_role_assignment_revision >= 0),
     password_pepper_version INT UNSIGNED,
     name TEXT NOT NULL,
     role VARCHAR(20) NOT NULL DEFAULT 'user',
@@ -365,10 +559,12 @@ CREATE TABLE IF NOT EXISTS users (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     org_owner_count INT NOT NULL DEFAULT 0,
-    last_login_at DATETIME
-) ENGINE=InnoDB;
+    last_login_at DATETIME,
+    FOREIGN KEY (app_role_id) REFERENCES app_roles(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_users_password_pepper_version ON users(password_pepper_version);
+CREATE INDEX idx_users_app_role ON users(app_role_id, id);
 CREATE INDEX idx_users_role_created_at ON users (role, created_at);
 CREATE INDEX idx_users_updated_at ON users (updated_at);
 CREATE INDEX idx_users_last_login_at ON users (last_login_at);
@@ -383,407 +579,65 @@ CREATE INDEX idx_users_name ON users (name(255));
 
 ---
 
-### `sessions`
+### `app_role_permissions`
 
-One row per active login: both tokens, the device fingerprint, and the active-org pointer.
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `UUID` | Primary key |
-| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
-| `token_hash` | `TEXT` | Unique. SHA-256 of the session token |
-| `refresh_token_hash` | `TEXT` | SHA-256 of the current refresh token |
-| `prev_refresh_token_hash` | `TEXT` | The previous one, kept so the grace window can accept it briefly after rotation |
-| `refresh_rotated_at` | `TIMESTAMPTZ` | When the last rotation happened. The grace window is measured from here |
-| `ip_address` / `user_agent` | `TEXT` | As seen at creation |
-| `is_revoked` / `revoked_at` | `BOOLEAN` / `TIMESTAMPTZ` | |
-| `created_at` | `TIMESTAMPTZ` | |
-| `expires_at` / `refresh_expires_at` | `TIMESTAMPTZ` | Absolute expiry for each token |
-| `last_active_at` | `TIMESTAMPTZ` | Updated on authenticated requests, subject to `TouchDebounce` |
-| `active_org_id` | `UUID` | → `organizations(id)` `ON DELETE SET NULL` |
-| `active_org_role` | `VARCHAR(50)` | |
-| `two_factor_verified_at` | `TIMESTAMPTZ` | Nullable; set only for a session created after successful 2FA. Preserved during refresh. |
-
-- On PostgreSQL a table-level `CHECK` forces `active_org_id` and `active_org_role` to be both set or both null. A session cannot be scoped to an org without a role in it.
+Explicit role grants. The composite primary key prevents duplicate links.
+Role deletion cascades its links; permission deletion is restricted while
+links exist. Deleting the granting account clears `granted_by` without
+removing the grant.
 
 <Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
 <Tab value="PostgreSQL">
 
 ```sql
-CREATE TABLE IF NOT EXISTS sessions (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT UNIQUE NOT NULL,
-    refresh_token_hash TEXT NOT NULL DEFAULT '',
-    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
-    ip_address TEXT NOT NULL DEFAULT '',
-    user_agent TEXT NOT NULL DEFAULT '',
-    is_revoked BOOLEAN NOT NULL DEFAULT false,
-    expires_at TIMESTAMPTZ NOT NULL,
-    refresh_expires_at TIMESTAMPTZ,
-    refresh_rotated_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    revoked_at TIMESTAMPTZ,
-    last_active_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    active_org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
-    active_org_role VARCHAR(50),
-    two_factor_verified_at TIMESTAMPTZ,
-    CHECK ((active_org_id IS NULL AND active_org_role IS NULL) OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL))
+CREATE TABLE IF NOT EXISTS app_role_permissions (
+    role_id UUID NOT NULL,
+    permission_id UUID NOT NULL,
+    granted_by UUID,
+    created_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES app_roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES app_permissions(id) ON DELETE RESTRICT,
+    FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
-CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
-CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
-CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions (created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_sessions_last_active_at ON sessions (last_active_at DESC);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_ip_address ON sessions (ip_address);
+CREATE INDEX IF NOT EXISTS idx_app_role_permissions_permission ON app_role_permissions(permission_id, role_id);
 ```
 
 </Tab>
 <Tab value="SQLite">
 
 ```sql
-CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    token_hash TEXT UNIQUE NOT NULL,
-    refresh_token_hash TEXT NOT NULL DEFAULT '',
-    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
-    ip_address TEXT NOT NULL DEFAULT '',
-    user_agent TEXT NOT NULL DEFAULT '',
-    is_revoked INTEGER NOT NULL DEFAULT 0,
-    expires_at DATETIME NOT NULL,
-    refresh_expires_at DATETIME,
-    refresh_rotated_at DATETIME,
+CREATE TABLE IF NOT EXISTS app_role_permissions (
+    role_id TEXT NOT NULL,
+    permission_id TEXT NOT NULL,
+    granted_by TEXT,
     created_at DATETIME NOT NULL,
-    revoked_at DATETIME,
-    last_active_at DATETIME NOT NULL,
-    active_org_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
-    active_org_role TEXT,
-    two_factor_verified_at DATETIME
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES app_roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES app_permissions(id) ON DELETE RESTRICT,
+    FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
-CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
-CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
-CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions (created_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_last_active_at ON sessions (last_active_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_ip_address ON sessions (ip_address);
+CREATE INDEX IF NOT EXISTS idx_app_role_permissions_permission ON app_role_permissions(permission_id, role_id);
 ```
 
 </Tab>
 <Tab value="MySQL">
 
 ```sql
-CREATE TABLE IF NOT EXISTS sessions (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
-    token_hash VARCHAR(255) UNIQUE NOT NULL,
-    refresh_token_hash TEXT NOT NULL DEFAULT '',
-    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
-    ip_address TEXT NOT NULL DEFAULT '',
-    user_agent TEXT NOT NULL DEFAULT '',
-    is_revoked BOOLEAN NOT NULL DEFAULT false,
-    expires_at DATETIME NOT NULL,
-    refresh_expires_at DATETIME,
-    refresh_rotated_at DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    revoked_at DATETIME,
-    last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    active_org_id VARCHAR(36),
-    active_org_role VARCHAR(50),
-    two_factor_verified_at DATETIME(6),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (active_org_id) REFERENCES organizations(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS app_role_permissions (
+    role_id VARCHAR(36) NOT NULL,
+    permission_id VARCHAR(36) NOT NULL,
+    granted_by VARCHAR(36),
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES app_roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES app_permissions(id) ON DELETE RESTRICT,
+    FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX idx_sessions_user_id ON sessions(user_id);
-CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
-CREATE INDEX idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
-CREATE INDEX idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
-CREATE INDEX idx_sessions_user_active_org ON sessions(user_id, active_org_id);
-CREATE INDEX idx_sessions_created_at ON sessions (created_at);
-CREATE INDEX idx_sessions_last_active_at ON sessions (last_active_at);
-CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
-CREATE INDEX idx_sessions_ip_address ON sessions (ip_address(64));
-```
-
-</Tab>
-</Tabs>
-
----
-
-### `verification_tokens`
-
-One table behind seven short-lived token flows, discriminated by `type`.
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `UUID` | Primary key |
-| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE`. Nullable: an invite-verify token can exist before the account does |
-| `email` | `TEXT` | |
-| `token_hash` | `TEXT` | Unique |
-| `type` | `TEXT` | `CHECK` on `verify_email`, `reset_password`, `set_password`, `invite_verify`, `oauth_state`, `delete_account`, `2fa_login` |
-| `expires_at` / `used_at` | `TIMESTAMPTZ` | `used_at` makes tokens single-use |
-| `code_verifier` | `TEXT` | The PKCE verifier, only populated for `oauth_state` rows |
-| `attempts` / `resend_count` | `INT` | Wrong-guess and resend counters for code challenges |
-| `created_at` | `TIMESTAMPTZ` | |
-
-- The seven `type` values are enforced by `CHECK` on PostgreSQL only; on SQLite and MySQL the column is unconstrained.
-
-<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
-<Tab value="PostgreSQL">
-
-```sql
-CREATE TABLE IF NOT EXISTS verification_tokens (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    email TEXT NOT NULL,
-    token_hash TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account', '2fa_login')),
-    expires_at TIMESTAMPTZ NOT NULL,
-    used_at TIMESTAMPTZ,
-    code_verifier TEXT,
-    attempts INT NOT NULL DEFAULT 0,
-    resend_count INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
-```
-
-</Tab>
-<Tab value="SQLite">
-
-```sql
-CREATE TABLE IF NOT EXISTS verification_tokens (
-    id TEXT PRIMARY KEY,
-    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
-    email TEXT NOT NULL,
-    token_hash TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL,
-    expires_at DATETIME NOT NULL,
-    used_at DATETIME,
-    code_verifier TEXT,
-    attempts INTEGER NOT NULL DEFAULT 0,
-    resend_count INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
-```
-
-</Tab>
-<Tab value="MySQL">
-
-```sql
-CREATE TABLE IF NOT EXISTS verification_tokens (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36),
-    email TEXT NOT NULL,
-    token_hash VARCHAR(255) UNIQUE NOT NULL,
-    type VARCHAR(30) NOT NULL,
-    expires_at DATETIME NOT NULL,
-    used_at DATETIME,
-    code_verifier TEXT,
-    attempts INT NOT NULL DEFAULT 0,
-    resend_count INT NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
-
-CREATE INDEX idx_verification_tokens_token_hash ON verification_tokens(token_hash);
-```
-
-</Tab>
-</Tabs>
-
----
-
-### `provider_accounts`
-
-Linked OAuth identities. A user may have several. Provider names and subject IDs
-match case-sensitively on all drivers. MySQL uses `utf8mb4_0900_bin` for both
-columns so trailing spaces and distinct Unicode sequences also remain distinct.
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `UUID` | Primary key |
-| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
-| `provider` / `provider_user_id` | `TEXT` | `UNIQUE(provider, provider_user_id)`: one identity links to one account |
-| `provider_email` / `provider_name` / `avatar_url` | `TEXT` | Profile snapshot from the provider |
-| `access_token` / `refresh_token` | `TEXT` | Encrypted at rest; never returned by any endpoint |
-| `token_expires_at` | `TIMESTAMPTZ` | |
-| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
-
-<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
-<Tab value="PostgreSQL">
-
-```sql
-CREATE TABLE IF NOT EXISTS provider_accounts (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL,
-    provider_user_id TEXT NOT NULL,
-    provider_email TEXT NOT NULL DEFAULT '',
-    provider_name TEXT NOT NULL DEFAULT '',
-    avatar_url TEXT NOT NULL DEFAULT '',
-    access_token TEXT,
-    refresh_token TEXT,
-    token_expires_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE(provider, provider_user_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
-CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
-```
-
-</Tab>
-<Tab value="SQLite">
-
-```sql
-CREATE TABLE IF NOT EXISTS provider_accounts (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    provider TEXT NOT NULL,
-    provider_user_id TEXT NOT NULL,
-    provider_email TEXT NOT NULL DEFAULT '',
-    provider_name TEXT NOT NULL DEFAULT '',
-    avatar_url TEXT NOT NULL DEFAULT '',
-    access_token TEXT,
-    refresh_token TEXT,
-    token_expires_at DATETIME,
-    created_at DATETIME NOT NULL,
-    updated_at DATETIME NOT NULL,
-    UNIQUE(provider, provider_user_id)
-);
-
-CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
-CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
-```
-
-</Tab>
-<Tab value="MySQL">
-
-```sql
-CREATE TABLE IF NOT EXISTS provider_accounts (
-    id VARCHAR(36) PRIMARY KEY,
-    user_id VARCHAR(36) NOT NULL,
-    provider VARCHAR(50) COLLATE utf8mb4_0900_bin NOT NULL,
-    provider_user_id VARCHAR(255) COLLATE utf8mb4_0900_bin NOT NULL,
-    provider_email TEXT NOT NULL,
-    provider_name TEXT NOT NULL,
-    avatar_url TEXT NOT NULL,
-    access_token TEXT,
-    refresh_token TEXT,
-    token_expires_at DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(provider, provider_user_id),
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-) ENGINE=InnoDB;
-
-CREATE INDEX idx_provider_accounts_user_id ON provider_accounts(user_id);
-CREATE INDEX idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
-```
-
-</Tab>
-</Tabs>
-
----
-
-### `invites`
-
-Signup invites, for invite-only registration.
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | `UUID` | Primary key |
-| `email` | `TEXT` | Who it was issued to |
-| `code` | `TEXT` | Unique. Holds the SHA-256 **hash** despite the name. The raw code only goes out by email |
-| `created_by` | `UUID` | → `users(id)`: the admin who issued it |
-| `status` | `TEXT` | `CHECK` on `pending`, `accepted`, `revoked`, `expired` |
-| `expires_at` / `accepted_at` / `created_at` | `TIMESTAMPTZ` | |
-
-- `status` is enforced by `CHECK` on PostgreSQL only.
-- Contrast `organization_invites.code_hash`, which names the same thing honestly.
-
-<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
-<Tab value="PostgreSQL">
-
-```sql
-CREATE TABLE IF NOT EXISTS invites (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email TEXT NOT NULL,
-    code TEXT UNIQUE NOT NULL,
-    created_by UUID NOT NULL REFERENCES users(id),
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
-    expires_at TIMESTAMPTZ NOT NULL,
-    accepted_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
-CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
-CREATE INDEX IF NOT EXISTS idx_invites_status_created_at ON invites (status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_invites_created_at ON invites (created_at DESC, id DESC);
-CREATE INDEX IF NOT EXISTS idx_invites_expires_at ON invites (expires_at);
-CREATE INDEX IF NOT EXISTS idx_invites_pending_expires ON invites (expires_at) WHERE status = 'pending';
-CREATE INDEX IF NOT EXISTS idx_invites_email_trgm ON invites USING gin (email gin_trgm_ops);
-```
-
-</Tab>
-<Tab value="SQLite">
-
-```sql
-CREATE TABLE IF NOT EXISTS invites (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL,
-    code TEXT UNIQUE NOT NULL,
-    created_by TEXT NOT NULL REFERENCES users(id),
-    status TEXT NOT NULL DEFAULT 'pending',
-    expires_at DATETIME NOT NULL,
-    accepted_at DATETIME,
-    created_at DATETIME NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
-CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
-CREATE INDEX IF NOT EXISTS idx_invites_status_created_at ON invites (status, created_at);
-CREATE INDEX IF NOT EXISTS idx_invites_created_at ON invites (created_at, id);
-CREATE INDEX IF NOT EXISTS idx_invites_expires_at ON invites (expires_at);
-CREATE INDEX IF NOT EXISTS idx_invites_pending_expires ON invites (expires_at) WHERE status = 'pending';
-```
-
-</Tab>
-<Tab value="MySQL">
-
-```sql
-CREATE TABLE IF NOT EXISTS invites (
-    id VARCHAR(36) PRIMARY KEY,
-    email TEXT NOT NULL,
-    code VARCHAR(255) UNIQUE NOT NULL,
-    created_by VARCHAR(36) NOT NULL,
-    status VARCHAR(20) NOT NULL DEFAULT 'pending',
-    expires_at DATETIME NOT NULL,
-    accepted_at DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (created_by) REFERENCES users(id)
-) ENGINE=InnoDB;
-
-CREATE INDEX idx_invites_email ON invites(email(255));
-CREATE INDEX idx_invites_code ON invites(code(255));
-CREATE INDEX idx_invites_status_created_at ON invites (status, created_at);
-CREATE INDEX idx_invites_created_at ON invites (created_at, id);
-CREATE INDEX idx_invites_expires_at ON invites (expires_at);
+CREATE INDEX idx_app_role_permissions_permission ON app_role_permissions(permission_id, role_id);
 ```
 
 </Tab>
@@ -995,7 +849,7 @@ CREATE TABLE IF NOT EXISTS organization_invites (
     org_id VARCHAR(36) NOT NULL,
     email VARCHAR(255) NOT NULL,
     role VARCHAR(50) NOT NULL,
-    code_hash VARCHAR(64) NOT NULL UNIQUE,
+    code_hash VARCHAR(64) COLLATE utf8mb4_bin NOT NULL UNIQUE,
     invited_by VARCHAR(36) NOT NULL,
     expires_at DATETIME(6) NOT NULL,
     created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
@@ -1005,6 +859,415 @@ CREATE TABLE IF NOT EXISTS organization_invites (
 
 CREATE INDEX idx_org_invites_org ON organization_invites(org_id);
 CREATE INDEX idx_org_invites_email ON organization_invites(email);
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `sessions`
+
+One row per active login: both tokens, the device fingerprint, and the active-org pointer.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
+| `token_hash` | `TEXT` | Unique. SHA-256 of the session token |
+| `refresh_token_hash` | `TEXT` | SHA-256 of the current refresh token |
+| `prev_refresh_token_hash` | `TEXT` | The previous one, kept so the grace window can accept it briefly after rotation |
+| `refresh_rotated_at` | `TIMESTAMPTZ` | When the last rotation happened. The grace window is measured from here |
+| `ip_address` / `user_agent` | `TEXT` | As seen at creation |
+| `is_revoked` / `revoked_at` | `BOOLEAN` / `TIMESTAMPTZ` | |
+| `created_at` | `TIMESTAMPTZ` | |
+| `expires_at` / `refresh_expires_at` | `TIMESTAMPTZ` | Absolute expiry for each token |
+| `last_active_at` | `TIMESTAMPTZ` | Updated on authenticated requests, subject to `TouchDebounce` |
+| `active_org_id` | `UUID` | → `organizations(id)` `ON DELETE SET NULL` |
+| `active_org_role` | `VARCHAR(50)` | |
+| `two_factor_verified_at` | `TIMESTAMPTZ` | Nullable; set only for a session created after successful 2FA. Preserved during refresh. |
+
+- On PostgreSQL a table-level `CHECK` forces `active_org_id` and `active_org_role` to be both set or both null. A session cannot be scoped to an org without a role in it.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT UNIQUE NOT NULL,
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    is_revoked BOOLEAN NOT NULL DEFAULT false,
+    expires_at TIMESTAMPTZ NOT NULL,
+    refresh_expires_at TIMESTAMPTZ,
+    refresh_rotated_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    revoked_at TIMESTAMPTZ,
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    active_org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
+    active_org_role VARCHAR(50),
+    two_factor_verified_at TIMESTAMPTZ,
+    CHECK ((active_org_id IS NULL AND active_org_role IS NULL) OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_active_at ON sessions (last_active_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_ip_address ON sessions (ip_address);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT UNIQUE NOT NULL,
+    refresh_token_hash TEXT NOT NULL DEFAULT '',
+    prev_refresh_token_hash TEXT NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT '',
+    user_agent TEXT NOT NULL DEFAULT '',
+    is_revoked INTEGER NOT NULL DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    refresh_expires_at DATETIME,
+    refresh_rotated_at DATETIME,
+    created_at DATETIME NOT NULL,
+    revoked_at DATETIME,
+    last_active_at DATETIME NOT NULL,
+    active_org_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
+    active_org_role TEXT,
+    two_factor_verified_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
+CREATE INDEX IF NOT EXISTS idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions (created_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_active_at ON sessions (last_active_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_ip_address ON sessions (ip_address);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS sessions (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    token_hash VARCHAR(255) COLLATE utf8mb4_bin UNIQUE NOT NULL,
+
+    refresh_token_hash VARCHAR(255) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+    prev_refresh_token_hash VARCHAR(255) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT (''),
+    user_agent TEXT NOT NULL DEFAULT (''),
+    is_revoked BOOLEAN NOT NULL DEFAULT false,
+    expires_at DATETIME NOT NULL,
+    refresh_expires_at DATETIME,
+    refresh_rotated_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at DATETIME,
+    last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    active_org_id VARCHAR(36),
+    active_org_role VARCHAR(50),
+    two_factor_verified_at DATETIME(6),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (active_org_id) REFERENCES organizations(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
+CREATE INDEX idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+CREATE INDEX idx_sessions_created_at ON sessions (created_at);
+CREATE INDEX idx_sessions_last_active_at ON sessions (last_active_at);
+CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX idx_sessions_ip_address ON sessions (ip_address(64));
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `verification_tokens`
+
+One table behind seven short-lived token flows, discriminated by `type`.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE`. Nullable: an invite-verify token can exist before the account does |
+| `email` | `TEXT` | |
+| `token_hash` | `TEXT` | Unique |
+| `type` | `TEXT` | `CHECK` on `verify_email`, `reset_password`, `set_password`, `invite_verify`, `oauth_state`, `delete_account`, `2fa_login` |
+| `expires_at` / `used_at` | `TIMESTAMPTZ` | `used_at` makes tokens single-use |
+| `code_verifier` | `TEXT` | The PKCE verifier, only populated for `oauth_state` rows |
+| `attempts` / `resend_count` | `INT` | Wrong-guess and resend counters for code challenges |
+| `created_at` | `TIMESTAMPTZ` | |
+
+- The seven `type` values are enforced by `CHECK` on PostgreSQL only; on SQLite and MySQL the column is unconstrained.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS verification_tokens (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
+    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account', '2fa_login')),
+    expires_at TIMESTAMPTZ NOT NULL,
+    used_at TIMESTAMPTZ,
+    code_verifier TEXT,
+    attempts INT NOT NULL DEFAULT 0,
+    resend_count INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS verification_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
+    type TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME,
+    code_verifier TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    resend_count INTEGER NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS verification_tokens (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36),
+    email TEXT NOT NULL,
+    token_hash VARCHAR(255) COLLATE utf8mb4_bin UNIQUE NOT NULL,
+    type VARCHAR(30) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME,
+    code_verifier TEXT,
+    attempts INT NOT NULL DEFAULT 0,
+    resend_count INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_verification_tokens_token_hash ON verification_tokens(token_hash);
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `provider_accounts`
+
+Linked OAuth identities. A user may have several. Provider names and subject IDs
+match case-sensitively on all drivers. MySQL uses `utf8mb4_0900_bin` for both
+columns so trailing spaces and distinct Unicode sequences also remain distinct.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE` |
+| `provider` / `provider_user_id` | `TEXT` | `UNIQUE(provider, provider_user_id)`: one identity links to one account |
+| `provider_email` / `provider_name` / `avatar_url` | `TEXT` | Profile snapshot from the provider |
+| `access_token` / `refresh_token` | `TEXT` | Encrypted at rest; never returned by any endpoint |
+| `token_expires_at` | `TIMESTAMPTZ` | |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | |
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    provider_email TEXT NOT NULL DEFAULT '',
+    provider_name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(provider, provider_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    provider_user_id TEXT NOT NULL,
+    provider_email TEXT NOT NULL DEFAULT '',
+    provider_name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at DATETIME,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE(provider, provider_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX IF NOT EXISTS idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    provider VARCHAR(50) COLLATE utf8mb4_0900_bin NOT NULL,
+    provider_user_id VARCHAR(255) COLLATE utf8mb4_0900_bin NOT NULL,
+    provider_email TEXT NOT NULL,
+    provider_name TEXT NOT NULL,
+    avatar_url TEXT NOT NULL,
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, provider_user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+```
+
+</Tab>
+</Tabs>
+
+---
+
+### `invites`
+
+Signup invites, for invite-only registration.
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `UUID` | Primary key |
+| `email` | `TEXT` | Who it was issued to |
+| `code` | `TEXT` | Unique. Holds the SHA-256 **hash** despite the name. The raw code only goes out by email |
+| `created_by` | `UUID` | → `users(id)`: the admin who issued it |
+| `status` | `TEXT` | `CHECK` on `pending`, `accepted`, `revoked`, `expired` |
+| `expires_at` / `accepted_at` / `created_at` | `TIMESTAMPTZ` | |
+
+- `status` is enforced by `CHECK` on PostgreSQL only.
+- Contrast `organization_invites.code_hash`, which names the same thing honestly.
+
+<Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
+<Tab value="PostgreSQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS invites (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL,
+    code TEXT UNIQUE NOT NULL,
+    created_by UUID NOT NULL REFERENCES users(id),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
+    expires_at TIMESTAMPTZ NOT NULL,
+    accepted_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
+CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
+CREATE INDEX IF NOT EXISTS idx_invites_status_created_at ON invites (status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_invites_created_at ON invites (created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_invites_expires_at ON invites (expires_at);
+CREATE INDEX IF NOT EXISTS idx_invites_pending_expires ON invites (expires_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_invites_email_trgm ON invites USING gin (email gin_trgm_ops);
+```
+
+</Tab>
+<Tab value="SQLite">
+
+```sql
+CREATE TABLE IF NOT EXISTS invites (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL,
+    code TEXT UNIQUE NOT NULL,
+    created_by TEXT NOT NULL REFERENCES users(id),
+    status TEXT NOT NULL DEFAULT 'pending',
+    expires_at DATETIME NOT NULL,
+    accepted_at DATETIME,
+    created_at DATETIME NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
+CREATE INDEX IF NOT EXISTS idx_invites_code ON invites(code);
+CREATE INDEX IF NOT EXISTS idx_invites_status_created_at ON invites (status, created_at);
+CREATE INDEX IF NOT EXISTS idx_invites_created_at ON invites (created_at, id);
+CREATE INDEX IF NOT EXISTS idx_invites_expires_at ON invites (expires_at);
+CREATE INDEX IF NOT EXISTS idx_invites_pending_expires ON invites (expires_at) WHERE status = 'pending';
+```
+
+</Tab>
+<Tab value="MySQL">
+
+```sql
+CREATE TABLE IF NOT EXISTS invites (
+    id VARCHAR(36) PRIMARY KEY,
+    email TEXT NOT NULL,
+    code VARCHAR(255) UNIQUE NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    expires_at DATETIME NOT NULL,
+    accepted_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_invites_email ON invites(email(255));
+CREATE INDEX idx_invites_code ON invites(code(255));
+CREATE INDEX idx_invites_status_created_at ON invites (status, created_at);
+CREATE INDEX idx_invites_created_at ON invites (created_at, id);
+CREATE INDEX idx_invites_expires_at ON invites (expires_at);
 ```
 
 </Tab>
@@ -1112,13 +1375,13 @@ CREATE TABLE IF NOT EXISTS audit_log (
     session_id VARCHAR(64),
     org_id VARCHAR(64),
     ip VARCHAR(45),
-    user_agent TEXT NOT NULL,
+    user_agent TEXT NOT NULL DEFAULT (''),
     parsed_ua JSON,
     request_id VARCHAR(64) NOT NULL DEFAULT '',
     correlation_id VARCHAR(64) NOT NULL DEFAULT '',
     metadata JSON,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_audit_log_event_type ON audit_log(event_type);
 CREATE INDEX idx_audit_log_actor_id ON audit_log(actor_id);
@@ -1180,12 +1443,12 @@ CREATE TABLE IF NOT EXISTS audit_outbox (
     org_id TEXT,
     priority INTEGER NOT NULL DEFAULT 0,
     attempts INTEGER NOT NULL DEFAULT 0,
-    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-    claimed_at DATETIME(6),
+    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    claimed_at DATETIME,
     claim_owner TEXT NOT NULL DEFAULT '',
     last_error TEXT NOT NULL DEFAULT '',
-    dead_lettered_at DATETIME(6),
-    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+    dead_lettered_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_audit_outbox_claim ON audit_outbox(priority, next_attempt_at);
@@ -1201,12 +1464,12 @@ CREATE TABLE IF NOT EXISTS audit_outbox (
     org_id VARCHAR(64),
     priority INT NOT NULL DEFAULT 0,
     attempts INT NOT NULL DEFAULT 0,
-    next_attempt_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    claimed_at DATETIME,
+    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    claimed_at DATETIME(6),
     claim_owner VARCHAR(255) NOT NULL DEFAULT '',
     last_error TEXT NULL,
-    dead_lettered_at DATETIME,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    dead_lettered_at DATETIME(6),
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE INDEX idx_audit_outbox_claim ON audit_outbox(priority, next_attempt_at);
