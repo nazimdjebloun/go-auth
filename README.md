@@ -42,6 +42,7 @@ custom roles receive only explicitly installed and granted permissions.
 Ordinary signup assigns its default role atomically without global management locks.
 Enabled-mode user results omit the legacy `role` field; use `appRoleId` and
 `/auth/access` for application access information.
+App authorization IDs must use the lowercase, hyphenated UUIDs returned by the API.
 With management HTTP enabled, authorized operators can inspect another account
 at `GET /admin/authorization/users/{id}/access`.
 Assigning the current app role preserves assignment and global revisions after

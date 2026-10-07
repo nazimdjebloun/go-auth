@@ -60,8 +60,9 @@ func validateAppKey(key string) error {
 func appInvalid(message string) error { return domain.NewError("invalid_input", message) }
 
 func validateAppID(id string) error {
-	if _, err := uuid.Parse(id); err != nil {
-		return appInvalid("Expected a UUID identifier")
+	parsed, err := uuid.Parse(id)
+	if err != nil || parsed.String() != id {
+		return appInvalid("Expected a lowercase, hyphenated UUID identifier")
 	}
 	return nil
 }

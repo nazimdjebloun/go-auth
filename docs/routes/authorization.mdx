@@ -10,6 +10,12 @@ description: "Optional app role, business permission, assignment and library cat
 All require a valid session. Management writes also use the configured CSRF
 token and origin checks. Every route is wrapped with rate limiting.
 
+Account, role and permission IDs supplied to app authorization operations must
+be lowercase, hyphenated UUIDs, exactly as returned by the API. Uppercase,
+compact, brace-wrapped and `urn:uuid:` forms return `400 invalid_input`.
+The same rule applies to administrative `appRoleId` bodies and filters, and
+to direct Go service inputs.
+
 | Method and path | Access | Request |
 |---|---|---|
 | `GET /auth/access` | Authenticated account with an enabled current role | None |

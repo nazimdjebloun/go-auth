@@ -152,7 +152,9 @@ PUT /admin/authorization/users/ACCOUNT_ID/role
 {"roleId":"ROLE_ID","expectedRoleRevision":1,"expectedAssignmentRevision":1}
 ```
 
-Use IDs and revisions returned by your actual responses. Role slugs are
+Use IDs and revisions returned by your actual responses. Account, role and
+permission IDs must be lowercase, hyphenated UUIDs; alternate UUID formats
+return `invalid_input` before storage access. Role slugs are
 immutable lowercase identifiers, at most 80 characters, starting with a letter,
 then letters, digits or hyphens. `admin` and `user` are reserved. Names are
 required, at most 120 characters; descriptions are at most 4096 bytes.
