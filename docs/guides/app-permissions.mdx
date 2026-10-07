@@ -176,6 +176,16 @@ back. Administrative creation also defaults to this role. Passing an explicit
 `appRoleId` additionally requires `goauth.app.roles.assign` and the observed
 `expectedRoleRevision`.
 
+Ordinary registration, invitation redemption and OAuth creation use their own
+account transactions without the all-user administration guard or an exclusive
+app-state lock. They insert a provisional unassigned account first, then read
+the initialized state and share-lock the configured role until assignment and
+commit. PostgreSQL/MySQL signups can share that role concurrently; role
+disable/delete writers must wait. SQLite retains its native single-writer
+behavior. Failed initialization, role validation or invite/provider operations
+roll back the account and its related writes. Signup does not advance the global
+authorization revision.
+
 A delegated role manager can grant or assign only keys it currently holds.
 Editing, clearing or deleting another role also requires holding its existing
 keys. A delegated actor cannot edit its own role or assign itself a role.

@@ -156,11 +156,11 @@ func (f appFixture) account(t *testing.T) api.AppPermissionActor {
 	now := time.Now().UTC()
 	id := uuid.NewString()
 	u := &domain.User{ID: id, Email: id + "@example.com", Role: domain.RoleUser, CreatedAt: now, UpdatedAt: now}
-	if err := f.users.WithAdminGuard(t.Context(), func(ctx context.Context) error {
-		if err := f.s.AssignBaseline(ctx, u); err != nil {
+	if err := f.db.WithTx(t.Context(), func(ctx context.Context) error {
+		if err := f.users.Create(ctx, u); err != nil {
 			return err
 		}
-		return f.users.Create(ctx, u)
+		return f.s.AssignBaseline(ctx, u)
 	}); err != nil {
 		t.Fatal(err)
 	}

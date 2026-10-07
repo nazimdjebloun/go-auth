@@ -62,29 +62,53 @@ func (s *AppPermissionsService) Initialize(ctx context.Context, input api.Initia
 	})
 }
 
-// AssignBaseline joins the caller's account-creation transaction. Untrusted input
-// never chooses a role; the configured enabled non-admin role is resolved here.
+// AssignBaseline follows insertion of an unassigned user in the same transaction.
+// Insert-before-role-lock avoids inversion with management's all-user guard.
 func (s *AppPermissionsService) AssignBaseline(ctx context.Context, user *domain.User) error {
-	if err := s.state.LockAppState(ctx); err != nil {
-		return err
-	}
-	role, err := s.roles.RoleBySlug(ctx, s.config.DefaultRoleSlug)
+	role, err := s.baselineRole(ctx)
 	if err != nil {
 		return err
 	}
-	if role == nil || !role.IsEnabled || role.IsAdmin() {
-		return domain.ErrAppRoleNotFound
+	changed, err := s.roles.SetUserAppRole(ctx, user.ID, role.ID, 0, user.UpdatedAt)
+	if err != nil {
+		return err
 	}
-	user.AppRoleID = &role.ID
-	user.AppRoleAssignmentRevision = 1
+	if !changed {
+		return domain.ErrAppAuthorizationConflict
+	}
+	user.AppRoleID, user.AppRoleAssignmentRevision = &role.ID, 1
 	return nil
+}
+
+func (s *AppPermissionsService) baselineRole(ctx context.Context) (*domain.AppRole, error) {
+	// Initialization is permanent; its presence needs no management lock.
+	revision, err := s.state.AppStateRevision(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if revision == 0 {
+		return nil, domain.ErrAppPermissionsNotInitialized
+	}
+	role, err := s.roles.RoleBySlugForShare(ctx, s.config.DefaultRoleSlug)
+	if err != nil {
+		return nil, err
+	}
+	if role == nil || !role.IsEnabled || role.IsAdmin() {
+		return nil, domain.ErrAppRoleNotFound
+	}
+	return role, nil
 }
 
 // AssignCreatedRole applies the same delegation limit to administrative creation
 // as to assignment of an existing account. The caller owns the guarded transaction.
 func (s *AppPermissionsService) AssignCreatedRole(ctx context.Context, actor api.AppPermissionActor, user *domain.User, roleID string, revision uint64) error {
 	if roleID == "" {
-		return s.AssignBaseline(ctx, user)
+		role, err := s.baselineRole(ctx)
+		if err != nil {
+			return err
+		}
+		user.AppRoleID, user.AppRoleAssignmentRevision = &role.ID, 1
+		return nil
 	}
 	if err := validateAppID(roleID); err != nil {
 		return err

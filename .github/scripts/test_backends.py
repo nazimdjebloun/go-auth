@@ -17,8 +17,8 @@ REQUIRED = {
     for package, names in {
         "integration": ["TestMigrations_CreateTables", "TestHTTPBackendSecurityContract"],
         "cmd/goauth/cmd": ["TestApplySchema_SelectedBackend"],
-        "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim"],
-        "internal/sqlstore": ["TestRecoveryClaimIsExclusiveAndStaleCompletionCannotDeleteReclaimedJob", "TestAdminGuard_ConcurrentReductionsAcrossPools", "TestBackendTokenClaimConcurrentAcrossPools", "TestBackendProviderIdentityIsExact", "TestBackendRefreshZeroGraceRejectsFutureRotation", "TestBackendSessionAssuranceRoundTrip"],
+        "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack"],
+        "internal/sqlstore": ["TestRecoveryClaimIsExclusiveAndStaleCompletionCannotDeleteReclaimedJob", "TestAdminGuard_ConcurrentReductionsAcrossPools", "TestBackendTokenClaimConcurrentAcrossPools", "TestBackendProviderIdentityIsExact", "TestBackendRefreshZeroGraceRejectsFutureRotation", "TestBackendSessionAssuranceRoundTrip", "TestAppDefaultRoleSharedReadRequiresTransaction"],
     }.items()
     for name in names
 }
@@ -26,8 +26,18 @@ STRESS_PATTERN = (
     "Concurrent|RollsBack|Rollback|TestBackend|TestRecovery|"
     "TestLoginCredentialReplacement|TestTwoFactorVerify|"
     "TestAdminGuard|TestAdminAccessRequires|TestOrgMutationChecks|"
-    "TestInviteRevocationCannot|TestOAuthUnlinkCounts"
+    "TestInviteRevocationCannot|TestOAuthUnlinkCounts|"
+    "TestAppSignup|Test(Postgres|MySQL)_AppSignup|TestAppDefaultRole"
 )
+
+
+def required_tests(backend, stress=False):
+    excluded = {"TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestHTTPBackendSecurityContract"} if stress else set()
+    expected = {key for key in REQUIRED if key[1] not in excluded}
+    prefix = {"postgres": "Postgres", "mysql": "MySQL"}.get(backend)
+    if prefix:
+        expected.add((MODULE + "internal/service", f"Test{prefix}_AppSignupRoleLocksAcrossPools"))
+    return expected
 
 
 def analyze(events, expected, repetitions=1):
@@ -97,8 +107,7 @@ def main():
             if "-test.shuffle" in output or (event.get("Action") in ("fail", "skip")) or (not event.get("Test") and event.get("Action") == "pass"):
                 print(output or json.dumps(event), end="" if output else "\n", flush=True)
         status = process.wait()
-    excluded_required = {"TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestHTTPBackendSecurityContract"} if args.stress else set()
-    expected = {key for key in REQUIRED if key[1] not in excluded_required}
+    expected = required_tests(args.backend, args.stress)
     passed, problems = analyze(events, expected, repetitions=2 * args.count if args.stress else 1)
     summary = f"{args.backend} {mode}: {len(passed)} distinct passing test cases; process exit {status}\n"
     if problems:

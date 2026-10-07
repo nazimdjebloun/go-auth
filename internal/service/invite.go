@@ -259,12 +259,24 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 		UpdatedAt:             now,
 	}
 
-	// The invite claim and the account creation are one transaction: the
-	// claim is a conditional write (status still pending), so concurrent
-	// redemptions serialize on it — losers see invite_already_used and no
-	// user is created for them — and a failed user insert rolls the claim
-	// back, leaving the invite redeemable.
-	err = withAppAccountCreation(ctx, s.config.AppPermissions, s.users, s.txManager, func(txCtx context.Context) error {
+	createAccount := func(txCtx context.Context) error {
+		if err := s.users.Create(txCtx, user); err != nil {
+			if errors.Is(err, port.ErrDuplicateKey) {
+				return domain.ErrEmailAlreadyExists
+			}
+			return err
+		}
+		return nil
+	}
+	// Enabled mode inserts before locking the invite or role, matching the user
+	// order of administrative mutations. Any failed claim/assignment rolls back
+	// the provisional account. Disabled mode retains the existing claim order.
+	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if s.config.AppPermissions != nil {
+			if err := createAccount(txCtx); err != nil {
+				return err
+			}
+		}
 		claimed, err := s.invites.ClaimInvite(txCtx, invite.Code, time.Now().UTC())
 		if err != nil {
 			return err
@@ -279,13 +291,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 			if err := s.config.AppPermissions.AssignBaseline(txCtx, user); err != nil {
 				return err
 			}
-		}
-		if err := s.users.Create(txCtx, user); err != nil {
-			if errors.Is(err, port.ErrDuplicateKey) {
-				// The address registered through another path between the
-				// invite's creation and this redemption.
-				return domain.ErrEmailAlreadyExists
-			}
+		} else if err := createAccount(txCtx); err != nil {
 			return err
 		}
 		// Inside the transaction: the record commits with the account it
@@ -299,6 +305,22 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 		return nil
 	})
 	if err != nil {
+		if s.config.AppPermissions != nil && errors.Is(err, domain.ErrEmailAlreadyExists) {
+			// Another redemption may win the email insert before this transaction
+			// reaches its claim. After rollback, preserve invite_already_used for
+			// a consumed/rotated invitation, and email_already_exists otherwise.
+			current, lookupErr := s.invites.GetByID(ctx, invite.ID)
+			if lookupErr != nil {
+				return nil, fmt.Errorf("complete invite registration: recheck after duplicate: %w", lookupErr)
+			}
+			if current == nil {
+				return nil, domain.ErrInviteAlreadyUsed
+			}
+			consumedOrRotated := current.Status != domain.InvitePending || current.Code != invite.Code
+			if consumedOrRotated || !current.ExpiresAt.After(time.Now().UTC()) {
+				return nil, domain.ErrInviteAlreadyUsed
+			}
+		}
 		var authErr *domain.AuthError
 		if errors.As(err, &authErr) {
 			return nil, err

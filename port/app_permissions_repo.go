@@ -30,6 +30,8 @@ type AppPermissionWriter interface {
 type AppRoleStore interface {
 	RoleByID(context.Context, string) (*domain.AppRole, error)
 	RoleBySlug(context.Context, string) (*domain.AppRole, error)
+	// RoleBySlugForShare requires a transaction and protects the default through account commit.
+	RoleBySlugForShare(context.Context, string) (*domain.AppRole, error)
 	ListAppRoles(context.Context, int, int) ([]domain.AppRole, error)
 	InsertAppRole(context.Context, *domain.AppRole) error
 	UpdateAppRole(context.Context, *domain.AppRole, uint64) (bool, error)

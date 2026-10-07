@@ -21,6 +21,17 @@ locking app state, reloads current actor authorization, writes changes and durab
 audit records in that transaction, then advances revisions. SQL constraints
 prevent duplicate grants and deletion of assigned roles/referenced definitions.
 
+Ordinary account creation uses a separate transaction, without the all-user
+guard or singleton write lock. The new unassigned user row is inserted before
+locking the selected default role. `RoleBySlugForShare` uses `FOR SHARE` on
+PostgreSQL/MySQL, so concurrent signups coexist while role disable/delete
+operations wait. The initialization-state check is a plain read. The assignment
+is then persisted with revision `0 -> 1` before commit. Inserting first avoids
+the opposite user/role lock order with administrative user scans; invitation
+redemption also inserts before claiming its invite. SQLite's insert acquires
+its native writer lock before the role read. Administrative account creation
+retains its management guard and actor/delegation checks.
+
 Library catalog data lives in code and is independent of optional SQL definition
 installation. HTTP handlers are thin adapters; `internal/httproutes` selects
 operation-specific middleware. Local CLI provisioning shares the private bulk

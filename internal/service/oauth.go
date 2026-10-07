@@ -405,18 +405,18 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 	// Create the user and its provider link in one transaction: a
 	// provider-account insert failure must not leave a passwordless user
 	// row behind that subsequent retries reject as an existing email.
-	if err := withAppAccountCreation(ctx, s.config.AppPermissions, s.userRepo, s.txManager, func(txCtx context.Context) error {
-		if s.config.AppPermissions != nil {
-			if err := s.config.AppPermissions.AssignBaseline(txCtx, newUser); err != nil {
-				return err
-			}
-		}
+	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		if err := s.userRepo.Create(txCtx, newUser); err != nil {
 			if errors.Is(err, port.ErrDuplicateKey) {
 				return domain.ErrEmailAlreadyExists
 			}
 			s.log.Error("failed to create user", "err", err, "email", info.Email)
 			return domain.ErrInternal
+		}
+		if s.config.AppPermissions != nil {
+			if err := s.config.AppPermissions.AssignBaseline(txCtx, newUser); err != nil {
+				return err
+			}
 		}
 		if _, err := s.createProviderAccount(txCtx, newUser.ID, info); err != nil {
 			return err

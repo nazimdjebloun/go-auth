@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -35,6 +36,25 @@ func (r *AppPermissionsRepository) RoleByID(ctx context.Context, id string) (*do
 // RoleBySlug resolves protected/default roles through unique immutable slugs.
 func (r *AppPermissionsRepository) RoleBySlug(ctx context.Context, slug string) (*domain.AppRole, error) {
 	return scanAppRole(r.db.QueryRowContext(ctx, r.currentQuery(ctx, "SELECT "+appRoleColumns+" FROM app_roles WHERE slug=$1"), slug))
+}
+
+// RoleBySlugForShare protects the selected default until account creation commits.
+// Shared readers coexist; role updates/deletion wait. SQLite callers insert the
+// account first, acquiring its writer lock before this read.
+func (r *AppPermissionsRepository) RoleBySlugForShare(ctx context.Context, slug string) (*domain.AppRole, error) {
+	if _, ok := txFromContext(ctx); !ok {
+		return nil, errors.New("shared app role read requires transaction")
+	}
+	query := "SELECT " + appRoleColumns + " FROM app_roles WHERE slug=$1"
+	switch r.db.Driver() {
+	case "postgres", "pgx", "mysql":
+		query += " FOR SHARE"
+	}
+	role, err := scanAppRole(r.db.QueryRowContext(ctx, query, slug))
+	if err != nil {
+		return nil, fmt.Errorf("reading shared default role: %w", err)
+	}
+	return role, nil
 }
 
 // ListAppRoles returns a page in deterministic slug order.

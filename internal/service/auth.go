@@ -269,11 +269,6 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 	// them would otherwise leave a registered account with no record that it
 	// was registered.
 	createUser := func(txCtx context.Context) error {
-		if s.config.AppPermissions != nil {
-			if err := s.config.AppPermissions.AssignBaseline(txCtx, user); err != nil {
-				return err
-			}
-		}
 		if err := s.users.Create(txCtx, user); err != nil {
 			if errors.Is(err, port.ErrDuplicateKey) {
 				// The GetByEmail check above lost a race — another request
@@ -285,6 +280,11 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 			s.log.Error("failed to create user", "err", err, "email", input.Email)
 			return domain.ErrInternal
 		}
+		if s.config.AppPermissions != nil {
+			if err := s.config.AppPermissions.AssignBaseline(txCtx, user); err != nil {
+				return err
+			}
+		}
 		if s.audit != nil {
 			if err := s.audit.Record(txCtx, audit.NewUserRegisteredEvent(user.ID, net.ParseIP(input.IP), input.UserAgent)); err != nil {
 				return err
@@ -293,7 +293,7 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 		return nil
 	}
 
-	if err := withAppAccountCreation(ctx, s.config.AppPermissions, s.users, s.txManager, createUser); err != nil {
+	if err := s.txManager.WithTx(ctx, createUser); err != nil {
 		return nil, err
 	}
 

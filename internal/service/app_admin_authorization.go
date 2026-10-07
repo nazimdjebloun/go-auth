@@ -5,7 +5,6 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/port"
 )
 
 func appActor(userID, sessionID string) api.AppPermissionActor {
@@ -90,13 +89,4 @@ func signupRequiresTwoFactor(ctx context.Context, cfg Config, user *domain.User)
 		return false, nil
 	}
 	return cfg.AppPermissions.HasAdministrativeAccess(ctx, user.ID)
-}
-
-// Account creation follows management's users-then-state lock order. This avoids
-// a signup holding app state while waiting on an insertion gap locked by an admin.
-func withAppAccountCreation(ctx context.Context, app *AppPermissionsService, users port.UserRepository, tx port.TxManager, fn func(context.Context) error) error {
-	if app != nil {
-		return users.WithAdminGuard(ctx, fn)
-	}
-	return tx.WithTx(ctx, fn)
 }

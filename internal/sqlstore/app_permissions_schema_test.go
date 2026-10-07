@@ -1,6 +1,7 @@
 package sqlstore
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -44,5 +45,25 @@ func TestAppAuthorizationSchemaIntegrity(t *testing.T) {
 	}
 	if _, err := db.ExecContext(ctx, `INSERT INTO app_authorization_state(id,revision,created_at) VALUES (2,1,$1)`, now); err == nil {
 		t.Fatal("authorization state accepted non-singleton id")
+	}
+}
+
+func TestAppDefaultRoleSharedReadRequiresTransaction(t *testing.T) {
+	db := backendDB(t)
+	repo := NewAppPermissionsRepository(db)
+	if _, err := repo.RoleBySlugForShare(t.Context(), "user"); err == nil {
+		t.Fatal("shared default-role read accepted autocommit")
+	}
+	if err := db.WithTx(t.Context(), func(ctx context.Context) error {
+		role, err := repo.RoleBySlugForShare(ctx, "missing")
+		if err != nil {
+			return err
+		}
+		if role != nil {
+			t.Fatalf("missing role returned %+v", role)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

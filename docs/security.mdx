@@ -164,10 +164,16 @@ Permission checks do not replace resource ownership or organization membership.
 
 Library permission removal cleans all grants atomically and affects subsequent
 checks in existing sessions. Reinstallation grants nobody automatically. Business
-keys that are missing or disabled deny admin too. Authorization writes recheck
+keys that are missing or disabled deny admin too. Authorization management writes recheck
 the current actor under the common account guard and app singleton lock; stale
 writes fail rather than overwrite newer revisions. This does not cancel work
 already authorized by a consumer's earlier check.
+
+Ordinary signup inserts the account and assigns its enabled non-admin default
+in one transaction, without taking the global management guards. PostgreSQL and
+MySQL hold a shared default-role lock through commit; SQLite's account insert
+already holds its writer lock. A default disabled or deleted before that shared
+read rejects signup and rolls back its account, invite claim and provider link.
 
 Protected admin and current library-grant holders require second-factor
 assurance by default. A newly promoted live session must complete a challenged
