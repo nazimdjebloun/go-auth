@@ -15,10 +15,10 @@ MODULE = "github.com/nazimdjebloun/go-auth/"
 REQUIRED = {
     (MODULE.rstrip("/") if package == "." else MODULE + package, name)
     for package, names in {
-        ".": ["TestAppPermissionsHTTPUserRoleJSON", "TestAppPermissionsHTTPAssuranceAndOptionalManagement", "TestAppPermissionsStatsAuthorization", "TestAppPermissionsSameRoleAssignmentPreservesAccessRevision", "TestAppPermissionsTargetAccessHTTP", "TestAppPermissionsDisabledCapabilityFailsClosed"],
+        ".": ["TestAppPermissionsHTTPUserRoleJSON", "TestAppPermissionsHTTPAssuranceAndOptionalManagement", "TestAppPermissionsStatsAuthorization", "TestAppPermissionsSameRoleAssignmentPreservesAccessRevision", "TestAppPermissionsTargetAccessHTTP", "TestAppPermissionsDisabledCapabilityFailsClosed", "TestAppAuthorizationRouteInventory", "TestAppAuthorizationRouteCoverage", "TestAppAuthorizationHTTPPolicyMatrix", "TestAppAuthorizationMountedRoutesDenyUnprivileged"],
         "integration": ["TestMigrations_CreateTables", "TestHTTPBackendSecurityContract"],
         "cmd/goauth/cmd": ["TestApplySchema_SelectedBackend"],
-        "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack", "TestAppSameRoleAssignmentIsNoOp", "TestAppConcurrentSameRoleAssignmentsPreserveRevision", "TestAppConcurrentRoleReplacementHasOneWinner", "TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess"],
+        "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack", "TestAppSameRoleAssignmentIsNoOp", "TestAppConcurrentSameRoleAssignmentsPreserveRevision", "TestAppConcurrentRoleReplacementHasOneWinner", "TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess", "TestAppAuthorizationServiceInventory", "TestAppAuthorizationServiceCoverage"],
         "internal/sqlstore": ["TestRecoveryClaimIsExclusiveAndStaleCompletionCannotDeleteReclaimedJob", "TestAdminGuard_ConcurrentReductionsAcrossPools", "TestBackendTokenClaimConcurrentAcrossPools", "TestBackendProviderIdentityIsExact", "TestBackendRefreshZeroGraceRejectsFutureRotation", "TestBackendSessionAssuranceRoundTrip", "TestAppDefaultRoleSharedReadRequiresTransaction", "TestAppPermissionNamespaceOwnership"],
     }.items()
     for name in names
@@ -28,7 +28,7 @@ STRESS_PATTERN = (
     "TestLoginCredentialReplacement|TestTwoFactorVerify|"
     "TestAdminGuard|TestAdminAccessRequires|TestOrgMutationChecks|"
     "TestInviteRevocationCannot|TestOAuthUnlinkCounts|"
-    "TestAppSignup|Test(Postgres|MySQL)_App|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole|TestAppPermissions"
+    "TestAppSignup|Test(Postgres|MySQL)_App|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole|TestAppPermissions|TestAppAuthorization"
 )
 
 

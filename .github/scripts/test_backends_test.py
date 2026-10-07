@@ -11,6 +11,24 @@ spec.loader.exec_module(runner)
 
 
 class BackendEvidenceTests(unittest.TestCase):
+    def test_authorization_coverage_is_required_in_full_and_stress_modes(self):
+        coverage = {
+            (runner.MODULE.rstrip("/"), name) for name in [
+                "TestAppAuthorizationRouteInventory", "TestAppAuthorizationRouteCoverage",
+                "TestAppAuthorizationHTTPPolicyMatrix", "TestAppAuthorizationMountedRoutesDenyUnprivileged",
+            ]
+        } | {
+            (runner.MODULE + "internal/service", name) for name in [
+                "TestAppAuthorizationServiceInventory", "TestAppAuthorizationServiceCoverage",
+            ]
+        }
+        for backend in ["sqlite", "postgres", "mysql"]:
+            for stress in [False, True]:
+                with self.subTest(backend=backend, stress=stress):
+                    self.assertTrue(coverage <= runner.required_tests(backend, stress))
+                    for _, name in coverage:
+                        self.assertRegex(name, runner.STRESS_PATTERN)
+
     def test_root_authorization_http_tests_run_on_every_backend(self):
         self.assertIn(".", runner.PACKAGES)
         root = runner.MODULE.rstrip("/")

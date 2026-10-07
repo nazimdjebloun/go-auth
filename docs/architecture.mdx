@@ -190,3 +190,20 @@ connections, and a successful retry of the complete operation. MySQL also tests
 management from an older repeatable-read snapshot after session revocation,
 deletion, and removal of MFA assurance. These tests exercise database behavior;
 SQLite's serialized writes are not used as evidence for row-locking engines.
+
+Authorization coverage tests independently inventory every exported method of
+the admin, invite, organization, and app-permissions services. Each method must
+have a tested catalog policy, a protected-admin policy, or a named explanation
+for being outside platform administration (for example, tenant self-service or
+trusted bootstrap). New methods and stale classifications fail the inventory.
+Direct-call tests check denial and session assurance for every administrative
+method, and inject a permission-reader failure to verify the exact catalog key
+without performing business work.
+
+Route coverage compares every declared `/admin` and `/admin/` pattern with an
+independent policy table and checks registration and middleware order across all 64 HTTP
+feature combinations. SQL-backed HTTP tests verify exact versus wrong grants,
+removal and reinstallation, protected-admin bypass, non-delegable routes, and
+MFA. Separate tests exercise unprivileged requests through the actual mounted
+handlers. CI requires all six coverage tests in both full and repeated backend
+runs; missing, skipped, or insufficient passing runs fail the job.
