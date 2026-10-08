@@ -33,6 +33,7 @@ type AppPermissionsService struct {
 type AppPermissionsServiceConfig struct {
 	DefaultRoleSlug       string
 	RequireAdminTwoFactor bool
+	RequireUserTwoFactor  bool
 	Audit                 AuditPublisher
 }
 
@@ -111,8 +112,9 @@ func (s *AppPermissionsService) current(ctx context.Context, userID string) (*do
 	return user, role, nil
 }
 
-func (s *AppPermissionsService) assurance(ctx context.Context, actor api.AppPermissionActor, user *domain.User, privileged bool) error {
-	requireSecondFactor := privileged && (s.config.RequireAdminTwoFactor || user.TwoFactorEnabled)
+func (s *AppPermissionsService) assurance(ctx context.Context, actor api.AppPermissionActor, user *domain.User, role *domain.AppRole, checkTwoFactor bool) error {
+	requireSecondFactor := checkTwoFactor && (s.config.RequireUserTwoFactor || user.TwoFactorEnabled ||
+		(role.IsAdmin() && s.config.RequireAdminTwoFactor))
 	if actor.SessionID == "" {
 		if requireSecondFactor {
 			return domain.ErrTwoFactorRequired
@@ -151,30 +153,6 @@ func (s *AppPermissionsService) IsProtectedAdmin(ctx context.Context, userID str
 	return role.IsAdmin(), nil
 }
 
-// HasAdministrativeAccess drives MFA using current installed library grants.
-func (s *AppPermissionsService) HasAdministrativeAccess(ctx context.Context, userID string) (bool, error) {
-	_, role, err := s.current(ctx, userID)
-	if errors.Is(err, domain.ErrForbidden) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	if role.IsAdmin() {
-		return true, nil
-	}
-	keys, err := s.permissions.RolePermissionKeys(ctx, role.ID)
-	if err != nil {
-		return false, err
-	}
-	for _, key := range keys {
-		if _, known := appLibraryDefinition(key); known {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // CheckPermission distinguishes installed delegation from fixed library admin access.
 func (s *AppPermissionsService) CheckPermission(ctx context.Context, input api.CheckAppPermissionInput) (*api.AppPermissionDecision, error) {
 	if err := validateAppKey(input.PermissionKey); err != nil {
@@ -188,7 +166,7 @@ func (s *AppPermissionsService) CheckPermission(ctx context.Context, input api.C
 		return nil, err
 	}
 	library := strings.HasPrefix(input.PermissionKey, "goauth.app.")
-	if err := s.assurance(ctx, input.Actor, user, library); err != nil {
+	if err := s.assurance(ctx, input.Actor, user, role, library); err != nil {
 		return nil, err
 	}
 	if library {
@@ -241,7 +219,7 @@ func (s *AppPermissionsService) requireProtectedAdmin(ctx context.Context, actor
 		return domain.ErrForbidden
 	}
 	if checkAssurance {
-		return s.assurance(ctx, actor, user, true)
+		return s.assurance(ctx, actor, user, role, true)
 	}
 	return nil
 }
@@ -303,11 +281,11 @@ func (s *AppPermissionsService) ListEffectivePermissions(ctx context.Context, in
 	if target == "" {
 		target = input.Actor.UserID
 	}
-	actor, _, err := s.current(ctx, input.Actor.UserID)
+	actor, actorRole, err := s.current(ctx, input.Actor.UserID)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.assurance(ctx, input.Actor, actor, false); err != nil {
+	if err := s.assurance(ctx, input.Actor, actor, actorRole, false); err != nil {
 		return nil, err
 	}
 	if target != input.Actor.UserID {

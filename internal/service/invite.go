@@ -333,11 +333,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 	// effective check — a code mailed to the address that just accepted the
 	// invite proves nothing here. The invite is already claimed above, so a
 	// gated response does not strand it.
-	required, err := signupRequiresTwoFactor(ctx, s.config, user)
-	if err != nil {
-		return nil, err
-	}
-	if required && s.twoFactorSvc != nil {
+	if s.config.RequireEmail2FA && s.twoFactorSvc != nil {
 		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr

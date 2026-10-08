@@ -168,6 +168,10 @@ Admin accounts must complete email 2FA through password or OAuth login by
 default. Admin routes check the session's completed second factor, recorded in
 `sessions.two_factor_verified_at`.
 
+With app permissions enabled, only the protected admin role uses admin 2FA
+settings. Every other role follows the user 2FA policy, including custom roles
+with delegated administrative permissions.
+
 `New` revalidates the complete configuration before deriving secrets or
 starting services, including options applied after `NewConfig`.
 

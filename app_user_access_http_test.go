@@ -39,7 +39,7 @@ func TestAppPermissionsTargetAccessHTTP(t *testing.T) {
 	f.request(t, "GET", path, "", f.token, 403)
 	if result, err := permissions.ListEffectivePermissions(ctx, api.ListAppEffectivePermissionsInput{
 		Actor: api.AppPermissionActor{UserID: viewer.User.ID, SessionID: viewer.Session.ID}, UserID: target.User.ID,
-	}); !errors.Is(err, domain.ErrTwoFactorRequired) || result != nil {
+	}); !errors.Is(err, domain.ErrForbidden) || result != nil {
 		t.Fatalf("unprivileged direct inspection accepted: %+v, %v", result, err)
 	}
 
@@ -116,11 +116,9 @@ func TestAppPermissionsTargetAccessHTTP(t *testing.T) {
 		t.Fatal(err)
 	}
 	viewerActor := api.AppPermissionActor{UserID: viewer.User.ID, SessionID: viewer.Session.ID}
-	if result, err := permissions.ListEffectivePermissions(ctx, api.ListAppEffectivePermissionsInput{Actor: viewerActor, UserID: target.User.ID}); !errors.Is(err, domain.ErrTwoFactorRequired) || result != nil {
-		t.Fatalf("direct inspection without MFA: %+v, %v", result, err)
+	if result, err := permissions.ListEffectivePermissions(ctx, api.ListAppEffectivePermissionsInput{Actor: viewerActor, UserID: target.User.ID}); err != nil || result == nil {
+		t.Fatalf("delegated inspection imposed admin MFA: %+v, %v", result, err)
 	}
-	f.request(t, "GET", path, "", viewer.SessionToken, 403)
-	verifySession(viewer.Session.ID)
 	access := decode(f.request(t, "GET", path+"?userID="+viewer.User.ID, "", viewer.SessionToken, 200))
 	if access.Role.ID != targetRole.ID || access.IsFullAccess || !slices.Equal(access.PermissionKeys, []string{business.Key}) {
 		t.Fatalf("inspection returned wrong account or grants: %+v", access)

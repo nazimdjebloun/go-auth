@@ -314,11 +314,7 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 	// yet still gets a session here — the code would go to the address they
 	// just typed in, so it proves nothing at registration time. The gate first
 	// applies on their next login. Intentional; do not "fix" to enforceTwoFactor.
-	required, err := signupRequiresTwoFactor(ctx, s.config, user)
-	if err != nil {
-		return nil, err
-	}
-	if required && s.twoFactorSvc != nil {
+	if s.config.RequireEmail2FA && s.twoFactorSvc != nil {
 		challenge, aerr := s.twoFactorSvc.challengeWithPassword(ctx, user)
 		if aerr != nil {
 			return nil, aerr

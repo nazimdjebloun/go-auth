@@ -325,9 +325,17 @@ func TestAppPermissionsStatsAuthorization(t *testing.T) {
 	if _, err := f.a.Services().AppPermissions.SetUserRole(ctx, api.SetAppUserRoleInput{Actor: f.admin, UserID: operator.UserID, RoleID: role.ID, ExpectedRoleRevision: role.Revision, ExpectedAssignmentRevision: account.User.AppRoleAssignmentRevision}); err != nil {
 		t.Fatal(err)
 	}
-	if result, err := stats(operator); !errors.Is(err, domain.ErrTwoFactorRequired) || result != nil {
-		t.Fatalf("delegated stats without assurance: %+v, %v", result, err)
+	if result, err := stats(operator); err != nil || result.TotalUsers != 2 {
+		t.Fatalf("delegated stats imposed admin MFA: %+v, %v", result, err)
 	}
+	f.request(t, "GET", "/admin/stats", "", account.SessionToken, 200)
+	if err := f.users.SetTwoFactorEnabled(ctx, operator.UserID, true, now); err != nil {
+		t.Fatal(err)
+	}
+	if result, err := stats(operator); !errors.Is(err, domain.ErrTwoFactorRequired) || result != nil {
+		t.Fatalf("delegated stats skipped per-user MFA: %+v, %v", result, err)
+	}
+	f.request(t, "GET", "/admin/stats", "", account.SessionToken, 403)
 	if _, err := f.db.ExecContext(ctx, "UPDATE sessions SET two_factor_verified_at=$1 WHERE id=$2", now, operator.SessionID); err != nil {
 		t.Fatal(err)
 	}
@@ -423,20 +431,110 @@ func TestAppPermissionsHTTPPromotionRequiresFreshAssurance(t *testing.T) {
 	if _, err := permissions.SetUserRole(ctx, api.SetAppUserRoleInput{Actor: f.admin, UserID: account.User.ID, RoleID: r.ID, ExpectedRoleRevision: r.Revision, ExpectedAssignmentRevision: 1}); err != nil {
 		t.Fatal(err)
 	}
-	w := f.request(t, "GET", "/admin/users", "", account.SessionToken, 403)
-	if !strings.Contains(w.Body.String(), "two_factor_required") {
-		t.Fatal("promotion did not require assurance", w.Body.String())
-	}
+	f.request(t, "GET", "/admin/users", "", account.SessionToken, 200)
 	login, err := f.a.Login(ctx, api.LoginInput{Email: account.User.Email, Password: "Passw0rd!"})
-	if err != nil || !login.RequiresTwoFactor {
-		t.Fatalf("privileged login did not challenge: %+v %v", login, err)
+	if err != nil || login.RequiresTwoFactor || login.Session == nil {
+		t.Fatalf("delegated login imposed admin MFA: %+v %v", login, err)
 	}
-	if _, err := permissions.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Delete: []string{"goauth.app.users.read"}}); err != nil {
+	if result, err := f.a.Services().Auth.AdminLogin(ctx, api.LoginInput{Email: account.User.Email, Password: "Passw0rd!"}); !errors.Is(err, domain.ErrInvalidCredentials) || result != nil {
+		t.Fatalf("delegated role accepted at admin login: %+v %v", result, err)
+	}
+	adminRole, err := permissions.GetUserRole(ctx, api.GetAppUserRoleInput{Actor: f.admin, UserID: f.admin.UserID})
+	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := permissions.SetUserRole(ctx, api.SetAppUserRoleInput{Actor: f.admin, UserID: account.User.ID, RoleID: adminRole.Role.ID, ExpectedRoleRevision: adminRole.Role.Revision, ExpectedAssignmentRevision: 2}); err != nil {
+		t.Fatal(err)
+	}
+	w := f.request(t, "GET", "/admin/users", "", account.SessionToken, 403)
+	if !strings.Contains(w.Body.String(), "two_factor_required") {
+		t.Fatal("protected admin promotion did not require assurance", w.Body.String())
+	}
 	login, err = f.a.Login(ctx, api.LoginInput{Email: account.User.Email, Password: "Passw0rd!"})
-	if err != nil || login.RequiresTwoFactor || login.Session == nil {
-		t.Fatalf("removed grant still imposed default MFA: %+v %v", login, err)
+	if err != nil || !login.RequiresTwoFactor || login.Session != nil {
+		t.Fatalf("protected admin login did not challenge: %+v %v", login, err)
+	}
+	login, err = f.a.Services().Auth.AdminLogin(ctx, api.LoginInput{Email: account.User.Email, Password: "Passw0rd!"})
+	if err != nil || !login.RequiresTwoFactor || login.Session != nil {
+		t.Fatalf("protected admin endpoint did not challenge: %+v %v", login, err)
+	}
+}
+
+func TestAppPermissionsHTTPDelegatedRoleMFASettings(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		adminMFA bool
+		global   bool
+		perUser  bool
+	}{
+		{name: "admin-on/user-off", adminMFA: true},
+		{name: "admin-off/user-off"},
+		{name: "admin-on/global-user", adminMFA: true, global: true},
+		{name: "admin-off/global-user", global: true},
+		{name: "admin-on/per-user", adminMFA: true, perUser: true},
+		{name: "admin-off/per-user", perUser: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newAppHTTPFixture(t, true, tc.adminMFA, WithTwoFactor(TwoFactorConfig{
+				DisableAdminTwoFactor: !tc.adminMFA, RequireEmail2FA: tc.global,
+			}))
+			ctx := t.Context()
+			now := time.Now().UTC()
+			if _, err := f.db.ExecContext(ctx, "UPDATE sessions SET two_factor_verified_at=$1 WHERE id=$2", now, f.admin.SessionID); err != nil {
+				t.Fatal(err)
+			}
+			account, err := f.a.Register(ctx, api.RegisterInput{Email: "delegated-mfa@example.com", Name: "Delegated", Password: "Passw0rd!"})
+			if err != nil || account.RequiresTwoFactor != tc.global {
+				t.Fatalf("registration MFA: %+v %v", account, err)
+			}
+			if err := f.users.SetTwoFactorEnabled(ctx, account.User.ID, tc.perUser, now); err != nil {
+				t.Fatal(err)
+			}
+			permissions := f.a.Services().AppPermissions
+			if _, err := permissions.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Create: []string{"goauth.app.users.read"}}); err != nil {
+				t.Fatal(err)
+			}
+			role, err := permissions.CreateRole(ctx, api.CreateAppRoleInput{Actor: f.admin, Slug: "mfa-reader", Name: "Reader", PermissionKeys: []string{"goauth.app.users.read"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := permissions.SetUserRole(ctx, api.SetAppUserRoleInput{Actor: f.admin, UserID: account.User.ID, RoleID: role.ID, ExpectedRoleRevision: role.Revision, ExpectedAssignmentRevision: 1}); err != nil {
+				t.Fatal(err)
+			}
+			input := api.LoginInput{Email: account.User.Email, Password: "Passw0rd!"}
+			login, err := f.a.Login(ctx, input)
+			required := tc.global || tc.perUser
+			if err != nil || login.RequiresTwoFactor != required || (login.Session != nil) == required {
+				t.Fatalf("delegated password login MFA: %+v %v", login, err)
+			}
+			if result, err := f.a.Services().Auth.AdminLogin(ctx, input); !errors.Is(err, domain.ErrInvalidCredentials) || result != nil {
+				t.Fatalf("delegated role accepted at admin login: %+v %v", result, err)
+			}
+			// Seed a first-factor session to check live route and direct-call policy.
+			session, err := f.a.Services().Session.Create(ctx, api.CreateSessionInput{UserID: account.User.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			actor := api.AppPermissionActor{UserID: account.User.ID, SessionID: session.Session.ID}
+			check := api.CheckAppPermissionInput{Actor: actor, PermissionKey: "goauth.app.users.read"}
+			decision, err := permissions.CheckPermission(ctx, check)
+			if required {
+				if !errors.Is(err, domain.ErrTwoFactorRequired) || decision != nil {
+					t.Fatalf("delegated direct call skipped user MFA: %+v %v", decision, err)
+				}
+				f.request(t, "GET", "/admin/users", "", session.SessionToken, 403)
+				if _, err := f.db.ExecContext(ctx, "UPDATE sessions SET two_factor_verified_at=$1 WHERE id=$2", now, actor.SessionID); err != nil {
+					t.Fatal(err)
+				}
+			} else if err != nil || !decision.Allowed {
+				t.Fatalf("delegated direct call imposed admin MFA: %+v %v", decision, err)
+			}
+			f.request(t, "GET", "/admin/users", "", session.SessionToken, 200)
+			decision, err = permissions.CheckPermission(ctx, check)
+			if err != nil || !decision.Allowed {
+				t.Fatalf("delegated assured access: %+v %v", decision, err)
+			}
+		})
 	}
 }
 

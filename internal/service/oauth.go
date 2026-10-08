@@ -324,11 +324,11 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 			return &api.OAuthCallbackResult{RequiresVerification: true, VerifyEmail: user.Email}, nil
 		}
 
-		privileged, err := appAdministrativeIdentity(ctx, s.config.AppPermissions, user)
+		admin, err := appProtectedIdentity(ctx, s.config.AppPermissions, user)
 		if err != nil {
 			return nil, err
 		}
-		if privileged {
+		if admin {
 			if s.twoFactorSvc == nil && !s.config.DisableAdminTwoFactor {
 				return nil, domain.ErrInternal
 			}
@@ -444,22 +444,6 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 		return &api.OAuthCallbackResult{IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email}, nil
 	}
 
-	if s.config.AppPermissions != nil && !s.config.DisableAdminTwoFactor {
-		privileged, err := s.config.AppPermissions.HasAdministrativeAccess(ctx, newUser.ID)
-		if err != nil {
-			return nil, err
-		}
-		if privileged {
-			if s.twoFactorSvc == nil {
-				return nil, domain.ErrInternal
-			}
-			challenge, err := s.twoFactorSvc.Challenge(ctx, newUser.ID)
-			if err != nil {
-				return nil, err
-			}
-			return api.NewOAuthCallbackResult(api.OAuthCallbackResult{IsNewUser: true, RequiresTwoFactor: true, CodeSent: challenge.Sent, TwoFactorChallenge: challenge.ID, TwoFactorExpiresAt: challenge.ExpiresAt}, challenge.BindingToken), nil
-		}
-	}
 	sessResult, sessionErr := s.sessionSvc.Create(ctx, api.CreateSessionInput{
 		UserID:    newUser.ID,
 		IP:        input.IP,

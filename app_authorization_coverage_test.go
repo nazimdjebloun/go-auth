@@ -348,14 +348,25 @@ func TestAppAuthorizationHTTPPolicyMatrix(t *testing.T) {
 	t.Run("unauthenticated", func(t *testing.T) { check(t, "", 401, "") })
 	t.Run("no_grants", func(t *testing.T) { check(t, account.SessionToken, 403, "") })
 	t.Run("protected_admin", func(t *testing.T) { check(t, f.token, 204, "") })
+	verify(f.admin.SessionID, false)
+	t.Run("protected_admin_missing_assurance", func(t *testing.T) { check(t, f.token, 403, "", "two_factor_required") })
+	verify(f.admin.SessionID, true)
 	for index, key := range keys {
 		policy := strings.TrimPrefix(key, "goauth.app.")
 		t.Run(policy, func(t *testing.T) {
 			setGrants(key)
 			t.Run("exact_grant", func(t *testing.T) { check(t, account.SessionToken, 204, policy) })
 			verify(account.Session.ID, false)
-			t.Run("missing_assurance", func(t *testing.T) { check(t, account.SessionToken, 403, policy, "two_factor_required") })
+			t.Run("user_mfa_off", func(t *testing.T) { check(t, account.SessionToken, 204, policy) })
+			if err := f.users.SetTwoFactorEnabled(ctx, account.User.ID, true, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+			t.Run("user_mfa_missing_assurance", func(t *testing.T) { check(t, account.SessionToken, 403, policy, "two_factor_required") })
 			verify(account.Session.ID, true)
+			t.Run("user_mfa_verified", func(t *testing.T) { check(t, account.SessionToken, 204, policy) })
+			if err := f.users.SetTwoFactorEnabled(ctx, account.User.ID, false, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
 			setGrants(keys[(index+1)%len(keys)])
 			t.Run("wrong_grant", func(t *testing.T) { check(t, account.SessionToken, 403, policy) })
 			setGrants(key)

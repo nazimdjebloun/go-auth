@@ -93,9 +93,11 @@ It replaces both `GetStats(ctx, id)` and `GetStatsForActor`; the permission and
 required assurance checks are unchanged. Obtain these IDs from authenticated
 server context, never a client request body.
 
-Protected administrators and current library-grant holders require local
-second-factor verification by default, including OAuth login. Custom operators
-use ordinary login; admin login remains reserved for protected administrators.
+Only protected administrators require local second-factor verification by
+default, including OAuth login. Every other role follows the user MFA policy,
+even with delegated library grants. Custom operators use ordinary login; admin
+login remains reserved for protected administrators. See the
+[authentication policy matrix](../security.mdx#authentication-policy-matrix).
 Use `AppPermissions.RequirePermission` for backend checks and
 `Auth.RequireAppPermission` after authentication on consumer HTTP routes.
 Self-access responses are informational and do not authorize writes.

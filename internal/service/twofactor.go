@@ -124,7 +124,7 @@ func (s *TwoFactorService) Enforce(u *domain.User) bool {
 		(u.Role == domain.RoleAdmin && !s.config.DisableAdminTwoFactor)
 }
 
-// EnforceContext resolves current privileged access when app authorization is on.
+// EnforceContext resolves the current protected admin role when app authorization is on.
 func (s *TwoFactorService) EnforceContext(ctx context.Context, u *domain.User) (bool, error) {
 	if s.config.AppPermissions == nil {
 		return s.Enforce(u), nil
@@ -132,11 +132,11 @@ func (s *TwoFactorService) EnforceContext(ctx context.Context, u *domain.User) (
 	if u == nil {
 		return false, nil
 	}
-	privileged, err := appAdministrativeIdentity(ctx, s.config.AppPermissions, u)
+	admin, err := appProtectedIdentity(ctx, s.config.AppPermissions, u)
 	if err != nil {
 		return false, err
 	}
-	return s.config.RequireEmail2FA || u.TwoFactorEnabled || (privileged && !s.config.DisableAdminTwoFactor), nil
+	return s.config.RequireEmail2FA || u.TwoFactorEnabled || (admin && !s.config.DisableAdminTwoFactor), nil
 }
 
 // ─── Challenge ──────────────────────────────────────────────

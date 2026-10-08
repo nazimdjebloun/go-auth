@@ -325,6 +325,11 @@ goauth.WithTwoFactor(goauth.TwoFactorConfig{
 | `ChallengeCookieName` | `string` | `_2fa_challenge` | Overrides the binding cookie name. |
 | `DisableAdminTwoFactor` | `bool` | `false` | Opts out of mandatory admin-account 2FA across password/OAuth login and admin HTTP access. Global/per-user requirements still apply. |
 
+With app permissions enabled, admin-account 2FA applies only to the protected
+admin role. Custom roles use non-admin settings even when they have delegated
+administrative permissions. `RequireEmail2FA` and per-user `TwoFactorEnabled`
+also require session assurance for their library administrative actions.
+
 **Expected errors**
 
 - `two_factor: code_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `5m`.

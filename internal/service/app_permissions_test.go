@@ -104,6 +104,123 @@ func TestAppPermissionsInviteCreationAndMissingDefaultRollback(t *testing.T) {
 	}
 }
 
+func TestAppPermissionsSignupLibraryGrantUsesUserMFA(t *testing.T) {
+	for _, mode := range []string{"password", "invite"} {
+		for _, global := range []bool{false, true} {
+			t.Run(mode+map[bool]string{false: "/user-MFA-off", true: "/user-MFA-on"}[global], func(t *testing.T) {
+				f := newAppFixture(t)
+				ctx := t.Context()
+				f.install(t, "goauth.app.users.read")
+				role := f.role(t, "signup-default", "goauth.app.users.read")
+				f.s.config.DefaultRoleSlug = role.Slug
+				sessionRepo := sqlstore.NewSessionRepository(f.db)
+				tokens := sqlstore.NewTokenRepository(f.db)
+				cfg := defaultTestConfig()
+				cfg.AppPermissions, cfg.RequireEmail2FA = f.s, global
+				cfg.TwoFactorCodeTTL = 5 * time.Minute
+				cfg.DisableTwoFactorChallengeBinding = true
+				mailer := &testutil.MockMailer{}
+				twoFactor := NewTwoFactorService(f.db, f.users, sessionRepo, tokens, &testutil.MockHasher{}, mailer, nil, cfg, f.s.sessionSvc)
+				var user *domain.User
+				var required bool
+				var sessionToken, challenge string
+				if mode == "password" {
+					s := NewAuthService(f.db, f.users, sessionRepo, tokens, &testutil.MockHasher{}, token.New(), mailer, cfg, f.s.sessionSvc, nil, twoFactor)
+					result, err := s.Register(ctx, api.RegisterInput{Email: "signup-mfa@example.com", Name: "Signup", Password: "Passw0rd!"})
+					if err != nil {
+						t.Fatal(err)
+					}
+					user, required, sessionToken, challenge = result.User, result.RequiresTwoFactor, result.SessionToken, result.TwoFactorChallenge
+				} else {
+					invites := sqlstore.NewInviteRepository(f.db)
+					now := time.Now().UTC()
+					if err := invites.Create(ctx, &domain.Invite{ID: uuid.NewString(), Email: "signup-mfa@example.com", Code: hashToken("invite-code"), Status: domain.InvitePending, CreatedBy: f.admin.UserID, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}); err != nil {
+						t.Fatal(err)
+					}
+					s := NewInviteService(f.users, sessionRepo, invites, &testutil.MockHasher{}, token.New(), mailer, f.db, cfg, f.s.sessionSvc, twoFactor)
+					result, err := s.CompleteInviteRegistration(ctx, api.CompleteInviteInput{Code: "invite-code", Name: "Signup", Password: "Passw0rd!", ConfirmPassword: "Passw0rd!"})
+					if err != nil {
+						t.Fatal(err)
+					}
+					user, required, sessionToken, challenge = result.User, result.RequiresTwoFactor, result.SessionToken, result.TwoFactorChallenge
+				}
+				if user.AppRoleID == nil || *user.AppRoleID != role.ID || required != global || (sessionToken == "") != global || (challenge != "") != global {
+					t.Fatalf("delegated signup policy: role=%v required=%v session=%v challenge=%v", user.AppRoleID, required, sessionToken != "", challenge != "")
+				}
+			})
+		}
+	}
+}
+
+func TestAppPermissionsOAuthMFAUsesProtectedAdminIdentity(t *testing.T) {
+	for _, global := range []bool{false, true} {
+		t.Run(map[bool]string{false: "user-MFA-off", true: "user-MFA-on"}[global], func(t *testing.T) {
+			f := newAppFixture(t)
+			ctx := t.Context()
+			f.install(t, "goauth.app.users.read")
+			role := f.role(t, "oauth-default", "goauth.app.users.read")
+			f.s.config.DefaultRoleSlug = role.Slug
+			tokens := sqlstore.NewTokenRepository(f.db)
+			links := sqlstore.NewProviderAccountRepository(f.db)
+			sessionRepo := sqlstore.NewSessionRepository(f.db)
+			sessions := NewSessionService(f.db, sessionRepo, token.New(), DefaultSessionConfig())
+			provider := &stubOAuthProvider{name: "test", profile: oauthTestProfile("test", "subject", "oauth-mfa@example.com")}
+			s := NewOAuthService(map[string]port.OAuthProvider{"test": provider}, links, f.users, tokens, &testutil.MockHasher{}, token.New(), sessions, nil, f.db, OAuthServiceConfig{EnableOAuth: true, AppPermissions: f.s})
+			cfg := defaultTestConfig()
+			cfg.AppPermissions, cfg.RequireEmail2FA = f.s, global
+			cfg.TwoFactorCodeTTL = 5 * time.Minute
+			cfg.DisableTwoFactorChallengeBinding = true
+			mailer := &testutil.MockMailer{}
+			s.AttachTwoFactor(NewTwoFactorService(f.db, f.users, sessionRepo, tokens, &testutil.MockHasher{}, mailer, nil, cfg, sessions))
+			callback := func(raw string) *api.OAuthCallbackResult {
+				t.Helper()
+				verifier := "verifier"
+				now := time.Now().UTC()
+				if err := tokens.Create(ctx, &domain.VerificationToken{ID: uuid.NewString(), TokenHash: hashToken(raw), Type: domain.TokenOAuthState, ExpiresAt: now.Add(time.Minute), CodeVerifier: &verifier, CreatedAt: now}); err != nil {
+					t.Fatal(err)
+				}
+				result, err := s.Callback(ctx, api.OAuthCallbackInput{Provider: "test", Code: "code", State: raw, BrowserState: raw})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return result
+			}
+			created := callback("new-state")
+			if !created.IsNewUser || created.RequiresTwoFactor || created.SessionToken == "" {
+				t.Fatalf("delegated OAuth signup imposed admin MFA: %+v", created)
+			}
+			user, err := f.users.GetByEmail(ctx, provider.profile.Email)
+			if err != nil || user == nil || user.AppRoleID == nil || *user.AppRoleID != role.ID {
+				t.Fatalf("OAuth default role: %+v %v", user, err)
+			}
+			if err := f.users.SetTwoFactorEnabled(ctx, user.ID, global, time.Now().UTC()); err != nil {
+				t.Fatal(err)
+			}
+			login := callback("existing-state")
+			if login.IsNewUser || login.RequiresTwoFactor || login.SessionToken == "" {
+				t.Fatalf("delegated OAuth login changed provider policy: %+v", login)
+			}
+			adminRole, err := f.repo.RoleBySlug(ctx, "admin")
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.assign(t, api.AppPermissionActor{UserID: user.ID}, adminRole)
+			before, err := sessionRepo.ListAllByUserID(ctx, user.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			login = callback("admin-state")
+			if !login.RequiresTwoFactor || login.TwoFactorChallenge == "" || login.SessionToken != "" {
+				t.Fatalf("protected admin OAuth skipped admin MFA: %+v", login)
+			}
+			after, err := sessionRepo.ListAllByUserID(ctx, user.ID)
+			if err != nil || len(after) != len(before) {
+				t.Fatalf("admin OAuth created a session before verification: %d -> %d %v", len(before), len(after), err)
+			}
+		})
+	}
+}
+
 func TestAppPermissionsOrganizationOversightUsesProtectedIdentity(t *testing.T) {
 	f := newAppFixture(t)
 	owner := f.account(t)

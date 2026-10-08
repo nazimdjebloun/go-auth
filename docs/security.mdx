@@ -187,9 +187,13 @@ MySQL hold a shared default-role lock through commit; SQLite's account insert
 already holds its writer lock. A default disabled or deleted before that shared
 read rejects signup and rolls back its account, invite claim and provider link.
 
-Protected admin and current library-grant holders require second-factor
-assurance by default. A newly promoted live session must complete a challenged
-login before using privileged actions. Disabling default admin MFA leaves
+Only the protected admin role requires second-factor assurance by default.
+Custom roles follow the non-admin MFA policy, including roles with library
+grants. Their password logins and library actions require assurance when
+`RequireEmail2FA` or the account's `TwoFactorEnabled` is on; non-admin OAuth
+retains the provider-authentication policy above. Promotion to the protected
+admin role requires a newly challenged login before an existing first-factor
+session can perform administrative actions. Disabling default admin MFA leaves
 global and per-user requirements in force. Trusted local CLI provisioning uses
 database access instead of a browser session and records fail-closed database
 audit events. Runtime APIs expose no equivalent assurance bypass.

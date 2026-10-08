@@ -133,7 +133,12 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	var appPermissionsSvc *service.AppPermissionsService
 	if cfg.appPermissions.Enable {
 		appRepo := sqlstore.NewAppPermissionsRepository(sqlDB)
-		appPermissionsSvc = service.NewAppPermissionsService(sqlDB, userRepo, sessionRepo, sessSvc, appRepo, appRepo, appRepo, appRepo, service.AppPermissionsServiceConfig{DefaultRoleSlug: cfg.appPermissions.DefaultRoleSlug, RequireAdminTwoFactor: !cfg.twoFactor.DisableAdminTwoFactor || cfg.twoFactor.RequireEmail2FA, Audit: auditPub})
+		appPermissionsSvc = service.NewAppPermissionsService(sqlDB, userRepo, sessionRepo, sessSvc, appRepo, appRepo, appRepo, appRepo, service.AppPermissionsServiceConfig{
+			DefaultRoleSlug:       cfg.appPermissions.DefaultRoleSlug,
+			RequireAdminTwoFactor: !cfg.twoFactor.DisableAdminTwoFactor,
+			RequireUserTwoFactor:  cfg.twoFactor.RequireEmail2FA,
+			Audit:                 auditPub,
+		})
 	}
 
 	verifySvc := service.NewVerificationService(userRepo, tokenRepo, genImpl, mailer, sqlDB, serviceCfg)

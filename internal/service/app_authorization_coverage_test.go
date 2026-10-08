@@ -67,7 +67,6 @@ var appServiceExemptions = map[string]map[string]string{
 		"AssignBaseline":           "internal transactional signup coordinator",
 		"AssignCreatedRole":        "internal guarded creation coordinator; explicit roles separately require roles.assign",
 		"IsProtectedAdmin":         "informational identity lookup",
-		"HasAdministrativeAccess":  "informational MFA-policy lookup",
 		"CheckPermission":          "caller-selected permission guard",
 		"RequirePermission":        "caller-selected permission guard",
 		"LibraryPermissionCatalog": "fixed catalog lookup; HTTP has a separate protected guard",

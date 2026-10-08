@@ -70,23 +70,3 @@ func appProtectedIdentity(ctx context.Context, s *AppPermissionsService, user *d
 	}
 	return s.IsProtectedAdmin(ctx, user.ID)
 }
-
-func appAdministrativeIdentity(ctx context.Context, s *AppPermissionsService, user *domain.User) (bool, error) {
-	if user == nil {
-		return false, nil
-	}
-	if s == nil {
-		return user.Role == domain.RoleAdmin, nil
-	}
-	return s.HasAdministrativeAccess(ctx, user.ID)
-}
-
-func signupRequiresTwoFactor(ctx context.Context, cfg Config, user *domain.User) (bool, error) {
-	if cfg.RequireEmail2FA {
-		return true, nil
-	}
-	if cfg.AppPermissions == nil || cfg.DisableAdminTwoFactor {
-		return false, nil
-	}
-	return cfg.AppPermissions.HasAdministrativeAccess(ctx, user.ID)
-}

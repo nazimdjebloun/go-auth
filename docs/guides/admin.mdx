@@ -27,7 +27,8 @@ For the full path/param reference see [Routes](../routes/admin.mdx#user-manageme
 There's no `WithAdmin` flag — the existing administrative routes are always
 mounted. Access uses the legacy role when app permissions are off and current
 app authorization when on. `TwoFactorConfig.DisableAdminTwoFactor` opts out of
-the default privileged requirement; global and per-user requirements still apply.
+the default admin requirement; global and per-user requirements still apply.
+Custom roles with delegated administrative permissions follow user MFA settings.
 
 <Callout type="warn" title="Bootstrapping the first admin">
   Every admin-management endpoint below requires an admin session to call — including `POST /admin/users`. That's a chicken-and-egg problem for the very first admin: there's no API route that creates one from nothing. Use the `goauth seed-admin` CLI command — see [Creating the first admin](#creating-the-first-admin) below.

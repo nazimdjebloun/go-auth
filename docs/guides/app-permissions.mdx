@@ -309,14 +309,18 @@ change and configured audit record before sending email. Delivery happens
 outside database locks. An email delivery failure leaves the committed invite
 or rotated code in place; use resend to retry delivery.
 
-Protected admin and accounts with any installed library grant require email
-2FA at login by default, including OAuth login. Promoting a live session does
-not add assurance: privileged operations return `two_factor_required` until a
-new challenged login succeeds. `DisableAdminTwoFactor` removes the default
-requirement; global and per-account requirements still apply. Business-only
-roles do not acquire the library's default administrative MFA requirement.
-Custom operators sign in through ordinary login; the admin login endpoint is
-reserved for protected administrators in enabled mode.
+Only the protected admin role requires email 2FA by default, including OAuth
+login. Every other role follows the non-admin policy, even with installed
+library grants: password login and library actions require MFA when
+`RequireEmail2FA` or the account's `TwoFactorEnabled` is on. Admin MFA settings
+do not affect these roles. Non-admin OAuth retains the provider-authentication
+policy described in [Security](../security.mdx#authentication-policy-matrix).
+
+Promotion to the protected admin role does not add assurance to a live session:
+administrative operations return `two_factor_required` until a new challenged
+login succeeds. `DisableAdminTwoFactor` removes the admin default; global and
+per-account requirements still apply. Custom operators sign in through ordinary
+login; the admin login endpoint is reserved for protected administrators.
 
 Existing `/admin/users` filters should use `appRoleId` in enabled mode; the
 legacy `role` filter is rejected. The existing role PATCH body uses
