@@ -53,6 +53,11 @@ func buildAuth(t *testing.T, opts ...Option) *Auth {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Private in-memory databases exist per connection, so keep the schema's
+	// connection for requests and background workers alike.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	t.Cleanup(func() { _ = db.Close() })
 	schemaSQL, err := GetSchema("sqlite")
 	if err != nil {
 		t.Fatal(err)

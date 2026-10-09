@@ -43,6 +43,9 @@ func newHasherTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Requests and background workers must share the private in-memory schema.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	schemaSQL, err := GetSchema("sqlite")
 	if err != nil {
