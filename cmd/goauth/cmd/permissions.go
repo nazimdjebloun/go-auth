@@ -44,7 +44,7 @@ func newPermissionsCommand() *cobra.Command {
 			mustMarkFlagRequired(command, flag)
 		}
 		command.RunE = func(cmd *cobra.Command, _ []string) error {
-			create, remove := []string{}, []string{}
+			var create, remove []string
 			if seed {
 				create, _ = cmd.Flags().GetStringSlice("keys")
 				all, _ := cmd.Flags().GetBool("all")
@@ -78,7 +78,11 @@ func newPermissionsCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer db.Close()
+			defer func() {
+				if err := db.Close(); err != nil {
+					slog.Error("goauth: close permission database", "err", err)
+				}
+			}()
 			if sqlDriver == "sqlite" || sqlDriver == "sqlite3" {
 				db.SetMaxOpenConns(1)
 			}

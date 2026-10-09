@@ -38,7 +38,11 @@ func TestPermissionsCommandSeedAndMixedUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer raw.Close()
+	t.Cleanup(func() {
+		if err := raw.Close(); err != nil {
+			t.Errorf("close test database: %v", err)
+		}
+	})
 	ddl, err := schema.For("sqlite")
 	if err != nil {
 		t.Fatal(err)

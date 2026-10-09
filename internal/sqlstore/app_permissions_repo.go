@@ -48,13 +48,16 @@ func (r *AppPermissionsRepository) PermissionByID(ctx context.Context, id string
 }
 
 // ListAppPermissions lists installed records, never uninstalled catalog entries.
-func (r *AppPermissionsRepository) ListAppPermissions(ctx context.Context, limit, offset int) ([]domain.AppPermission, error) {
+func (r *AppPermissionsRepository) ListAppPermissions(
+	ctx context.Context,
+	limit, offset int,
+) (result []domain.AppPermission, err error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT "+appPermissionColumns+" FROM app_permissions ORDER BY permission_key LIMIT $1 OFFSET $2", limit, offset)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	result := []domain.AppPermission{}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	result = []domain.AppPermission{}
 	for rows.Next() {
 		p, err := scanAppPermission(rows)
 		if err != nil {
@@ -98,13 +101,13 @@ func (r *AppPermissionsRepository) RolePermissionKeys(ctx context.Context, id st
 	return r.strings(ctx, `SELECT p.permission_key FROM app_permissions p JOIN app_role_permissions g ON g.permission_id=p.id WHERE g.role_id=$1 AND p.is_enabled=true ORDER BY p.permission_key`, id)
 }
 
-func (r *AppPermissionsRepository) strings(ctx context.Context, query string, args ...any) ([]string, error) {
+func (r *AppPermissionsRepository) strings(ctx context.Context, query string, args ...any) (result []string, err error) {
 	rows, err := r.db.QueryContext(ctx, r.currentQuery(ctx, query), args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	result := []string{}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	result = []string{}
 	for rows.Next() {
 		var value string
 		if err := rows.Scan(&value); err != nil {

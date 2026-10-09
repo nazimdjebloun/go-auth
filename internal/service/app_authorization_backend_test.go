@@ -114,6 +114,7 @@ func testAppAuthorizationDeadlockRollsBackAcrossPools(t *testing.T) {
 	f := newAppFixture(t)
 	other := appSecondPool(t, f)
 	roles := []*domain.AppRole{f.role(t, "deadlock-a"), f.role(t, "deadlock-b")}
+	permissionKeys := []string{"app.deadlock.a", "app.deadlock.b"}
 	pools := []*sqlstore.DB{f.db, other.db}
 	repositories := []*sqlstore.AppPermissionsRepository{f.repo, other.repo}
 	events := []audit.Event{
@@ -146,7 +147,7 @@ func testAppAuthorizationDeadlockRollsBackAcrossPools(t *testing.T) {
 			}
 			now := time.Now().UTC()
 			permission := &domain.AppPermission{
-				ID: uuid.NewString(), Key: "app.deadlock." + string(rune('a'+index)),
+				ID: uuid.NewString(), Key: permissionKeys[index],
 				Name: "Transaction marker", IsEnabled: true, Revision: 1, CreatedAt: now, UpdatedAt: now,
 			}
 			if err := repositories[index].InsertAppPermission(txCtx, permission); err != nil {
@@ -214,8 +215,7 @@ func testAppAuthorizationDeadlockRollsBackAcrossPools(t *testing.T) {
 		if after.Revision != wantRevision || after.Name != wantName {
 			t.Fatalf("partial role commit: %+v, wanted revision=%d name=%s", after, wantRevision, wantName)
 		}
-		key := "app.deadlock." + string(rune('a'+index))
-		permission, err := f.repo.PermissionByKey(ctx, key)
+		permission, err := f.repo.PermissionByKey(ctx, permissionKeys[index])
 		if err != nil || (permission != nil) != (index == winner) {
 			t.Fatalf("partial definition commit: %+v, %v", permission, err)
 		}
@@ -239,7 +239,7 @@ func testAppAuthorizationDeadlockRollsBackAcrossPools(t *testing.T) {
 	if err != nil || after.Revision != roles[victim].Revision+1 {
 		t.Fatalf("retry revision: %+v, %v", after, err)
 	}
-	permission, err := f.repo.PermissionByKey(ctx, "app.deadlock."+string(rune('a'+victim)))
+	permission, err := f.repo.PermissionByKey(ctx, permissionKeys[victim])
 	if err != nil || permission == nil {
 		t.Fatalf("retry did not commit permission: %+v, %v", permission, err)
 	}

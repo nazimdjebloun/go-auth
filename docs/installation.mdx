@@ -14,7 +14,7 @@ does not install any library permissions. See the
 
 ## Prerequisites
 
-- Go 1.26 or later
+- Go 1.26.9 or later
 - A database: PostgreSQL, MySQL, or SQLite
 - An SMTP server, or your own mailer implementation: required unless every email-sending feature is off (invites, email verification, 2FA, and admin login's two-factor challenge, the last of which is on by default and needs `TwoFactorConfig.DisableAdminTwoFactor` to turn off). `EnvironmentDev` is the one exception when a mailer is otherwise needed: with neither `WithMailer` nor `WithEmail` set, it falls back to a log-only driver. See [Configuration](./configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off).
 

@@ -83,7 +83,7 @@ func (f appHTTPFixture) request(t *testing.T, method, path, body, token string, 
 	r.Header.Set("Origin", "http://localhost")
 	r.Header.Set("Content-Type", "application/json")
 	if token != "" {
-		r.AddCookie(&http.Cookie{Name: f.a.cfg.cookie.Name, Value: token})
+		r.Header.Set("Cookie", f.a.cfg.cookie.Name+"="+token)
 	}
 	w := httptest.NewRecorder()
 	f.mux.ServeHTTP(w, r)
@@ -557,7 +557,9 @@ func TestAppPermissionsHTTPBusinessGuardAndProtectedLegacyPayloads(t *testing.T)
 	if _, err := permissions.SetUserRole(ctx, api.SetAppUserRoleInput{Actor: f.admin, UserID: account.User.ID, RoleID: r.ID, ExpectedRoleRevision: r.Revision, ExpectedAssignmentRevision: 1}); err != nil {
 		t.Fatal(err)
 	}
-	f.mux.Handle("DELETE /posts/{id}", f.a.RequireAuth(f.a.RequireAppPermission(p.Key)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))))
+	f.mux.Handle("DELETE /posts/{id}", f.a.RequireAuth(f.a.RequireAppPermission(p.Key)(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) },
+	))))
 	f.request(t, "DELETE", "/posts/one", "", account.SessionToken, 204)
 	f.request(t, "GET", "/admin/users", "", account.SessionToken, 403)
 	f.request(t, "POST", "/admin/users", `{"email":"evil@example.com","name":"Evil","password":"Passw0rd!","role":"admin"}`, f.token, 400)

@@ -1,8 +1,6 @@
 module github.com/nazimdjebloun/go-auth
 
-go 1.26.4
-
-toolchain go1.26.6
+go 1.26.9
 
 require (
 	github.com/go-sql-driver/mysql v1.9.2

@@ -56,7 +56,7 @@ schemas; it does not migrate or backfill existing databases.
 
 ## Install
 
-go-auth requires Go 1.26 or later.
+go-auth requires Go 1.26.9 or later.
 
 ```bash
 go get github.com/nazimdjebloun/go-auth

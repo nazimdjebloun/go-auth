@@ -58,13 +58,16 @@ func (r *AppPermissionsRepository) RoleBySlugForShare(ctx context.Context, slug 
 }
 
 // ListAppRoles returns a page in deterministic slug order.
-func (r *AppPermissionsRepository) ListAppRoles(ctx context.Context, limit, offset int) ([]domain.AppRole, error) {
+func (r *AppPermissionsRepository) ListAppRoles(
+	ctx context.Context,
+	limit, offset int,
+) (roles []domain.AppRole, err error) {
 	rows, err := r.db.QueryContext(ctx, "SELECT "+appRoleColumns+" FROM app_roles ORDER BY slug LIMIT $1 OFFSET $2", limit, offset)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	roles := []domain.AppRole{}
+	defer func() { err = errors.Join(err, rows.Close()) }()
+	roles = []domain.AppRole{}
 	for rows.Next() {
 		role, err := scanAppRole(rows)
 		if err != nil {
