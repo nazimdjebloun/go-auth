@@ -1,0 +1,318 @@
+---
+title: "v0.3.0"
+description: "Opt-in app roles and permissions, explicit delegation, permission-aware clients, and consistent Go and HTTP contracts."
+date: "2026-10-09"
+---
+
+Application authorization gains configurable roles, explicit permission grants,
+management endpoints, and backend guards. The feature is opt-in and independent
+of organization membership. Without `WithAppPermissions`, or with `Enable: false`,
+accounts continue to use the supported fixed `admin` and `user` roles.
+
+Changes since v0.2.5 also make transaction dependencies mandatory at internal
+service construction, replace several positional Go service arguments with input
+structs, standardize middleware error responses, and raise the minimum Go
+version to **1.26.9**.
+
+## App roles and permissions
+
+- **`WithAppPermissions` enables one app role per account.** Custom roles hold
+  explicit permission keys. There is no role hierarchy, wildcard matching, or
+  direct user grant. `DefaultRoleSlug` defaults to `user` and selects the role
+  assigned during account creation.
+- **Protected roles have fixed behavior.** Initialization creates built-in
+  `admin` and `user` roles. Protected admin can execute every known library
+  action and every existing enabled business permission. The built-in user role
+  has no grants. Their metadata, enabled state, and grant sets cannot be edited.
+- **Authentication and permission checks remain separate.** Public routes stay
+  public, and `RequireAuth` alone adds no permission requirement. Ordinary
+  authenticated account actions retain their ownership rules. Organization
+  owner, admin, and member roles retain their own authorization rules.
+- **Backend guards check current database state.**
+  `auth.Services().AppPermissions` exposes `CheckPermission`, `RequirePermission`,
+  definition and role management, and effective-access inspection.
+  `auth.RequireAppPermission(key)` composes with `RequireAuth` for application
+  routes. The capability is nil when disabled, and its permission middleware
+  denies access when the capability is unavailable.
+- **Denial and backend failures have different results.** `CheckPermission`
+  returns `allowed: false` for a denied action. Invalid inputs, required
+  second-factor assurance, and infrastructure failures return errors.
+  `RequirePermission` converts a denied decision to `forbidden`.
+
+Apply the canonical schema and initialize a protected administrator before
+accepting accounts in enabled mode. `New` never seeds roles or definitions.
+Trusted setup uses `auth.InitializeAppPermissions` or
+`goauth seed-admin --app-permissions`; initialization has no HTTP endpoint.
+Registration before initialization fails without leaving a new account behind.
+
+See [App roles and permissions](../guides/app-permissions.mdx) for setup,
+delegation rules, and backend examples.
+
+## Library and business permission definitions
+
+- **The library owns `goauth.app.*` keys.** A fixed catalog covers user, session,
+  audit, statistics, signup invitation, permission, and role administration.
+  Definitions are installed explicitly before custom roles can hold those
+  grants. Installing a definition grants no role access by itself. An absent
+  library definition leaves its action protected-admin-only.
+- **The application owns `app.*` keys.** Business definitions such as
+  `app.posts.delete` support creation, metadata edits, enabling, disabling, and
+  deletion. Their keys are immutable. A missing or disabled business definition
+  denies everyone, including protected admin. Library catalog definitions cannot
+  be edited through business-definition endpoints.
+- **Catalog provisioning is protected-admin-only.**
+  `GET /admin/authorization/library-permissions` returns the code catalog;
+  `GET /admin/authorization/permissions` lists installed definitions separately.
+  Catalog access and provisioning require the protected administrator and its
+  required session assurance. Delegable permission-management grants do not
+  authorize catalog provisioning.
+- **Library installation and removal share one atomic batch.**
+  `PATCH /admin/authorization/library-permissions` accepts 1–100 total keys in
+  `create` and `delete`. Unknown keys, duplicates, and overlapping operations
+  reject the batch. The response reports `created`, `deleted`, and `unchanged`.
+  Installing an installed key or removing an absent key preserves revisions.
+- **Removing a library definition removes its grants.** Its role links are
+  deleted in the same transaction, each affected role revision advances once,
+  and the app revision advances once. Reinstalling creates a new definition
+  without restoring deleted grants. Protected admin retains access to the known
+  library action. Business-definition deletion instead requires its grants to
+  be removed first.
+
+## Role management and account assignments
+
+- **Custom roles support metadata, enabled state, and grant replacement.**
+  `PUT /admin/authorization/roles/{roleID}/permissions` replaces the complete
+  grant set; an empty array clears it. Deleting a role requires it to be custom,
+  unassigned, and different from the configured default. The configured default
+  cannot be disabled.
+- **Delegation is bounded by the actor's own access.** A delegated manager can
+  grant or assign only keys it currently holds. Editing, clearing, or deleting
+  another role also requires its existing keys. Delegated actors cannot edit
+  their own role or assign themselves a role. Only protected admin can assign
+  an account to or from the protected admin role. Demotion, banning, and deletion
+  preserve the last usable protected administrator.
+- **Revisions reject stale edits.** Definition and role mutations use
+  `expectedRevision`. Account assignment checks both `expectedRoleRevision` and
+  `expectedAssignmentRevision`; a mismatch returns `authorization_conflict`.
+  A changed assignment replaces the account's sole app role and advances its
+  assignment revision and the app revision.
+- **Assigning the same role is a no-op.** Valid expected revisions are still
+  required, and permission, delegation, and assurance checks still run. The
+  assignment preserves revisions, account timestamps, and grants, and records
+  no role-change audit event. This also applies to the existing admin role-update
+  operation in enabled mode.
+- **Permission keys, slugs, and IDs are canonical.** Keys use lowercase
+  dot-separated identifiers in their owned namespace, and role slugs are
+  immutable. App authorization requests require lowercase, hyphenated UUIDs
+  for target account, role, and permission IDs. Alternate UUID forms return
+  `invalid_input`.
+- **Account creation assigns its default role transactionally.** Registration,
+  signup invitation redemption, and OAuth account creation validate the
+  initialized state and configured role in the account transaction. Missing or
+  disabled defaults reject creation. Administrative creation can select an
+  explicit `appRoleId` with the assignment permission and observed role revision.
+- **Ordinary signup avoids global authorization locks.** PostgreSQL and MySQL
+  account creation share-lock the configured role without the all-user admin
+  guard or an exclusive app-state lock. Role writers wait for those assignments
+  to finish. SQLite retains its single-writer behavior. Signup does not advance
+  the global authorization revision.
+
+## Access endpoints and browser integration
+
+- **`GET /auth/access` describes the signed-in account's effective access.** It
+  returns the current role, `isFullAccess`, `permissionKeys`,
+  `assignmentRevision`, and app `revision`. It is available whenever app
+  permissions are enabled, including with management HTTP disabled.
+- **Management HTTP is separately enabled.** `EnableManagementHTTP: true`
+  mounts the `/admin/authorization/*` definition, role, catalog, and assignment
+  routes. Target role and effective-access inspection require
+  `goauth.app.roles.read` or protected-admin access and the actor's required
+  assurance. `GET /admin/authorization/users/{id}/access` describes the target
+  account, including when the target differs from the actor.
+- **Account JSON reflects the selected authorization mode.** Enabled-mode users
+  expose `appRoleId` and `appRoleAssignmentRevision`, with the account `role`
+  omitted and Go `User.Role` empty. This includes users nested in organization
+  membership results; the organization's membership `role` remains present.
+  Disabled mode continues to populate the fixed account `role`.
+- **Existing admin user endpoints accept app-role fields in enabled mode.**
+  User filtering uses `appRoleId`; the fixed-role filter is rejected. Role
+  updates use `appRoleId`, `expectedRoleRevision`, and
+  `expectedAssignmentRevision`. Disabled mode continues to accept
+  `role: admin|user`.
+- **The client guide gives every authorization action its own example.** React,
+  TypeScript, and shadcn/ui examples cover access reads, catalog reads, library
+  installation and removal, business-definition CRUD, role CRUD, grant
+  replacement and clearing, target inspection, and account assignment. Shared
+  helpers cover cookies, CSRF, errors, revisions, pagination, and refresh wiring.
+- **Browser access state is account-scoped and separate from user identity.**
+  Examples load `/auth/access`, clear the snapshot when the account changes or
+  signs out, refresh after relevant mutations, and check exact keys when
+  rendering controls. `isFullAccess` does not bypass a missing or disabled
+  business definition. Browser state never authorizes the backend operation.
+
+Checks reload current state rather than storing grants in sessions, so changed
+roles and definitions affect subsequent checks in existing sessions. A permission
+check does not cancel an already authorized action or automatically include a
+consumer's later business write in its authorization transaction. Resource
+ownership and organization scope still require their own checks.
+
+See the [authorization route reference](../routes/authorization.mdx) and
+[app roles and permissions client](../guides/client/app-permissions.mdx).
+
+## Administrative authorization and second-factor assurance
+
+- **Administrative actions check their exact library key.** Enabled-mode user,
+  session, audit, statistics, and signup invitation operations support selective
+  delegation. `Auth.RequireAdmin` and platform organization oversight still
+  require protected admin identity.
+- **Protected admin and custom operators use separate MFA policies.** Protected
+  admin requires email 2FA by default, including OAuth login. Other roles follow
+  the non-admin policy even when granted library actions: password login and
+  library operations require MFA when global or per-account 2FA requires it.
+  Non-admin OAuth retains its provider-authentication policy. Custom operators
+  sign in through ordinary login; admin login is reserved for protected admin.
+- **Promotion does not add assurance to an existing session.** When admin MFA
+  is required, administrative actions return `two_factor_required` until a fresh
+  challenged login succeeds. `DisableAdminTwoFactor` removes the admin default;
+  global and per-account requirements still apply.
+- **Privileged writes recheck the actor inside their transaction.** Session
+  ownership, revocation, expiry, and required assurance are checked against
+  current stored state. Shared session reads in PostgreSQL and MySQL transactions
+  prevent an older MySQL repeatable-read snapshot from retaining revoked access
+  or removed second-factor assurance.
+- **Invite delivery follows the committed mutation.** Enabled-mode signup
+  invitation creation and resend commit authorization, invitation state, and
+  configured audit recording before sending email outside database locks.
+  Delivery failure leaves the committed invitation or rotated code in place;
+  resend can retry delivery.
+
+Direct service callers supply actor and session IDs from trusted backend
+authentication. Administrative inputs carry `ActorSessionID`; app permission
+inputs carry `api.AppPermissionActor`. Omitting a session ID fails when the
+operation requires second-factor assurance. Client request bodies cannot select
+their own actor identity or assurance.
+
+## Public API and HTTP response changes
+
+Several Go service methods now take a specific `api` input struct after `ctx`
+instead of positional arguments. These signatures apply in both authorization
+modes:
+
+| Capability | Methods | Input types in `api` |
+|---|---|---|
+| Auth | `ChangeName`, `DeleteAccount` | `ChangeNameInput`, `DeleteAccountInput` |
+| Session | `Create`, `Touch`, `RevokeByIDForUser`, `RevokeManyForUser`, `RevokeAllExcept`, `List` | `CreateSessionInput`, `TouchSessionInput`, `RevokeSessionForUserInput`, `RevokeSessionsForUserInput`, `RevokeAllSessionsExceptInput`, `ListSessionsInput` |
+| Invite | `HardDeleteInvite`, `RevokeInvite`, `ResendInviteEmail` | `HardDeleteInviteInput`, `RevokeInviteInput`, `ResendInviteEmailInput` |
+| Admin | `GetStats` | `GetAdminStatsInput` |
+| OAuth | `InitiateLink`, `Callback`, `Unlink` | `OAuthLinkInput`, `OAuthCallbackInput`, `OAuthUnlinkInput` |
+| OrgInvite | `DeleteOrgInvite`, `ResendOrgInviteEmail` | `DeleteOrgInviteInput`, `ResendOrgInviteEmailInput` |
+| TwoFactor | `Verify`, `Resend`, `Enable`, `Disable` | `TwoFactorVerifyInput`, `TwoFactorResendInput`, `TwoFactorEnableInput`, `TwoFactorDisableInput` |
+
+`Admin.GetStats` remains one method in both modes and accepts trusted `ActorID`
+and `ActorSessionID` in `api.GetAdminStatsInput`. Administrative inputs for user,
+session, audit, statistics, invitation, and platform organization operations also
+carry the actor's session ID. The input structs replacing positional arguments
+mark trusted identity, browser binding, tokens, and request metadata with
+`json:"-"`, excluding those fields from JSON decoding.
+
+`middleware.SessionAuthenticator.Touch` also takes `api.TouchSessionInput`,
+matching the session service contract used by authentication middleware.
+
+CSRF and organization facade errors now use the JSON
+`{"error": code, "message": message}` envelope with `application/json`, matching
+authentication, rate-limit, and handler responses. Handler, CSRF, and facade error
+responses also set `X-Content-Type-Options: nosniff`. CSRF failures distinguish
+missing origin headers, denied origins, missing tokens, invalid tokens, and
+cookie/header mismatches with machine-readable codes. Unexpected authentication and handler
+backend failures use `internal_error` and keep repository details out of the
+response.
+
+OAuth callback failures remain browser redirects with `error` and `provider`
+query parameters; direct OAuth service calls return Go errors. Errors from
+consumer handlers or unmatched router paths are outside the built-in JSON
+contract. Successful responses and CORS preflight formats are unchanged.
+
+HTTP status mapping now explicitly covers `invalid_json` (400), the CSRF codes
+(403), `rate_limit_error` (429), and `organizations_disabled` (503). Regression
+tests verify JSON error envelopes and their statuses through middleware, the
+organization facade, and the HTTP suites on all three database backends.
+
+See [Integration](../guides/integration.mdx) for direct service examples and
+[Error handling](../error-handling.mdx) for response codes.
+
+## Transaction construction and audit atomicity
+
+- **Transaction managers are required at internal service construction.**
+  Authentication, session, admin, and two-factor constructors take their
+  transaction manager immediately and reject nil and typed-nil managers with a
+  panic. Optional transaction-manager attachment and implicit autocommit
+  fallbacks are removed. `goauth.New` supplies the shared SQL transaction manager
+  automatically.
+- **Mutation and audit transactions cannot be skipped by incomplete wiring.**
+  Registration, login session issuance, logout, session creation, audited
+  session revocation, unbanning, and two-factor changes use their required
+  transaction dependencies.
+  These operations retain their existing audit failure policy; requiring a
+  transaction manager does not turn fail-open audit recording into fail-closed.
+- **Constructor and rollback tests cover the required dependency.** Fixtures
+  supply explicit transaction managers. New regressions reject missing managers
+  and verify user, session, and nested login-session rollback when audit
+  recording returns an error. The constructor test also removes an unused
+  subtest parameter.
+
+See [Architecture](../architecture.mdx) for construction and transaction context
+rules. Public `goauth.New` and `Auth.Services()` signatures are unchanged by this
+internal construction change.
+
+## CLI, schemas, and regression coverage
+
+- **The CLI supports explicit permission provisioning.** `goauth permissions
+  catalog` prints the fixed catalog without connecting to a database.
+  `permissions seed` installs selected keys or explicitly all keys, and
+  `permissions update` installs and removes keys in one batch. Writes require
+  an initialized installation and a current protected administrator supplied
+  through `--actor-id`. CLI writes use the shared transactional writer with
+  database-only, fail-closed audit recording and local CLI attribution.
+- **All three schemas include application authorization storage.** SQLite,
+  PostgreSQL, and MySQL define roles, definitions, role grants, singleton app
+  revision state, and account role-assignment fields. The SQL reference in
+  [Schemas](../schemas.mdx) is synchronized with the canonical schema files.
+- **Regression tests cover each administrative operation's policy.** Independent
+  HTTP route and direct-service inventories check exact grants, wrong grants,
+  removed definitions, protected routes, and required assurance. Additional
+  tests cover both user JSON modes, canonical UUID rejection, same-role no-ops,
+  rollback, signup role locking, and current session state across database pools.
+- **Existing authentication contracts have additional regression coverage.**
+  Named operation inputs reject trusted context supplied through JSON. Tests
+  also preserve wrapped lookup errors and cancellation, and verify that
+  non-admin OAuth uses provider authentication without recording local
+  second-factor assurance, including with global or per-account 2FA configured.
+- **CI repeats database concurrency and rollback tests on ordinary pushes.**
+  SQLite, PostgreSQL, and MySQL jobs run their complete backend suites and repeat
+  the stress subset. Extended repetition remains configurable through manual
+  workflow dispatch. Build, vet, lint, race tests, and vulnerability scanning
+  remain separate checks.
+- **Nightly CI scheduling is removed.** Fuzzing runs on main-branch pushes and
+  manual dispatch. Extended database stress runs are selected through manual
+  dispatch; the ordinary backend jobs still run their repeated stress subset.
+
+The root module and CLI now require **Go 1.26.9 or later**. Installation guidance
+and CI use the same minimum version.
+
+## Integration and documentation corrections
+
+- **The integration guide states the transport and lifecycle responsibilities.**
+  It covers named Go inputs, trusted actor identity and cookie bindings, the
+  authentication policy matrix, and ownership of supplied resources. Shutdown
+  guidance requires draining HTTP requests and direct service calls before
+  `Auth.Close`; supplied databases, rate-limit stores, mailers, and sinks remain
+  caller-owned. `Close` has no overall deadline, so worker dependencies must
+  honor cancellation.
+- **Authentication and MFA documentation describes the existing policy.**
+  Password, invitation, and OAuth flows distinguish email verification from
+  second-factor requirements. `DefaultEnabled` seeds the per-user flag for
+  password and invitation registration; it does not by itself require a local
+  challenge for their initial signup session. Non-admin OAuth continues to
+  delegate authentication to its provider.
+- **The older v0.2.2 changelog no longer links a removed guide.** Its Remote Auth
+  documentation entry points to the v0.2.3 removal notes.
