@@ -106,7 +106,7 @@ func TestAppPermissionsHTTPUserRoleJSON(t *testing.T) {
 	checkUser := func(user map[string]json.RawMessage) {
 		t.Helper()
 		if _, exists := user["role"]; exists {
-			t.Fatalf("enabled user includes legacy role: %s", user["role"])
+			t.Fatalf("app permissions user includes fixed account role: %s", user["role"])
 		}
 		if _, exists := user["appRoleId"]; !exists {
 			t.Fatal("enabled user lost appRoleId")
@@ -204,7 +204,7 @@ func TestAppPermissionsHTTPDelegationAndRevocation(t *testing.T) {
 	// Actor context cannot be supplied through browser JSON.
 	f.request(t, "PATCH", "/admin/authorization/library-permissions", `{"create":["goauth.app.stats.read"],"actor":{"userId":"x"}}`, f.token, 400)
 	f.request(t, "PATCH", "/admin/authorization/library-permissions", `{"create":["goauth.app.stats.read"]} {}`, f.token, 400)
-	// Last-admin checks use app identity even if the legacy column is stale.
+	// Last-admin checks use app identity even if users.role disagrees with it.
 	if _, err := f.db.ExecContext(t.Context(), "UPDATE users SET role='user' WHERE id=$1", f.admin.UserID); err != nil {
 		t.Fatal(err)
 	}
@@ -395,8 +395,8 @@ func TestAppPermissionsSameRoleAssignmentPreservesAccessRevision(t *testing.T) {
 	}
 	before := access()
 	f.request(t, "PUT", path, body, f.token, 200)
-	legacyBody := `{"appRoleId":"` + role.ID + `","expectedRoleRevision":1,"expectedAssignmentRevision":1}`
-	f.request(t, "PATCH", "/admin/users/"+account.User.ID+"/role", legacyBody, f.token, 200)
+	adminBody := `{"appRoleId":"` + role.ID + `","expectedRoleRevision":1,"expectedAssignmentRevision":1}`
+	f.request(t, "PATCH", "/admin/users/"+account.User.ID+"/role", adminBody, f.token, 200)
 	if err := f.a.Services().Admin.UpdateUserRole(ctx, api.UpdateUserRoleInput{ActorID: f.admin.UserID, ActorSessionID: f.admin.SessionID, UserID: account.User.ID, AppRoleID: role.ID, ExpectedRoleRevision: role.Revision, ExpectedAssignmentRevision: account.User.AppRoleAssignmentRevision}); err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ func TestAppPermissionsHTTPDelegatedRoleMFASettings(t *testing.T) {
 	}
 }
 
-func TestAppPermissionsHTTPBusinessGuardAndProtectedLegacyPayloads(t *testing.T) {
+func TestAppPermissionsHTTPBusinessGuardAndProtectedRolePayloads(t *testing.T) {
 	f := newAppHTTPFixture(t, true, false)
 	ctx := t.Context()
 	account, err := f.a.Register(ctx, api.RegisterInput{Email: "business@example.com", Name: "Business", Password: "Passw0rd!"})

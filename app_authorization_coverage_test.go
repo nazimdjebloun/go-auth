@@ -268,10 +268,10 @@ func TestAppAuthorizationHTTPPolicyMatrix(t *testing.T) {
 	}
 	verify(account.Session.ID, true)
 	for _, change := range []struct {
-		id     string
-		legacy domain.Role
+		id        string
+		fixedRole domain.Role
 	}{{f.admin.UserID, domain.RoleUser}, {account.User.ID, domain.RoleAdmin}} {
-		if _, err := f.db.ExecContext(ctx, "UPDATE users SET role=$1 WHERE id=$2", change.legacy, change.id); err != nil {
+		if _, err := f.db.ExecContext(ctx, "UPDATE users SET role=$1 WHERE id=$2", change.fixedRole, change.id); err != nil {
 			t.Fatal(err)
 		}
 	}

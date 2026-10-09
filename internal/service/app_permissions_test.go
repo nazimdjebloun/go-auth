@@ -229,12 +229,12 @@ func TestAppPermissionsOrganizationOversightUsesProtectedIdentity(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Neither org ownership nor a stale legacy admin column grants platform access.
+	// Neither org ownership nor users.role grants platform access in app mode.
 	if _, err := f.db.ExecContext(t.Context(), "UPDATE users SET role='admin' WHERE id=$1", owner.UserID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.AdminListOrgs(t.Context(), api.AdminListOrgsInput{ActorID: owner.UserID}); !errors.Is(err, domain.ErrForbidden) {
-		t.Fatalf("legacy admin bypassed platform oversight: %v", err)
+		t.Fatalf("fixed account role bypassed platform oversight: %v", err)
 	}
 	if err := s.AdminDeleteOrg(t.Context(), api.AdminOrgActionInput{ActorID: owner.UserID, OrgID: org.ID}); !errors.Is(err, domain.ErrForbidden) {
 		t.Fatalf("owner bypassed protected mutation: %v", err)

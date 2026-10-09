@@ -6,7 +6,7 @@ icon: "ShieldUser"
 
 # Admin
 
-This guide's legacy role examples apply when app permissions are disabled.
+This guide's fixed `admin`/`user` role examples apply when app permissions are disabled.
 With `WithAppPermissions` enabled, app administrative operations can be
 delegated individually to custom roles through installed library keys;
 organization oversight and catalog provisioning remain protected-admin-only.
@@ -25,7 +25,7 @@ For the full path/param reference see [Routes](../routes/admin.mdx#user-manageme
 ## Configuration
 
 There's no `WithAdmin` flag — the existing administrative routes are always
-mounted. Access uses the legacy role when app permissions are off and current
+mounted. Access uses the fixed account role when app permissions are off and current
 app authorization when on. `TwoFactorConfig.DisableAdminTwoFactor` opts out of
 the default admin requirement; global and per-user requirements still apply.
 Custom roles with delegated administrative permissions follow user MFA settings.

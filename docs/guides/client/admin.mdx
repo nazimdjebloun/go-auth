@@ -8,12 +8,18 @@ icon: "UserCog"
 
 `adminApi` covers common dashboard operations from the [Admin](../admin.mdx) and
 [Audit Logs](../audit-logs.mdx) guides. The examples below use disabled-mode
-legacy roles. When app permissions are enabled, use `GET /auth/access` to render
+fixed `admin`/`user` roles, which remain supported when app permissions are
+disabled. When app permissions are enabled, use `GET /auth/access` to render
 the current `isFullAccess` and `permissionKeys`, and use the enabled-mode
 `appRoleId` payloads/filters described in the
 [app permission guide](../app-permissions.mdx). Delegated operators sign in
 through ordinary login. Every backend action still checks current access;
 frontend flags are informational.
+
+For enabled-mode authorization management, follow the
+[app roles and permissions client](./app-permissions.mdx). It provides typed
+wrappers and shadcn examples for every action, including role assignment and
+permission-aware controls for delegated operators.
 
 ```ts
 import { apiRequest } from "./client";

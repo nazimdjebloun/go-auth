@@ -15,11 +15,11 @@ denial gets `403 forbidden`, and missing required assurance gets
 `403 two_factor_required`. On every list route, an explicitly supplied
 unsupported or empty `orderBy` or `orderDirection` is `400 invalid_input`.
 
-The reference below describes legacy `role` payloads/filters. In enabled mode,
+The reference below describes `role` payloads/filters with app permissions disabled. In enabled mode,
 user filters use `appRoleId`; the role PATCH uses `appRoleId`,
 `expectedRoleRevision` and `expectedAssignmentRevision`. User creation accepts
 optional `appRoleId` with `expectedRoleRevision`; omit it for the configured
-default role and omit the legacy `role` field. The legacy field is rejected in
+default role and omit the `role` field. The `role` field is rejected in
 enabled mode. See the [Admin guide](../guides/admin.mdx).
 
 ## Login
@@ -29,7 +29,7 @@ enabled mode. See the [Admin guide](../guides/admin.mdx).
 POST /auth/admin/login
 
 Same body as [Login](./auth.mdx) (`{ "email": "...", "password": "..." }`).
-Only legacy `role: admin` accounts pass when app permissions are disabled; only
+Only `role: admin` accounts pass when app permissions are disabled; only
 protected app administrators pass when enabled. Custom operators use ordinary
 login. A correct non-admin password fails exactly like a wrong one. Returns the
 2FA challenge below by default. `DisableAdminTwoFactor` opts out of the default

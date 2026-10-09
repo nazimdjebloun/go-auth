@@ -9,6 +9,7 @@
     "security",
     "oauth",
     "admin",
+    "app-permissions",
     "auth-provider",
     "middleware"
   ]

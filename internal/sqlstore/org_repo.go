@@ -57,7 +57,7 @@ func NewOrgRepository(db *DB) *OrgRepository {
 	return &OrgRepository{db: db}
 }
 
-// WithAppPermissions omits the legacy role from nested member users.
+// WithAppPermissions omits the fixed account role from nested member users.
 // Configure once during wiring, before serving requests.
 func (r *OrgRepository) WithAppPermissions() *OrgRepository {
 	r.appPermissions = true

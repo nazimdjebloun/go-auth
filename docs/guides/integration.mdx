@@ -81,8 +81,9 @@ Named inputs do not change authentication requirements. With app permissions dis
 `WithAppPermissions(AppPermissionsConfig{Enable:true})` exposes
 `Services.AppPermissions`. It is nil when disabled. Enabled mode authorizes
 through the account's single `appRoleId`. Enabled-mode returned users have an
-empty Go `User.Role` and omit the legacy account `role` JSON field. Disabled
-mode still populates it. Organization membership roles remain separate.
+empty Go `User.Role` and omit the account `role` JSON field. Disabled mode
+supports the fixed `admin` and `user` roles and returns `role` in account JSON.
+Organization membership roles remain separate.
 
 App permission operations take a trusted `api.AppPermissionActor` containing
 the authenticated user ID and current session ID. Existing administrative
@@ -104,8 +105,7 @@ Self-access responses are informational and do not authorize writes.
 
 See [App roles and permissions](./app-permissions.mdx) for initialization,
 selective library provisioning, business definitions, revisions and delegation
-limits. The feature uses the new canonical schema without automatic migration
-or backfill, and startup installs no permissions.
+limits. Use the canonical schema; startup installs no permissions.
 
 ## Startup and shutdown
 

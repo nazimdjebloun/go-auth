@@ -11,7 +11,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-func TestAppUserLegacyRoleRepresentation(t *testing.T) {
+func TestAppUserRoleRepresentation(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
 		enabled bool
@@ -23,10 +23,10 @@ func TestAppUserLegacyRoleRepresentation(t *testing.T) {
 			db := backendDB(t)
 			ctx := t.Context()
 			now := time.Now().UTC()
-			legacy := NewUserRepository(db)
+			fixedRoles := NewUserRepository(db)
 			id, roleID := uuid.NewString(), uuid.NewString()
 			user := &domain.User{ID: id, Email: id + "@example.com", Role: domain.RoleAdmin, CreatedAt: now, UpdatedAt: now}
-			if err := legacy.Create(ctx, user); err != nil {
+			if err := fixedRoles.Create(ctx, user); err != nil {
 				t.Fatal(err)
 			}
 			if err := NewAppPermissionsRepository(db).InsertAppRole(ctx, &domain.AppRole{ID: roleID, Slug: "support", Name: "Support", IsEnabled: true, Revision: 1, CreatedAt: now, UpdatedAt: now}); err != nil {
@@ -64,7 +64,7 @@ func TestAppUserLegacyRoleRepresentation(t *testing.T) {
 					t.Fatal(err)
 				}
 				if _, present := fields["role"]; present == tt.enabled {
-					t.Fatalf("legacy role JSON presence disagrees with mode: %s", data)
+					t.Fatalf("account role JSON presence disagrees with mode: %s", data)
 				}
 			}
 			t.Run("id", func(t *testing.T) {
@@ -148,9 +148,9 @@ func TestAppUserLegacyRoleRepresentation(t *testing.T) {
 				}
 			})
 			t.Run("mode_isolation", func(t *testing.T) {
-				u, err := legacy.GetByID(ctx, id)
+				u, err := fixedRoles.GetByID(ctx, id)
 				if err != nil || u == nil || u.Role != domain.RoleAdmin {
-					t.Fatalf("configured reads changed the legacy instance or stored role: %+v, %v", u, err)
+					t.Fatalf("app mode reads changed the fixed-role instance or stored role: %+v, %v", u, err)
 				}
 			})
 		})

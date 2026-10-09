@@ -8,6 +8,13 @@ icon: "Component"
 
 `authApi` and `sessionsApi` are request helpers. This React context keeps user and loading state in one `<AuthProvider>` and exposes it through `useAuth()`.
 
+With app permissions disabled (the default), user `role` remains supported as
+`"admin"` or `"user"` and determines account access. With app permissions enabled,
+user `role` is omitted. Keep app access in a separate account-scoped snapshot
+from `/auth/access`, which is available only in enabled mode; see the
+[app roles and permissions client](./app-permissions.mdx) for permission-aware
+controls and clearing or refreshing that state.
+
 ```tsx
 "use client";
 
@@ -26,7 +33,9 @@ interface User {
   id: string;
   email: string;
   name: string;
-  role: string;
+  role?: "admin" | "user"; // present when app permissions are disabled
+  appRoleId?: string;
+  appRoleAssignmentRevision?: number;
   isVerified: boolean;
   hasPassword: boolean;
 }
@@ -203,4 +212,5 @@ function AccountMenu() {
 
 - [Setup](./index.mdx) — the `apiRequest` helper and `setUnauthorizedHandler` this is built on
 - [Authentication client](./authentication.mdx) — `authApi`, including `me` and two-factor methods
+- [App roles and permissions client](./app-permissions.mdx) — current access, role management, and permission-aware controls
 - [Middleware](./middleware.mdx) — the server-side counterpart: redirecting unauthenticated requests before a page even renders

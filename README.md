@@ -34,13 +34,14 @@ authentication policy, and startup/shutdown ownership rules.
 - Replaceable mailer, templates, OAuth providers, password hasher, rate-limit
   store, and audit sinks
 
-Application permissions are off by default. Enable them with
+Application permissions are off by default; accounts use the supported fixed
+`admin` and `user` roles, returned through the user `role` field. Enable app permissions with
 `WithAppPermissions(AppPermissionsConfig{Enable: true, EnableManagementHTTP: true})`,
 then initialize the protected administrator with `seed-admin --app-permissions`
 before accepting signups. The built-in admin keeps full library access;
 custom roles receive only explicitly installed and granted permissions.
 Ordinary signup assigns its default role atomically without global management locks.
-Enabled-mode user results omit the legacy `role` field; use `appRoleId` and
+Enabled-mode user results omit `role`; use `appRoleId` and
 `/auth/access` for application access information.
 App authorization IDs must use the lowercase, hyphenated UUIDs returned by the API.
 With management HTTP enabled, authorized operators can inspect another account
@@ -51,8 +52,7 @@ The [app permission guide](docs/guides/app-permissions.mdx) covers selective
 seeding, atomic bulk changes, single-role assignment, and backend checks.
 
 The canonical schema includes the app authorization tables and account role
-columns even when the feature is disabled. This change provides fresh-install
-schemas; it does not migrate or backfill existing databases.
+columns even when the feature is disabled.
 
 ## Install
 

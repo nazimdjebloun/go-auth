@@ -28,7 +28,7 @@ func NewSessionRepository(db *DB) *SessionRepository {
 	return &SessionRepository{db: db, log: slog.Default()}
 }
 
-// WithAppPermissions omits the legacy role from joined user reads.
+// WithAppPermissions omits the fixed account role from joined user reads.
 // Configure once during wiring, before serving requests.
 func (r *SessionRepository) WithAppPermissions() *SessionRepository {
 	r.appPermissions = true

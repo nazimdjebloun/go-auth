@@ -9,6 +9,14 @@ Application authorization is optional and independent of organization membership
 Each account has one app role. A custom role has an explicit set of permission
 keys; there is no role hierarchy, wildcard matching, or direct user grant.
 
+When app permissions are disabled (the default), accounts continue to use the
+supported fixed `admin` and `user` roles through the user `role` field. Enabling
+the feature selects app roles as the account authorization source.
+
+For browser integration, see the [app roles and permissions client](./client/app-permissions.mdx):
+typed request helpers and individual React/shadcn examples for every access,
+definition, role, grant, provisioning, and assignment action.
+
 ## Enable and initialize
 
 Add this option to your existing `NewConfig` setup:
@@ -42,9 +50,9 @@ It creates the protected roles and singleton state, assigns that account to
 admin, and returns `app_permissions_already_initialized` on repeat initialization.
 It does not assign existing accounts or install any permission definitions.
 
-`New` never initializes or seeds records. Registration before initialization
-fails without creating an account. This feature uses the new canonical schema;
-there is no automatic migration or backfill of an existing installation.
+`New` never initializes or seeds records. With app permissions enabled,
+registration before initialization fails without creating an account. Use the
+canonical schema and initialize the feature before accepting accounts.
 
 ## Protected roles and ordinary actions
 
@@ -61,7 +69,7 @@ a protected admin actor. Demotion, banning and deletion cannot remove the last
 usable protected administrator.
 
 In enabled mode, `users.app_role_id` is authoritative. Returned users have an
-empty Go `User.Role`, and the legacy account `role` field is omitted from JSON,
+empty Go `User.Role`, and the account `role` field is omitted from JSON,
 including nested organization member users. Organization membership `role`
 remains present. New account inserts leave `users.role` at its unused schema
 default; existing values are ignored. Use `appRoleId` and `/auth/access` in your
@@ -291,7 +299,7 @@ business write part of the authorization transaction.
 | Business permission list/create/update/delete | `goauth.app.permissions.read` / `create` / `update` / `delete` |
 | Role list/create/update/delete | `goauth.app.roles.read` / `create` / `update` / `delete` |
 | Target role and effective-access inspection | `goauth.app.roles.read` |
-| Role assignment and legacy role-update route in enabled mode | `goauth.app.roles.assign` |
+| Role assignment and the admin user role-update route in enabled mode | `goauth.app.roles.assign` |
 
 Every enabled-mode administrative service method checks its action key.
 Supply `ActorSessionID` along with the existing actor/admin ID in direct
@@ -323,7 +331,7 @@ per-account requirements still apply. Custom operators sign in through ordinary
 login; the admin login endpoint is reserved for protected administrators.
 
 Existing `/admin/users` filters should use `appRoleId` in enabled mode; the
-legacy `role` filter is rejected. The existing role PATCH body uses
+`role` filter is rejected. The existing role PATCH body uses
 `appRoleId`, `expectedRoleRevision` and `expectedAssignmentRevision` when enabled;
 its disabled-mode `role: admin|user` behavior is unchanged.
 

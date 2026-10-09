@@ -5,7 +5,7 @@ var (
 		INSERT INTO users (id, email, password_hash, password_pepper_version, name, role, is_verified, verified_at, is_banned, two_factor_enabled, org_owner_count, created_at, updated_at, app_role_id, app_role_assignment_revision)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
 
-	// Enabled installations leave the unused legacy column at its schema default.
+	// App permissions leave the unused users.role column at its schema default.
 	userCreateAppQuery = `
 		INSERT INTO users (id, email, password_hash, password_pepper_version, name, is_verified, verified_at, is_banned, two_factor_enabled, org_owner_count, created_at, updated_at, app_role_id, app_role_assignment_revision)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`

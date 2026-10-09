@@ -19,7 +19,7 @@ type UserRepository struct {
 }
 
 // WithAppPermissions selects the protected app identity for last-admin guards
-// and omits the unused legacy role from account writes and returned users.
+// and omits the fixed account role from account writes and returned users.
 // Configure once during wiring, before serving requests.
 func (r *UserRepository) WithAppPermissions() *UserRepository { r.appPermissions = true; return r }
 

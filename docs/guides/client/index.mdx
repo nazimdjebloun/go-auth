@@ -83,7 +83,7 @@ On a `429`, the thrown error also carries `retryAfter`: the `Retry-After` header
 ## What lives where
 
 - The individual feature guides (e.g. [Authentication](../authentication.mdx)) show the **raw** call — `apiRequest(API_BASE, "POST", "/auth/login", ...)` — right next to the curl and Go examples for that same endpoint, so you can see the request/response map 1:1 to what's documented above it.
-- [Authentication](./authentication.mdx), [Sessions](./sessions.mdx), [Organizations](./organizations.mdx), [Security](./security.mdx), [OAuth linking](./oauth.mdx), and [Admin](./admin.mdx) wrap those same calls into named methods — `authApi.login(...)`, `sessionsApi.list(...)`, `orgApi.create(...)`, `securityApi.changePassword(...)`, `oauthApi.link(...)`, `adminApi.listUsers(...)` — the form you'd actually want in an app.
+- [Authentication](./authentication.mdx), [Sessions](./sessions.mdx), [Organizations](./organizations.mdx), [Security](./security.mdx), [OAuth linking](./oauth.mdx), [Admin](./admin.mdx), and [App roles and permissions](./app-permissions.mdx) wrap those same calls into named methods — `authApi.login(...)`, `sessionsApi.list(...)`, `orgApi.create(...)`, `securityApi.changePassword(...)`, `oauthApi.link(...)`, `adminApi.listUsers(...)`, `appPermissionsApi.setUserRole(...)` — the form you'd actually want in an app.
 - [Provider](./auth-provider.mdx) wraps *those* in a React context, so components read `user`/`loading` from one hook instead of calling the API directly.
 - [Middleware](./middleware.mdx) is a different layer entirely — it runs on the server, before any of the above, to redirect unauthenticated requests away from protected pages.
 
@@ -95,3 +95,4 @@ On a `429`, the thrown error also carries `retryAfter`: the `Retry-After` header
 - [Security client](./security.mdx) — `securityApi`, covering name/password changes, verification resend, and deletion
 - [OAuth linking client](./oauth.mdx) — `oauthApi`, covering link/unlink/list connected providers
 - [Admin client](./admin.mdx) — `adminApi`, covering user management and audit-log queries
+- [App roles and permissions client](./app-permissions.mdx) — `appPermissionsApi`, with a shadcn example for every permission, role, grant, assignment, and access action

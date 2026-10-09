@@ -28,7 +28,7 @@ func scanAppRole(s scanner) (*domain.AppRole, error) {
 	return &role, err
 }
 
-// RoleByID reads the persistent identity, not grants or a legacy role string.
+// RoleByID reads the persistent app identity rather than the fixed account role.
 func (r *AppPermissionsRepository) RoleByID(ctx context.Context, id string) (*domain.AppRole, error) {
 	return scanAppRole(r.db.QueryRowContext(ctx, r.currentQuery(ctx, "SELECT "+appRoleColumns+" FROM app_roles WHERE id=$1"), id))
 }

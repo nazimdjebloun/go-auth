@@ -1528,7 +1528,7 @@ Queries are written once with `$N` placeholders and rewritten per driver at
 runtime, so none of this leaks into application code.
 
 <Callout type="warn" title="Constraints are not portable">
-  Legacy role/status constraints vary by driver. Application authorization
+  Fixed account-role/status constraints vary by driver. Application authorization
   identity/revision/ownership checks exist in all three fresh-install schemas;
   MySQL requires a version that enforces `CHECK` constraints. Service validation
   remains authoritative on every driver. Database access can bypass service

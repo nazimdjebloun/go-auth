@@ -2,7 +2,7 @@ package domain
 
 import "time"
 
-// Role identifies legacy account access when app permissions are disabled.
+// Role identifies fixed account access when app permissions are disabled.
 type Role string
 
 // RoleUser and RoleAdmin are the supported account roles.

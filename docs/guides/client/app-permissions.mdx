@@ -1,0 +1,1591 @@
+---
+title: "App roles and permissions"
+description: "appPermissionsApi — every authorization action with React and shadcn/ui examples, revision handling, and delegated access."
+icon: "KeyRound"
+---
+
+# App roles and permissions client
+
+Wraps every endpoint from the [app permission guide](../app-permissions.mdx) into `appPermissionsApi`, built on the [`apiRequest`](./index.mdx) helper. Each action below has its own client example. The [authorization route reference](../../routes/authorization.mdx) describes the complete HTTP contract.
+
+Application roles are separate from organization roles. Each account has one app role, with explicit permission keys. Assigning a role replaces the previous assignment; there are no direct user grants, wildcard keys, or inherited roles.
+
+<Callout type="info" title="UI components">
+  The examples follow the other client guides: React, TypeScript, and local [shadcn/ui](https://ui.shadcn.com) components. The dialog and select examples use the [Radix component APIs](https://ui.shadcn.com/docs/components/radix/dialog), including `asChild`. In an initialized shadcn project, install with `npx shadcn@latest add button input textarea card label alert dialog select table badge checkbox`.
+</Callout>
+
+## Before using the client
+
+Both authorization modes are supported. Without `WithAppPermissions`, or with
+`Enable: false`, accounts use the fixed `"admin"` and `"user"` roles and account
+JSON includes `role`. The app permission endpoints are not mounted in that mode.
+Enabling app permissions selects configurable app roles and explicit grants.
+
+Enable the feature in your existing server configuration:
+
+```go
+goauth.WithAppPermissions(goauth.AppPermissionsConfig{
+    Enable:               true,
+    EnableManagementHTTP: true,
+    DefaultRoleSlug:      "user",
+})
+```
+
+Apply the canonical schema and initialize the protected administrator through trusted server setup before accepting accounts. Follow [Enable and initialize](../app-permissions.mdx#enable-and-initialize); initialization has no browser endpoint. Startup does not install library permissions.
+
+`Enable: true` exposes `GET /auth/access`. The `/admin/authorization/*` routes also need `EnableManagementHTTP: true`. An unmounted route is not a permission denial and should not be treated as an empty list.
+
+Sign in first using the [authentication client](./authentication.mdx). Custom operators use ordinary login, even when their roles contain library permissions. Protected administrators require email 2FA by default. Custom roles follow the non-admin policy: library actions require second-factor assurance when global or per-account 2FA requires it. On `two_factor_required`, complete a fresh login and its challenge before retrying. Reading access or refreshing a session does not add second-factor assurance.
+
+The examples use `API_BASE = "/api"`, matching the same-origin proxy convention in the other guides. Replace it with your mounted prefix or configured backend origin. Keep cookies, CSRF handling, and origin configuration from [Setup](./index.mdx) and [Deployment](../deployment.mdx); never send an actor ID or session token in a permission body.
+
+In enabled mode, account JSON omits `role`. Read `appRoleId` from the user and current access from `/auth/access`. If you use the [Auth Provider](./auth-provider.mdx), its user type must allow `role?: "admin" | "user"` for disabled mode and the enabled-mode fields `appRoleId?: string` and `appRoleAssignmentRevision?: number`. Organization membership still has its own `role`.
+
+## The wrapper
+
+The response types below mirror the wire format. Revisions are numbers from the response, not counters the browser invents. Management lists return arrays inside an envelope; create/update calls return a single object; deletes return `204` without a body.
+
+```ts
+// lib/api/app-permissions.ts
+import { apiRequest } from "./client";
+
+const API_BASE = "/api";
+const ROOT = "/admin/authorization";
+
+export interface AppPermission {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  isEnabled: boolean;
+  isSystem: boolean;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppRole {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  isEnabled: boolean;
+  systemKey?: "platform_admin" | "user";
+  revision: number;
+  permissionKeys: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LibraryPermission {
+  key: string;
+  name: string;
+  description: string;
+}
+
+export interface AppUserRole {
+  role: AppRole;
+  assignmentRevision: number;
+}
+
+export interface AppAccess extends AppUserRole {
+  isFullAccess: boolean;
+  permissionKeys: string[];
+  revision: number;
+}
+
+export interface LibraryUpdateResult {
+  created: string[];
+  deleted: string[];
+  unchanged: string[];
+}
+
+export interface MetadataUpdate {
+  expectedRevision: number;
+  name?: string;
+  description?: string;
+  isEnabled?: boolean;
+}
+
+interface Page {
+  limit?: number;
+  offset?: number;
+}
+
+function pageQuery({ limit = 20, offset = 0 }: Page = {}) {
+  return new URLSearchParams({ limit: String(limit), offset: String(offset) });
+}
+
+// Compatible with both the plain wrapper in Setup and its typed variant.
+function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  return apiRequest(API_BASE, method, path, body) as Promise<T>;
+}
+
+export const appPermissionsApi = {
+  myAccess: () => request<AppAccess>("GET", "/auth/access"),
+
+  libraryCatalog: () =>
+    request<{ permissions: LibraryPermission[] }>("GET", `${ROOT}/library-permissions`),
+
+  updateLibrary: (input: { create: string[]; delete: string[] }) =>
+    request<LibraryUpdateResult>("PATCH", `${ROOT}/library-permissions`, input),
+
+  listPermissions: (page: Page = {}) =>
+    request<{ permissions: AppPermission[] }>("GET", `${ROOT}/permissions?${pageQuery(page)}`),
+
+  createPermission: (input: { key: string; name: string; description?: string }) =>
+    request<AppPermission>("POST", `${ROOT}/permissions`, input),
+
+  updatePermission: (permissionId: string, input: MetadataUpdate) =>
+    request<AppPermission>("PATCH", `${ROOT}/permissions/${encodeURIComponent(permissionId)}`, input),
+
+  deletePermission: (permissionId: string, expectedRevision: number) =>
+    request<void>("DELETE", `${ROOT}/permissions/${encodeURIComponent(permissionId)}?${new URLSearchParams({ expectedRevision: String(expectedRevision) })}`),
+
+  listRoles: (page: Page = {}) =>
+    request<{ roles: AppRole[] }>("GET", `${ROOT}/roles?${pageQuery(page)}`),
+
+  createRole: (input: { slug: string; name: string; description?: string; permissionKeys: string[] }) =>
+    request<AppRole>("POST", `${ROOT}/roles`, input),
+
+  updateRole: (roleId: string, input: MetadataUpdate) =>
+    request<AppRole>("PATCH", `${ROOT}/roles/${encodeURIComponent(roleId)}`, input),
+
+  setRolePermissions: (roleId: string, input: { expectedRevision: number; permissionKeys: string[] }) =>
+    request<AppRole>("PUT", `${ROOT}/roles/${encodeURIComponent(roleId)}/permissions`, input),
+
+  deleteRole: (roleId: string, expectedRevision: number) =>
+    request<void>("DELETE", `${ROOT}/roles/${encodeURIComponent(roleId)}?${new URLSearchParams({ expectedRevision: String(expectedRevision) })}`),
+
+  getUserRole: (userId: string) =>
+    request<AppUserRole>("GET", `${ROOT}/users/${encodeURIComponent(userId)}/role`),
+
+  getUserAccess: (userId: string) =>
+    request<AppAccess>("GET", `${ROOT}/users/${encodeURIComponent(userId)}/access`),
+
+  setUserRole: (userId: string, input: {
+    roleId: string;
+    expectedRoleRevision: number;
+    expectedAssignmentRevision: number;
+  }) => request<AppUserRole>("PUT", `${ROOT}/users/${encodeURIComponent(userId)}/role`, input),
+};
+
+// Client conveniences, not additional server endpoints. Fetch every page for
+// selectors; the default page of 20 is not the complete installed set.
+export async function loadAllPermissions(): Promise<AppPermission[]> {
+  const result: AppPermission[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const { permissions } = await appPermissionsApi.listPermissions({ limit: 100, offset });
+    result.push(...permissions);
+    if (permissions.length < 100) return result;
+  }
+}
+
+export async function loadAllRoles(): Promise<AppRole[]> {
+  const result: AppRole[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const { roles } = await appPermissionsApi.listRoles({ limit: 100, offset });
+    result.push(...roles);
+    if (roles.length < 100) return result;
+  }
+}
+
+export async function reloadPermission(id: string): Promise<AppPermission> {
+  const permission = (await loadAllPermissions()).find((item) => item.id === id);
+  if (!permission) throw { error: "permission_not_found" };
+  return permission;
+}
+
+export async function reloadRole(id: string): Promise<AppRole> {
+  const role = (await loadAllRoles()).find((item) => item.id === id);
+  if (!role) throw { error: "role_not_found" };
+  return role;
+}
+```
+
+IDs must be lowercase, hyphenated UUIDs exactly as returned by the API. URL encoding does not make an invalid UUID valid. Keys and slugs are immutable; metadata updates do not accept them. Management bodies are limited to 64 KiB and must contain one JSON object. Unknown management JSON fields, including `actor`, are rejected.
+
+`loadAllPermissions` and `loadAllRoles` are appropriate for small management catalogs. There is no count endpoint, single-definition GET, or single-role GET in this surface. Lists sort by permission key or role slug, accept limits 1–100, and default to 20 (`0` also selects 20). Offsets must be nonnegative. A full page may have a following empty page. Separate page requests do not promise a single database snapshot: refresh selectors after mutations and handle stale revisions at submission.
+
+### Which access each action needs
+
+Protected admin can execute all known library actions, including uninstalled ones. Custom roles need the corresponding installed and enabled key, plus the delegation checks described with each mutation.
+
+| Wrapper method | Required access |
+|---|---|
+| `myAccess` | Authenticated account with an enabled app role |
+| `libraryCatalog`, `updateLibrary` | Protected administrator; these cannot be delegated |
+| `listPermissions` | `goauth.app.permissions.read` |
+| `createPermission` | `goauth.app.permissions.create` |
+| `updatePermission` | `goauth.app.permissions.update` |
+| `deletePermission` | `goauth.app.permissions.delete` |
+| `listRoles`, `getUserRole`, `getUserAccess` | `goauth.app.roles.read` |
+| `createRole` | `goauth.app.roles.create` |
+| `updateRole`, `setRolePermissions` | `goauth.app.roles.update` |
+| `deleteRole` | `goauth.app.roles.delete` |
+| `setUserRole` | `goauth.app.roles.assign` |
+
+The examples that load a permission picker additionally need `goauth.app.permissions.read`; role selectors and reload buttons need `goauth.app.roles.read`. A write grant alone does not grant the reads used by a richer UI. You can pass previously loaded records to a simpler mutation component when the operator does not have list access.
+
+## Error handling
+
+Use the stable code to decide what to do. The helper supports the plain `{error,message}` thrown by [Setup](./index.mdx), the authentication guide's `AuthError.code` variant, and network `Error` objects.
+
+```ts
+// lib/app-permission-errors.ts
+export function permissionErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const value = error as { error?: unknown; code?: unknown };
+  if (typeof value.error === "string") return value.error;
+  return typeof value.code === "string" ? value.code : undefined;
+}
+
+const messages: Record<string, string> = {
+  forbidden: "You no longer have access, or this change exceeds your delegation rights.",
+  two_factor_required: "Sign in again and complete the two-factor challenge before retrying.",
+  authorization_conflict: "This record changed. Reload it, review the changes, and submit again.",
+  permission_exists: "That permission key already exists.",
+  permission_not_found: "The permission is missing or unavailable for granting.",
+  permission_in_use: "Remove this key from every role before deleting the definition.",
+  role_exists: "That role slug already exists.",
+  role_not_found: "The role is missing or unavailable.",
+  role_in_use: "This role is assigned to accounts or configured as the default.",
+  protected_role: "Built-in roles cannot be edited, disabled, or deleted.",
+  protected_permission: "Use library provisioning to install or remove library definitions.",
+  unknown_library_permission: "Use a supported key from the library catalog.",
+  invalid_permission_key: "Use a lowercase dot-separated permission key, such as app.posts.delete.",
+  last_admin: "Keep at least one usable protected administrator.",
+  user_not_found: "The selected account no longer exists.",
+  app_permissions_disabled: "Application permissions are not available on this server.",
+  app_permissions_not_initialized: "A server administrator must initialize application permissions.",
+};
+
+export function getPermissionErrorMessage(error: unknown): string {
+  const code = permissionErrorCode(error);
+  if (code && messages[code]) return messages[code];
+  if (typeof error === "object" && error !== null && "message" in error &&
+      typeof error.message === "string") return error.message;
+  return "Could not complete the request. Check your connection and try again.";
+}
+```
+
+`authorization_conflict` is a `409`, not a signal to increment a revision locally or retry automatically. Reload the affected record and let the operator review it. Permission edits/deletes use the definition revision; role edits/grant replacements/deletes use the role revision; assignment needs both the selected role revision and target assignment revision. The global `AppAccess.revision` is informational and is never an `expectedRevision` value.
+
+On `401` or `user_banned`, let the shared wrapper clear authentication state. Do not sign out on every `403`: it may be an ordinary permission denial or an MFA requirement. After a denial, refresh current access and hide unavailable controls. A `429` from the shared wrapper includes `retryAfter` in seconds; display a retry delay rather than automatically looping a write. JSON validation and infrastructure errors are covered in [Error handling](../../error-handling.mdx#app-authorization).
+
+A network failure can happen after a write committed. Reload the relevant definitions, role, or assignment before retrying; a failed browser request is not proof that the server rolled back. Create operations may already have produced the key or slug you submitted.
+
+### Shared UI helpers
+
+Copy these helpers once. The read hook ignores late responses after a reload or unmount and clears old data while loading. It does not poll or retry failed requests. Pass a stable function, using `useCallback` when it depends on a prop or page offset.
+
+```tsx
+// components/app-permission-ui.tsx
+"use client";
+
+import { useEffect, useId, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
+import type { AppAccess, AppPermission } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage } from "../lib/app-permission-errors";
+
+export function usePermissionQuery<T>(load: () => Promise<T>) {
+  const [version, setVersion] = useState(0);
+  const [state, setState] = useState<{ data?: T; error: string | null; loading: boolean }>({
+    error: null, loading: true,
+  });
+
+  useEffect(() => {
+    let active = true;
+    setState({ error: null, loading: true });
+    load().then(
+      (data) => { if (active) setState({ data, error: null, loading: false }); },
+      (error: unknown) => {
+        if (active) setState({ error: getPermissionErrorMessage(error), loading: false });
+      },
+    );
+    return () => { active = false; };
+  }, [load, version]);
+
+  return { ...state, reload: () => setVersion((value) => value + 1) };
+}
+
+export function PermissionError({ message }: { message: string | null }) {
+  if (!message) return null;
+  return <Alert variant="destructive"><AlertDescription>{message}</AlertDescription></Alert>;
+}
+
+// Effective keys are authoritative for UI availability. Do not use
+// isFullAccess to bypass an absent or disabled business definition.
+export function hasPermission(access: AppAccess | null | undefined, key: string) {
+  return access?.permissionKeys.includes(key) ?? false;
+}
+
+export function PermissionKeyPicker({ permissions, selected, onChange, access, disabled = false }: {
+  permissions: AppPermission[];
+  selected: string[];
+  onChange: (keys: string[]) => void;
+  access: AppAccess;
+  disabled?: boolean;
+}) {
+  const id = useId();
+  return (
+    <div className="space-y-3">
+      {permissions.length === 0 && <p className="text-sm text-muted-foreground">No definitions installed.</p>}
+      {permissions.map((permission) => {
+        const checked = selected.includes(permission.key);
+        const canAdd = permission.isEnabled && (access.isFullAccess || hasPermission(access, permission.key));
+        return (
+          <div key={permission.id} className="flex items-start gap-3 rounded-md border p-3">
+            <Checkbox
+              id={`${id}-${permission.id}`}
+              checked={checked}
+              disabled={disabled || (!checked && !canAdd)}
+              onCheckedChange={(value) => onChange(value === true
+                ? [...selected, permission.key]
+                : selected.filter((key) => key !== permission.key))}
+            />
+            <div className="space-y-1">
+              <Label htmlFor={`${id}-${permission.id}`}>{permission.name}</Label>
+              <p className="break-all text-sm text-muted-foreground">{permission.key}</p>
+              {!permission.isEnabled && <Badge variant="secondary">Disabled</Badge>}
+              {!access.isFullAccess && !hasPermission(access, permission.key) &&
+                <p className="text-sm text-muted-foreground">Outside your current grants</p>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+```
+
+The picker lets an operator uncheck an existing disabled key. Keeping it in a replacement request fails because replacements accept only enabled definitions. A delegate must still hold **all existing and requested keys** to replace a role's grants, so removal of an unavailable existing key may require protected admin. The picker is a convenience; the server enforces that rule.
+
+---
+
+## Read your current access
+
+`GET /auth/access` → `{role,isFullAccess,permissionKeys,assignmentRevision,revision}`.
+
+Use the top-level effective `permissionKeys` to render actions. The nested `role.permissionKeys` in an access response is not the effective grant list. Protected admin includes every known library key and every currently enabled business key; a custom role includes its enabled installed grants. `isFullAccess` describes protected-admin identity, not a wildcard that enables disabled business actions.
+
+### Access card
+
+```tsx
+// components/my-app-access.tsx
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { appPermissionsApi } from "../lib/api/app-permissions";
+import { PermissionError, usePermissionQuery } from "./app-permission-ui";
+
+export function MyAppAccess() {
+  const { data, error, loading, reload } = usePermissionQuery(appPermissionsApi.myAccess);
+  return (
+    <Card>
+      <CardHeader><CardTitle>Your application access</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <PermissionError message={error} />
+        {loading && <p>Loading access...</p>}
+        {!loading && data && <>
+          <p>{data.role.name} <Badge>{data.isFullAccess ? "Protected admin" : "Custom or baseline role"}</Badge></p>
+          <p className="text-sm text-muted-foreground">Assignment {data.assignmentRevision} · App revision {data.revision}</p>
+          {data.permissionKeys.length === 0 ? <p>No explicit permissions.</p> :
+            <ul className="space-y-1">{data.permissionKeys.map((key) => <li key={key} className="break-all text-sm">{key}</li>)}</ul>}
+        </>}
+        <Button variant="outline" disabled={loading} onClick={reload}>Refresh access</Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+Mount this after authentication, and unmount or key it by the authenticated user's ID when that user changes. Clear cached access on logout. Refresh after local role/grant/definition changes, when returning to an administrative page, and after a permission denial. Other operators' changes do not produce a push notification. Existing sessions observe new grants on subsequent backend checks; refreshing this card updates the UI.
+
+---
+
+## Read the library catalog
+
+`GET /admin/authorization/library-permissions` → `{permissions:[{key,name,description}]}`. Protected admin only.
+
+The catalog contains supported `goauth.app.*` keys, whether installed or not. It has no IDs, revisions, `isEnabled`, or installation flag. Join it to the installed-definition list by `key` when you need installation status.
+
+### Catalog table
+
+```tsx
+// components/library-permission-catalog.tsx
+"use client";
+
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { appPermissionsApi } from "../lib/api/app-permissions";
+import { PermissionError, usePermissionQuery } from "./app-permission-ui";
+
+export function LibraryPermissionCatalog() {
+  const { data, error, loading, reload } = usePermissionQuery(appPermissionsApi.libraryCatalog);
+  return (
+    <Card>
+      <CardHeader><CardTitle>Supported library actions</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <PermissionError message={error} />
+        {loading ? <p>Loading catalog...</p> : data &&
+          <Table>
+            <TableHeader><TableRow><TableHead>Key</TableHead><TableHead>Action</TableHead><TableHead>Description</TableHead></TableRow></TableHeader>
+            <TableBody>{data.permissions.map((permission) =>
+              <TableRow key={permission.key}><TableCell>{permission.key}</TableCell><TableCell>{permission.name}</TableCell><TableCell>{permission.description}</TableCell></TableRow>,
+            )}</TableBody>
+          </Table>}
+        <Button variant="outline" disabled={loading} onClick={reload}>Reload catalog</Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+---
+
+## Install library permissions
+
+`PATCH /admin/authorization/library-permissions` with `{create:[keys],delete:[]}` → `{created,deleted,unchanged}`. Protected admin only.
+
+Installing makes a definition available for custom-role grants. It does not grant that key to anyone. Each batch needs 1–100 total distinct supported keys; duplicates or create/delete overlap reject the entire batch. Installing an existing definition reports it in `unchanged`.
+
+### Install form
+
+```tsx
+// components/install-library-permissions.tsx
+"use client";
+
+import { useId, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { appPermissionsApi } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage } from "../lib/app-permission-errors";
+import { PermissionError, usePermissionQuery } from "./app-permission-ui";
+
+export function InstallLibraryPermissions({ onChanged }: { onChanged: () => void }) {
+  const catalog = usePermissionQuery(appPermissionsApi.libraryCatalog);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const id = useId();
+
+  async function install() {
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const response = await appPermissionsApi.updateLibrary({ create: selected, delete: [] });
+      setResult(`Installed ${response.created.length}; already installed ${response.unchanged.length}.`);
+      setSelected([]);
+      onChanged();
+    } catch (error: unknown) { setError(getPermissionErrorMessage(error)); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle>Install library permissions</CardTitle></CardHeader>
+      <CardContent className="space-y-4">
+        <PermissionError message={error ?? catalog.error} />
+        {catalog.loading && <p>Loading catalog...</p>}
+        {catalog.data?.permissions.map((permission) =>
+          <div key={permission.key} className="flex items-center gap-2">
+            <Checkbox id={`${id}-${permission.key}`} checked={selected.includes(permission.key)} disabled={loading}
+              onCheckedChange={(checked) => setSelected((keys) => checked === true ? [...keys, permission.key] : keys.filter((key) => key !== permission.key))} />
+            <Label htmlFor={`${id}-${permission.key}`}>{permission.name} · {permission.key}</Label>
+          </div>,
+        )}
+        {result && <p role="status">{result}</p>}
+        <Button disabled={loading || catalog.loading || !!catalog.error || selected.length === 0 || selected.length > 100} onClick={install}>
+          {loading ? "Installing..." : `Install ${selected.length} selected`}
+        </Button>
+        <Button variant="outline" disabled={loading || catalog.loading} onClick={catalog.reload}>Reload catalog</Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+Use `onChanged` to refresh installed definitions and role pickers. Follow installation with [role creation](#create-a-custom-role) or [grant replacement](#replace-a-roles-permissions).
+
+---
+
+## Remove library permissions
+
+`PATCH /admin/authorization/library-permissions` with `{create:[],delete:[keys]}`. Protected admin only.
+
+Removal deletes every role link to the selected definitions in the same transaction, bumps affected role revisions, and changes subsequent authorization checks. Protected admin retains the known library action. Reinstalling creates a new definition and **does not restore grants**. Removing an absent key reports `unchanged`.
+
+### Removal confirmation
+
+```tsx
+// components/remove-library-permission.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { appPermissionsApi, type AppPermission } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage } from "../lib/app-permission-errors";
+import { PermissionError } from "./app-permission-ui";
+
+export function RemoveLibraryPermission({ permission, onRemoved }: {
+  permission: AppPermission; onRemoved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove() {
+    setLoading(true); setError(null);
+    try {
+      await appPermissionsApi.updateLibrary({ create: [], delete: [permission.key] });
+      setOpen(false); onRemoved();
+    } catch (error: unknown) { setError(getPermissionErrorMessage(error)); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => { if (!loading) { setOpen(next); setError(null); } }}>
+      <DialogTrigger asChild><Button variant="destructive" disabled={!permission.isSystem}>Remove library definition</Button></DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Remove {permission.key}?</DialogTitle>
+          <DialogDescription>All custom-role grants for this action will be removed. Reinstalling will not restore them.</DialogDescription>
+        </DialogHeader>
+        <PermissionError message={error} />
+        <DialogFooter>
+          <Button variant="outline" disabled={loading} onClick={() => setOpen(false)}>Cancel</Button>
+          <Button variant="destructive" disabled={loading} onClick={remove}>{loading ? "Removing..." : "Remove definition and grants"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+Pass an `isSystem` row from the installed-definition list. After removal, reload definitions, roles, assignments being edited, and current access. There is no `expectedRevision` in this protected catalog request; it is an atomic key-based provisioning operation.
+
+### Mixed install/remove batch
+
+For a reviewed change that must install and remove together, use the same endpoint once. This separate example accepts a parent-reviewed plan; it displays both sets and lets the server reject an unsupported catalog key. A network failure can leave the outcome unknown, so reload installed state before deciding whether to retry. If the current state already matches the batch, repeating it reports the keys in `unchanged` without changing revisions. Review the state first because another administrator may have changed it meanwhile.
+
+```tsx
+// components/apply-library-permission-plan.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { appPermissionsApi } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage } from "../lib/app-permission-errors";
+import { PermissionError } from "./app-permission-ui";
+
+export function ApplyLibraryPermissionPlan({ create, remove, onApplied }: {
+  create: string[]; remove: string[]; onApplied: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const keys = [...create, ...remove];
+  const valid = keys.length >= 1 && keys.length <= 100 && new Set(keys).size === keys.length;
+
+  async function apply() {
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const response = await appPermissionsApi.updateLibrary({ create, delete: remove });
+      setResult(`Created ${response.created.length}; deleted ${response.deleted.length}; unchanged ${response.unchanged.length}.`);
+      onApplied();
+    } catch (error: unknown) { setError(getPermissionErrorMessage(error)); }
+    finally { setLoading(false); }
+  }
+
+  return <Card>
+    <CardHeader><CardTitle>Review library changes</CardTitle></CardHeader>
+    <CardContent className="space-y-4">
+      <p>Install: {create.join(", ") || "None"}</p>
+      <p>Remove definitions and all their grants: {remove.join(", ") || "None"}</p>
+      <PermissionError message={error} />
+      {result && <p role="status">{result}</p>}
+      <Button disabled={loading || !valid} onClick={apply}>{loading ? "Applying..." : "Apply reviewed batch"}</Button>
+    </CardContent>
+  </Card>;
+}
+```
+
+---
+
+## List installed permissions
+
+`GET /admin/authorization/permissions?limit=20&offset=0` → `{permissions:[...]}`. Requires `goauth.app.permissions.read`.
+
+This list includes installed library and business definitions, including disabled business definitions. It is different from the fixed library catalog. There is no server-side search or count in this endpoint; the pager below uses page length and handles an empty final page.
+
+### Permission table
+
+```tsx
+// components/app-permission-list.tsx
+"use client";
+
+import { useCallback, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { appPermissionsApi, type AppPermission } from "../lib/api/app-permissions";
+import { PermissionError, usePermissionQuery } from "./app-permission-ui";
+
+export function AppPermissionList({ onSelect }: { onSelect: (permission: AppPermission) => void }) {
+  const [offset, setOffset] = useState(0);
+  const limit = 20;
+  const load = useCallback(() => appPermissionsApi.listPermissions({ limit, offset }), [offset]);
+  const { data, error, loading, reload } = usePermissionQuery(load);
+
+  return <Card>
+    <CardHeader><CardTitle>Installed permissions</CardTitle></CardHeader>
+    <CardContent className="space-y-4">
+      <PermissionError message={error} />
+      {loading ? <p>Loading permissions...</p> : data && <>
+        {data.permissions.length === 0 ? <p>No permissions on this page.</p> : <Table>
+          <TableHeader><TableRow><TableHead>Key</TableHead><TableHead>Type</TableHead><TableHead>State</TableHead><TableHead>Revision</TableHead><TableHead>Details</TableHead></TableRow></TableHeader>
+          <TableBody>{data.permissions.map((permission) => <TableRow key={permission.id}>
+            <TableCell>{permission.key}</TableCell>
+            <TableCell><Badge variant="outline">{permission.isSystem ? "Library" : "Business"}</Badge></TableCell>
+            <TableCell>{permission.isEnabled ? "Enabled" : "Disabled"}</TableCell>
+            <TableCell>{permission.revision}</TableCell>
+            <TableCell><Button variant="outline" size="sm" onClick={() => onSelect(permission)}>Select</Button></TableCell>
+          </TableRow>)}</TableBody>
+        </Table>}
+      </>}
+      <div className="flex gap-2">
+        <Button variant="outline" disabled={loading || offset === 0} onClick={() => setOffset((value) => Math.max(0, value - limit))}>Previous</Button>
+        <Button variant="outline" disabled={loading || !data || data.permissions.length < limit} onClick={() => setOffset((value) => value + limit)}>Next</Button>
+        <Button variant="outline" disabled={loading} onClick={reload}>Reload page</Button>
+      </div>
+    </CardContent>
+  </Card>;
+}
+```
+
+Pass the selected record to an edit or delete component. Refresh the page after changes; do not keep submitting its old revision. Library rows use the protected provisioning UI instead of business CRUD.
+
+---
+
+## Create a business permission
+
+`POST /admin/authorization/permissions` with `{key,name,description}` → a definition, `201`. Requires `goauth.app.permissions.create`.
+
+Use your application namespace, for example `app.posts.delete`. Each dot-separated segment starts with a lowercase letter and then contains lowercase letters, digits, or underscores. At least a resource and action must follow `app.`; the whole key is at most 160 bytes. `goauth.app.*` belongs to the library and cannot be created here.
+
+Names are required, at most 120 Unicode characters. Descriptions are optional, at most 4096 UTF-8 bytes. Creation returns `isEnabled: true` and `revision: 1`. It grants nobody access; assign the definition to a role next.
+
+### Definition form
+
+```tsx
+// components/create-app-permission.tsx
+"use client";
+
+import { useId, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { appPermissionsApi, type AppPermission } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage } from "../lib/app-permission-errors";
+import { PermissionError } from "./app-permission-ui";
+
+export function CreateAppPermission({ onCreated }: { onCreated: (permission: AppPermission) => void }) {
+  const [key, setKey] = useState("");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const id = useId();
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setLoading(true); setError(null);
+    try {
+      if (new TextEncoder().encode(description).length > 4096) throw new Error("Description exceeds 4096 bytes.");
+      const permission = await appPermissionsApi.createPermission({ key, name, description });
+      setKey(""); setName(""); setDescription(""); onCreated(permission);
+    } catch (error: unknown) { setError(getPermissionErrorMessage(error)); }
+    finally { setLoading(false); }
+  }
+
+  return <Card>
+    <CardHeader><CardTitle>Create business permission</CardTitle></CardHeader>
+    <CardContent><form onSubmit={submit} className="space-y-4">
+      <PermissionError message={error} />
+      <fieldset disabled={loading} className="space-y-4">
+        <div className="space-y-2"><Label htmlFor={`${id}-key`}>Immutable key</Label><Input id={`${id}-key`} value={key} onChange={(event) => setKey(event.target.value)} placeholder="app.posts.delete" pattern="app\.[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+" maxLength={160} required /></div>
+        <div className="space-y-2"><Label htmlFor={`${id}-name`}>Name</Label><Input id={`${id}-name`} value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required /></div>
+        <div className="space-y-2"><Label htmlFor={`${id}-description`}>Description</Label><Textarea id={`${id}-description`} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+        <Button type="submit">{loading ? "Creating..." : "Create definition"}</Button>
+      </fieldset>
+    </form></CardContent>
+  </Card>;
+}
+```
+
+The browser checks improve feedback; server validation is still authoritative. A duplicate key returns `permission_exists`. Keep the returned ID and revision rather than constructing them from the key.
+
+---
+
+## Update, disable, or enable a business permission
+
+`PATCH /admin/authorization/permissions/{permissionID}` with `{expectedRevision,name?,description?,isEnabled?}` → the updated definition, `200`. Requires `goauth.app.permissions.update`.
+
+Omitting an optional field preserves it; `description: ""` clears the description, and `isEnabled: false` disables the key. Use the revision of the definition being edited. A delegate must also currently hold that business key. Once it is disabled, the delegate cannot re-enable it to regain access; protected admin can.
+
+Disabled business definitions deny everyone, including protected admin, on subsequent checks. Disabling keeps role links; re-enabling makes those existing grants effective again. This differs from library removal, which deletes links.
+
+### Revision-aware edit form
+
+```tsx
+// components/update-app-permission.tsx
+"use client";
+
+import { useId, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { appPermissionsApi, reloadPermission, type AppPermission } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage, permissionErrorCode } from "../lib/app-permission-errors";
+import { PermissionError } from "./app-permission-ui";
+
+export function UpdateAppPermission({ permission, onUpdated }: {
+  permission: AppPermission; onUpdated: (permission: AppPermission) => void;
+}) {
+  const [record, setRecord] = useState(permission);
+  const [name, setName] = useState(permission.name);
+  const [description, setDescription] = useState(permission.description);
+  const [isEnabled, setEnabled] = useState(permission.isEnabled);
+  const [stale, setStale] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const id = useId();
+
+  function accept(updated: AppPermission) {
+    setRecord(updated); setName(updated.name); setDescription(updated.description);
+    setEnabled(updated.isEnabled); setStale(false); onUpdated(updated);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setLoading(true); setError(null);
+    try {
+      if (new TextEncoder().encode(description).length > 4096) throw new Error("Description exceeds 4096 bytes.");
+      accept(await appPermissionsApi.updatePermission(record.id, { expectedRevision: record.revision, name, description, isEnabled }));
+    } catch (error: unknown) {
+      setStale(permissionErrorCode(error) === "authorization_conflict");
+      setError(getPermissionErrorMessage(error));
+    } finally { setLoading(false); }
+  }
+
+  async function reload() {
+    setLoading(true); setError(null);
+    try { accept(await reloadPermission(record.id)); }
+    catch (error: unknown) { setError(getPermissionErrorMessage(error)); }
+    finally { setLoading(false); }
+  }
+
+  return <Card>
+    <CardHeader><CardTitle>Edit {record.key} · revision {record.revision}</CardTitle></CardHeader>
+    <CardContent className="space-y-4">
+      <PermissionError message={error} />
+      {record.isSystem ? <p>Use library provisioning for this definition.</p> : <form onSubmit={submit} className="space-y-4">
+        <fieldset disabled={loading || stale} className="space-y-4">
+          <div className="space-y-2"><Label htmlFor={`${id}-name`}>Name</Label><Input id={`${id}-name`} value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required /></div>
+          <div className="space-y-2"><Label htmlFor={`${id}-description`}>Description</Label><Textarea id={`${id}-description`} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+          <div className="flex items-center gap-2"><Checkbox id={`${id}-enabled`} checked={isEnabled} onCheckedChange={(checked) => setEnabled(checked === true)} /><Label htmlFor={`${id}-enabled`}>Enabled</Label></div>
+          <Button type="submit">{loading ? "Saving..." : "Save changes"}</Button>
+        </fieldset>
+      </form>}
+      <p className="text-sm text-muted-foreground">Reload discards this draft. Review the current values before saving.</p>
+      <Button variant="outline" disabled={loading} onClick={reload}>Discard draft and reload</Button>
+    </CardContent>
+  </Card>;
+}
+```
+
+Mount edit forms with a key such as `permission.id + ":" + permission.revision` when a parent selects a different record or replaces a snapshot. The example also adopts the returned revision after each successful save. Reload requires list permission; it never silently reapplies the old draft.
+
+---
+
+## Delete a business permission
+
+`DELETE /admin/authorization/permissions/{permissionID}?expectedRevision=N` → `204`. Requires `goauth.app.permissions.delete`.
+
+Remove the key from every role before deleting its definition. Disabled grants still count as references. `permission_in_use` means cleanup is required, not that the browser should cascade the deletion. Library definitions use the protected removal endpoint instead.
+
+### Delete confirmation
+
+```tsx
+// components/delete-app-permission.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { appPermissionsApi, type AppPermission } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage, permissionErrorCode } from "../lib/app-permission-errors";
+import { PermissionError } from "./app-permission-ui";
+
+export function DeleteAppPermission({ permission, onDeleted, onReload }: {
+  permission: AppPermission; onDeleted: () => void; onReload: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove() {
+    setLoading(true); setError(null);
+    try {
+      await appPermissionsApi.deletePermission(permission.id, permission.revision);
+      setOpen(false); onDeleted();
+    } catch (error: unknown) {
+      setStale(permissionErrorCode(error) === "authorization_conflict");
+      setError(getPermissionErrorMessage(error));
+    } finally { setLoading(false); }
+  }
+
+  return <Dialog open={open} onOpenChange={(next) => { if (!loading) setOpen(next); }}>
+    <DialogTrigger asChild><Button variant="destructive" disabled={permission.isSystem}>Delete business definition</Button></DialogTrigger>
+    <DialogContent>
+      <DialogHeader><DialogTitle>Delete {permission.key}?</DialogTitle><DialogDescription>Delete revision {permission.revision}. Every role grant must already be removed.</DialogDescription></DialogHeader>
+      <PermissionError message={error} />
+      <DialogFooter>
+        <Button variant="outline" disabled={loading} onClick={() => setOpen(false)}>Cancel</Button>
+        {stale && <Button variant="outline" disabled={loading} onClick={() => { setOpen(false); onReload(); }}>Reload before reviewing again</Button>}
+        <Button variant="destructive" disabled={loading || stale} onClick={remove}>{loading ? "Deleting..." : "Delete definition"}</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
+}
+```
+
+`onReload` should refresh the selected definition and remount this dialog with its new ID/revision key. `onDeleted` removes it from client state and refreshes access. The shared request wrapper handles the empty `204`; do not parse a JSON success object.
+
+---
+
+## List roles
+
+`GET /admin/authorization/roles?limit=20&offset=0` → `{roles:[...]}`. Requires `goauth.app.roles.read`.
+
+The list contains protected and custom roles, enabled and disabled, with their explicit grant keys. Explicit keys include disabled definitions; this is an editing view, not effective access. Built-in admin's full policy is not represented by a wildcard in this list. Identify protected roles through `systemKey`, never a name containing “admin”.
+
+### Role table
+
+```tsx
+// components/app-role-list.tsx
+"use client";
+
+import { useCallback, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { appPermissionsApi, type AppRole } from "../lib/api/app-permissions";
+import { PermissionError, usePermissionQuery } from "./app-permission-ui";
+
+export function AppRoleList({ onSelect }: { onSelect: (role: AppRole) => void }) {
+  const [offset, setOffset] = useState(0);
+  const limit = 20;
+  const load = useCallback(() => appPermissionsApi.listRoles({ limit, offset }), [offset]);
+  const { data, error, loading, reload } = usePermissionQuery(load);
+
+  return <Card>
+    <CardHeader><CardTitle>Application roles</CardTitle></CardHeader>
+    <CardContent className="space-y-4">
+      <PermissionError message={error} />
+      {loading ? <p>Loading roles...</p> : data && <>
+        {data.roles.length === 0 ? <p>No roles on this page.</p> : <Table>
+          <TableHeader><TableRow><TableHead>Role</TableHead><TableHead>Identity</TableHead><TableHead>State</TableHead><TableHead>Grants</TableHead><TableHead>Details</TableHead></TableRow></TableHeader>
+          <TableBody>{data.roles.map((role) => <TableRow key={role.id}>
+            <TableCell>{role.name}<p className="text-sm text-muted-foreground">{role.slug} · revision {role.revision}</p></TableCell>
+            <TableCell><Badge variant="outline">{role.systemKey ?? "custom"}</Badge></TableCell>
+            <TableCell>{role.isEnabled ? "Enabled" : "Disabled"}</TableCell>
+            <TableCell>{role.permissionKeys.length} explicit</TableCell>
+            <TableCell><Button variant="outline" size="sm" onClick={() => onSelect(role)}>Select</Button></TableCell>
+          </TableRow>)}</TableBody>
+        </Table>}
+      </>}
+      <div className="flex gap-2">
+        <Button variant="outline" disabled={loading || offset === 0} onClick={() => setOffset((value) => Math.max(0, value - limit))}>Previous</Button>
+        <Button variant="outline" disabled={loading || !data || data.roles.length < limit} onClick={() => setOffset((value) => value + limit)}>Next</Button>
+        <Button variant="outline" disabled={loading} onClick={reload}>Reload page</Button>
+      </div>
+    </CardContent>
+  </Card>;
+}
+```
+
+There is no role count response or server-side role search here. Pass the returned role to the following forms and refresh the list after changes.
+
+---
+
+## Create a custom role
+
+`POST /admin/authorization/roles` with `{slug,name,description,permissionKeys}` → the role, `201`. Requires `goauth.app.roles.create`.
+
+Slugs are immutable: 1–80 lowercase letters, digits, or hyphens, beginning with a letter. `admin` and `user` are reserved. Names and descriptions have the same limits as permission metadata. The role starts enabled, at revision 1. `permissionKeys: []` creates an empty role.
+
+At most 256 distinct keys can be granted; each definition must already be installed and enabled. A delegate can grant only keys it currently holds. A protected admin can choose any installed enabled key. Creating a role does not assign an account to it.
+
+### Role creation form
+
+```tsx
+// components/create-app-role.tsx
+"use client";
+
+import { useId, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { appPermissionsApi, loadAllPermissions, type AppAccess, type AppRole } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage } from "../lib/app-permission-errors";
+import { PermissionError, PermissionKeyPicker, usePermissionQuery } from "./app-permission-ui";
+
+export function CreateAppRole({ access, onCreated }: { access: AppAccess; onCreated: (role: AppRole) => void }) {
+  const definitions = usePermissionQuery(loadAllPermissions);
+  const [slug, setSlug] = useState("");
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [keys, setKeys] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const id = useId();
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setLoading(true); setError(null);
+    try {
+      if (new TextEncoder().encode(description).length > 4096) throw new Error("Description exceeds 4096 bytes.");
+      const role = await appPermissionsApi.createRole({ slug, name, description, permissionKeys: keys });
+      setSlug(""); setName(""); setDescription(""); setKeys([]); onCreated(role);
+    } catch (error: unknown) { setError(getPermissionErrorMessage(error)); }
+    finally { setLoading(false); }
+  }
+
+  return <Card>
+    <CardHeader><CardTitle>Create application role</CardTitle></CardHeader>
+    <CardContent><form onSubmit={submit} className="space-y-4">
+      <PermissionError message={error ?? definitions.error} />
+      <fieldset disabled={loading || definitions.loading || !!definitions.error} className="space-y-4">
+        <div className="space-y-2"><Label htmlFor={`${id}-slug`}>Immutable slug</Label><Input id={`${id}-slug`} value={slug} onChange={(event) => setSlug(event.target.value)} pattern="[a-z][a-z0-9\-]*" maxLength={80} placeholder="moderator" required /></div>
+        <div className="space-y-2"><Label htmlFor={`${id}-name`}>Name</Label><Input id={`${id}-name`} value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required /></div>
+        <div className="space-y-2"><Label htmlFor={`${id}-description`}>Description</Label><Textarea id={`${id}-description`} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+        {definitions.loading ? <p>Loading definitions...</p> : definitions.data &&
+          <PermissionKeyPicker permissions={definitions.data} selected={keys} onChange={setKeys} access={access} disabled={loading} />}
+        <p className="text-sm text-muted-foreground">{keys.length} / 256 keys selected. No account is assigned by this form.</p>
+        <Button type="submit" disabled={keys.length > 256}>{loading ? "Creating..." : "Create role"}</Button>
+      </fieldset>
+      <Button type="button" variant="outline" disabled={loading || definitions.loading} onClick={definitions.reload}>Reload definitions</Button>
+    </form></CardContent>
+  </Card>;
+}
+```
+
+Pass current access from `myAccess`, and reload it after a denial. This selector loads every installed page, not just the first 20 definitions. A key can still disappear or be disabled after loading; the server rejects the submission instead of creating a partially granted role.
+
+---
+
+## Update, disable, or enable a custom role
+
+`PATCH /admin/authorization/roles/{roleID}` with `{expectedRevision,name?,description?,isEnabled?}` → the updated role, `200`. Requires `goauth.app.roles.update`.
+
+Protected `admin` and `user` roles cannot be customized, even by protected admin. The configured default role cannot be disabled. Disabling another custom role denies permission checks for its assigned accounts; it does not ban those accounts or revoke ordinary authenticated account operations. Re-enabling retains the existing grant set.
+
+A delegate must hold the role's existing keys and cannot edit its own role. Changing metadata does not change its slug or grant set. Use grant replacement for those keys.
+
+### Role edit form
+
+```tsx
+// components/update-app-role.tsx
+"use client";
+
+import { useId, useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { appPermissionsApi, reloadRole, type AppRole } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage, permissionErrorCode } from "../lib/app-permission-errors";
+import { PermissionError } from "./app-permission-ui";
+
+export function UpdateAppRole({ role, onUpdated }: { role: AppRole; onUpdated: (role: AppRole) => void }) {
+  const [record, setRecord] = useState(role);
+  const [name, setName] = useState(role.name);
+  const [description, setDescription] = useState(role.description);
+  const [isEnabled, setEnabled] = useState(role.isEnabled);
+  const [loading, setLoading] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const id = useId();
+
+  function accept(updated: AppRole) {
+    setRecord(updated); setName(updated.name); setDescription(updated.description);
+    setEnabled(updated.isEnabled); setStale(false); onUpdated(updated);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setLoading(true); setError(null);
+    try {
+      if (new TextEncoder().encode(description).length > 4096) throw new Error("Description exceeds 4096 bytes.");
+      accept(await appPermissionsApi.updateRole(record.id, { expectedRevision: record.revision, name, description, isEnabled }));
+    } catch (error: unknown) {
+      setStale(permissionErrorCode(error) === "authorization_conflict");
+      setError(getPermissionErrorMessage(error));
+    } finally { setLoading(false); }
+  }
+
+  async function reload() {
+    setLoading(true); setError(null);
+    try { accept(await reloadRole(record.id)); }
+    catch (error: unknown) { setError(getPermissionErrorMessage(error)); }
+    finally { setLoading(false); }
+  }
+
+  return <Card>
+    <CardHeader><CardTitle>Edit {record.slug} · revision {record.revision}</CardTitle></CardHeader>
+    <CardContent className="space-y-4">
+      <PermissionError message={error} />
+      {record.systemKey ? <p>This built-in role has protected metadata and grants.</p> : <form onSubmit={submit} className="space-y-4">
+        <fieldset disabled={loading || stale} className="space-y-4">
+          <div className="space-y-2"><Label htmlFor={`${id}-name`}>Name</Label><Input id={`${id}-name`} value={name} onChange={(event) => setName(event.target.value)} maxLength={120} required /></div>
+          <div className="space-y-2"><Label htmlFor={`${id}-description`}>Description</Label><Textarea id={`${id}-description`} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
+          <div className="flex items-center gap-2"><Checkbox id={`${id}-enabled`} checked={isEnabled} onCheckedChange={(checked) => setEnabled(checked === true)} /><Label htmlFor={`${id}-enabled`}>Enabled</Label></div>
+          <Button type="submit">{loading ? "Saving..." : "Save role"}</Button>
+        </fieldset>
+      </form>}
+      <p className="text-sm text-muted-foreground">Reload discards the draft; review the new values before saving.</p>
+      <Button variant="outline" disabled={loading} onClick={reload}>Discard draft and reload</Button>
+    </CardContent>
+  </Card>;
+}
+```
+
+Use a parent key of `role.id + ":" + role.revision` when changing the selected snapshot. The server knows the configured default slug; it is not included as an `isDefault` response flag. Handle `role_in_use` if an attempted disable targets that default.
+
+---
+
+## Replace a role's permissions
+
+`PUT /admin/authorization/roles/{roleID}/permissions` with `{expectedRevision,permissionKeys:[...]}` → the updated role, `200`. Requires `goauth.app.roles.update`.
+
+This replaces the **entire** explicit set. Sending only the newly checked keys also removes all omitted keys. Send `[]` to clear; an omitted or `null` `permissionKeys` is invalid. At most 256 distinct installed, enabled keys are accepted.
+
+A delegate must hold both the old keys and the requested keys, cannot edit its own role, and cannot customize protected roles. The example retains disabled selected keys until the operator removes them; it never silently filters an existing grant out of the draft.
+
+### Grant editor
+
+```tsx
+// components/app-role-permissions.tsx
+"use client";
+
+import { useState, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { appPermissionsApi, loadAllPermissions, reloadRole, type AppAccess, type AppRole } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage, permissionErrorCode } from "../lib/app-permission-errors";
+import { PermissionError, PermissionKeyPicker, usePermissionQuery } from "./app-permission-ui";
+
+export function AppRolePermissions({ role, access, onUpdated }: {
+  role: AppRole; access: AppAccess; onUpdated: (role: AppRole) => void;
+}) {
+  const definitions = usePermissionQuery(loadAllPermissions);
+  const [record, setRecord] = useState(role);
+  const [keys, setKeys] = useState<string[]>(role.permissionKeys);
+  const [loading, setLoading] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const unavailable = definitions.data
+    ? keys.filter((key) => !definitions.data.some((permission) => permission.key === key && permission.isEnabled)) : [];
+  const protectedRole = !!record.systemKey;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setLoading(true); setError(null);
+    try {
+      const updated = await appPermissionsApi.setRolePermissions(record.id, { expectedRevision: record.revision, permissionKeys: keys });
+      setRecord(updated); setKeys(updated.permissionKeys); setStale(false); onUpdated(updated);
+    } catch (error: unknown) {
+      setStale(permissionErrorCode(error) === "authorization_conflict");
+      setError(getPermissionErrorMessage(error));
+    } finally { setLoading(false); }
+  }
+
+  async function reload() {
+    setLoading(true); setError(null);
+    try {
+      const updated = await reloadRole(record.id);
+      setRecord(updated); setKeys(updated.permissionKeys); setStale(false); onUpdated(updated);
+      definitions.reload();
+    } catch (error: unknown) { setError(getPermissionErrorMessage(error)); }
+    finally { setLoading(false); }
+  }
+
+  return <Card>
+    <CardHeader><CardTitle>Grants for {record.name} · revision {record.revision}</CardTitle></CardHeader>
+    <CardContent><form onSubmit={submit} className="space-y-4">
+      <PermissionError message={error ?? definitions.error} />
+      {protectedRole && <p>Built-in role grants cannot be replaced.</p>}
+      {definitions.loading ? <p>Loading definitions...</p> : definitions.data &&
+        <PermissionKeyPicker permissions={definitions.data} selected={keys} onChange={setKeys} access={access} disabled={loading || stale || protectedRole} />}
+      {unavailable.length > 0 && <div className="space-y-2">
+        <p>Remove these unavailable keys before submitting:</p>
+        {unavailable.map((key) => <Button key={key} type="button" variant="outline" disabled={loading || stale || protectedRole}
+          onClick={() => setKeys((selected) => selected.filter((value) => value !== key))}>Remove {key} from draft</Button>)}
+      </div>}
+      <p className="text-sm text-muted-foreground">{keys.length} keys will replace the complete grant set. An empty set removes all grants.</p>
+      <Button type="submit" disabled={loading || stale || protectedRole || definitions.loading || !!definitions.error || unavailable.length > 0 || keys.length > 256}>{loading ? "Saving..." : "Replace all grants"}</Button>
+      <Button type="button" variant="outline" disabled={loading} onClick={reload}>Discard draft and reload role and definitions</Button>
+    </form></CardContent>
+  </Card>;
+}
+```
+
+Mount with the selected role's ID/revision key. After success, replace that role snapshot everywhere, refresh access, and reload assignment selectors. A grant change advances the role revision, so an assignment form opened before the change may now conflict.
+
+### Clear all grants
+
+This separate confirmation example sends an explicit empty array using the same endpoint. Clearing preserves the role and its assignments. It does not remove installed definitions, and a delegate still needs the role's existing keys.
+
+```tsx
+// components/clear-app-role-permissions.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { appPermissionsApi, type AppRole } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage, permissionErrorCode } from "../lib/app-permission-errors";
+import { PermissionError } from "./app-permission-ui";
+
+export function ClearAppRolePermissions({ role, onUpdated, onReload }: {
+  role: AppRole; onUpdated: (role: AppRole) => void; onReload: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function clear() {
+    setLoading(true); setError(null);
+    try {
+      const updated = await appPermissionsApi.setRolePermissions(role.id, { expectedRevision: role.revision, permissionKeys: [] });
+      setOpen(false); onUpdated(updated);
+    } catch (error: unknown) {
+      setStale(permissionErrorCode(error) === "authorization_conflict");
+      setError(getPermissionErrorMessage(error));
+    } finally { setLoading(false); }
+  }
+
+  return <Dialog open={open} onOpenChange={(next) => { if (!loading) setOpen(next); }}>
+    <DialogTrigger asChild><Button variant="destructive" disabled={!!role.systemKey}>Clear all grants</Button></DialogTrigger>
+    <DialogContent>
+      <DialogHeader><DialogTitle>Clear grants for {role.name}?</DialogTitle><DialogDescription>Accounts keep this role but lose its explicit permissions. This replaces revision {role.revision} with an empty grant set.</DialogDescription></DialogHeader>
+      <PermissionError message={error} />
+      <DialogFooter>
+        <Button variant="outline" disabled={loading} onClick={() => setOpen(false)}>Cancel</Button>
+        {stale && <Button variant="outline" disabled={loading} onClick={() => { setOpen(false); onReload(); }}>Reload role</Button>}
+        <Button variant="destructive" disabled={loading || stale} onClick={clear}>{loading ? "Clearing..." : "Remove every grant"}</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
+}
+```
+
+As with deletion dialogs, reload and remount with a fresh revision after a conflict. Clearing business grants from all referencing roles is the preparation for deleting a business definition; remove only the intended key when other grants should remain.
+
+---
+
+## Delete a custom role
+
+`DELETE /admin/authorization/roles/{roleID}?expectedRevision=N` → `204`. Requires `goauth.app.roles.delete`.
+
+The role must be custom, unassigned, and different from the configured default. Reassign its accounts first. The server does not move them to a fallback role. A delegate must hold all existing keys and cannot delete its own role. Deleting a role does not delete its permission definitions.
+
+### Role deletion confirmation
+
+```tsx
+// components/delete-app-role.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { appPermissionsApi, type AppRole } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage, permissionErrorCode } from "../lib/app-permission-errors";
+import { PermissionError } from "./app-permission-ui";
+
+export function DeleteAppRole({ role, onDeleted, onReload }: {
+  role: AppRole; onDeleted: () => void; onReload: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function remove() {
+    setLoading(true); setError(null);
+    try {
+      await appPermissionsApi.deleteRole(role.id, role.revision);
+      setOpen(false); onDeleted();
+    } catch (error: unknown) {
+      setStale(permissionErrorCode(error) === "authorization_conflict");
+      setError(getPermissionErrorMessage(error));
+    } finally { setLoading(false); }
+  }
+
+  return <Dialog open={open} onOpenChange={(next) => { if (!loading) setOpen(next); }}>
+    <DialogTrigger asChild><Button variant="destructive" disabled={!!role.systemKey}>Delete role</Button></DialogTrigger>
+    <DialogContent>
+      <DialogHeader><DialogTitle>Delete {role.name}?</DialogTitle><DialogDescription>The role must have no assigned accounts and cannot be the configured default. Deleting revision {role.revision} keeps installed definitions.</DialogDescription></DialogHeader>
+      <PermissionError message={error} />
+      <DialogFooter>
+        <Button variant="outline" disabled={loading} onClick={() => setOpen(false)}>Cancel</Button>
+        {stale && <Button variant="outline" disabled={loading} onClick={() => { setOpen(false); onReload(); }}>Reload role before reviewing again</Button>}
+        <Button variant="destructive" disabled={loading || stale} onClick={remove}>{loading ? "Deleting..." : "Delete role"}</Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>;
+}
+```
+
+Use the latest role from `listRoles`, with a parent ID/revision key. `role_in_use` needs reassignment or a server-side default configuration change; it is not a revision-retry error. Refresh role selectors after deletion.
+
+---
+
+## Read an account's assigned role
+
+`GET /admin/authorization/users/{id}/role` → `{role,assignmentRevision}`. Requires `goauth.app.roles.read`.
+
+This reads explicit role grants and the account assignment revision. It can describe a disabled role and differs from effective access, which requires an enabled target role. A missing account returns `user_not_found`; an unassigned account returns `role_not_found`. The path identifies the target; authentication identifies the operator.
+
+### Assignment card
+
+```tsx
+// components/app-user-role.tsx
+"use client";
+
+import { useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { appPermissionsApi } from "../lib/api/app-permissions";
+import { PermissionError, usePermissionQuery } from "./app-permission-ui";
+
+export function AppUserRoleCard({ userId }: { userId: string }) {
+  const load = useCallback(() => appPermissionsApi.getUserRole(userId), [userId]);
+  const { data, error, loading, reload } = usePermissionQuery(load);
+  return <Card>
+    <CardHeader><CardTitle>Assigned application role</CardTitle></CardHeader>
+    <CardContent className="space-y-4">
+      <PermissionError message={error} />
+      {loading ? <p>Loading assignment...</p> : data && <>
+        <p>{data.role.name} <Badge variant="outline">{data.role.systemKey ?? "custom"}</Badge></p>
+        <p>{data.role.isEnabled ? "Enabled" : "Disabled"} · Role revision {data.role.revision} · Assignment revision {data.assignmentRevision}</p>
+        <ul className="space-y-1">{data.role.permissionKeys.map((key) => <li key={key} className="break-all text-sm">{key}</li>)}</ul>
+      </>}
+      <Button variant="outline" disabled={loading} onClick={reload}>Reload assignment</Button>
+    </CardContent>
+  </Card>;
+}
+```
+
+Use the response's `assignmentRevision` when assigning a replacement. The current role's revision is not the account assignment revision, and the replacement role needs its own current revision from the role list.
+
+---
+
+## Inspect an account's effective access
+
+`GET /admin/authorization/users/{id}/access` → the same shape as `myAccess`. Requires `goauth.app.roles.read`, including when inspecting your own account through this management path.
+
+The operator's session must meet its required MFA policy; the route does not impersonate the target or inspect the target's session assurance. A missing, banned, unassigned, or disabled-role target returns `403 forbidden`, not an empty successful snapshot. Use the role inspection route when an administrator needs to inspect a disabled assignment.
+
+### Effective-access card
+
+```tsx
+// components/app-user-access.tsx
+"use client";
+
+import { useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { appPermissionsApi } from "../lib/api/app-permissions";
+import { PermissionError, usePermissionQuery } from "./app-permission-ui";
+
+export function AppUserAccessCard({ userId }: { userId: string }) {
+  const load = useCallback(() => appPermissionsApi.getUserAccess(userId), [userId]);
+  const { data, error, loading, reload } = usePermissionQuery(load);
+  return <Card>
+    <CardHeader><CardTitle>Account effective access</CardTitle></CardHeader>
+    <CardContent className="space-y-4">
+      <PermissionError message={error} />
+      {loading ? <p>Loading effective access...</p> : data && <>
+        <p>{data.role.name} <Badge>{data.isFullAccess ? "Protected admin" : "Explicit grants"}</Badge></p>
+        <p className="text-sm text-muted-foreground">Assignment {data.assignmentRevision} · App revision {data.revision}</p>
+        {data.permissionKeys.length === 0 ? <p>No effective permission keys.</p> :
+          <ul className="space-y-1">{data.permissionKeys.map((key) => <li key={key} className="break-all text-sm">{key}</li>)}</ul>}
+      </>}
+      <Button variant="outline" disabled={loading} onClick={reload}>Reload target access</Button>
+    </CardContent>
+  </Card>;
+}
+```
+
+Do not replace your operator's access state with this target snapshot. Use `myAccess` to gate the operator's controls and `getUserAccess` to explain the selected account's access. Neither snapshot checks organization membership or resource ownership.
+
+---
+
+## Assign an account a role
+
+`PUT /admin/authorization/users/{id}/role` with `{roleId,expectedRoleRevision,expectedAssignmentRevision}` → `{role,assignmentRevision}`, `200`. Requires `goauth.app.roles.assign`.
+
+Fetch the target assignment and all role choices before editing. The selected replacement must be enabled. Submitting the role's current revision prevents assigning a role whose grants changed since the operator reviewed it. The target assignment revision prevents overwriting another operator's assignment.
+
+A delegate cannot assign itself and must hold **both the old role's keys and the new role's keys**. Transitions to or from protected admin require protected admin. The server preserves the last usable protected administrator. Assigning the existing role with valid revisions is a no-op; assignment/global revisions remain unchanged, but authorization and MFA checks still run.
+
+### Role assignment form
+
+```tsx
+// components/assign-app-user-role.tsx
+"use client";
+
+import { useCallback, useId, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { appPermissionsApi, loadAllRoles, type AppAccess, type AppUserRole } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage, permissionErrorCode } from "../lib/app-permission-errors";
+import { hasPermission, PermissionError, usePermissionQuery } from "./app-permission-ui";
+
+export function AssignAppUserRole({ userId, actorUserId, access, onAssigned }: {
+  userId: string; actorUserId: string; access: AppAccess; onAssigned: (assignment: AppUserRole) => void;
+}) {
+  const load = useCallback(async () => {
+    const [assignment, roles] = await Promise.all([appPermissionsApi.getUserRole(userId), loadAllRoles()]);
+    return { assignment, roles };
+  }, [userId]);
+  const query = usePermissionQuery(load);
+  const [roleId, setRoleId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const id = useId();
+  const selected = query.data?.roles.find((role) => role.id === roleId);
+  const selfAssignment = !access.isFullAccess && userId === actorUserId;
+  const oldRole = query.data?.assignment.role;
+  const withinDelegation = access.isFullAccess || (!!oldRole &&
+    oldRole.systemKey !== "platform_admin" && oldRole.permissionKeys.every((key) => hasPermission(access, key)));
+
+  function reload() {
+    setRoleId(""); setStale(false); setError(null); setResult(null); query.reload();
+  }
+
+  async function assign() {
+    if (!selected || !query.data) return;
+    setLoading(true); setError(null); setResult(null);
+    try {
+      const assignment = await appPermissionsApi.setUserRole(userId, {
+        roleId: selected.id,
+        expectedRoleRevision: selected.revision,
+        expectedAssignmentRevision: query.data.assignment.assignmentRevision,
+      });
+      setResult(`Assigned ${assignment.role.name}; assignment revision ${assignment.assignmentRevision}.`);
+      setRoleId(""); query.reload(); onAssigned(assignment);
+    } catch (error: unknown) {
+      setStale(permissionErrorCode(error) === "authorization_conflict");
+      setError(getPermissionErrorMessage(error));
+    } finally { setLoading(false); }
+  }
+
+  return <Card>
+    <CardHeader><CardTitle>Assign application role</CardTitle></CardHeader>
+    <CardContent className="space-y-4">
+      <PermissionError message={error ?? query.error} />
+      {query.loading && <p>Loading assignment and roles...</p>}
+      {query.data && <>
+        <p>Current: {query.data.assignment.role.name} · assignment revision {query.data.assignment.assignmentRevision}</p>
+        {selfAssignment && <p>Delegated operators cannot change their own assignment.</p>}
+        {!withinDelegation && <p>The current role exceeds your delegation rights; ask a protected administrator.</p>}
+        <Label htmlFor={id}>Replacement role</Label>
+        <Select value={roleId} onValueChange={setRoleId} disabled={loading || stale || selfAssignment || !withinDelegation}>
+          <SelectTrigger id={id}><SelectValue placeholder="Choose an enabled role" /></SelectTrigger>
+          <SelectContent>{query.data.roles.map((role) => {
+            const canAssign = role.isEnabled && (access.isFullAccess ||
+              (role.systemKey !== "platform_admin" && role.permissionKeys.every((key) => hasPermission(access, key))));
+            return <SelectItem key={role.id} value={role.id} disabled={!canAssign}>{role.name} · revision {role.revision}{!role.isEnabled ? " · disabled" : ""}</SelectItem>;
+          })}</SelectContent>
+        </Select>
+        {selected && <p className="text-sm text-muted-foreground">Review grants: {selected.systemKey === "platform_admin" ? "Protected full access" : selected.permissionKeys.join(", ") || "No explicit grants"}</p>}
+      </>}
+      {result && <p role="status">{result}</p>}
+      <Button disabled={loading || query.loading || !query.data || !selected || stale || selfAssignment || !withinDelegation || !selected.isEnabled} onClick={assign}>{loading ? "Assigning..." : "Assign selected role"}</Button>
+      <Button variant="outline" disabled={loading || query.loading} onClick={reload}>Discard selection and reload both revisions</Button>
+    </CardContent>
+  </Card>;
+}
+```
+
+Mount with `key={userId}` when the selected account changes; `actorUserId` is your authenticated user's ID for UI feedback, not a request actor field. Selection restrictions are informational and the server rechecks everything. Use `onAssigned` to refresh the account details, role/access cards, and your own access if the operator changed its own assignment.
+
+The result is the new role and assignment revision, not a full effective-access response. Call `getUserAccess` separately if needed. Promotion does not add MFA assurance to an existing session; administrative actions may return `two_factor_required` until the promoted account completes a new challenged login.
+
+### Existing admin role-update endpoint
+
+The dedicated assignment route above returns `{role,assignmentRevision}`. If an existing dashboard keeps `PATCH /admin/users/{id}/role`, enabled-mode JSON uses different field names:
+
+```tsx
+// components/update-app-user-role-admin.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { apiRequest } from "../lib/api/client";
+import type { AppRole, AppUserRole } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage, permissionErrorCode } from "../lib/app-permission-errors";
+import { PermissionError } from "./app-permission-ui";
+
+export function UpdateAppUserRoleAdmin({ userId, selectedRole, targetAssignment, onUpdated, onReload }: {
+  userId: string; selectedRole: AppRole; targetAssignment: AppUserRole;
+  onUpdated: () => void; onReload: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [stale, setStale] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function assign() {
+    setLoading(true); setError(null);
+    try {
+      await apiRequest("/api", "PATCH", `/admin/users/${encodeURIComponent(userId)}/role`, {
+        appRoleId: selectedRole.id,
+        expectedRoleRevision: selectedRole.revision,
+        expectedAssignmentRevision: targetAssignment.assignmentRevision,
+      });
+      onUpdated();
+    } catch (error: unknown) {
+      setStale(permissionErrorCode(error) === "authorization_conflict");
+      setError(getPermissionErrorMessage(error));
+    } finally { setLoading(false); }
+  }
+
+  return <Card>
+    <CardHeader><CardTitle>Review role replacement</CardTitle></CardHeader>
+    <CardContent className="space-y-4">
+      <p>{targetAssignment.role.name} → {selectedRole.name}</p>
+      <p>Role revision {selectedRole.revision} · Assignment revision {targetAssignment.assignmentRevision}</p>
+      <PermissionError message={error} />
+      <Button disabled={loading || stale || !selectedRole.isEnabled} onClick={assign}>{loading ? "Assigning..." : "Apply through existing admin route"}</Button>
+      <Button variant="outline" disabled={loading} onClick={onReload}>Reload assignment and role choices</Button>
+    </CardContent>
+  </Card>;
+}
+```
+
+Pass snapshots loaded and selected with the assignment form's flow. `onUpdated` reloads the assignment; `onReload` reloads both snapshots and remounts this review card with their revisions. Do not send disabled-mode `{role: "admin"}` or assume its response has the dedicated route's assignment shape. Administrative account creation may pass `appRoleId` and `expectedRoleRevision`; doing so also requires assignment access. Omitting the explicit role uses the configured default. See [Admin](../admin.mdx) for that surface.
+
+---
+
+## Render an action with a permission check
+
+There is no built-in browser `check-permission` endpoint. Use the top-level keys from `myAccess` to decide what to show, and call your actual business endpoint to perform the action. The backend must use `RequireAppPermission` or the equivalent service check plus your resource ownership and organization checks.
+
+### Permission-aware business button
+
+This example's `DELETE /posts/{postId}` is a **consumer route you implement**, not a go-auth endpoint. The backend guide shows how to guard it with `app.posts.delete`. It must share the deployment's cookie/CSRF setup; the shared wrapper supplies the header. This example also makes an access refresh available after a denial.
+
+```tsx
+// components/delete-post-button.tsx
+"use client";
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { apiRequest } from "../lib/api/client";
+import type { AppAccess } from "../lib/api/app-permissions";
+import { getPermissionErrorMessage } from "../lib/app-permission-errors";
+import { hasPermission, PermissionError } from "./app-permission-ui";
+
+export function DeletePostButton({ postId, access, onDeleted, refreshAccess }: {
+  postId: string; access: AppAccess | null; onDeleted: () => void; refreshAccess: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const allowed = hasPermission(access, "app.posts.delete");
+
+  async function remove() {
+    setLoading(true); setError(null);
+    try {
+      await apiRequest("/api", "DELETE", `/posts/${encodeURIComponent(postId)}`);
+      onDeleted();
+    } catch (error: unknown) { setError(getPermissionErrorMessage(error)); refreshAccess(); }
+    finally { setLoading(false); }
+  }
+
+  return <div className="space-y-2">
+    <PermissionError message={error} />
+    <Button variant="destructive" disabled={loading || !allowed} onClick={remove}>{loading ? "Deleting..." : "Delete post"}</Button>
+    {!allowed && <p className="text-sm text-muted-foreground">Your current access does not include deleting posts.</p>}
+  </div>;
+}
+```
+
+An unavailable access snapshot disables the button. Even protected admin needs the enabled business key in `permissionKeys`. Browser state can become stale or be changed by a user; it never authorizes the request. A successful earlier check does not cancel an already authorized operation when grants later change.
+
+## Put the workflow together
+
+For a moderation workflow, use the examples in this order:
+
+1. Protected admin initializes the installation outside the browser and signs in with required 2FA.
+2. Use **Create business permission** for `app.posts.delete`.
+3. Use **Create a custom role** for `moderator`, selecting that installed key.
+4. Use **Assign an account a role**, selecting the returned role and submitting both observed revisions.
+5. The account refreshes **Your application access**; its `permissionKeys` now includes `app.posts.delete`. Use the guarded business button and enforce it on the backend.
+6. To revoke just that action, use **Replace a role's permissions**, keeping every other desired key and omitting `app.posts.delete`. To delete the definition afterward, remove it from every referencing role and use **Delete a business permission**.
+
+For a support operator who can read accounts and revoke sessions, protected admin first installs `goauth.app.users.read` and `goauth.app.sessions.revoke`, creates a `support` role with those keys, and assigns it to the operator. The existing admin client can then call only those corresponding operations. The operator does not acquire statistics, catalog provisioning, organization oversight, or other administrative powers from its role name.
+
+Use individual action keys to expose administrative controls. A delegated operator should not be forced through a `role === "admin"` page guard. Catalog controls require protected-admin identity; check `access.isFullAccess` for their UI visibility. Other controls use `hasPermission(access, "goauth.app.roles.create")`, and so on, while still handling runtime denials.
+
+### Refresh and callback wiring
+
+The callbacks in each example are part of your client application, not extra API methods. Refresh only the data a completed action can make stale:
+
+| Completed action | Refresh |
+|---|---|
+| Create/edit/delete a business definition | Installed definitions and current access; grant pickers if open |
+| Install library definitions | Installed definitions and grant pickers |
+| Remove library definitions | Definitions, roles/revisions, open assignment selectors, current access |
+| Create/edit/delete a role | Role lists/selectors and relevant access views |
+| Replace/clear role grants | Role snapshot/revision, assignment selectors, current/target access |
+| Assign an account | Its assignment/account details and target access; operator access if assigning itself |
+
+Key components holding local edit drafts by record ID/revision and account panels by user ID. Reset account-scoped state when authentication changes. Do not store grants in local storage as an authorization source, manufacture revisions, auto-install library definitions from a browser effect, or silently retry a stale write.
+
+## Next
+
+- [Setup](./index.mdx) — shared cookies, CSRF, and error handling
+- [App roles and permissions](../app-permissions.mdx) — trusted initialization, backend checks, delegation, and MFA
+- [Authorization routes](../../routes/authorization.mdx) — all request and response contracts
+- [Admin client](./admin.mdx) — existing account, session, invite, and audit operations
+- [Authentication client](./authentication.mdx) — login and challenge components
+- [Organizations client](./organizations.mdx) — separate membership and organization-role workflows
