@@ -36,35 +36,33 @@ If the driver you configured is not actually registered (the import is missing),
 
 ## The `goauth` CLI
 
-Schema and bootstrap tooling, shipped alongside the library. There are two ways to run it, and they do the same thing:
+The CLI shares the library's root module and release. Run it from the application's
+Go module without a version suffix to use the dependency selected by `go.mod`:
 
 ```bash
-# Install once, then call it by name
-go install github.com/nazimdjebloun/go-auth/cmd/goauth@latest
-goauth migrate --driver postgres --dsn "$DATABASE_URL"
-
-# Or run it without installing anything
-go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
   --driver postgres --dsn "$DATABASE_URL"
 ```
 
-`go install` is shorter to type afterwards and faster on repeat use, but it needs `$GOBIN` (or `$GOPATH/bin`) on your `PATH`, and it pins whatever version you installed until you reinstall. `go run` leaves nothing behind and is always current. Use it for CI, a Dockerfile, or a one-off bootstrap, which is how `migrate` and `seed-admin` are usually used.
-
-<Callout title="One module, one release version">
-  The CLI is part of the root library module. Use a version suffix to install
-  or run a published release independently of your current project; pin an
-  exact root release version for reproducibility. From a source checkout,
-  use `go run ./cmd/goauth --help`. The merged layout takes effect in the next
-  release containing this change; older published versions are unchanged.
-</Callout>
+From this source checkout, use `go run ./cmd/goauth` with the same arguments.
+For an installed binary, install an **exact release matching the library** and
+put `$GOBIN` or `$GOPATH/bin` on `PATH`. A `go install`/`go run` version suffix
+selects that release independently of the application's module. Avoid `@latest`
+for migration deployment: it can run a different schema catalog from your binary.
 
 | Command | What it does |
 |---|---|
-| `migrate` | Connects to your database and applies the schema directly, one statement at a time. Requires `--driver` and `--dsn`. |
-| `generate` | Writes the schema to a `.sql` file instead of applying it: check it in, or feed it to Atlas, golang-migrate, Flyway, or your own migration tool. Requires `--driver`; `--out` defaults to `auth.schema.sql`. |
-| `seed-admin` | Creates the first admin account directly in the database, since every admin route needs an existing admin session to call. Sends a real email first and writes nothing if that send fails. See [Admin → Creating the first admin](./guides/admin.mdx#creating-the-first-admin). |
+| `migrate` | Installs a published baseline or applies pending numbered auth migrations with a separate database journal. Requires `--driver` and `--dsn`. |
+| `migrate status` | Reports recorded history and pending IDs as JSON without DDL. |
+| `migrate verify` | Verifies the tracked target schema and data postconditions. |
+| `migrate adopt --baseline 1` | Validates the supported untracked schema and records adoption without creation SQL. |
+| `migrate repair --id N` | Verifies the specified incomplete step before recording completion; executes no migration SQL. |
+| `generate` | Exports `auth.schema.sql`, `reference.md`, and published migrations. Requires `--driver`; `--out` is a directory, default `goauth`. |
+| `seed-admin` | Creates the first administrator. See [Admin → Creating the first admin](./guides/admin.mdx#creating-the-first-admin). |
 
-Each command takes `--help`. [Schemas](./schemas.mdx) covers `migrate` and `generate` in full.
+Each command takes `--help`. [Migrations](./migrations.mdx) covers deployment,
+adoption, recovery and the Go API. Keep auth migration ownership separate from
+the application's migration tool.
 
 ## What you'll need before configuring
 
@@ -108,16 +106,18 @@ Pass option functions to `NewConfig(opts ...Option)`. The table maps each option
 
 ## Database setup
 
-The schema ships embedded in the library. There is no `.sql` file to find on
-disk after `go get`. Apply it once before starting your app for the first time:
+The published catalog and desired schema are embedded in the library. Apply
+pending auth migrations explicitly before starting the app:
 
 ```bash
-go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
   --driver postgres --dsn "$DATABASE_URL"
 ```
 
-[Schemas](./schemas.mdx) covers the tables themselves, the other two ways to get
-at the schema, and what to expect when it changes between releases.
+The initial catalog is revision `000001`. Existing databases must match its
+complete schema before explicit adoption; old or partial schemas require reviewed
+reconciliation. [Migrations](./migrations.mdx) defines these paths, and
+[Schemas](./schemas.mdx) documents the auth objects.
 
 ## Next
 

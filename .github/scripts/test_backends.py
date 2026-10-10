@@ -10,14 +10,15 @@ import subprocess
 import sys
 
 
-PACKAGES = [".", "./integration", "./internal/service", "./internal/sqlstore", "./cmd/goauth/cmd"]
+PACKAGES = [".", "./integration", "./internal/service", "./internal/sqlstore", "./internal/migrations", "./cmd/goauth/cmd"]
 MODULE = "github.com/nazimdjebloun/go-auth/"
 REQUIRED = {
     (MODULE.rstrip("/") if package == "." else MODULE + package, name)
     for package, names in {
         ".": ["TestAppPermissionsHTTPUserRoleJSON", "TestAppPermissionsHTTPAssuranceAndOptionalManagement", "TestAppPermissionsStatsAuthorization", "TestAppPermissionsSameRoleAssignmentPreservesAccessRevision", "TestAppPermissionsTargetAccessHTTP", "TestAppPermissionsDisabledCapabilityFailsClosed", "TestAppAuthorizationRouteInventory", "TestAppAuthorizationRouteCoverage", "TestAppAuthorizationHTTPPolicyMatrix", "TestAppAuthorizationMountedRoutesDenyUnprivileged"],
         "integration": ["TestMigrations_CreateTables", "TestHTTPBackendSecurityContract"],
-        "cmd/goauth/cmd": ["TestApplySchema_SelectedBackend"],
+        "cmd/goauth/cmd": ["TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend"],
+        "internal/migrations": ["TestStandaloneSelectedBackend", "TestSelectedBackendFailureState", "TestSelectedBackendRejectsWeakenedForeignKeys", "TestConcurrentStandaloneRunners"],
         "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack", "TestAppSameRoleAssignmentIsNoOp", "TestAppConcurrentSameRoleAssignmentsPreserveRevision", "TestAppConcurrentRoleReplacementHasOneWinner", "TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess", "TestAppAuthorizationServiceInventory", "TestAppAuthorizationServiceCoverage"],
         "internal/sqlstore": ["TestRecoveryClaimIsExclusiveAndStaleCompletionCannotDeleteReclaimedJob", "TestAdminGuard_ConcurrentReductionsAcrossPools", "TestBackendTokenClaimConcurrentAcrossPools", "TestBackendProviderIdentityIsExact", "TestBackendRefreshZeroGraceRejectsFutureRotation", "TestBackendSessionAssuranceRoundTrip", "TestAppDefaultRoleSharedReadRequiresTransaction", "TestAppPermissionNamespaceOwnership"],
     }.items()
@@ -28,17 +29,19 @@ STRESS_PATTERN = (
     "TestLoginCredentialReplacement|TestTwoFactorVerify|"
     "TestAdminGuard|TestAdminAccessRequires|TestOrgMutationChecks|"
     "TestInviteRevocationCannot|TestOAuthUnlinkCounts|"
-    "TestAppSignup|Test(Postgres|MySQL)_App|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole|TestAppPermissions|TestAppAuthorization"
+    "TestAppSignup|Test(Postgres|MySQL)_App|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole|TestAppPermissions|TestAppAuthorization|TestSelectedBackendFailureState|TestSelectedBackendRejectsWeakenedForeignKeys|TestPostgres_MigrationPoolDiscard"
 )
 
 
 def required_tests(backend, stress=False):
-    excluded = {"TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestHTTPBackendSecurityContract"} if stress else set()
+    excluded = {"TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend", "TestStandaloneSelectedBackend", "TestHTTPBackendSecurityContract"} if stress else set()
     expected = {key for key in REQUIRED if key[1] not in excluded}
     prefix = {"postgres": "Postgres", "mysql": "MySQL"}.get(backend)
     if prefix:
         expected.add((MODULE + "internal/service", f"Test{prefix}_AppSignupRoleLocksAcrossPools"))
         expected.add((MODULE + "internal/service", f"Test{prefix}_AppAuthorizationDeadlockRollsBackAcrossPools"))
+    if backend == "postgres":
+        expected.add((MODULE + "internal/migrations", "TestPostgres_MigrationPoolDiscard"))
     if backend == "mysql":
         expected.add((MODULE + "internal/service", "TestMySQL_AppAuthorizationRejectsRevokedSessionFromOldSnapshot"))
     if backend == "postgres" and not stress:

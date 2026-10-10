@@ -41,7 +41,7 @@ Custom roles with delegated administrative permissions follow user MFA settings.
 The standalone CLI does not load your application's `Config`, so it writes this bootstrap password as an unpeppered bcrypt row (`password_pepper_version = NULL`). In an application with versioned password peppering enabled, the first successful admin password check verifies that explicit legacy format and upgrades the row through the normal guarded rehash-on-login path before issuing the 2FA challenge or session. Until that first login, the bootstrap row has bcrypt protection but not the optional pepper layer.
 
 ```bash
-go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest seed-admin \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth seed-admin \
   --driver postgres --dsn "$DATABASE_URL" --env prod \
   --smtp-host smtp.example.com --smtp-from auth@example.com
 ```
@@ -62,7 +62,7 @@ That email is fixed HTML-and-text content with no app name, links, or configurab
 **`--env dev` with no SMTP flags/env set** uses a log-only mailer instead of real SMTP — the same [`LogMailer`](../configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off) `NewConfig` defaults to automatically in `EnvironmentDev`. The "verification email" is written to the command's log output instead of actually sent, so local bootstrapping needs no SMTP setup at all:
 
 ```bash
-go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest seed-admin \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth seed-admin \
   --driver sqlite --dsn ./dev.db --env dev
 ```
 

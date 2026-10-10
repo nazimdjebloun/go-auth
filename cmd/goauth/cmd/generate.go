@@ -2,42 +2,39 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/spf13/cobra"
 )
 
-var generateCmd = &cobra.Command{
-	Use:   "generate",
-	Short: "Generate auth.schema.sql for the given driver",
-	Long: `Writes the canonical schema file (auth.schema.sql) for the specified
-database driver to the current working directory.
-
-Supported drivers: postgres, sqlite, mysql`,
-	Args: cobra.NoArgs,
-	Run: func(cmd *cobra.Command, _ []string) {
-		driver, _ := cmd.Flags().GetString("driver")
-		outPath, _ := cmd.Flags().GetString("out")
-
-		if driver == "" {
-			fmt.Fprintf(os.Stderr, "goauth: --driver is required\n")
-			os.Exit(1)
-		}
-
-		err := goauth.GenerateSchema(driver, outPath)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("goauth: generated %s\n", outPath)
-	},
+func newGenerateCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "generate",
+		Short: "Export the desired auth schema, FK reference and published migrations",
+		Long: `Writes auth.schema.sql, reference.md and the immutable migration catalog
+into an auth-only directory. Export does not inspect or modify a database.
+Keep these artifacts separate from application/ORM schema management.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			driver, err := cmd.Flags().GetString("driver")
+			if err != nil {
+				return err
+			}
+			directory, err := cmd.Flags().GetString("out")
+			if err != nil {
+				return err
+			}
+			if err := goauth.ExportSchema(driver, directory); err != nil {
+				return err
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "goauth: exported auth schema and migrations to %s\n", directory)
+			return err
+		},
+	}
+	cmd.Flags().String("driver", "", "Database driver (postgres, sqlite, mysql)")
+	cmd.Flags().StringP("out", "o", "goauth", "Auth artifact output directory")
+	mustMarkFlagRequired(cmd, "driver")
+	return cmd
 }
 
-func init() {
-	generateCmd.Flags().String("driver", "", "Database driver (postgres, sqlite, mysql)")
-	generateCmd.Flags().StringP("out", "o", "auth.schema.sql", "Output file path")
-	mustMarkFlagRequired(generateCmd, "driver")
-	rootCmd.AddCommand(generateCmd)
-}
+func init() { rootCmd.AddCommand(newGenerateCommand()) }

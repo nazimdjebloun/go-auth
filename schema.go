@@ -22,16 +22,15 @@ func GetSchema(driver string) (string, error) {
 }
 
 // SplitSQL splits a schema string (as returned by GetSchema) into individual
-// statements on semicolons, respecting quoted strings and dropping
-// comment-only fragments — the same splitter the goauth CLI's migrate
-// command uses to run the embedded schema one statement at a time.
+// statements on semicolons, respecting single-quoted strings and dropping
+// line comments. It is a bootstrap utility, not the versioned migration parser.
 func SplitSQL(sql string) []string {
 	return schema.SplitSQL(sql)
 }
 
-// GenerateSchema writes the embedded DDL for driver to outPath, for a project
-// that manages migrations with its own tooling and wants the statements as a
-// file it can check in.
+// GenerateSchema writes the desired DDL for driver to outPath for review. Use
+// ExportSchema to include reference/catalog artifacts and Migrate to apply
+// tracked auth upgrades separately from application migrations.
 func GenerateSchema(driver, outPath string) error {
 	sql, err := GetSchema(driver)
 	if err != nil {

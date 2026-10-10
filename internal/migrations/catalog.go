@@ -38,7 +38,7 @@ type Step struct {
 	Checksum       string   `json:"checksum"`
 	Kind           string   `json:"kind"`
 	Transactional  bool     `json:"transactional"`
-	Schema         string   `json:"schema"`
+	Schema         string   `json:"schema,omitempty"` // Internal verification fixture; omitted from exported manifests.
 	SchemaChecksum string   `json:"schemaChecksum"`
 	Checks         []string `json:"checks"`
 	SQLiteRebuild  bool     `json:"sqliteRebuild,omitempty"`
@@ -140,7 +140,17 @@ func Load(driver string) (Catalog, error) {
 	if err != nil {
 		return Catalog{}, err
 	}
-	if strings.ReplaceAll(desired, "\r\n", "\n") != catalog.Migrations[len(catalog.Migrations)-1].schemaSQL {
+	// Comments/whitespace in the desired schema do not create new revisions.
+	// Published migration and verification fixture bytes remain immutable.
+	normalizedDesired, err := normalizedDDL(desired)
+	if err != nil {
+		return Catalog{}, err
+	}
+	normalizedTarget, err := normalizedDDL(catalog.Migrations[len(catalog.Migrations)-1].schemaSQL)
+	if err != nil {
+		return Catalog{}, err
+	}
+	if normalizedDesired != normalizedTarget {
 		return Catalog{}, fmt.Errorf("goauth: canonical schema differs from the catalog's target snapshot")
 	}
 	return catalog, nil

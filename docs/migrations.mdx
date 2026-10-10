@@ -1,0 +1,261 @@
+---
+title: "Migrations"
+description: "Standalone auth migration ownership, installation, adoption, verification and recovery."
+icon: "GitBranch"
+---
+
+# Migrations
+
+go-auth owns its auth tables and migration history. Run auth migrations through
+the matching `goauth` CLI, separately from the application's schema and ORM
+migrations. Both may use the same logical database and different connection
+pools. `New` never migrates. The Go API supports explicit deployment execution
+without constructing `Auth`.
+
+The initial catalog contains baseline `000001_v0.4.0_001.sql` for PostgreSQL,
+MySQL and SQLite, representing the complete current canonical schema. There
+are no earlier upgrade steps in this catalog. A database from an older release
+must match this supported schema before adoption; its installed Go version
+does not identify its database layout.
+
+## Exported artifacts
+
+From an application module with `go-auth` pinned in `go.mod`:
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth generate \
+  --driver postgres --out goauth
+```
+
+```text
+goauth/
+  auth.schema.sql
+  reference.md
+  migrations/
+    catalog.json
+    000001_v0.4.0_001.sql
+```
+
+`--out` is a directory and defaults to `goauth`. `auth.schema.sql` is the desired
+schema for that release, never an applied-state snapshot. The database journal
+is authoritative for applied state. Generation never connects to a database.
+It refreshes the desired schema/reference and adds published migration files;
+it refuses to replace changed published SQL, a different dialect, or a newer
+or mismatched catalog. Use separate directories for different dialects.
+
+The old `goauth generate --out file.sql` CLI behavior is replaced by directory
+export. The Go `GenerateSchema(driver, path)` function remains a raw single-file
+bootstrap export for inspection. Do not use raw bootstrap SQL or a fresh diff
+to replace auth upgrade history. Exported files are review artifacts; the runner
+executes its embedded catalog rather than arbitrary files from disk.
+
+## Fresh installation and upgrades
+
+Run commands from the application's module without `@latest`, so the selected
+CLI follows its `go.mod` dependency. From the go-auth source checkout, use
+`go run ./cmd/goauth`. An installed CLI must be pinned to the library's exact
+release. Version-suffixed `go run`/`go install` commands select that release
+independently of the application's dependencies.
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
+  --driver postgres --dsn "$DATABASE_URL"
+```
+
+On a fresh database, all reserved auth tables and explicitly named auth indexes
+must be unused. Unrelated application tables may already exist. The runner
+acquires migration serialization before inspecting history or initializing the
+journal. It installs the published baseline and records completion.
+
+On a tracked database, history must be a checksum-matching prefix of the embedded
+catalog. The runner verifies the previous completed schema and data postconditions,
+then executes pending IDs in increasing numeric order. A repeat verifies existing
+state and skips completed SQL. Published migrations own renames and backfills;
+matching the desired DDL alone cannot establish correct data transformation.
+
+Stop auth traffic and all auth-writing workers before execution. This first
+implementation does not provide online backfill jobs or generic rolling schema
+compatibility. Use deployment credentials for DDL and runtime credentials for
+ordinary operations. The runner borrows Go database handles; the CLI owns and
+closes the handle it opens.
+
+## Adopting an existing installation
+
+An existing schema made by the old bootstrap executor has no recognized history.
+`migrate` refuses to infer its baseline from a `users` table or dependency version.
+Adoption explicitly selects and validates a supported baseline:
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate adopt \
+  --driver postgres --dsn "$DATABASE_URL" --baseline 1
+```
+
+Currently only baseline `1` is supported. Adoption verifies tables, columns,
+types, defaults, nullability, collations, constraints and indexes before recording
+an `adopted` baseline. It does not execute baseline creation SQL or rewrite auth
+data. Missing, partial or modified schemas stop with diagnostics. Reconcile them
+through a reviewed procedure or restore a compatible backup before adoption;
+there is no force flag or destructive automatic diff.
+
+SQLite table adoption compares normalized complete definitions with the supported
+snapshot. A manually rebuilt but differently declared table may require reviewed
+reconciliation even if some queries behave alike. Added columns, constraints,
+indexes or triggers on auth tables are outside the supported ownership contract.
+
+## History, status and startup compatibility
+
+The reserved `goauth_migrations` table journals each migration's ID, baseline ID,
+dialect, filename, SQL and verification-schema checksums, execution/adoption mode,
+`started`/`complete` state, and UTC Unix-second timestamps. Numeric IDs order
+execution; the release and per-release sequence in the filename are metadata.
+A release with no schema changes keeps the same target revision.
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate status \
+  --driver postgres --dsn "$DATABASE_URL"
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate verify \
+  --driver postgres --dsn "$DATABASE_URL"
+```
+
+`status` reads history and pending IDs as JSON without DDL or journal initialization.
+Missing history is an error; dirty history is reported. Unknown IDs, ordering or
+identity errors and checksum mismatches are rejected. `verify` requires clean
+history at the target revision, holds migration serialization, and checks live
+schema definitions and published data postconditions.
+
+`DatabaseConfig.CheckSchema` is optional and defaults to `false`. When enabled,
+`New` checks history before constructing services or starting workers, using
+the shared ten-second startup database timeout. The first policy accepts only
+the library's completed target revision with recognized history/checksums. It
+rejects older, newer/unknown, missing and dirty state. It does not certify absence
+of live drift; use deployment verification for that.
+
+```go
+Database: goauth.DatabaseConfig{
+    URL:         databaseURL,
+    Driver:      goauth.DriverPostgres,
+    CheckSchema: true,
+},
+```
+
+The standalone `CheckSchema(ctx, db, driver)` API accepts a caller context for
+an explicit compatibility check. Migration errors support `errors.Is` with
+`ErrUntrackedSchema`, `ErrDirtyMigration`, `ErrIncompatibleSchema`, `ErrSchemaDrift`,
+`ErrUnknownMigrationHistory`, `ErrMigrationChecksum` and `ErrMigrationLockTimeout`.
+`MigrationError` supplies dialect, migration ID, phase, dirty/uncertain flags and
+a wrapped infrastructure cause. CLI output omits raw SQL and driver messages;
+programmatic callers must redact potentially sensitive driver causes.
+
+## Transactions, locks and recovery
+
+| Dialect | Execution contract |
+|---|---|
+| PostgreSQL | A dedicated connection holds a database-scoped session advisory lock. Requires `session_replication_role=origin`. Transactional steps commit schema/data and completion together. Explicit nontransactional steps journal `started` before mutation. `pgcrypto` and `pg_trgm` are required shared resources. |
+| MySQL | A dedicated connection holds a named lock scoped to the selected database. DDL steps are nontransactional: `started` is durable before SQL, and failures can leave partial DDL. Requires session `autocommit=1`, InnoDB and the published utf8mb4 collations. |
+| SQLite | A dedicated connection uses `BEGIN IMMEDIATE` to serialize writers and runs the invocation transactionally. Rebuild metadata controls FK settings at the transaction boundary. Success includes `foreign_key_check`, including host references. |
+
+The maintained backend fixtures target PostgreSQL 18, MySQL 8.4 and the bundled
+modernc SQLite driver. This implementation does not alter existing auth table
+definitions; it freezes the current complete schema as the first baseline.
+
+CLI defaults are `--timeout 30m`, `--lock-timeout 30s`, and
+`--statement-timeout 5m`. All CLI timeout values must be positive. Go migration
+options use zero to select the 30-second lock and five-minute statement defaults;
+the caller context supplies the overall timeout. Lock waits honor cancellation
+and include reserving a physical connection. PostgreSQL lock/statement settings,
+MySQL metadata-lock/FK settings and SQLite busy/FK settings are restored before
+returning a borrowed connection. A connection whose cleanup or lock ownership
+is uncertain is discarded from the pool.
+
+A nontransactional failure blocks subsequent migration execution. Inspect the
+exact published step and actual database state while auth traffic is stopped.
+Follow a reviewed reconciliation procedure to establish **all** schema and data
+postconditions, or restore a compatible backup. Do not blindly replay SQL or edit
+the journal to hide an error. A lost commit acknowledgement can leave an uncertain
+outcome; inspect history and actual state before deciding how to recover.
+
+After completing reconciliation, verified recovery records completion:
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate repair \
+  --driver mysql --dsn "$DATABASE_URL" --id 1
+```
+
+`repair` accepts only the exact last incomplete ID. It executes no migration SQL
+and succeeds only after that step's structural and data checks pass. It cannot
+repair unknown history, changed checksums, or a partially populated backfill.
+Transactional failures roll back and can be retried after resolving their cause;
+an uncertain outcome always needs inspection first.
+
+Migrations are forward-only. Application rollback depends on actual schema/data
+compatibility; there are no down scripts or arbitrary future-schema allowances.
+Test backup restoration and account for restored revocations, consumed one-time
+tokens and durable audit obligations in the recovery procedure.
+
+## Application and ORM ownership
+
+Auth uses fixed names such as `users`, `sessions` and `organizations`; deployments
+must resolve naming conflicts on their side. The full reserved inventory is in
+the desired schema and generated reference, plus `goauth_migrations`. Use extension
+tables for application fields. The current declared stable FK targets are
+`users.id` and `organizations.id`; changing a declared stable target requires a
+major-version change. The reference publishes the selected dialect's key types.
+MySQL child FK columns must match the auth type and collation.
+
+For PostgreSQL, put auth objects in the first existing schema selected by the
+connection's search path (`current_schema()`). Use the same search-path contract
+for migration and runtime connections. The library does not rewrite query names
+or offer configurable prefixes. Avoid shadowing auth names in another visible
+schema. Shared extensions must be available to that path.
+
+Run auth migration first, then application migrations that create child foreign
+keys. A future auth change affecting host constraints needs a separately reviewed
+ordered procedure; separate histories do not make the two runners atomic. Do not
+let ORM auto-migration or an application diff alter auth objects. Host-runner
+adapters, copied-SQL execution and generated ORM models are outside this phase.
+
+## Go deployment API
+
+```go
+status, err := goauth.Migrate(ctx, db, goauth.MigrationOptions{
+    Driver:           "postgres",
+    LockTimeout:      30 * time.Second,
+    StatementTimeout: 5 * time.Minute,
+})
+if err != nil {
+    return err
+}
+_ = status
+```
+
+`AdoptSchema` takes `BaselineAdoptionOptions`; `RepairMigration` takes
+`MigrationRepairOptions`. `GetMigrationStatus` reads the journal. `VerifySchema`
+checks the tracked target under serialization. `GetMigrationCatalog` returns
+an independent copy of validated metadata and SQL. `ExportSchema(driver, directory)`
+exports artifacts without database access. Database operations accept `*sql.DB`,
+never construct `Auth`, and never close a caller-owned database.
+
+## Authoring later migrations
+
+Maintainers update all affected canonical schemas, append a globally increasing
+ID for each step, and retain published SQL/verification fixtures byte for byte.
+The filename form is `000042_v0.4.0_001.sql`; semantic versions do not determine
+execution order. Do not insert a backport behind an already published ID. A
+parallel release line with divergent history needs an explicit future policy.
+
+Catalog metadata declares transaction mode, target structural fixture and
+postcondition queries. Each SQL statement begins with `-- goauth:statement` on
+its own line. This reserved marker must never occur inside a statement body;
+compound functions/triggers and dollar-quoted blocks remain one authored unit.
+Historical verification fixtures remain internal; public export has one complete
+desired schema. Snapshot parsing supports the checked-in formatting and expression
+subset and fails closed on unsupported definitions. It is not a general SQL diff
+or arbitrary migration-file parser.
+
+Backfills must include explicit data postconditions: each catalog check is a
+`SELECT` returning exactly one true value. Preserve hash/pepper pairs, nullable
+OAuth passwords, token hashes, expiry/revocation/consumption state, provider
+uniqueness, role assignments and audit obligations. Migrations cannot reconstruct
+encryption keys or regenerate credential material safely. Large/resumable live
+backfills and expand/contract rolling upgrades require a future documented and
+tested execution protocol; do not infer them from the first baseline runner.

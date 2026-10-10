@@ -10,7 +10,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/schema"
 )
 
-// Export writes review artifacts. Existing published SQL and snapshots are
+// Export writes review artifacts. Existing published SQL is
 // immutable; a different dialect needs a different output directory.
 func Export(driver, directory string) error {
 	catalog, err := Load(driver)
@@ -24,8 +24,12 @@ func Export(driver, directory string) error {
 	if err != nil {
 		return err
 	}
-	if strings.ReplaceAll(desired, "\r\n", "\n") != catalog.Migrations[len(catalog.Migrations)-1].schemaSQL {
-		return fmt.Errorf("goauth: canonical schema differs from the catalog's target snapshot")
+	desired = strings.ReplaceAll(desired, "\r\n", "\n")
+	// The public export has one complete desired schema. Historical structural
+	// verification fixtures stay embedded in the runner, rather than becoming
+	// extra schema files or implied filesystem deployment state.
+	for i := range catalog.Migrations {
+		catalog.Migrations[i].Schema = ""
 	}
 	manifest, err := json.MarshalIndent(catalog, "", "  ")
 	if err != nil {
@@ -41,6 +45,18 @@ func Export(driver, directory string) error {
 		if old.Dialect != catalog.Dialect || old.TargetRevision > catalog.TargetRevision {
 			return fmt.Errorf("goauth: export directory contains a different dialect or newer catalog")
 		}
+		if old.Format != catalog.Format || old.BootstrapRevision != catalog.BootstrapRevision ||
+			len(old.Migrations) == 0 || len(old.Migrations) > len(catalog.Migrations) ||
+			old.TargetRevision != old.Migrations[len(old.Migrations)-1].ID {
+			return fmt.Errorf("goauth: existing export manifest is not a supported catalog prefix")
+		}
+		for i, previous := range old.Migrations {
+			step := catalog.Migrations[i]
+			if previous.ID != step.ID || previous.File != step.File || previous.Checksum != step.Checksum ||
+				previous.SchemaChecksum != step.SchemaChecksum {
+				return fmt.Errorf("goauth: existing export identity/checksum differs at migration %d", previous.ID)
+			}
+		}
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -53,15 +69,13 @@ func Export(driver, directory string) error {
 		manifestPath:                             manifest,
 	}
 	for _, step := range catalog.Migrations {
-		for name, contents := range map[string]string{step.File: step.SQL} {
-			path := filepath.Join(directory, "migrations", name)
-			if existing, err := os.ReadFile(path); err == nil && string(existing) != contents {
-				return fmt.Errorf("goauth: refusing to replace modified published artifact %q", path)
-			} else if err != nil && !os.IsNotExist(err) {
-				return err
-			}
-			writes[path] = []byte(contents)
+		path := filepath.Join(directory, "migrations", step.File)
+		if existing, err := os.ReadFile(path); err == nil && string(existing) != step.SQL {
+			return fmt.Errorf("goauth: refusing to replace modified published artifact %q", path)
+		} else if err != nil && !os.IsNotExist(err) {
+			return err
 		}
+		writes[path] = []byte(step.SQL)
 	}
 	for path, contents := range writes {
 		if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {

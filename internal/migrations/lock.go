@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jackc/pgx/v5/stdlib"
 )
 
 const advisoryKey int64 = 0x676f61757468
@@ -137,6 +139,13 @@ func (l *lease) try(ctx context.Context) (bool, error) {
 func (l *lease) configure(ctx context.Context, options Options) error {
 	switch l.dialect {
 	case "postgres":
+		var replicationRole string
+		if err := l.conn.QueryRowContext(ctx, "SHOW session_replication_role").Scan(&replicationRole); err != nil {
+			return err
+		}
+		if replicationRole != "origin" {
+			return fmt.Errorf("goauth: PostgreSQL migrations require session_replication_role=origin")
+		}
 		for name, duration := range map[string]time.Duration{
 			"lock_timeout": options.LockTimeout, "statement_timeout": options.StatementTimeout,
 		} {
@@ -151,6 +160,16 @@ func (l *lease) configure(ctx context.Context, options Options) error {
 			}
 		}
 	case "mysql":
+		// The durable started marker depends on autocommit. Enabling it on
+		// behalf of a caller could commit unrelated pending work, so reject
+		// this unsupported session setting instead of changing it.
+		var autocommit int
+		if err := l.conn.QueryRowContext(ctx, "SELECT @@SESSION.autocommit").Scan(&autocommit); err != nil {
+			return err
+		}
+		if autocommit != 1 {
+			return fmt.Errorf("goauth: MySQL migrations require session autocommit=1")
+		}
 		var foreignKeys int
 		if err := l.conn.QueryRowContext(ctx, "SELECT @@SESSION.foreign_key_checks").Scan(&foreignKeys); err != nil {
 			return err
@@ -214,7 +233,24 @@ func (l *lease) close(ctx context.Context, commit bool) error {
 		result = errors.Join(result, err)
 	}
 	if result != nil || !l.acquired {
-		_ = l.conn.Raw(func(any) error { return driver.ErrBadConn })
+		// pgx's SQL adapter may borrow from a native pool. Its driver.Close
+		// only releases that lease; close the physical pgx connection first
+		// so uncertain settings/locks cannot escape into the caller's pool.
+		var physicalErr error
+		rawErr := l.conn.Raw(func(raw any) error {
+			if pg, ok := raw.(*stdlib.Conn); ok {
+				physicalErr = pg.Conn().Close(cleanupCtx)
+			}
+			return driver.ErrBadConn
+		})
+		if errors.Is(rawErr, driver.ErrBadConn) || errors.Is(rawErr, sql.ErrConnDone) {
+			rawErr = nil
+		}
+		result = errors.Join(result, physicalErr, rawErr)
 	}
-	return errors.Join(result, l.conn.Close())
+	closeErr := l.conn.Close()
+	if errors.Is(closeErr, sql.ErrConnDone) {
+		closeErr = nil // Expected after explicitly discarding the driver connection.
+	}
+	return errors.Join(result, closeErr)
 }

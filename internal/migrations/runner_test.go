@@ -291,6 +291,58 @@ func TestDataPostconditionMustBeTrue(t *testing.T) {
 	}
 }
 
+func TestSelectedBackendRejectsWeakenedForeignKeys(t *testing.T) {
+	db := testdb.OpenSelected(t)
+	db.SetMaxOpenConns(1)
+	testdb.Apply(t, db)
+	dialect := testdb.Driver(db)
+	conn, err := db.Conn(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var weaken, restore string
+	switch dialect {
+	case "postgres":
+		weaken = "ALTER TABLE users DROP CONSTRAINT users_app_role_id_fkey"
+		restore = "ALTER TABLE users ADD CONSTRAINT users_app_role_id_fkey FOREIGN KEY (app_role_id) REFERENCES app_roles(id) ON DELETE RESTRICT NOT ENFORCED"
+	case "mysql":
+		weaken, restore = "SET SESSION foreign_key_checks=0", "SET SESSION foreign_key_checks=1"
+	case "sqlite":
+		weaken, restore = "PRAGMA foreign_keys=0", "PRAGMA foreign_keys=1"
+	}
+	if _, err := conn.ExecContext(t.Context(), weaken); err != nil {
+		_ = conn.Close()
+		t.Fatal(err)
+	}
+	if dialect == "postgres" {
+		if _, err := conn.ExecContext(t.Context(), restore); err != nil {
+			_ = conn.Close()
+			t.Fatal(err)
+		}
+	}
+	_, insertErr := conn.ExecContext(t.Context(), `INSERT INTO users(id,email,name,app_role_id)
+		VALUES ('11111111-1111-1111-1111-111111111111','orphan@example.com','','22222222-2222-2222-2222-222222222222')`)
+	if dialect != "postgres" {
+		if _, err := conn.ExecContext(t.Context(), restore); err != nil {
+			_ = conn.Close()
+			t.Fatal(err)
+		}
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if insertErr != nil {
+		t.Fatal(insertErr)
+	}
+	if _, err := Adopt(t.Context(), db, Options{Driver: dialect}, 1); !errors.Is(err, ErrDrift) {
+		t.Fatalf("unenforced or orphaned auth FK was adopted: %v", err)
+	}
+	exists, err := objectExists(t.Context(), db, dialect, "goauth_migrations")
+	if err != nil || exists {
+		t.Fatal("invalid FK adoption initialized history", err)
+	}
+}
+
 func TestStandaloneSelectedBackend(t *testing.T) {
 	db := testdb.OpenSelected(t)
 	dialect := testdb.Driver(db)

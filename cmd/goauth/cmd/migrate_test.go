@@ -6,14 +6,16 @@ import (
 	"path/filepath"
 	"testing"
 
+	goauth "github.com/nazimdjebloun/go-auth"
 	_ "modernc.org/sqlite"
 )
 
-// TestApplySchema_SQLite_CreatesExpectedTablesAndIsIdempotent guards the
-// one property that matters for `goauth migrate`: it's the first command
-// in the README's Quick Start, so it has to actually apply the schema, and
-// every statement in the embedded schema is written as CREATE ... IF NOT
-// EXISTS specifically so a re-run (redeploys, retries) doesn't error.
+func applySchema(ctx context.Context, db *sql.DB, driver string) error {
+	_, err := goauth.Migrate(ctx, db, goauth.MigrationOptions{Driver: driver})
+	return err
+}
+
+// Repeated execution skips completed SQL through recorded migration history.
 func TestApplySchema_SQLite_CreatesExpectedTablesAndIsIdempotent(t *testing.T) {
 	dsn := filepath.Join(t.TempDir(), "migrate_test.db")
 
@@ -50,10 +52,7 @@ func TestApplySchema_SQLite_CreatesExpectedTablesAndIsIdempotent(t *testing.T) {
 		}
 	}
 
-	// Re-running against an already-migrated database must succeed as a
-	// no-op, not error — this is the actual regression this test guards
-	// against: a future schema change that drops IF NOT EXISTS would break
-	// every redeploy against an existing database.
+	// A repeat must validate history and schema without replaying creation SQL.
 	if err := applySchema(ctx, db, "sqlite"); err != nil {
 		t.Fatalf("second (idempotent) applySchema call: %v", err)
 	}

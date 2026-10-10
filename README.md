@@ -87,8 +87,9 @@ func main() {
 			BaseURL:     "http://localhost:3000",
 			Environment: goauth.EnvironmentDev,
 			Database: goauth.DatabaseConfig{
-				URL:    "file:goauth.db",
-				Driver: goauth.DriverSQLite,
+				URL:         "file:goauth.db",
+				Driver:      goauth.DriverSQLite,
+				CheckSchema: true,
 			},
 		}),
 		goauth.WithSecret(os.Getenv("AUTH_SECRET")), // at least 32 bytes
@@ -118,14 +119,16 @@ application:
 ```bash
 export AUTH_SECRET="$(openssl rand -base64 32)"
 
-go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
   --driver sqlite --dsn "file:goauth.db"
 ```
 
-`cmd/goauth` is part of the root library module. The version suffix in the
-command above runs a published release independently of the `go-auth` version
-your application's `go.mod` pins; from a source checkout, use
-`go run ./cmd/goauth` instead.
+Run the command from your application's Go module so it uses the `go-auth`
+version pinned in `go.mod`; from this source checkout, use `go run ./cmd/goauth`.
+Auth has its own numbered migration history and stays separate from application
+or ORM migrations. `New` never migrates; `CheckSchema: true` checks recorded
+compatibility before workers start. Existing untracked auth tables need explicit,
+validated adoption. See [Migrations](docs/migrations.mdx).
 
 Email verification marks the address verified and then requires a separate
 sign-in; it does not issue session cookies. OAuth initiation sets a short-lived
@@ -258,7 +261,8 @@ routes return `ok == false`.
 - [Security](docs/security.mdx) — password migration, peppers, tokens, CSRF, 2FA,
   and enumeration protection
 - [Routes](docs/routes/) — HTTP methods, paths, authentication, and bodies
-- [Schemas](docs/schemas.mdx) — tables, indexes, migrations, and driver differences
+- [Schemas](docs/schemas.mdx) — tables, indexes, and driver differences
+- [Migrations](docs/migrations.mdx) — separate auth history, adoption, exports, and recovery
 - [Guides](docs/guides/) — authentication, sessions, organizations, OAuth,
   administration, rate limiting, and audit logs
 - [Architecture](docs/architecture.mdx) — package boundaries, middleware, and

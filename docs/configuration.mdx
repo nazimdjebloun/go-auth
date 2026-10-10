@@ -46,6 +46,7 @@ goauth.WithApp(goauth.AppConfig{
         // DB:   preOpenedSQLDB,          // one of URL / DB / Pool: pre-opened *sql.DB, alternative to URL
         // Pool: preOpenedPgxPool,         // one of URL / DB / Pool: PostgreSQL only, alternative to URL
         Driver: goauth.DriverPostgres, // required: DriverPostgres | DriverSQLite | DriverMySQL
+        CheckSchema: true, // optional, default false; checks recorded compatibility before workers start
 
         // Optional pool settings: apply only to URL-created connections.
         // Borrowed DB / Pool keep the caller's settings. Values below use defaults.
@@ -75,6 +76,7 @@ goauth.WithApp(goauth.AppConfig{
 | `DB` | `*sql.DB` | One of `URL` / `DB` / `Pool` | Pre-opened; the library borrows it and never closes it. |
 | `Pool` | `*pgxpool.Pool` | One of `URL` / `DB` / `Pool` | PostgreSQL only. Pre-opened; borrowed, not closed. |
 | `Driver` | `Driver` | Required | One of `DriverPostgres`, `DriverSQLite`, `DriverMySQL`. |
+| `CheckSchema` | `bool` | Optional | Default `false`. Rejects missing, dirty, unknown, checksum-mismatched or incompatible migration history before services/workers start. Uses the shared 10-second startup database timeout; executes no migrations and does not detect live schema drift. |
 | `MaxOpenConns` | `int` | Optional | URL-created databases only. Zero selects 25 for PostgreSQL/MySQL or 1 for SQLite. Negative values are rejected. |
 | `MaxIdleConns` | `*int` | Optional | URL-created databases only. Nil selects `min(2, MaxOpenConns)` after defaults; pointer to zero disables idle retention. Must be between zero and the resolved open limit. |
 | `ConnMaxLifetime` | `time.Duration` | Optional | URL-created databases only. Zero disables lifetime recycling; negative values are rejected. |
@@ -86,6 +88,8 @@ Borrowed `DB` and `Pool` retain the caller's connection settings and remain open
 
 SQLite defaults keep one idle connection with no lifetime recycling, preserving an in-memory database between operations. For private `:memory:` databases, keep one open connection, retain it idle, and leave lifetime limits disabled. Increasing connections creates independent private databases; zero idle retention or connection recycling can destroy the database. Use a file-backed database for durable data. Constructor failures release library-owned SQL handles; successful instances release them on `Auth.Close()`.
 
+
+Run [auth migrations](./migrations.mdx) explicitly with deployment credentials. `New` never executes migration DDL; use `VerifySchema` during deployment for structural verification.
 
 **Expected errors**
 

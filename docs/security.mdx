@@ -270,6 +270,23 @@ Email-code verification consumes the code and performs the conditional write in 
 
 Storage is SQL-only (PostgreSQL, MySQL, SQLite) — there is no custom-repository extension point. The guarded writes above (name-only update, conditional email verification, `port.AdminGuardStore`) are required parts of the `port.UserRepository` contract that the built-in SQL store implements, not optional capabilities with a fallback. Direct calls to the general repository `Update` method remain snapshot writes. Applications that change an email themselves must clear its verification state in the same write.
 
+## Schema migration deployment
+
+Execute [auth migrations](./migrations.mdx) explicitly before starting auth
+traffic and workers. Use separate deployment credentials for DDL and runtime
+credentials for ordinary operations. `New` never migrates. Enable
+`DatabaseConfig.CheckSchema` to reject incompatible or incomplete recorded
+history before workers start; structural drift needs deployment verification.
+
+Do not replace published auth upgrades with an ORM-generated diff: data
+transformations and credential invariants belong to the reviewed migration.
+The initial baseline/adoption path does not rewrite credential material.
+Back up and review recovery before production changes. Restoring old auth data
+can restore revoked sessions or consumed tokens, so backup restoration also
+needs a credential/session invalidation procedure appropriate to the incident.
+Programmatic migration errors retain driver causes; redact those causes before
+logging them or exposing them outside the operator boundary.
+
 ## What is not covered
 
 This library handles auth-specific correctness. It does not, and cannot, cover:

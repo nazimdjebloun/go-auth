@@ -8,149 +8,85 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 
 # Schemas
 
-go-auth ships one canonical schema per database driver, embedded into the
-library at build time. Canonical SQL tables and indexes, no ORM, no
-runtime `CREATE TABLE`. You apply the schema once, before your app starts.
+go-auth embeds one complete desired auth schema and a versioned migration catalog
+per driver. Auth migrations run separately from application and ORM migrations.
+`New` never executes DDL. Use the matching CLI before starting auth services.
 
-The column tables below describe the **PostgreSQL** schema. Table and column
-names are identical on SQLite and MySQL; types and constraints differ (see
-[Driver differences](#driver-differences)).
+The column tables below describe the **PostgreSQL** schema. Names are fixed on
+SQLite and MySQL; types, collations, constraints and indexes differ (see
+[Driver differences](#driver-differences)). The journal table `goauth_migrations`
+is reserved in addition to the fifteen auth tables documented here.
 
-<Callout type="warn" title="There is no migration system yet">
-  go-auth ships a single canonical schema per driver, not versioned migrations.
-  There is no `schema_migrations` table, no up/down steps, and no diffing
-  against what you already have. Every `CREATE TABLE` is `IF NOT EXISTS`, which
-  means applying the schema over an existing database will **never alter a table
-  that already exists** in an older shape. It succeeds, changes nothing, and
-  leaves you on the old columns.
+## Applying and exporting the schema
 
-  Until a migration system lands, treat schema changes between releases as
-  breaking: regenerate the schema file, diff it against the one you applied
-  last, and write the `ALTER TABLE` statements yourself.
-</Callout>
-
-## Applying the schema
-
-The fresh-install schema also includes application authorization storage:
-`app_roles`, `app_permissions`, `app_role_permissions`, and the singleton
-`app_authorization_state`. `users.app_role_id` references one role;
-`app_role_assignment_revision` tracks replacements. An assigned role cannot be
-deleted. Protected role identity uses a unique nullable `system_key` rather
-than a display name.
-
-Permission keys are stored in `app_permissions.permission_key`. Library-owned
-rows have `is_system=true` and must remain enabled. All three schemas enforce
-`is_system = (substr(permission_key, 1, 11) = 'goauth.app.')` through the named
-`app_permissions_namespace_owner` CHECK constraint. Ownership is true exactly
-when the key starts with the lowercase `goauth.app.` prefix. Inconsistent inserts
-and updates fail, including direct SQL writes. Full key syntax and library
-catalog membership are still validated by the service.
-
-Grant links use a composite primary key, and the permission foreign key
-restricts deletion until grant
-cleanup occurs. Applying DDL creates no role or permission records.
-
-Three routes to the same SQL. Pick whichever fits how you deploy.
+Run these commands from the application's Go module, where `go-auth` is already
+pinned in `go.mod`. From this repository's source checkout, use
+`go run ./cmd/goauth` instead.
 
 <Tabs items={['CLI migrate', 'CLI generate', 'From Go']}>
 <Tab value="CLI migrate">
 
-Connects and applies the schema directly:
-
 ```bash
-go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest migrate \
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
   --driver postgres --dsn "$DATABASE_URL"
 ```
 
-The version suffix runs a published release independently of your project's
-dependency graph. Pin an exact root-module release for reproducibility. From
-the source checkout, use `go run ./cmd/goauth` followed by the command arguments.
-
-Both flags are required. It opens the connection, pings it, then executes each
-statement in order, printing `OK: <statement>` for each one.
+An unused auth namespace receives the published baseline. A tracked installation
+receives pending migrations in numeric order. Completed SQL is not replayed;
+history and the previous schema are checked before continuing. An untracked
+installation must use [explicit adoption](./migrations.mdx#adopting-an-existing-installation).
 
 </Tab>
 <Tab value="CLI generate">
 
-Writes the schema to a file so you can check it in or feed it to your own
-migration tool:
-
 ```bash
-go run github.com/nazimdjebloun/go-auth/cmd/goauth@latest generate \
-  --driver postgres --out auth.schema.sql
+go run github.com/nazimdjebloun/go-auth/cmd/goauth generate \
+  --driver postgres --out goauth
 ```
 
-`--driver` is required; `--out` defaults to `auth.schema.sql` in the current
-directory. This is the route to use if you already run Atlas, golang-migrate,
-Flyway, or hand-written migrations: generate the file, diff it against your
-last version, and let your existing tool own the change.
+`--out` is a **directory**, defaulting to `goauth`. It contains
+`auth.schema.sql`, `reference.md`, and `migrations/` with the published SQL and
+catalog metadata. This does not inspect or migrate a database. Keep these
+artifacts separate from application schema sources and migrations.
 
 </Tab>
 <Tab value="From Go">
 
-The schema is reachable programmatically, which is what the library's own
-integration tests do:
-
 ```go
-schema, err := goauth.GetSchema("postgres")
+status, err := goauth.Migrate(ctx, db, goauth.MigrationOptions{
+    Driver: "postgres",
+})
 if err != nil {
     return err
 }
-for _, stmt := range goauth.SplitSQL(schema) {
-    if _, err := db.Exec(stmt); err != nil {
-        return fmt.Errorf("migrate: %w\nstatement: %s", err, stmt)
-    }
-}
+_ = status // Includes revision, pending IDs and recorded history.
 ```
 
-`GetSchema` returns the embedded SQL for a driver. `SplitSQL` splits it on
-semicolons while respecting quoted strings, and drops comment-only fragments.
+The runner borrows a `*sql.DB` and never closes it. It must run before auth
+traffic and workers start. `GetSchema` and `GenerateSchema` still expose raw
+bootstrap SQL for inspection. `SplitSQL` handles that bootstrap's restricted
+syntax; migration execution uses explicit published statement boundaries.
 
 </Tab>
 </Tabs>
 
-Installing the CLI properly, rather than `go run`:
+All schema and migration commands accept `postgres`/`pg`, `sqlite`/`sqlite3`,
+and `mysql`. The CLI registers all three drivers. The migration catalog begins
+at revision `000001`; adoption currently supports only its complete schema,
+not arbitrary earlier release layouts. See [Migrations](./migrations.mdx) for
+history, recovery, ownership, timeouts and deployment procedures.
 
-```bash
-go install github.com/nazimdjebloun/go-auth/cmd/goauth@latest
-```
+PostgreSQL requires `pgcrypto` and `pg_trgm`. The baseline issues
+`CREATE EXTENSION IF NOT EXISTS` for both; provision them beforehand if deployment
+credentials cannot create extensions. They may be shared with the application
+and are never treated as auth-only tables.
 
-The CLI is an executable package in the library's root module and shares its
-release version. It registers all three database drivers, so it works against
-any of them without extra driver imports. This layout applies to releases
-containing the module merge, not older published versions.
-
-Driver names accept aliases in all three routes: `postgres` or `pg`, `sqlite`
-or `sqlite3`, and `mysql`.
-
-<Callout title="PostgreSQL: the schema opens with two CREATE EXTENSION statements">
-  The PostgreSQL schema opens with `CREATE EXTENSION IF NOT EXISTS "pgcrypto"`
-  (which supplies the `gen_random_uuid()` default used by account and other IDs),
-  followed by `CREATE EXTENSION IF NOT EXISTS "pg_trgm"` (which supplies the
-  trigram indexes behind admin substring search). Both need privileges some
-  managed providers do not hand out, so these are the statements most likely to
-  fail first on a locked-down instance. Because `migrate` exits on the first
-  failure, nothing after it runs.
-
-  If your provider blocks them, have a superuser create the extensions once
-  beforehand; the `IF NOT EXISTS` then makes the library's copies a no-op. On
-  PostgreSQL 13 and later `gen_random_uuid()` is built in and the pgcrypto
-  extension is not strictly needed, but the statement is still issued.
-</Callout>
-
-<Callout type="warn" title="migrate is not transactional, and is only re-runnable on PostgreSQL and SQLite">
-  Statements execute one at a time and the command exits on the first failure,
-  so a partial failure leaves the schema partly applied. Whatever was created
-  before the failing statement stays.
-
-  On PostgreSQL and SQLite every statement is `IF NOT EXISTS`, so re-running
-  after you fix the cause picks up where it stopped. **MySQL is different:**
-  `CREATE INDEX` has no `IF NOT EXISTS` form there, so its index statements
-  are unguarded and a second run fails with `Duplicate key name` on the first
-  index that already exists. The tables survive. The command cannot be used
-  as a no-op re-check on MySQL. Do not point it at a production database without
-  a backup.
-</Callout>
+The complete schema includes application authorization tables (`app_roles`,
+`app_permissions`, `app_role_permissions`, `app_authorization_state`) even when
+the optional service is disabled. The `app_permissions_namespace_owner` CHECK
+requires `is_system = (substr(permission_key, 1, 11) = 'goauth.app.')`.
+Migration execution creates no roles or permission records; initialize them
+through the [application permission workflow](./guides/app-permissions.mdx).
 
 ## The tables
 
@@ -1512,7 +1448,7 @@ conventions. Authorization timestamps use `TIMESTAMPTZ`, `DATETIME` and
 
 Three files living in `internal/schema/` and embedded
 by `//go:embed`. The table and column names are identical across all three.
-Only types and defaults differ.
+Types, defaults, collations, constraints and indexes differ.
 
 | | PostgreSQL | SQLite | MySQL |
 |---|---|---|---|
@@ -1523,7 +1459,7 @@ Only types and defaults differ.
 | JSON columns | `JSONB` | `TEXT` | `JSON` for `metadata` and `parsed_ua` |
 | `CHECK` constraints | Existing domain checks plus app identity/revision/ownership checks | Pepper version plus app identity/revision/ownership checks | App identity/revision/ownership checks |
 | App indexes | User-role and reverse grant indexes | User-role and reverse grant indexes | User-role and reverse grant indexes |
-| Re-runnable | yes: every statement is `IF NOT EXISTS` | yes | **no**: `CREATE INDEX` is unguarded |
+| Re-running `goauth migrate` | Completed IDs are skipped; schema is verified | Completed IDs are skipped; schema is verified | Completed IDs are skipped; incomplete DDL requires verified recovery |
 | Foreign keys | inline `REFERENCES` | inline `REFERENCES` | named `CONSTRAINT ... FOREIGN KEY` |
 | Timestamp precision | `TIMESTAMPTZ` | `DATETIME` | `DATETIME(6)` (microseconds) on the org tables |
 | Placeholders | `$1, $2, …`: left as-is for PostgreSQL, rewritten to `?` by `sqlstore.DB.Rebind` | `?` | `?` |

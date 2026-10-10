@@ -28,6 +28,12 @@ type DatabaseConfig struct {
 	Pool   *pgxpool.Pool // pre-opened pgx pool (library borrows, does not close)
 	Driver Driver        // DriverPostgres, DriverSQLite, DriverMySQL (required: NewConfig rejects an empty driver)
 
+	// CheckSchema opts into a compatibility check before services/workers start.
+	// Missing, dirty or incompatible history rejects startup. This does not run
+	// migrations or certify absence of structural drift. The startup DB timeout
+	// also bounds this check (10 seconds).
+	CheckSchema bool
+
 	// Limits apply only to URL-created databases, not borrowed DB or Pool.
 	MaxOpenConns    int           // 0 defaults to 25 (PostgreSQL/MySQL), 1 (SQLite)
 	MaxIdleConns    *int          // nil defaults to min(2, MaxOpenConns); explicit 0 disables idle retention

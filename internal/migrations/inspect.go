@@ -90,10 +90,8 @@ func verify(ctx context.Context, q queryer, dialect, script string) error {
 		if err := verifyIndexes(ctx, q, dialect, table, def); err != nil {
 			return err
 		}
-		if dialect == "mysql" {
-			if err := verifyMySQLForeignKeys(ctx, q, table); err != nil {
-				return err
-			}
+		if err := verifyForeignKeyData(ctx, q, dialect, table); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -331,6 +329,7 @@ func normalizeDefault(dialect, kind, value string, live bool) (string, error) {
 
 func postgresConstraints(ctx context.Context, q queryer, table string) ([]string, error) {
 	rows, err := q.QueryContext(ctx, `SELECT c.contype::text,c.condeferrable,c.condeferred,c.convalidated,
+		COALESCE((to_jsonb(c)->>'conenforced')::boolean,TRUE),
 		COALESCE((SELECT string_agg(a.attname,',' ORDER BY k.ord) FROM unnest(c.conkey) WITH ORDINALITY k(num,ord)
 		JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=k.num),''),
 		COALESCE(f.relname,''),COALESCE(fn.nspname=current_schema(),TRUE),
@@ -349,12 +348,12 @@ func postgresConstraints(ctx context.Context, q queryer, table string) ([]string
 	actions := map[string]string{"a": "NO ACTION", "r": "RESTRICT", "c": "CASCADE", "n": "SET NULL", "d": "SET DEFAULT"}
 	for rows.Next() {
 		var kind, columns, target, keys, deleteAction, updateAction, match, check string
-		var deferrable, deferred, valid, sameSchema, nullsNotDistinct bool
-		if err := rows.Scan(&kind, &deferrable, &deferred, &valid, &columns, &target,
+		var deferrable, deferred, valid, enforced, sameSchema, nullsNotDistinct bool
+		if err := rows.Scan(&kind, &deferrable, &deferred, &valid, &enforced, &columns, &target,
 			&sameSchema, &keys, &deleteAction, &updateAction, &match, &check, &nullsNotDistinct); err != nil {
 			return nil, err
 		}
-		if deferrable || deferred || !valid || !sameSchema || nullsNotDistinct {
+		if deferrable || deferred || !valid || !enforced || !sameSchema || nullsNotDistinct {
 			return nil, drift(table, "constraint validation, deferral, uniqueness or target schema differs")
 		}
 		switch kind {
@@ -488,7 +487,7 @@ func verifyIndexes(ctx context.Context, q queryer, dialect string, table *tableS
 		}
 		idx, expected := def.indexes[name]
 		if !expected || idx.table != table.name {
-			if dialect == "mysql" && mysqlImplicitIndex(name, unique, columns, table, def) && valid && method == "btree" {
+			if dialect == "mysql" && mysqlImplicitIndex(name, unique, columns, table) && valid && method == "btree" {
 				continue
 			}
 			_ = rows.Close()
@@ -520,7 +519,8 @@ func verifyIndexes(ctx context.Context, q queryer, dialect string, table *tableS
 	var triggers int
 	if dialect == "postgres" {
 		query = `SELECT COUNT(*) FROM pg_trigger g JOIN pg_class t ON t.oid=g.tgrelid
-			JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname=current_schema() AND t.relname=$1 AND NOT g.tgisinternal`
+			JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname=current_schema() AND t.relname=$1
+			AND (NOT g.tgisinternal OR g.tgenabled!='O')`
 	} else {
 		query = "SELECT COUNT(*) FROM information_schema.triggers WHERE trigger_schema=DATABASE() AND event_object_table=?"
 	}
@@ -528,12 +528,12 @@ func verifyIndexes(ctx context.Context, q queryer, dialect string, table *tableS
 		return err
 	}
 	if triggers != 0 {
-		return drift(table.name, "unexpected trigger")
+		return drift(table.name, "unexpected trigger or changed FK trigger enforcement")
 	}
 	return nil
 }
 
-func mysqlImplicitIndex(name string, unique bool, columns []string, table *tableSpec, def definition) bool {
+func mysqlImplicitIndex(name string, unique bool, columns []string, table *tableSpec) bool {
 	if unique {
 		kind := "unique"
 		if name == "PRIMARY" {
@@ -556,20 +556,25 @@ func mysqlImplicitIndex(name string, unique bool, columns []string, table *table
 	return false
 }
 
-// Re-enabling MySQL foreign_key_checks does not validate previously written
-// rows. Adoption and postconditions must reject existing orphaned auth data.
-func verifyMySQLForeignKeys(ctx context.Context, q queryer, table *tableSpec) error {
+// Re-enabling FK enforcement does not validate rows written while it was
+// bypassed. Adoption and postconditions must reject existing orphaned auth data.
+func verifyForeignKeyData(ctx context.Context, q queryer, dialect string, table *tableSpec) error {
+	quote := "`"
+	if dialect == "postgres" {
+		quote = `"`
+	}
+	identifier := func(name string) string { return quote + name + quote }
 	for _, fk := range table.foreignKeys {
 		joins := make([]string, len(fk.columns))
 		present := make([]string, len(fk.columns))
 		for i, column := range fk.columns {
-			joins[i] = "c.`" + column + "` = p.`" + fk.keys[i] + "`"
-			present[i] = "c.`" + column + "` IS NOT NULL"
+			joins[i] = "c." + identifier(column) + " = p." + identifier(fk.keys[i])
+			present[i] = "c." + identifier(column) + " IS NOT NULL"
 		}
 		// Identifiers come exclusively from the validated embedded snapshot.
-		query := "SELECT EXISTS(SELECT 1 FROM `" + table.name + "` c LEFT JOIN `" + fk.target +
-			"` p ON " + strings.Join(joins, " AND ") + " WHERE " + strings.Join(present, " AND ") +
-			" AND p.`" + fk.keys[0] + "` IS NULL)"
+		query := "SELECT EXISTS(SELECT 1 FROM " + identifier(table.name) + " c LEFT JOIN " + identifier(fk.target) +
+			" p ON " + strings.Join(joins, " AND ") + " WHERE " + strings.Join(present, " AND ") +
+			" AND p." + identifier(fk.keys[0]) + " IS NULL)"
 		var orphan bool
 		if err := q.QueryRowContext(ctx, query).Scan(&orphan); err != nil {
 			return err

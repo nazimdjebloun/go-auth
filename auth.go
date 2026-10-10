@@ -118,6 +118,11 @@ func New(in *Config) (*Auth, error) {
 			_ = sqlDB.Close()
 		}
 	}()
+	if cfg.app.Database.CheckSchema {
+		if err := CheckSchema(startupCtx, sqlDB.DB, string(cfg.app.Database.Driver)); err != nil {
+			return nil, err
+		}
+	}
 	wired, err := buildServices(startupCtx, &cfg, keys, sqlDB, passwordHasher, passwordPepperKeys, hasherImpl)
 	if err != nil {
 		return nil, err

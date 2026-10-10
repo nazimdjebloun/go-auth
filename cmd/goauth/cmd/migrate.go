@@ -3,116 +3,251 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
-	"os"
-	"strings"
+	"time"
 
+	"github.com/go-sql-driver/mysql"
 	goauth "github.com/nazimdjebloun/go-auth"
-	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/nazimdjebloun/go-auth/internal/sqldriver"
 	"github.com/spf13/cobra"
 
-	"github.com/go-sql-driver/mysql"
-	// Register the PostgreSQL database/sql driver used by migrate.
-	_ "github.com/jackc/pgx/v5/stdlib"
-	// Register the SQLite database/sql driver used by migrate.
-	_ "modernc.org/sqlite"
+	_ "github.com/jackc/pgx/v5/stdlib" // Register the PostgreSQL database/sql driver.
+	_ "modernc.org/sqlite"             // Register the SQLite database/sql driver.
 )
 
-var migrateCmd = &cobra.Command{
-	Use:   "migrate",
-	Short: "Run auth schema migrations against a database",
-	Long: `Connects to the database using the provided DSN and driver,
-then applies the canonical auth schema to it.
-
-Supported drivers: postgres, sqlite, mysql`,
-	Args: cobra.NoArgs,
-	Run: func(cmd *cobra.Command, _ []string) {
-		driver, _ := cmd.Flags().GetString("driver")
-		dsn, _ := cmd.Flags().GetString("dsn")
-
-		if driver == "" {
-			fmt.Fprintln(os.Stderr, "goauth: --driver is required")
-			os.Exit(1)
+func newMigrateCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "migrate",
+		Short: "Apply the published standalone auth migration history",
+		Long: `Installs auth objects in an unused namespace or applies pending published upgrades.
+Auth history is separate from application migrations. Existing untracked auth
+tables require explicit, validated baseline adoption. Stop auth traffic and
+workers before running migrations. Incomplete history blocks further execution.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return withMigrationDatabase(cmd, func(ctx context.Context, db *sql.DB, options goauth.MigrationOptions) error {
+				status, err := goauth.Migrate(ctx, db, options)
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "goauth: auth schema revision %06d is complete (%s)\n", status.Revision, status.Dialect)
+				return err
+			})
+		},
+	}
+	cmd.PersistentFlags().String("driver", "", "Database driver (postgres, sqlite, mysql)")
+	cmd.PersistentFlags().String("dsn", "", "Database DSN")
+	cmd.PersistentFlags().Duration("timeout", 30*time.Minute, "Overall operation timeout")
+	cmd.PersistentFlags().Duration("lock-timeout", 30*time.Second, "Migration serialization and metadata-lock timeout")
+	cmd.PersistentFlags().Duration("statement-timeout", 5*time.Minute, "Timeout per migration statement")
+	for _, name := range []string{"driver", "dsn"} {
+		if err := cmd.MarkPersistentFlagRequired(name); err != nil {
+			panic(err)
 		}
-		if dsn == "" {
-			fmt.Fprintln(os.Stderr, "goauth: --dsn is required")
-			os.Exit(1)
-		}
-
-		sqlDriver := sqldriver.SQLName(driver)
-		db, err := sql.Open(sqlDriver, dsn)
-		if err != nil {
-			log.Fatalf("goauth: failed to connect: %v", err)
-		}
-		defer func() {
-			if err := db.Close(); err != nil {
-				log.Printf("goauth: close database: %v", err)
-			}
-		}()
-
-		if err := db.Ping(); err != nil {
-			log.Fatalf("goauth: ping failed: %v", err)
-		}
-
-		if err := applySchema(context.Background(), db, driver); err != nil {
-			log.Fatal(err)
-		}
-		fmt.Println("goauth: migration complete!")
-	},
+	}
+	cmd.AddCommand(newMigrationStatusCommand(), newMigrationVerifyCommand(), newMigrationAdoptCommand(), newMigrationRepairCommand())
+	return cmd
 }
 
-// applySchema replays the canonical bootstrap DDL, not versioned upgrades.
-// Tables and non-MySQL indexes use IF NOT EXISTS; MySQL duplicate-index
-// errors are ignored only for CREATE INDEX statements. Existing definitions
-// are not checked or altered. A failure may leave earlier DDL applied.
-func applySchema(ctx context.Context, db *sql.DB, driver string) error {
-	schemaSQL, err := goauth.GetSchema(driver)
+func newMigrationStatusCommand() *cobra.Command {
+	return &cobra.Command{
+		Use: "status", Short: "Report recorded auth history as JSON without executing DDL", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return withMigrationDatabase(cmd, func(ctx context.Context, db *sql.DB, options goauth.MigrationOptions) error {
+				status, err := goauth.GetMigrationStatus(ctx, db, options.Driver)
+				if err != nil {
+					return err
+				}
+				encoder := json.NewEncoder(cmd.OutOrStdout())
+				encoder.SetIndent("", "  ")
+				return encoder.Encode(status)
+			})
+		},
+	}
+}
+
+func newMigrationVerifyCommand() *cobra.Command {
+	return &cobra.Command{
+		Use: "verify", Short: "Verify the tracked target schema and data postconditions", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return withMigrationDatabase(cmd, func(ctx context.Context, db *sql.DB, options goauth.MigrationOptions) error {
+				if err := goauth.VerifySchema(ctx, db, options); err != nil {
+					return err
+				}
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), "goauth: auth schema verification passed")
+				return err
+			})
+		},
+	}
+}
+
+func newMigrationAdoptCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "adopt", Short: "Validate an untracked baseline and record adoption without creation SQL", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			baseline, err := cmd.Flags().GetInt64("baseline")
+			if err != nil {
+				return err
+			}
+			if baseline <= 0 {
+				return fmt.Errorf("goauth: --baseline must be positive")
+			}
+			return withMigrationDatabase(cmd, func(ctx context.Context, db *sql.DB, options goauth.MigrationOptions) error {
+				status, err := goauth.AdoptSchema(ctx, db, goauth.BaselineAdoptionOptions{
+					MigrationOptions: options, BaselineRevision: baseline,
+				})
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "goauth: adopted verified auth baseline %06d\n", status.Revision)
+				return err
+			})
+		},
+	}
+	cmd.Flags().Int64("baseline", 0, "Explicit supported baseline revision")
+	mustMarkFlagRequired(cmd, "baseline")
+	return cmd
+}
+
+func newMigrationRepairCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "repair", Short: "Verify and complete the specified incomplete migration without replaying SQL", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			id, err := cmd.Flags().GetInt64("id")
+			if err != nil {
+				return err
+			}
+			if id <= 0 {
+				return fmt.Errorf("goauth: --id must be positive")
+			}
+			return withMigrationDatabase(cmd, func(ctx context.Context, db *sql.DB, options goauth.MigrationOptions) error {
+				status, err := goauth.RepairMigration(ctx, db, goauth.MigrationRepairOptions{
+					MigrationOptions: options, MigrationID: id,
+				})
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "goauth: verified migration %06d and recorded completion\n", status.Revision)
+				return err
+			})
+		},
+	}
+	cmd.Flags().Int64("id", 0, "Exact incomplete migration ID")
+	mustMarkFlagRequired(cmd, "id")
+	return cmd
+}
+
+func withMigrationDatabase(cmd *cobra.Command, run func(context.Context, *sql.DB, goauth.MigrationOptions) error) (err error) {
+	driver, err := cmd.Flags().GetString("driver")
 	if err != nil {
 		return err
 	}
-	for _, stmt := range schema.SplitSQL(schemaSQL) {
-		_, err := db.ExecContext(ctx, stmt)
-		if err != nil && driver == "mysql" && isCreateIndex(stmt) && isMySQLDuplicateIndexErr(err) {
-			// MySQL has no CREATE INDEX IF NOT EXISTS. A rerun of the
-			// canonical schema over an already-migrated database must stay
-			// a no-op rather than aborting on the first existing index, so
-			// error 1061 (duplicate key name) on a CREATE INDEX is treated
-			// as already-applied. Any other error still fails the run.
-			fmt.Println("SKIP (already exists):", stmt)
-			continue
-		}
+	catalog, err := goauth.GetMigrationCatalog(driver)
+	if err != nil {
+		return err
+	}
+	dsn, err := cmd.Flags().GetString("dsn")
+	if err != nil {
+		return err
+	}
+	if dsn == "" {
+		return fmt.Errorf("goauth: --dsn must not be empty")
+	}
+	timeout, err := cmd.Flags().GetDuration("timeout")
+	if err != nil {
+		return err
+	}
+	lockTimeout, err := cmd.Flags().GetDuration("lock-timeout")
+	if err != nil {
+		return err
+	}
+	statementTimeout, err := cmd.Flags().GetDuration("statement-timeout")
+	if err != nil {
+		return err
+	}
+	if timeout <= 0 || lockTimeout <= 0 || statementTimeout <= 0 {
+		return fmt.Errorf("goauth: migration timeouts must be positive")
+	}
+	ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
+	defer cancel()
+	sqlDriver := sqldriver.SQLName(catalog.Dialect)
+	if catalog.Dialect == "sqlite" {
+		dsn, err = sqldriver.SQLiteForeignKeyDSN(sqlDriver, dsn)
 		if err != nil {
-			return fmt.Errorf("goauth: migration failed: %w\nStatement: %s", err, stmt)
+			return &commandError{message: "goauth: invalid SQLite connection parameters", cause: err}
 		}
-		fmt.Println("OK:", stmt)
 	}
-	return nil
+	db, err := sql.Open(sqlDriver, dsn)
+	if err != nil {
+		return &commandError{message: "goauth: could not open database; check connection settings", cause: err}
+	}
+	defer func() {
+		if closeErr := db.Close(); closeErr != nil {
+			err = errors.Join(err, &commandError{message: "goauth: could not close database", cause: closeErr})
+		}
+	}()
+	if err := db.PingContext(ctx); err != nil {
+		return &commandError{message: "goauth: database connection failed; check connectivity and credentials", cause: err}
+	}
+	return migrationCommandError(run(ctx, db, goauth.MigrationOptions{
+		Driver: catalog.Dialect, LockTimeout: lockTimeout, StatementTimeout: statementTimeout,
+	}))
 }
 
-// Only the canonical CREATE INDEX forms may treat error 1061 as a rerun.
-func isCreateIndex(stmt string) bool {
-	fields := strings.Fields(stmt)
-	if len(fields) < 4 || !strings.EqualFold(fields[0], "CREATE") {
-		return false
-	}
-	if strings.EqualFold(fields[1], "UNIQUE") {
-		fields = fields[1:]
-	}
-	return strings.EqualFold(fields[1], "INDEX")
+// CLI output omits raw driver messages, which may include credentials or data.
+// Programmatic callers can still inspect the wrapped cause with errors.Is/As.
+type commandError struct {
+	message string
+	cause   error
 }
 
-func isMySQLDuplicateIndexErr(err error) bool {
-	var mysqlErr *mysql.MySQLError
-	return errors.As(err, &mysqlErr) && mysqlErr.Number == 1061
+func (e *commandError) Error() string { return e.message }
+func (e *commandError) Unwrap() error { return e.cause }
+
+func migrationCommandError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var failure *goauth.MigrationError
+	prefix := "goauth: "
+	if errors.As(err, &failure) {
+		prefix = fmt.Sprintf("goauth: %s migration %06d, phase %s (dirty=%t, uncertain=%t): ",
+			failure.Dialect, failure.MigrationID, failure.Phase, failure.Dirty, failure.Uncertain)
+		// These configuration diagnostics are static and contain no driver data.
+		if failure.Cause != nil {
+			switch message := failure.Cause.Error(); message {
+			case "goauth: MySQL migrations require session autocommit=1",
+				"goauth: PostgreSQL migrations require session_replication_role=origin",
+				"goauth: select a MySQL database before migrating":
+				return &commandError{message: prefix + message, cause: err}
+			}
+		}
+	}
+	for _, known := range []error{
+		goauth.ErrUntrackedSchema, goauth.ErrDirtyMigration, goauth.ErrIncompatibleSchema,
+		goauth.ErrSchemaDrift, goauth.ErrMigrationLockTimeout, goauth.ErrUnknownMigrationHistory,
+		goauth.ErrMigrationChecksum, context.Canceled, context.DeadlineExceeded,
+	} {
+		if errors.Is(err, known) {
+			message := known.Error()
+			if known == goauth.ErrSchemaDrift && failure != nil {
+				// Our drift diagnostics name published objects and differences.
+				message = failure.Cause.Error()
+			}
+			return &commandError{message: prefix + message, cause: err}
+		}
+	}
+	var mysqlError *mysql.MySQLError
+	if errors.As(err, &mysqlError) {
+		return &commandError{message: fmt.Sprintf("%sMySQL error %d", prefix, mysqlError.Number), cause: err}
+	}
+	var state interface{ SQLState() string }
+	if errors.As(err, &state) {
+		return &commandError{message: prefix + "database SQLSTATE " + state.SQLState(), cause: err}
+	}
+	return &commandError{message: prefix + "operation failed; inspect database state before retrying", cause: err}
 }
 
-func init() {
-	migrateCmd.Flags().String("driver", "", "Database driver (postgres, sqlite, mysql)")
-	migrateCmd.Flags().String("dsn", "", "Database DSN")
-	mustMarkFlagRequired(migrateCmd, "driver")
-	mustMarkFlagRequired(migrateCmd, "dsn")
-	rootCmd.AddCommand(migrateCmd)
-}
+func init() { rootCmd.AddCommand(newMigrateCommand()) }

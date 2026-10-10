@@ -5,6 +5,7 @@
     "index",
     "installation",
     "schemas",
+    "migrations",
     "configuration",
     "client-config",
     "admin-client-config",

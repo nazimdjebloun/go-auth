@@ -107,6 +107,15 @@ See [App roles and permissions](./app-permissions.mdx) for initialization,
 selective library provisioning, business definitions, revisions and delegation
 limits. Use the canonical schema; startup installs no permissions.
 
+## Auth migration ownership
+
+Auth owns its fixed tables and the `goauth_migrations` journal. Run the matching
+`goauth migrate` independently of application/ORM migrations, before starting
+services and workers. Keep app fields in extension tables with foreign keys;
+do not include auth SQL in application desired schemas or copied host migrations.
+`DatabaseConfig.CheckSchema` enables a compatibility check at startup; it never
+executes DDL. See [Migrations](../migrations.mdx) for adoption and recovery.
+
 ## Startup and shutdown
 
 `NewConfig` validates configuration and starts no background work. `New` clones and revalidates it, opens or adopts the database, constructs services, and starts the configured workers. Depending on configuration, these include maintenance, recovery-email delivery, audit delivery/retention, and cleanup for the library's in-memory rate-limit stores. Create an `Auth` for the application's lifetime, rather than per request.

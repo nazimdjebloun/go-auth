@@ -156,9 +156,14 @@ jobs:
           export GOBIN="$PWD/bin"
           GOWORK=off GOMODCACHE="$(mktemp -d)" go install "github.com/nazimdjebloun/go-auth/cmd/goauth@${GITHUB_REF_NAME}"
           "$GOBIN/goauth" --help >/dev/null
-          "$GOBIN/goauth" generate --driver postgres --out pg.schema.sql
-          "$GOBIN/goauth" generate --driver mysql --out mysql.schema.sql
-          "$GOBIN/goauth" generate --driver sqlite --out sqlite.schema.sql
+          "$GOBIN/goauth" generate --driver postgres --out goauth/postgres
+          "$GOBIN/goauth" generate --driver mysql --out goauth/mysql
+          "$GOBIN/goauth" generate --driver sqlite --out goauth/sqlite
+          for dialect in postgres mysql sqlite; do
+            test -f "goauth/$dialect/auth.schema.sql"
+            test -f "goauth/$dialect/reference.md"
+            test -f "goauth/$dialect/migrations/catalog.json"
+          done
 
   security:
     runs-on: ubuntu-latest

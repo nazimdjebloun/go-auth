@@ -134,33 +134,37 @@ func readHistory(ctx context.Context, q queryer, catalog Catalog) (Status, error
 	if err := rows.Err(); err != nil {
 		return status, err
 	}
+	failure := func(id int64, cause error) error {
+		return &Error{Dialect: catalog.Dialect, MigrationID: id, Phase: "history validation", Dirty: status.Dirty, Cause: cause}
+	}
 	for i, record := range status.History {
 		if i >= len(catalog.Migrations) || record.ID != catalog.Migrations[i].ID {
-			return status, fmt.Errorf("%w at revision %d", ErrUnknownHistory, record.ID)
+			return status, failure(record.ID, ErrUnknownHistory)
 		}
 		step := catalog.Migrations[i]
 		if record.Checksum != step.Checksum || record.SchemaChecksum != step.SchemaChecksum {
-			return status, fmt.Errorf("%w at revision %d", ErrChecksum, record.ID)
+			return status, failure(record.ID, ErrChecksum)
 		}
 		validIdentity := record.BaselineID == catalog.BootstrapRevision && record.Dialect == catalog.Dialect
 		validIdentity = validIdentity && record.File == step.File && record.Kind == step.Kind
 		validMode := record.Mode == "executed" || (i == 0 && record.Mode == "adopted")
 		if !validIdentity || !validMode || record.StartedAt <= 0 || status.Dirty {
-			return status, fmt.Errorf("%w at revision %d", ErrUnknownHistory, record.ID)
+			return status, failure(record.ID, ErrUnknownHistory)
 		}
 		switch record.State {
 		case "complete":
-			if record.CompletedAt == nil || *record.CompletedAt < record.StartedAt {
-				return status, fmt.Errorf("%w: invalid completion at revision %d", ErrUnknownHistory, record.ID)
+			// Wall clocks may move backward; IDs and states establish ordering.
+			if record.CompletedAt == nil || *record.CompletedAt <= 0 {
+				return status, failure(record.ID, fmt.Errorf("%w: invalid completion", ErrUnknownHistory))
 			}
 			status.Revision = record.ID
 		case "started":
 			if record.CompletedAt != nil {
-				return status, fmt.Errorf("%w: invalid incomplete record", ErrUnknownHistory)
+				return status, failure(record.ID, fmt.Errorf("%w: invalid incomplete record", ErrUnknownHistory))
 			}
 			status.Dirty = true
 		default:
-			return status, fmt.Errorf("%w: invalid state at revision %d", ErrUnknownHistory, record.ID)
+			return status, failure(record.ID, fmt.Errorf("%w: invalid state", ErrUnknownHistory))
 		}
 	}
 	for _, step := range catalog.Migrations {

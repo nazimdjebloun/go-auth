@@ -65,6 +65,7 @@ go-auth uses ports and adapters. The `service` package depends on interfaces in 
 | `token` | Cryptographically random opaque token generation (`crypto/rand`, 32 bytes, hex-encoded). |
 | `hasher` | The default bcrypt `Hasher` and optional `hasher/argon2id` implementation. Callers select the latter through `WithPasswordHasher`; wiring always adds prefix dispatch and a password pipeline whose new writes use `PasswordPepperConfig.CurrentVersion` while stored rows select an exact historical key. |
 | `internal/handler` | HTTP adapters. Decodes requests, calls a service method, writes the JSON response, or sets cookies. Files are split by concern, including auth, sessions, OAuth, organizations, and admin operations. |
+| `internal/migrations` | Immutable embedded catalogs, standalone execution, database history, migration locks, baseline adoption, verification and artifact export. The root migration functions expose this independently of `Auth`. |
 | `internal/sqlstore` | The `port` repository interfaces implemented over `database/sql`. One `_repo.go` per aggregate, plus the `DB` wrapper described below. |
 | `internal/routes` | Canonical `"METHOD /path"` constants used by HTTP wiring and rate limit configuration. |
 | `internal/httproutes` | The enabled route registry: pairs canonical patterns with handlers and each route's exact middleware chain. |
@@ -83,11 +84,12 @@ validation together. `config_defaults.go` preserves defaulting order, while
 
 1. Clones and checks the config, derives keys, and builds the password hasher.
 2. Opens (or adopts) the database connection based on `DatabaseConfig` and wraps it in `internal/sqlstore.DB`, which implements `port.TxManager`.
-3. Constructs the repositories, mailer, template provider, audit service, and dependent services in that order.
-4. Builds the HTTP adapters and middleware, then the enabled route registry with each route's specific chain.
-5. Starts maintenance and returns an `*Auth` with `Services()` for programmatic calls, `Handler(pattern)` for custom routers, and middleware accessors for application routes. `Services()` returns a value containing operation interfaces; disabled optional capabilities remain nil.
+3. If `DatabaseConfig.CheckSchema` is enabled, checks recorded schema compatibility before any services/workers start. It never runs migrations.
+4. Constructs the repositories, mailer, template provider, audit service, and dependent services in that order.
+5. Builds the HTTP adapters and middleware, then the enabled route registry with each route's specific chain.
+6. Starts maintenance and returns an `*Auth` with `Services()` for programmatic calls, `Handler(pattern)` for custom routers, and middleware accessors for application routes. `Services()` returns a value containing operation interfaces; disabled optional capabilities remain nil.
 
-`Auth.Mount(mux *http.ServeMux)` registers the enabled route registry on the mux you give it. It does not add middleware of its own. Each handler already has its full chain baked in from step 4, and CORS preflight (`OPTIONS`) is registered per path when `SecurityConfig.AllowedOrigins` is non-empty. `Handler(pattern)` returns the enabled route's wrapped handler with a small adapter that sets the canonical `Request.Pattern`; it reports `false` for a disabled or unknown route. A custom router must populate `PathValue` for parameterized routes before invoking it.
+`Auth.Mount(mux *http.ServeMux)` registers the enabled route registry on the mux you give it. It does not add middleware of its own. Each handler already has its full chain baked in from step 5, and CORS preflight (`OPTIONS`) is registered per path when `SecurityConfig.AllowedOrigins` is non-empty. `Handler(pattern)` returns the enabled route's wrapped handler with a small adapter that sets the canonical `Request.Pattern`; it reports `false` for a disabled or unknown route. A custom router must populate `PathValue` for parameterized routes before invoking it.
 
 ## Two ways to drive it
 

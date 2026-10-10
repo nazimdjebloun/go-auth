@@ -133,7 +133,10 @@ func run(ctx context.Context, db *sql.DB, options Options, operation string, id 
 		return readHistory(ctx, q, catalog)
 	}
 	if status.Dirty {
-		return status, &Error{Dialect: catalog.Dialect, Phase: "history", Dirty: true, Cause: ErrDirty}
+		return status, &Error{
+			Dialect: catalog.Dialect, MigrationID: status.History[len(status.History)-1].ID,
+			Phase: "history", Dirty: true, Cause: ErrDirty,
+		}
 	}
 	if operation == "adopt" && len(status.History) != 0 {
 		return status, fmt.Errorf("goauth: baseline adoption requires an untracked installation")
@@ -304,7 +307,7 @@ func verifyStep(ctx context.Context, q queryer, dialect string, step Step) error
 }
 
 // Inspect reads existing history without initializing metadata or executing DDL.
-func Inspect(ctx context.Context, db *sql.DB, driver string) (Status, error) {
+func Inspect(ctx context.Context, db *sql.DB, driver string) (status Status, err error) {
 	if db == nil {
 		return Status{}, fmt.Errorf("goauth: migration database is nil")
 	}
@@ -312,6 +315,12 @@ func Inspect(ctx context.Context, db *sql.DB, driver string) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	defer func() {
+		var failure *Error
+		if err != nil && !errors.As(err, &failure) {
+			err = &Error{Dialect: catalog.Dialect, Phase: "history read", Cause: err}
+		}
+	}()
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return Status{}, err
@@ -324,7 +333,7 @@ func Inspect(ctx context.Context, db *sql.DB, driver string) (Status, error) {
 	if !exists {
 		return Status{}, ErrUntracked
 	}
-	status, err := readHistory(ctx, conn, catalog)
+	status, err = readHistory(ctx, conn, catalog)
 	if err == nil && len(status.History) == 0 {
 		return status, ErrUntracked
 	}

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"regexp"
 	"strings"
@@ -52,15 +53,30 @@ func TestApplySchema_MySQL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Simulate interruption after the first table and index, then retry.
-	for _, stmt := range schema.SplitSQL(script)[:2] {
+	// A partial installation made by the old bootstrap executor is untracked.
+	statements := schema.SplitSQL(script)
+	for _, stmt := range statements[:2] {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			t.Fatal(err)
 		}
 	}
+	if err := applySchema(ctx, db, "mysql"); !errors.Is(err, goauth.ErrUntrackedSchema) {
+		t.Fatalf("partial untracked schema was replayed: %v", err)
+	}
+	// Complete the legacy fixture explicitly, then validate baseline adoption.
+	for _, stmt := range statements[2:] {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := goauth.AdoptSchema(ctx, db, goauth.BaselineAdoptionOptions{
+		MigrationOptions: goauth.MigrationOptions{Driver: "mysql"}, BaselineRevision: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < 2; i++ {
 		if err := applySchema(ctx, db, "mysql"); err != nil {
-			t.Fatalf("bootstrap %d: %v", i, err)
+			t.Fatalf("tracked execution %d: %v", i, err)
 		}
 		assertSchemaInventory(t, db, "mysql", script)
 	}
