@@ -14,7 +14,9 @@ var (
 	columnDefinition     = regexp.MustCompile(`^\s+([a-z_]+) ([A-Z]+(?:\([0-9]+\))?)([^\n]*)`)
 	primaryKeyDefinition = regexp.MustCompile(`PRIMARY KEY\s*\(([^)]+)\)`)
 	uniqueDefinition     = regexp.MustCompile(`UNIQUE\s*\(([^)]+)\)`)
-	indexDefinition      = regexp.MustCompile(`(?m)^CREATE (UNIQUE )?INDEX(?: IF NOT EXISTS)? ([a-z_]+) ON ([a-z_]+)(?: USING ([A-Za-z]+))?\s*\(([^;]+)\)(?: WHERE ([^;]+))?;`)
+	indexDefinition      = regexp.MustCompile(`(?m)^CREATE (UNIQUE )?INDEX(?: IF NOT EXISTS)? ([a-z_]+) ON ([a-z_]+)(?: USING ([A-Za-z]+))?\s*\(([^;]+?)\)(?: WHERE ([^;]+))?;`)
+	tableStart           = regexp.MustCompile(`(?im)^CREATE TABLE\b`)
+	indexStart           = regexp.MustCompile(`(?im)^CREATE (?:UNIQUE )?INDEX\b`)
 	defaultDefinition    = regexp.MustCompile(`(?i)DEFAULT\s+(\('(?:''|[^'])*'\)|'(?:''|[^'])*'|[a-z_]+(?:\([0-9]*\))?|[0-9]+)`)
 	collationDefinition  = regexp.MustCompile(`(?i)COLLATE ([a-z0-9_]+)`)
 	foreignDefinition    = regexp.MustCompile(`(?i)(?:CONSTRAINT\s+([a-z_]+)\s+)?FOREIGN KEY\s*\(([^)]+)\)\s+REFERENCES\s+([a-z_]+)\s*\(([^)]+)\)([^,\n]*)`)
@@ -64,6 +66,7 @@ type foreignKey struct {
 }
 
 func parseDefinition(dialect, script string) (definition, error) {
+	script = strings.ReplaceAll(script, "\r\n", "\n")
 	result := definition{tables: map[string]*tableSpec{}, indexes: map[string]indexSpec{}}
 	for _, match := range tableDefinition.FindAllStringSubmatch(script, -1) {
 		table := &tableSpec{name: match[1], sql: match[0], columns: []columnSpec{}, constraints: []string{}}
@@ -148,6 +151,9 @@ func parseDefinition(dialect, script string) (definition, error) {
 			table.constraints = append(table.constraints, "check("+expression+")")
 		}
 		slices.Sort(table.constraints)
+		if _, duplicate := result.tables[table.name]; duplicate || len(table.columns) == 0 {
+			return result, fmt.Errorf("duplicate or empty table definition %s", table.name)
+		}
 		result.tables[table.name] = table
 	}
 	if len(result.tables) == 0 {
@@ -155,6 +161,9 @@ func parseDefinition(dialect, script string) (definition, error) {
 	}
 	for _, match := range indexDefinition.FindAllStringSubmatch(script, -1) {
 		idx := indexSpec{name: match[2], table: match[3], method: strings.ToLower(match[4]), unique: match[1] != ""}
+		if _, duplicate := result.indexes[idx.name]; duplicate || result.tables[idx.table] == nil {
+			return result, fmt.Errorf("duplicate or external index definition %s", idx.name)
+		}
 		if idx.method == "" {
 			idx.method = "btree"
 		}
@@ -170,6 +179,17 @@ func parseDefinition(dialect, script string) (definition, error) {
 			idx.predicate = predicate
 		}
 		result.indexes[idx.name] = idx
+	}
+	if len(tableStart.FindAllStringIndex(script, -1)) != len(result.tables) ||
+		len(indexStart.FindAllStringIndex(script, -1)) != len(result.indexes) {
+		return result, fmt.Errorf("snapshot contains unsupported table or index formatting")
+	}
+	for _, table := range result.tables {
+		for _, fk := range table.foreignKeys {
+			if len(fk.columns) == 0 || len(fk.columns) != len(fk.keys) || result.tables[fk.target] == nil {
+				return result, fmt.Errorf("unsupported foreign-key definition in %s", table.name)
+			}
+		}
 	}
 	return result, nil
 }

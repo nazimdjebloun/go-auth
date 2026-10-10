@@ -55,6 +55,7 @@ func TestExpressionsPreservePrecedenceAndCase(t *testing.T) {
 		{"status = 'pending'", "status = 'Pending'", false},
 		{"role IN ('user', 'admin')", "role = ANY (ARRAY['user'::text, 'admin'::text])", true},
 		{"revision > 0", "((revision > 0))", true},
+		{"password_pepper_version <= 4294967295", "password_pepper_version <= '4294967295'::bigint", true},
 	} {
 		left, err := expression(tc.left)
 		if err != nil {
@@ -67,6 +68,19 @@ func TestExpressionsPreservePrecedenceAndCase(t *testing.T) {
 		if (left == right) != tc.equal {
 			t.Errorf("unexpected equivalence: %q and %q", left, right)
 		}
+	}
+}
+
+func TestSnapshotParserRefusesUnrecognizedObjects(t *testing.T) {
+	ddl, err := schema.For("sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parseDefinition("sqlite", ddl+"\nCREATE TABLE \"unknown\" (id TEXT);\n"); err == nil {
+		t.Fatal("unrecognized table was silently omitted")
+	}
+	if _, err := parseDefinition("sqlite", ddl+"\nCREATE INDEX \"unknown\" ON users(id);\n"); err == nil {
+		t.Fatal("unrecognized index was silently omitted")
 	}
 }
 

@@ -124,6 +124,9 @@ func Load(driver string) (Catalog, error) {
 		if hex.EncodeToString(digest[:]) != step.SchemaChecksum {
 			return Catalog{}, fmt.Errorf("goauth: schema snapshot checksum mismatch for migration %d", id)
 		}
+		if _, err := parseDefinition(dialect, step.schemaSQL); err != nil {
+			return Catalog{}, fmt.Errorf("goauth: invalid verification snapshot for migration %d: %w", id, err)
+		}
 		for _, check := range step.Checks {
 			if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(check)), "SELECT ") {
 				return Catalog{}, fmt.Errorf("goauth: migration %d requires SELECT verification queries", id)
@@ -132,6 +135,13 @@ func Load(driver string) (Catalog, error) {
 	}
 	if catalog.BootstrapRevision != catalog.Migrations[0].ID || catalog.TargetRevision != previous {
 		return Catalog{}, fmt.Errorf("goauth: invalid baseline or target revision for %s", dialect)
+	}
+	desired, err := schema.For(dialect)
+	if err != nil {
+		return Catalog{}, err
+	}
+	if strings.ReplaceAll(desired, "\r\n", "\n") != catalog.Migrations[len(catalog.Migrations)-1].schemaSQL {
+		return Catalog{}, fmt.Errorf("goauth: canonical schema differs from the catalog's target snapshot")
 	}
 	return catalog, nil
 }

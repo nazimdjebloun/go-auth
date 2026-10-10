@@ -53,7 +53,7 @@ func Export(driver, directory string) error {
 		manifestPath:                             manifest,
 	}
 	for _, step := range catalog.Migrations {
-		for name, contents := range map[string]string{step.File: step.SQL, step.Schema: step.schemaSQL} {
+		for name, contents := range map[string]string{step.File: step.SQL} {
 			path := filepath.Join(directory, "migrations", name)
 			if existing, err := os.ReadFile(path); err == nil && string(existing) != contents {
 				return fmt.Errorf("goauth: refusing to replace modified published artifact %q", path)

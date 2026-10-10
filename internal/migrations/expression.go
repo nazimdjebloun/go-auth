@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -203,7 +204,13 @@ func (p *expressionParser) atom() (string, error) {
 		typ := p.tokens[p.pos]
 		p.pos++
 		switch typ {
-		case "text", "bigint", "integer", "jsonb", "boolean":
+		case "text", "jsonb", "boolean":
+		case "bigint", "integer", "smallint":
+			if strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'") {
+				if number, err := strconv.ParseInt(value[1:len(value)-1], 10, 64); err == nil {
+					value = strconv.FormatInt(number, 10)
+				}
+			}
 		case "character":
 			if !p.take("varying") {
 				return "", fmt.Errorf("unsupported cast type")
