@@ -69,13 +69,13 @@ goauth.WithCookie(goauth.CookieConfig{
 | `SameSite` | `http.SameSite` | Optional | Lax | |
 | `Secure` | `*bool` | Optional | derived — `true` unless `Environment` is dev **and** `BaseURL` is `http://` | Tri-state: `nil` derives it correctly for dev and prod. Override with `goauth.SecureAlways()` or `goauth.SecureNever()` (local `http://` only). |
 
-No field on `CookieConfig` reaches validation as an error — every field is defaulted before the config is checked.
+Zero-valued cookie fields receive defaults before validation. Invalid combinations can still fail validation: `SameSite: http.SameSiteNoneMode` requires a secure cookie. Use an HTTPS `BaseURL` or `Secure: goauth.SecureAlways()`; browsers reject `SameSite=None` cookies without `Secure`.
 
 Full reference for both, including how they interact with everything else: [Configuration → WithSession](../configuration.mdx#withsession-optional) and [Configuration → WithCookie](../configuration.mdx#withcookie-optional).
 
 ## Writing your own login handler
 
-`a.Services().Auth.Login` (and `Register`) return raw tokens — no cookies are set, since the service layer never touches `net/http`. If you're writing a custom handler (a different response shape, extra steps before the session is issued) instead of using the built-in handler from `a.Handler("POST /auth/login")`, use these three methods to reproduce the exact cookie behavior the built-in handlers use:
+`a.Services().Auth.Login` (and `Register`) return raw tokens — service calls do not write HTTP responses or set cookies. If you're writing a custom handler (a different response shape, extra steps before the session is issued) instead of using the built-in handler from `a.Handler("POST /auth/login")`, use these three methods to reproduce the exact cookie behavior the built-in handlers use:
 
 Import `github.com/nazimdjebloun/go-auth/api` for `api.LoginInput` in this example.
 

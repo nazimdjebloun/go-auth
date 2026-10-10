@@ -55,7 +55,7 @@ Public. Returns Google's authorization URL — PKCE (S256) is always included. R
 
 | Code | Status | Cause |
 |---|---|---|
-| `provider_not_found` | 404 | `WithProvider(google.New(...))` was never called, or `EnableOAuth` is `false` |
+| `provider_not_found` | 404 | The requested provider is not registered while OAuth routes are mounted |
 
 #### curl
 
@@ -64,6 +64,8 @@ curl https://api.myapp.com/auth/oauth/google
 ```
 
 No `Origin` header needed — this is a `GET` with no state-changing effect, so `OriginCheck` doesn't apply to it.
+
+OAuth paths are unmounted when `EnableOAuth` is false or no provider is registered; those requests receive the router's not-found response rather than a `provider_not_found` error envelope.
 
 ---
 

@@ -531,7 +531,7 @@ The lower-level `RequireActiveOrg(role)` and `RequireOrg(role)` middleware remai
 
 An explicit `{orgID}` and the session's active organization are independent selections and can legitimately differ. `RequireOrgScope` authorizes the path organization; `RequireActiveOrgScope` authorizes the active organization stored on the session. Choose one source for a route and use the resulting `scope.OrgID` all the way through its repository calls.
 
-**From a browser client**, there's no dedicated "what's my active org" endpoint — `/auth/me` returns the user, not the session. The active org is visible on the [session-listing](./sessions.mdx#listing-sessions) responses (match `currentSessionId` against the `sessions` array to find your own), but the simplest approach is usually to just track it as local state the moment you call `setActive`/`clearActive` below, rather than re-fetching to confirm it.
+**From a browser client**, `GET /auth/me` includes the current `session` alongside the user. Read `me.session.activeOrgId` to restore the active organization after a reload, and re-fetch after `setActive`/`clearActive` if you need confirmation. The field is also present in the [session-listing](./sessions.mdx#listing-sessions) responses.
 
 ### Set active org — `PUT /auth/orgs/active`
 
@@ -775,7 +775,7 @@ See [List invites](./client/organizations.mdx#list-invites) for the wrapper and 
 
 ### Resending or deleting an invite — `POST .../invites/{inviteID}/resend`, `DELETE .../invites/{inviteID}`
 
-Auth: org admin for both. `orgID` in the path is only used for the membership/role check — the handler looks up the invite by `inviteID` alone, so it isn't re-validated against `orgID` a second time inside the handler itself.
+Auth: org admin for both. The handler passes both `orgID` and `inviteID` to the service. After checking the caller's org role, the service verifies that the invite belongs to that organization; a missing invite or a cross-org mismatch returns `404 invite_not_found` before resend or deletion.
 
 ```json
 { "message": "Invite email resent" }

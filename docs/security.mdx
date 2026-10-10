@@ -14,7 +14,7 @@ go-auth provides authentication controls; you remain responsible for deployment,
 
 Passwords use **bcrypt** from `golang.org/x/crypto/bcrypt` at cost 12 by default. They are never stored or logged in plaintext. `WithBcryptCost` changes the work factor; `WithPasswordHasher` selects the implementation used for new password hashes.
 
-`PasswordPolicy` (`MinLength`, `RequireUppercase`, `RequireDigit`, `RequireSpecial`) runs during registration and password changes. Its default requires at least eight characters and a digit.
+`PasswordPolicy` (`MinLength`, `RequireUppercase`, `RequireDigit`, `RequireSpecial`) runs during registration and password changes. Its default requires at least eight UTF-8 bytes and a digit. A zero `MinLength` falls back to eight bytes even when other policy fields are customized.
 
 ### Argon2id
 
@@ -52,7 +52,7 @@ Use a numeric keypad for 2FA and a full keyboard for the other codes. The shorte
 
 Password-authenticated session and challenge issuance rechecks the verified hash, pepper version, and authentication requirements under a user-row lock. A concurrent password reset/change either revokes the newly issued session/challenge or causes the stale login to return `invalid_credentials`. 2FA token consumption, session creation, last-login update, and the verification audit event commit in one transaction under that same user lock. Delivery of a challenge email happens after the challenge transaction commits and cannot recreate a challenge deleted by a password replacement.
 
-Every session issues two opaque tokens, a session token and a refresh token, each 32 cryptographically random bytes (`crypto/rand`), hex-encoded. Only their SHA-256 hash is ever written to the database; the raw token exists solely in the `Set-Cookie` header sent to the client. A leaked database dump does not hand over live sessions.
+Every session issues two opaque tokens, a session token and a refresh token, each 32 cryptographically random bytes (`crypto/rand`), hex-encoded. Only their SHA-256 hash is ever written to the database; the built-in HTTP handlers deliver raw tokens through `Set-Cookie`, while programmatic creation and rotation return them once to the caller for its own transport. A leaked database dump does not hand over live sessions.
 
 Refresh tokens rotate on every use: presenting one invalidates it and issues a new one. A short **grace window** (default 5s) tolerates two requests racing to refresh the same token; a previous token presented after that window revokes the session as suspected replay. Sessions additionally support an idle timeout (default 7d), a refresh-token expiry (default 30d), and an optional absolute maximum lifetime from creation regardless of activity. Refresh cannot revive a session after its idle timeout or maximum lifetime, and access-token validation enforces the maximum lifetime even if the access-token expiry is later.
 
@@ -60,12 +60,12 @@ Cookies default to `HttpOnly` (never exposed to JavaScript) and `Secure`. The `S
 
 ## CSRF
 
-Two independent layers, applied to every state-changing request (`POST`/`PUT`/`PATCH`/`DELETE`):
+Browser mutations protected by the route registry use two independent layers. OAuth callbacks, including POST callbacks, use their state cookie binding instead of these checks:
 
 1. **Origin/Referer checking** (`middleware.OriginCheck`) is always on. `Origin` (falling back to `Referer`) must match `AllowedOrigins` or the request itself. `Forwarded-*` headers are trusted only from IPs in the rate-limit `TrustedIPs` list. `AllowedOrigins` rejects `"*"`; every accepted origin must be listed explicitly.
 2. **Double-submit cookie token** (`middleware.CSRFToken`) is on by default. Its configuration is created automatically because `WithSecret` is mandatory. The token is `base64url(nonce).base64url(HMAC-SHA256(csrfKey, nonce))`, generated with `crypto/rand` and signed with a CSRF-specific key derived from `WithSecret`. Go-auth verifies it in constant time with `crypto/subtle.ConstantTimeCompare`. Clients echo it in `X-CSRF-Token` by default. Cross-origin JavaScript cannot read the cookie, so it cannot construct a matching request.
 
-Origin checking needs no configuration. The token layer also covers requests without `Origin` or `Referer`, or deployments that do not fully trust those headers.
+Configure `AllowedOrigins` with at least one explicit origin; `NewConfig` rejects an empty list. The token layer also covers requests without `Origin` or `Referer`, or deployments that do not fully trust those headers.
 
 Only the token layer can be disabled, through `SecurityConfig.DisableCSRFToken`. It is for CLI or server-to-server deployments with no browser clients. Disabling it logs a startup warning. Combining it with `AllowMissingCSRFHeaders: true` is rejected because a cross-site request could otherwise pass with neither a trusted origin nor a token.
 
@@ -79,7 +79,7 @@ OAuth uses **PKCE** (S256) on every provider, including ones that do not strictl
 
 An OAuth-provided email is only treated as verified when the provider guarantees it. For GitHub, a non-empty public profile email specifically, since GitHub only allows verified addresses to be set as public. Linking a new provider to an existing account requires that account to already be authenticated (`unauthorized` otherwise), and unlinking is blocked (`cannot_unlink_last_provider`) if it would leave the account with no way to log in at all, with no password and no remaining linked provider.
 
-**The OAuth callback is the one HTML response in an otherwise all-JSON API.** It sets cookies via `Set-Cookie` (unreliable on cross-origin 302 redirects in some browsers) and then redirects client-side via a small inline script. Every other endpoint's headers are left entirely to the host application, but this response carries its own `X-Content-Type-Options: nosniff` and `Content-Security-Policy` since it is the only place go-auth renders markup rather than JSON.
+**The OAuth callback is the one HTML response in an otherwise all-JSON API.** It sets cookies via `Set-Cookie` (unreliable on cross-origin 302 redirects in some browsers) and then redirects client-side via a small inline script. This HTML response sets `X-Content-Type-Options: nosniff` and `Content-Security-Policy`. Built-in JSON responses set their content type, error writers also set `nosniff`, and the CSRF-token endpoint sets `Cache-Control: no-store`; the host application supplies any additional headers.
 
 ## Two-factor authentication
 
@@ -200,11 +200,11 @@ audit events. Runtime APIs expose no equivalent assurance bypass.
 
 ## Audit logging
 
-When enabled, security-critical transactional paths (registration, successful login session issuance, password change/reset, session creation/revocation, account deletion, and role changes) record their audit event in the same database transaction as the state change: the record exists if and only if the change committed (record-iff-commit). Standalone observations such as failed login attempts have no state transaction and are durable direct inserts. When external sinks exist, the same write adds one `audit_outbox` obligation per event; the dispatcher fans it out to the configured sink set with exponential-backoff retries (10s base, 1h cap) up to `MaxAttempts`, then dead-letters it (retained for `DeadLetterTTL` as failure evidence). Delivery is at-least-once: receivers must deduplicate on the event `id`, including when a later sink's failure causes an earlier successful sink to receive the fan-out again. `FailureMode` only governs fan-out across sinks within one dispatch batch. The separate `EnqueueFailureMode` resolver (nil = fail-open everywhere) decides, per event, whether a failed durable write blocks the triggering operation — fail-closed only fires where a transaction exists to roll back and degrades to fail-open at non-transactional sites. Startup rejects missing outbox migrations, unbounded sinks, and claim leases that cannot cover a sink's declared worst-case batch time.
+When enabled, security-critical transactional paths (registration, successful login session issuance, password change/reset, session creation/revocation, account deletion, and role changes) record their audit event in the same database transaction as the state change: a successfully written record commits or rolls back with that change. Under the default fail-open policy, a failed audit write can leave a committed change without a record. Standalone observations such as failed login attempts have no state transaction and are durable direct inserts. When external sinks exist, the same write adds one `audit_outbox` obligation per event; the dispatcher fans it out to the configured sink set with exponential-backoff retries (10s base, 1h cap) up to `MaxAttempts`, then dead-letters it (retained for `DeadLetterTTL` as failure evidence). Delivery is at-least-once: receivers must deduplicate on the event `id`, including when a later sink's failure causes an earlier successful sink to receive the fan-out again. `FailureMode` only governs fan-out across sinks within one dispatch batch. The separate `EnqueueFailureMode` resolver (nil = fail-open everywhere) decides, per event, whether a failed durable write blocks the triggering operation — fail-closed only fires where a transaction exists to roll back and degrades to fail-open at non-transactional sites. Startup rejects missing outbox migrations, unbounded sinks, and claim leases that cannot cover a sink's declared worst-case batch time.
 
 Password reset and password change also invalidate unused email 2FA login challenges in the same transaction as the password and session changes.
 
-Admin bans commit the ban, session deletion, and audit record together; unbanning and disabling 2FA commit their state change and audit record together. Enabling 2FA commits the enabled flag, any requested deletion of other sessions, and its audit record together. A failed revocation or audit write rolls back the state change.
+Admin bans commit the ban, session deletion, and audit record together; unbanning and disabling 2FA commit their state change and audit record together. Enabling 2FA commits the enabled flag, any requested deletion of other sessions, and its audit record together. A failed revocation rolls back the state change. A failed audit write rolls it back only when the event's `EnqueueFailureMode` is fail-closed; the default fail-open policy logs/counts the failure and permits the change.
 
 ## Secrets
 
@@ -247,7 +247,18 @@ goauth.NewConfig(
 )
 ```
 
-Pre-rotation codes then fail as `code_expired` / `two_factor_code_expired` (and the set-password / delete-account equivalents), the client's resend branch, without running the HMAC and without burning per-challenge attempt budget. Resending always mints under the live pepper, so one resend recovers. Unset (the zero default) disables this branch: verification is purely by HMAC and rotated codes surface as `invalid_code`.
+Pre-rotation 2FA codes return `two_factor_code_expired`; set-password and
+delete-account codes return their expiry errors. Those flows locate the stored
+challenge by ID or account before checking its creation time, without comparing
+the submitted code or consuming its attempt budget.
+
+Email verification has a different lookup: it hashes the submitted code with the
+**current** pepper before finding a row. After an actual pepper change, an old
+code cannot locate its old hash and returns `code_invalid`, even with the
+rotation timestamp configured. Request a fresh verification code for that
+response as well. Resends generate codes under the live pepper. Leaving the
+timestamp unset disables timestamp-based expiry classification; invalid-code
+errors still reject codes that no longer match the current pepper.
 
 This value **must be identical on every instance** behind a load balancer: it is a shared fact about when rotation happened, not a per-process observation. Source it the way you source the secret itself: one environment variable (or secrets-manager entry) read by all instances, never per-instance config files that can drift. Two instances holding different timestamps disagree per-request about whether the same code is stale, which is exactly the failure this mechanism exists to prevent. Stating "issued before last rotation" in a response is not an information leak: it reveals no keyspace bits, confirms no account existence, and the stale branch performs no comparison an attacker could oracle.
 

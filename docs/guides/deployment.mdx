@@ -26,20 +26,31 @@ Confusing these two is the most common way a deployment ends up half working. A 
 
 The frontend and the API answer on the same scheme, host and port, because whatever serves your frontend also forwards the API paths to it.
 
-Both reference apps in this repository do exactly this. The Next.js app uses a rewrite:
+A Next.js frontend can use a rewrite:
 
 ```ts
-// next.config.ts
-async rewrites() {
-  return [{ source: "/api/:path*", destination: `${API_URL}/:path*` }]
-}
+// next.config.ts — API_URL is your backend URL
+const nextConfig = {
+  async rewrites() {
+    return [{ source: "/api/:path*", destination: `${API_URL}/:path*` }];
+  },
+};
+export default nextConfig;
 ```
 
 An nginx, Caddy, Vercel or Netlify rule does the same job for a static frontend, as does a small server of your own.
 
-**What to configure:** nothing. This is the default.
+**What to configure:** keep the default host-only cookie scope and `SameSite=Lax`.
+Set `SecurityConfig.AllowedOrigins` to the browser-facing origin, as required by
+`NewConfig`, even with a same-origin proxy:
 
-**Why it works.** The browser requests `/auth/me` from your frontend's own host. Your proxy forwards it to the API server to server, and the browser is not involved in that hop. When the API replies with `Set-Cookie`, the browser attributes that cookie to **the host it connected to**, which is your frontend. So:
+```go
+goauth.WithSecurity(goauth.SecurityConfig{
+    AllowedOrigins: []string{"https://myapp.com"},
+}),
+```
+
+**Why it works.** The browser requests `/api/auth/me` from your frontend's own host. Your proxy forwards it to the API server to server, and the browser is not involved in that hop. When the API replies with `Set-Cookie`, the browser attributes that cookie to **the host it connected to**, which is your frontend. So:
 
 * The request never leaves the origin, so `SameSite` never comes into play.
 * CORS is not engaged, because there is no cross origin request to check.
@@ -159,16 +170,24 @@ This one is worth guarding against explicitly.
 
 Whenever the two frontends do share a cookie, which is any time they are on the same host or you have widened `CookieConfig.Domain`, a regular user signed into your app arrives at the panel **already authenticated**. Using a dedicated login endpoint does not save you: `POST /auth/admin/login` gates the login itself, but nothing gates a session that was minted somewhere else.
 
-This is not a security hole. Every `/admin/*` route checks the role server side and answers `403`, so the user can see nothing and change nothing. The problem is purely that the panel renders its entire shell before discovering that, and then fails every request it makes.
+Every `/admin/*` route enforces authorization server side. With app permissions disabled, a regular user is denied. With app permissions enabled, access depends on the protected admin role or the operation's effective permission grants, so a delegated operator may have access to some panel features.
 
-Check the role once, where the session is loaded, and treat a non admin as signed out:
+With app permissions **disabled**, check the fixed role when loading the session:
 
 ```ts
 const me = await authApi.me()
 setUser(me.role === "admin" ? me : null)
 ```
 
-Cheap, and it turns a dashboard full of failed requests into a login screen.
+With app permissions **enabled**, use `GET /auth/access` to obtain `isFullAccess` and effective `permissionKeys`; legacy `me.role` is omitted in this mode. Show each panel feature only when `isFullAccess` is true or its required library permission is present. For example:
+
+```ts
+const access = await apiRequest(API_BASE, "GET", "/auth/access");
+const canReadUsers = access.isFullAccess ||
+  access.permissionKeys.includes("goauth.app.users.read");
+```
+
+Use that result to show the users feature; it does not imply access to every panel operation. See [App permissions](./app-permissions.mdx#check-access-on-the-backend).
 
 ## Summary
 
@@ -183,9 +202,9 @@ Cheap, and it turns a dashboard full of failed requests into a login screen.
 Whichever topology you pick:
 
 * **`AllowedOrigins` must list every origin a browser calls the API from.** It gates both CORS and the origin check, and a missing entry fails closed.
-* **The origin check runs on every mutation** and cannot be disabled.
+* **The origin check protects browser mutation routes wrapped by the route registry.** OAuth POST callbacks instead use OAuth state bound to the initiating browser cookie, because providers send cross-site callbacks.
 * **The session cookie stays `HttpOnly`.** No topology exposes it to JavaScript, and `ExposeCSRFTokenInBody` returns the CSRF token only, never the session.
-* **Authorization is enforced server side.** Every `/admin/*` route checks the caller's role regardless of what any frontend believes, so a client side role check is there to spare the user a broken screen, never to protect the data.
+* **Authorization is enforced server side.** Every `/admin/*` route checks the caller's fixed role or applicable app permissions regardless of what any frontend believes. Client access hints control presentation; the server controls access.
 
 ## Next
 

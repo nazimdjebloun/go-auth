@@ -197,7 +197,7 @@ export function ForgotPasswordForm() {
           )}
           {success && (
             <Alert>
-              <AlertDescription>Check your email for a reset link.</AlertDescription>
+              <AlertDescription>Request accepted. If your account has a password, check your email for a reset link. Delivery may take a moment.</AlertDescription>
             </Alert>
           )}
           <div className="space-y-2">
@@ -292,7 +292,7 @@ export function ResetPasswordForm() {
 
 ## Set password (OAuth-only accounts)
 
-For accounts created via OAuth that don't have a password yet. Two-step flow: request the email, then confirm from the link.
+For accounts created via OAuth that don't have a password yet. Request an email code, then enter it with the new password while signed in. The default template sends an eight-character code, not a link. The confirmation form below gets the user ID from the [auth provider](./auth-provider.mdx); adapt the local hook import to your application's file layout.
 
 ```tsx
 // components/set-password-request.tsx
@@ -337,14 +337,14 @@ export function SetPasswordRequest() {
         )}
         {success && (
           <Alert>
-            <AlertDescription>Check your email for a link to set your password.</AlertDescription>
+            <AlertDescription>Check your email for the code to set your password.</AlertDescription>
           </Alert>
         )}
         <p className="text-sm text-muted-foreground">
           Your account was created with OAuth. Set a password so you can also log in with email.
         </p>
         <Button onClick={handleRequest} disabled={loading}>
-          {loading ? "Sending..." : "Send set-password link"}
+          {loading ? "Sending..." : "Send set-password code"}
         </Button>
       </CardContent>
     </Card>
@@ -357,7 +357,7 @@ export function SetPasswordRequest() {
 "use client";
 
 import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useAuth } from "./auth-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -367,9 +367,9 @@ import { securityApi } from "../lib/api/security";
 import { getSecurityErrorMessage } from "../lib/security-errors";
 
 export function SetPasswordConfirm() {
-  const searchParams = useSearchParams();
-  const code = searchParams.get("code") ?? "";
-  const userId = searchParams.get("userId") ?? "";
+  const { user, refresh } = useAuth();
+  const userId = user?.id ?? "";
+  const [code, setCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -377,12 +377,14 @@ export function SetPasswordConfirm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!userId) return;
     setLoading(true);
     setError(null);
     setSuccess(false);
     try {
       await securityApi.confirmSetPassword(userId, code, newPassword);
       setSuccess(true);
+      await refresh();
     } catch (err: any) {
       setError(getSecurityErrorMessage(err));
     } finally {
@@ -408,10 +410,14 @@ export function SetPasswordConfirm() {
             </Alert>
           )}
           <div className="space-y-2">
+            <Label htmlFor="setPasswordCode">Email code</Label>
+            <Input id="setPasswordCode" value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoComplete="one-time-code" maxLength={8} minLength={8} required />
+          </div>
+          <div className="space-y-2">
             <Label htmlFor="newPassword">New password</Label>
             <Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required />
           </div>
-          <Button type="submit" disabled={loading || !code || !userId}>
+          <Button type="submit" disabled={loading || code.length !== 8 || !userId || success}>
             {loading ? "Setting..." : "Set password"}
           </Button>
         </form>
@@ -439,16 +445,16 @@ import { getSecurityErrorMessage } from "../lib/security-errors";
 
 export function ResendVerificationButton() {
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleResend() {
     setLoading(true);
     setError(null);
-    setSuccess(false);
+    setMessage(null);
     try {
-      await securityApi.resendVerification();
-      setSuccess(true);
+      const result = await securityApi.resendVerification();
+      setMessage(result.codeSent ? "Verification email sent." : "Use the verification code already sent to your email.");
     } catch (err: any) {
       setError(getSecurityErrorMessage(err));
     } finally {
@@ -463,9 +469,9 @@ export function ResendVerificationButton() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {success && (
+      {message && (
         <Alert>
-          <AlertDescription>Verification email sent.</AlertDescription>
+          <AlertDescription>{message}</AlertDescription>
         </Alert>
       )}
       <Button variant="outline" size="sm" onClick={handleResend} disabled={loading}>
@@ -524,7 +530,7 @@ export function ResendVerificationByEmailForm() {
           )}
           {success && (
             <Alert>
-              <AlertDescription>If an account exists with that email, a verification link was sent.</AlertDescription>
+              <AlertDescription>Request accepted. If verification is needed, check your email for a code. Delivery may take a moment.</AlertDescription>
             </Alert>
           )}
           <div className="space-y-2">

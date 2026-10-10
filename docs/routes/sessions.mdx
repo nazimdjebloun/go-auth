@@ -6,7 +6,7 @@ icon: "Monitor"
 
 # Sessions
 
-Token rotation and session management for the caller. All routes need the session cookie except `POST /auth/refresh`, which needs the refresh cookie instead. Sessions serialize camelCase; token hashes are never included:
+Token rotation and session management for the caller. Session management needs the session cookie; `POST /auth/refresh` needs the refresh cookie instead, and `GET /auth/csrf-token` is public. Sessions serialize camelCase; token hashes are never included:
 
 ```json
 {
@@ -28,7 +28,7 @@ Token rotation and session management for the caller. All routes need the sessio
 
 POST /auth/refresh
 
-Rotates both tokens using the refresh cookie and sets the new cookies only while the session is within its idle timeout and optional maximum lifetime. No body: the refresh token is read from the cookie, not the JSON. A failed refresh clears both cookies. `Auth:` refresh cookie.
+Rotates both tokens using the refresh cookie and sets the new cookies only while the session is within its idle timeout and optional maximum lifetime. No body: the refresh token is read from the cookie, not the JSON. A service-level refresh failure clears both cookies; a missing or empty refresh cookie returns `401 invalid_refresh` without clearing cookies. `Auth:` refresh cookie.
 
 **Response `200 OK`:**
 

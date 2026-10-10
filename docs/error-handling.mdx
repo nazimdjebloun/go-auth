@@ -157,7 +157,7 @@ Organization membership middleware returns `org_member_not_found` (404) for a no
 | Code | Status | Message | Hint |
 |---|---|---|---|
 | `password_required` | 400 | Password is required to delete account | |
-| `password_account` | 400 | Use DELETE /auth/account with password to delete your account | An OAuth-only account tried the code-confirmation delete flow instead. |
+| `password_account` | 400 | Use DELETE /auth/account with password to delete your account | An account with a password tried the code-confirmation delete flow; that flow is for passwordless accounts. |
 | `delete_code_invalid` | 400 | Invalid deletion code | |
 | `delete_code_expired` | 410 | Deletion code has expired | |
 | `delete_code_already_used` | 410 | Deletion code has already been used | |
@@ -212,6 +212,7 @@ Callback errors do not arrive as JSON. See [HTTP contract and redirect exception
 | `org_limit_reached` | 400 | Maximum organization limit reached for user | `OrganizationConfig.MaxOrgsPerUser`. |
 | `org_member_limit_reached` | 400 | Organization member limit reached | |
 | `org_forbidden` | 403 | Insufficient organization permissions | Returned by role-gated actions (e.g. a member trying to change another member's role). |
+| `no_active_org` | 400 | Select an active organization first | `RequireActiveOrg` requires a selected organization in the session. |
 | `org_invite_expired` | 400 | Organization invite link has expired | |
 | `org_invite_email_mismatch` | 400 | Authenticated email does not match invite recipient | The invite was sent to a specific address; whoever accepts it must be logged in as that address. |
 | `org_metadata_too_large` | 400 | Organization metadata exceeds 16KB limit | |

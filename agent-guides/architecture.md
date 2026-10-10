@@ -6,18 +6,18 @@
 |---|---|---|
 | Public configuration | `config.go`, `config_*.go` | `Config` coordinates section files that own their types, options, defaults, and validation; cross-section checks stay in `config_validate.go` |
 | Construction and wiring | `auth.go`, `wire_*.go` | Build repositories, services, middleware, handlers, and adapters |
-| Public facade | `facade_services.go`, `facade_http.go`, `facade_org.go` | Direct-use methods and middleware helpers on `*Auth` |
+| Public facade | `facade_services.go`, `facade_http.go`, `facade_org.go`, `facade_app_permissions.go` | Direct-use methods, app-permission initialization, and middleware helpers on `*Auth` |
 | Public operation types | `api/` | Transport-neutral inputs, results, and sort types; imports `domain` |
 | Public service capabilities | `services.go` | Interfaces returned by `Auth.Services()`, backed by private concrete service references |
 | Route registration | `internal/routes/`, `internal/httproutes/`, `mount.go` | Canonical patterns, wrapped route entries, public lookup, and `http.ServeMux` registration |
 | HTTP handlers | `internal/handler/` | Decode/encode HTTP, cookies, and thin service calls |
-| Business logic | `internal/service/` | Authentication, sessions, passwords, verification, invites, admin, OAuth, organizations, and 2FA |
+| Business logic | `internal/service/` | Authentication, sessions, passwords, verification, invites, admin, OAuth, organizations, 2FA, and app permissions |
 | Interfaces | `port/` | Narrow dependencies for repositories and adapters |
 | SQL repositories | `internal/sqlstore/` | PostgreSQL, MySQL, and SQLite persistence behind `port` interfaces |
 | Schema | `internal/schema/` | Embedded schemas for all three SQL dialects |
-| Middleware | `middleware/` | Authentication, CSRF, CORS, rate limiting, cookies, and organization checks |
+| Middleware | `middleware/` | Authentication, CSRF, CORS, rate limiting, cookies, organization checks, and live app-permission checks |
 | Adapters and support | `audit/`, `domain/`, `emailtemplate/`, `hasher/`, `mailer/`, `provider/`, `ratelimit/`, `token/`, `internal/{crypto,keyring,otp,httperr}` | Domain types and built-in implementations |
-| CLI | `cmd/goauth/` | Schema migration, generation, and initial-admin seeding (part of the root module) |
+| CLI | `cmd/goauth/` | Schema migration, generation, initial-admin seeding, and `permissions catalog/seed/update` (part of the root module) |
 
 ## Request flow
 
@@ -39,6 +39,12 @@ Public routes omit authentication. Admin and organization routes add their
 role/membership checks at the appropriate inner boundary. CORS remains
 outermost so preflight requests short-circuit before rate-limit accounting.
 
+With app permissions enabled, admin operations use live app-permission checks
+instead of the legacy `user.Role` gate. Protected app-admin checks guard
+non-delegable administration. Follow the existing route policies in
+`internal/httproutes` and the checks in `middleware/app_permissions.go` when
+adding an operation; a cached user role is insufficient in this mode.
+
 ## Public use
 
 Core operations have facade methods such as `Auth.Register` and `Auth.Login`.
@@ -49,6 +55,14 @@ routers can call `Auth.Handler(pattern)` for an enabled wrapped route and must
 populate `PathValue` for parameterized routes. The handler lookup sets
 `Request.Pattern` for route-aware rate limiting. Applications can also use the
 public middleware and service methods for their own routes.
+
+`Auth.InitializeAppPermissions` initializes protected app roles and the first
+app-admin assignment for a trusted installation flow; it has no HTTP route.
+Permission records are managed through the permissions CLI. Custom application
+routes can use `Auth.RequireAppPermission` with a catalog permission key; the
+permission middleware must run after `Auth.RequireAuth`. It checks the current
+assignment and grant in the database and fails closed when app permissions are
+disabled.
 
 ## Transactions
 

@@ -31,20 +31,28 @@ go-auth follows a ports-and-adapters (hexagonal) layout. Read
 this section is the short version so you know where a change actually
 belongs before you start writing it.
 
-**Dependency direction is strict, in this order:**
+**Dependencies point toward shared types and capability interfaces:**
 
-    domain  <-  port  <-  service  <-  internal/sqlstore, internal/handler, middleware, provider
+    domain <- api <- port
+    internal/service -> api, domain, port, internal helpers
+    internal/sqlstore, provider -> port
+    internal/handler, middleware -> service capabilities, api, domain, port
 
 - **`domain`** — core types (`User`, `Session`, `Organization`, ...) and
   every `AuthError`. Depends on nothing else in the module.
-- **`port`** — the interfaces `service` depends on: `Mailer`, `Hasher`,
+- **`api`** — transport-neutral operation inputs, results, and sort types;
+  imports `domain`.
+- **`port`** — the interfaces `internal/service` depends on: `Mailer`, `Hasher`,
   `TokenGenerator`, `TemplateProvider`, `OAuthProvider`, `TxManager`, and
-  one repository interface per aggregate (`UserRepository`,
-  `SessionRepository`, `OrgRepository`, ...).
-- **`service`** — the actual business logic, one file per concern
+  narrow repository capabilities (readers, writers, counters, and related
+  operations) plus composed repository interfaces per aggregate. Imports
+  `api` and `domain` for shared types.
+- **`internal/service`** — the actual business logic, one file per concern
   (`auth.go`, `password.go`, `admin.go`, `oauth.go`, `org.go`, ...).
-  Depends only on `domain` and `port` — **never** on `database/sql`,
-  `net/http`, or anything under `internal/`.
+  Uses `api`, `domain`, `port`, and shared helpers such as token hashing,
+  templates, and audit delivery. SQL persistence stays in `internal/sqlstore`.
+  Some service code uses `net/http` cookie constants; HTTP request decoding
+  and response writing belong in handlers.
 - **`internal/sqlstore`** — `port` repository interfaces implemented over
   `database/sql`/`pgx`, one `_repo.go` per aggregate.
 - **`internal/handler`** — HTTP adapters: decode a request, call a
@@ -60,16 +68,16 @@ belongs before you start writing it.
 - **`provider`** — built-in OAuth adapters (`provider/google`,
   `provider/github`), each implementing `port.OAuthProvider`.
 
-`auth.go`'s `New()` is the composition root: it's the one place every
-adapter gets constructed and wired into a service. If you're adding a
-new adapter (a repository, a mailer, an OAuth provider), it gets
-constructed there and nowhere else.
+`auth.go`'s `New()` is the composition root and delegates construction to
+`wire_*.go`: database setup, adapter resolution, services, and HTTP wiring.
+Add new dependencies through these wiring functions and the existing
+configuration hooks.
 
 **Where a given kind of change goes:**
 
 - New business rule on an existing aggregate → add/edit a method in the
-  matching `service/*.go` file. If it needs new data access, add the
-  method to the relevant `port.*Repository` interface first, then
+  matching `internal/service/*.go` file. If it needs new data access, add the
+  method to the relevant narrow `port` capability first, then
   implement it in `internal/sqlstore`.
 - New HTTP-reachable operation → service method (above), then a handler
   in `internal/handler`, a pattern constant in `internal/routes`, and an
@@ -82,27 +90,28 @@ constructed there and nowhere else.
   — every `CREATE` statement must stay `IF NOT EXISTS`; `goauth migrate`
   has to stay idempotent on an already-migrated database.
 
-Every operation is reachable two ways — see the "Two ways to drive it"
-section of `docs/architecture.mdx` for why `service` never imports
-`net/http`: it means `auth.Services().Auth.Register(...)` and
-`auth.Mount(mux)`'s HTTP route both call the exact same code path, so a
-bug fixed once is fixed in both.
+Core operations can be called programmatically or through optional HTTP
+routes. For example, `auth.Services().Auth.Register(...)` and the registration
+route mounted by `auth.Mount(mux)` share the same service logic. The HTTP
+handler adds transport behavior such as JSON encoding and cookie delivery.
+See the "Two ways to drive it" section of `docs/architecture.mdx`.
 
 ## Testing
 
-Unit tests live next to the code they test (`service/*_test.go`,
-`internal/handler/*_test.go`, ...) and use hand-written fakes for the
-`port` interfaces (`internal/testutil`) — they run with no database, no
-network, no external services, and should stay that way for anything
-you add in `service`.
+Tests live next to the code they test (`internal/service/*_test.go`,
+`internal/handler/*_test.go`, ...) and in `integration/`. Unit tests use
+hand-written `port` fakes from `internal/testutil`. Transaction, concurrency,
+repository, integration, and CLI tests also use real databases through
+`internal/testdb`.
 
-The `integration` package runs the same flows against real Postgres,
-MySQL, and SQLite. Each `_test.go` there checks its own env var
-(e.g. `GOAUTH_POSTGRES_DSN`) and calls `t.Skip` — not fail — if it's
-unset, so `go test ./...` stays green without any database running
-locally. If you touch `internal/sqlstore` or the embedded schema, add or
-update the matching integration test; SQLite alone doesn't prove
-Postgres/MySQL-specific SQL is still correct.
+Shared fixtures default to SQLite, so `go test ./...` needs no external
+database. Selecting PostgreSQL or MySQL with `GOAUTH_TEST_DRIVER` requires
+`GOAUTH_POSTGRES_DSN` or `GOAUTH_MYSQL_TEST_DSN`, respectively; missing
+configuration fails these fixtures. Some standalone server tests skip when
+their DSNs are absent. Use the backend runner in [TESTING.md](TESTING.md) to
+require the full suites and detect unexpected skips. If you touch
+`internal/sqlstore` or the embedded schema, update the matching database tests;
+SQLite alone doesn't prove PostgreSQL/MySQL-specific SQL is still correct.
 
 ## Workflow
 

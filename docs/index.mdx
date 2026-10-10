@@ -30,7 +30,7 @@ Use the supplied interfaces to replace email delivery, templates, OAuth provider
 | Ongoing cost | Infrastructure and maintenance | Provider and infrastructure pricing | Infrastructure and maintenance; no go-auth per-user fee |
 | Setup effort | Build and maintain the system | Integrate the provider | Integrate the library into your service and deployment |
 | Security responsibility | Your implementation and deployment | Provider configuration and application integration | Your application integration and deployment; evaluate the library against your requirements |
-| Network dependency at runtime | None | Yes: auth calls leave your infrastructure | None |
+| Network dependency at runtime | Depends on your integrations | Yes: auth calls leave your infrastructure | Database access; email, OAuth, and external audit delivery may also require network services |
 | Customization | Total, but you built it | Limited to what the provider exposes | Total: Go source you can read and fork if needed |
 
 ## Features

@@ -115,7 +115,7 @@ goauth.WithSecret(os.Getenv("AUTH_SECRET")),
 goauth.WithPepperRotatedAt(rotationTime), // UTC moment the new secret went live
 ```
 
-`WithPepperRotatedAt` is optional and defaults to unset (zero): the rotation-stale branch stays dormant and verification is purely by HMAC. Set it, to the same UTC value on every instance, exactly when you rotate the secret. Pre-rotation low-entropy codes (2FA, verification, set-password, delete-account) then fail as `expired` ("resend") instead of `invalid_code`. Source it like the secret itself: one shared env var or secrets-manager entry, never per-instance files that can drift. Instances holding different timestamps disagree per-request about which codes are stale.
+`WithPepperRotatedAt` is optional and defaults to unset (zero): the rotation-stale branch stays dormant and verification is purely by HMAC. Set it, to the same UTC value on every instance, exactly when you rotate the secret. Pre-rotation 2FA, set-password, and delete-account codes then fail with their expiry error rather than their invalid-code error. Email verification instead looks up the code using the current pepper; a code hashed under the old pepper returns `code_invalid`. Request a new code in either case. Source it like the secret itself: one shared env var or secrets-manager entry, never per-instance files that can drift. Instances holding different timestamps disagree per-request about which codes are stale.
 
 `WithPepperRotatedAt` governs OTP/code expiry only. Password peppering is independent, so rotating `WithSecret` does not invalidate password hashes. See [Security → OTP pepper rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp).
 
@@ -197,7 +197,7 @@ goauth.WithSecurity(goauth.SecurityConfig{
 | `AllowHTTPURLs` | `*bool` | Optional | derived (`true` in `EnvironmentDev`, `false` otherwise) | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
 | `PepperRotatedAt` | `time.Time` | Optional | zero (branch dormant) | Moment the current secret went live (UTC). Prefer the surgical `WithPepperRotatedAt` option over restating this struct at rotation time. Must be identical on all instances (see above). |
 
-`PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default. If you set `RequireUppercase: true` without repeating `MinLength` or `RequireDigit`, those two are no longer applied.
+`PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default. If you set `RequireUppercase: true` without repeating `RequireDigit`, the digit requirement is no longer applied. A zero `MinLength` still falls back to eight **bytes** inside `PasswordPolicy.Validate`; the minimum and the 72-byte maximum both use the UTF-8 byte length.
 
 `Validate` also rejects any password over **72 bytes**, regardless of `MinLength`. That is bcrypt's real input limit (measured in bytes, not characters, so a multi-byte passphrase hits it sooner than an all-ASCII one of the same length), and the check runs before hashing so a too-long password gets a clear `400 weak_password` instead of a generic `500`. Do not set `MinLength` above 72.
 
@@ -208,9 +208,9 @@ defaults, it does not switch the layer on.
 
 To actually turn it off, set `DisableCSRFToken: true`. That is intended for
 deployments with no browser clients (a CLI or a server-to-server API), where
-CSRF is not in the threat model and the token round-trip buys nothing. Every
-state-changing route otherwise requires the client to `GET /auth/csrf-token`
-first and echo the cookie value back in the header.
+CSRF is not in the threat model and the token round-trip buys nothing. Browser mutation routes protected by this layer require the client to `GET /auth/csrf-token`
+first and echo the cookie value back in the header. OAuth callbacks use their
+state cookie binding instead, including the POST callback.
 
 <Callout type="warn" title="One combination is rejected">
   `DisableCSRFToken: true` together with `AllowMissingCSRFHeaders: true` is a
@@ -245,9 +245,9 @@ The double-submit check needs the browser to **send** `_csrf` and let JavaScript
 
 | Topology | Sends? | Readable? | What to set |
 |---|---|---|---|
-| Same origin, the frontend proxies the API (both reference apps do this) | yes | yes | nothing |
+| Same origin, the frontend proxies the API | yes | yes | no CSRF cookie overrides; still configure the frontend in `AllowedOrigins` |
 | Sibling subdomains, `app.example.com` and `api.example.com` | yes, they are the **same site** | not by default | `CookieDomain: ".example.com"` here, and leave `CookieConfig.Domain` alone |
-| Different registrable domains, `panel.acme.com` and `api.example.com` | only with `SameSite=None` | **never** | `CookieSameSite: http.SameSiteNoneMode`, a secure cookie, and `ExposeCSRFTokenInBody: true` |
+| Different registrable domains, `panel.acme.com` and `api.example.com` | only with `SameSite=None` | **never** | set both `CookieConfig.SameSite` and `CSRFTokenConfig.CookieSameSite` to `http.SameSiteNoneMode`, use secure cookies, and set `ExposeCSRFTokenInBody: true` |
 
 Two things that trip people up, both covered in full in the [Deployment guide](./guides/deployment.mdx):
 
@@ -256,7 +256,7 @@ Two things that trip people up, both covered in full in the [Deployment guide](.
 
 **`ExposeCSRFTokenInBody`** makes `GET /auth/csrf-token` answer `200 {"token": "..."}` (with `Cache-Control: no-store`) instead of a bare `204`. Turn it on only for the third row: across two registrable domains no cookie scope can make `_csrf` readable by the frontend, so the response body is the only channel left.
 
-It does not weaken the check. The cookie is still set and still compared server side, and reading that body requires the caller's origin to be in `AllowedOrigins` (the same gate `OriginCheck` applies to every mutation). The exposure that matters in a cross site deployment comes from `SameSite=None`, which removes the browser's own barrier against the cookie riding along on a cross site request. This flag accompanies that decision rather than causing it, and it stays off by default because most deployments read the cookie directly.
+It does not weaken the check. The cookie is still set and still compared server side, and reading that body requires the caller's origin to be in `AllowedOrigins` (the origin gate for browser mutations protected by the route registry; OAuth callbacks use state binding instead). The exposure that matters in a cross site deployment comes from `SameSite=None`, which removes the browser's own barrier against the cookie riding along on a cross site request. This flag accompanies that decision rather than causing it, and it stays off by default because most deployments read the cookie directly.
 
 **Startup warnings** (logged, not fatal; a native client keeps its own cookie jar and is not subject to `SameSite`, so either setting alone is legitimate there):
 
@@ -685,6 +685,39 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
 - `rate_limit: trusted_ips contains invalid IP/CIDR "..."`.
 - `rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can be spoofed to bypass rate limiting`: call `WithTrustedIPs` alongside `WithIPAddressHeader`.
 
+## `WithMaintenance`: Optional, on by default
+
+Background cleanup removes already-expired sessions and verification/reset tokens
+in bounded batches. A session must be past both its session and refresh expiry,
+plus the grace period, before it is eligible. This worker does not replace schema
+migrations or the separate audit and recovery queue cleanup.
+
+```go
+goauth.WithMaintenance(goauth.MaintenanceConfig{
+    Disable:   false,
+    Interval:  time.Hour,
+    BatchSize: 1000,
+    Grace:     24 * time.Hour,
+    Timeout:   30 * time.Second,
+    // Logger: slog.Default(),
+})
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Disable` | `false` | Stop background cleanup; `Auth.RunMaintenance(ctx)` remains available. |
+| `Interval` | `1h` | Time between passes. |
+| `BatchSize` | `1000` | Maximum rows deleted per table per pass. |
+| `Grace` | `24h` | Required time past expiry before deletion. |
+| `Timeout` | `30s` | Deadline for each table's delete operation. |
+| `Logger` | `slog.Default()` | Cleanup diagnostics. |
+
+Zero tuning values select these defaults; they do not disable a limit. Negative
+values are rejected even when `Disable` is true, with `maintenance interval must
+not be negative`, `maintenance batch_size must not be negative`, `maintenance
+grace must not be negative`, or `maintenance timeout must not be negative`.
+`Auth.Close` stops the worker.
+
 ## `WithProvider`: Optional
 
 Registers an OAuth provider. Call it once per provider; OAuth routes are mounted only when at least one is registered.
@@ -749,7 +782,7 @@ goauth.WithAuditSink(myOtherSink) // optional: adds one more sink at a time
 | `Enabled` | `bool` | Optional | `false` | |
 | `FailureMode` | `audit.FailureMode` | Optional | fail-open | Delivery fan-out across sinks within one dispatch batch. |
 | `EnqueueFailureMode` | `func(audit.Event) audit.FailureMode` | Optional | nil (fail-open) | Per-event: whether a failed durable write blocks the triggering operation (only where a transaction can roll back). |
-| `RetentionDays` | `int` | Optional | `0` (keep forever) | Must exceed `max(OutboxMaxAge, retryWindow + DeadLetterTTL)` — rejected otherwise. |
+| `RetentionDays` | `int` | Optional | `0` (keep forever) | When positive, must exceed `max(OutboxMaxAge, retryWindow + DeadLetterTTL)` — rejected otherwise. |
 | `ClaimLease` | `time.Duration` | Optional | `10m` | Must exceed every sink's declared worst-case batch delivery time; also rejected below `1m`. |
 | `Workers` | `int` | Optional | `3` | Outbox dispatcher workers; only started when sinks are configured. |
 | `BatchSize` | `int` | Optional | `50` | |

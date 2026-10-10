@@ -168,9 +168,13 @@ known and unknown addresses, and the worker discards it if no eligible account
 exists when processing. Audit records and delivery obligations also remain
 independent of account deletion.
 
-No table stores a raw credential. Passwords are bcrypt or Argon2id hashes, optionally peppered before the KDF; session tokens,
-refresh tokens, verification tokens, and both kinds of invite code are stored as
-SHA-256 hashes, and the raw value exists only in the response to the client.
+Passwords are salted KDF hashes (bcrypt by default, or the configured hasher),
+optionally peppered before hashing. High-entropy session, refresh, reset, OAuth
+state, and invite tokens use SHA-256 hashes. User-entered verification, 2FA,
+set-password, and deletion codes use HMAC-SHA256 with the OTP pepper. Raw tokens
+and codes are delivered once through the relevant transport or email. The OAuth
+PKCE `code_verifier` is stored in the short-lived state row for the later token
+exchange; provider access and refresh tokens are encrypted rather than hashed.
 
 The summaries describe PostgreSQL types and constraints. Each table includes
 the exact DDL the library applies
@@ -1277,7 +1281,7 @@ CREATE INDEX idx_invites_expires_at ON invites (expires_at);
 
 ### `audit_log`
 
-Written in the caller's transaction by `audit.Service.Record` when audit is enabled — the record exists if and only if the state change it describes committed (record-iff-commit). Rows are insert-only and never updated. The table name is singular `audit_log`. The admin route that reads it is `/admin/audit-logs`.
+Written in the caller's transaction by `audit.Service.Record` when audit is enabled — a successfully written record commits or rolls back with the state change it describes. Default fail-open recording can allow a change to commit without a record when insertion fails. Rows are insert-only and never updated. The table name is singular `audit_log`. The admin route that reads it is `/admin/audit-logs`.
 
 | Column | Type | Notes |
 |---|---|---|

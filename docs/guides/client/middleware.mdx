@@ -53,13 +53,16 @@ export const config = {
 
 ## Option 2: validated via `/auth/me`
 
-Edge middleware can run `fetch`, so it can ask the API instead of guessing from the cookie's presence. This costs one extra request per matched navigation, but it closes both gaps above: `/auth/me` runs through the real `AuthMiddleware`, and its response includes `role`.
+Server middleware can ask the API to validate the session. The example uses the same-origin `/api` reverse proxy described in [Deployment](../deployment.mdx), so cookies set by the API also belong to the browser-facing origin. It forwards refreshed cookies both to the browser and to the current page request. Use a server runtime whose `Headers` exposes `getSetCookie()`; keep each cookie header separate.
+
+Set `APP_PERMISSIONS_ENABLED` to match the server configuration. Disabled mode checks `/auth/me`'s fixed role. Enabled mode reads `/auth/access` and checks the library key required by this example's user-list dashboard. Choose each page's actual operation key; catalog provisioning and organization oversight require protected admin. These redirects only control page navigation: the API still enforces current permissions and required MFA.
 
 ```ts
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-const API_BASE = "https://api.myapp.com";
+const APP_PERMISSIONS_ENABLED = false; // match WithAppPermissions
+const ADMIN_PAGE_PERMISSION = "goauth.app.users.read"; // this page lists users
 const protectedRoutes = ["/dashboard"];
 const adminRoutes = ["/admin"];
 
@@ -70,24 +73,64 @@ export async function middleware(request: NextRequest) {
 
   if (!isProtected && !isAdmin) return NextResponse.next();
 
-  // Forward the incoming cookies as-is — this is a server-to-server call,
-  // so `credentials: "include"` (browser-only) doesn't apply here.
-  const res = await fetch(`${API_BASE}/auth/me`, {
-    headers: { cookie: request.headers.get("cookie") ?? "" },
-  });
+  const cookies = new Map(request.cookies.getAll().map(({ name, value }) => [name, value]));
+  const setCookies: string[] = [];
+  const cookieHeader = () => Array.from(cookies, ([name, value]) => `${name}=${value}`).join("; ");
 
-  if (!res.ok) {
-    return NextResponse.redirect(new URL("/login", request.url));
-  }
-
-  if (isAdmin) {
-    const user = await res.json();
-    if (user.role !== "admin") {
-      return NextResponse.redirect(new URL("/", request.url));
+  async function authGet(path: string) {
+    const res = await fetch(new URL(`/api${path}`, request.url), {
+      headers: { cookie: cookieHeader() },
+      cache: "no-store",
+    });
+    for (const header of res.headers.getSetCookie()) {
+      setCookies.push(header);
+      // Refresh cookies contain opaque token values. Keep attributes intact
+      // for the browser, and forward the new values on subsequent requests.
+      const pair = header.split(";", 1)[0];
+      const equals = pair.indexOf("=");
+      if (equals > 0) cookies.set(pair.slice(0, equals), pair.slice(equals + 1));
     }
+    return res;
   }
 
-  return NextResponse.next();
+  function finish(response: NextResponse) {
+    for (const header of setCookies) response.headers.append("Set-Cookie", header);
+    return response;
+  }
+
+  try {
+    const res = await authGet("/auth/me");
+    if (res.status >= 500) {
+      return finish(new NextResponse("Authentication service unavailable", { status: 503 }));
+    }
+    if (!res.ok) {
+      return finish(NextResponse.redirect(new URL("/login", request.url)));
+    }
+
+    if (isAdmin) {
+      let allowed: boolean;
+      if (APP_PERMISSIONS_ENABLED) {
+        const accessResponse = await authGet("/auth/access");
+        if (accessResponse.status >= 500) {
+          return finish(new NextResponse("Authentication service unavailable", { status: 503 }));
+        }
+        if (!accessResponse.ok) return finish(NextResponse.redirect(new URL("/", request.url)));
+        const access = await accessResponse.json();
+        allowed = access.isFullAccess || access.permissionKeys.includes(ADMIN_PAGE_PERMISSION);
+      } else {
+        const user = await res.json();
+        allowed = user.role === "admin";
+      }
+      if (!allowed) return finish(NextResponse.redirect(new URL("/", request.url)));
+    }
+
+    const headers = new Headers(request.headers);
+    headers.set("cookie", cookieHeader());
+    return finish(NextResponse.next({ request: { headers } }));
+  } catch {
+    // Preserve a completed rotation even if a later access request fails.
+    return finish(new NextResponse("Authentication service unavailable", { status: 503 }));
+  }
 }
 
 export const config = {
@@ -96,12 +139,12 @@ export const config = {
 ```
 
 <Callout type="info" title="What this trades away">
-  Every matched navigation now waits on a round trip to the API before the page starts rendering — noticeable if that API is slow or briefly unreachable, in which case this fails closed (redirects to `/login`) rather than letting the request through. It also doesn't get you the transparent refresh-token rotation that `AuthMiddleware` does for a browser's own `fetch` calls — a session that's expired-but-refreshable will read as invalid here and bounce to `/login`, even though the same request from the page itself would have silently renewed. Option 1 has neither cost; Option 2 has neither gap. Most apps are fine mixing them — Option 1 for most protected routes, Option 2 (or a role check via [`useAuth()`](./auth-provider.mdx) inside the page) specifically for `/admin`.
+  Every matched navigation waits for session validation; enabled-mode admin navigation also loads access. API server failures or network errors return `503` without admitting the page. `/auth/me` can transparently rotate an expired session using the forwarded refresh cookie. Its replacement cookies must reach the browser even if a later access check denies navigation or fails, or the browser will keep stale tokens. The example relays them on every returned response and updates the downstream request. For separately hosted API cookies that cannot be set from the frontend origin, use the browser to refresh or build a proxy with an explicit cookie-scope policy.
 </Callout>
 
 ## Next
 
-- [Provider](./auth-provider.mdx) — the client-side counterpart; use `user.role` from `useAuth()` for checks this middleware can't do
-- [Deployment](../deployment.mdx) for why this proxy setup means the auth needs no cookie or CORS configuration at all
+- [Provider](./auth-provider.mdx) — client state, fixed roles in disabled mode, and separate app access in enabled mode
+- [Deployment](../deployment.mdx) — proxy routing, required allowed origins, and cookie scope for each frontend/API topology
 - [Routes](../../routes/) — which endpoints require `Auth` vs. admin role, enforced server-side regardless of this middleware
-- [Security](../../security.mdx) — how session validation actually works, and why it can't happen at this layer
+- [Security](../../security.mdx) — backend session validation, refresh rotation, and authorization enforced by API middleware

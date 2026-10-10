@@ -8,11 +8,19 @@ icon: "Shield"
 
 An admin dashboard is a separate frontend that manages users, sessions, and audit logs. It usually runs on a different host than the API, which brings cross-origin cookie and CSRF concerns that a same-origin user app doesn't have.
 
+<Callout type="info" title="Fixed-role examples: app permissions disabled">
+  The role checks and user role bodies on this page assume `WithAppPermissions`
+  is disabled. Enabled mode omits the account `role` field, allows selectively
+  delegated administrative actions, and uses `appRoleId` plus expected revisions
+  for assignment. Use the [app permissions client guide](./guides/client/app-permissions.mdx)
+  for `/auth/access`, permission-aware UI, and role assignment examples.
+</Callout>
+
 ## File convention
 
 Recommended file names and locations in your project:
 
-```
+```text
 lib/
   api/
     http.ts          ← the fetch wrapper (apiRequest, getCSRFToken, setUnauthorizedHandler)
@@ -35,29 +43,45 @@ Keep the admin client separate from the user-facing client — they share the sa
 
 ## Server-side requirements
 
-The API must be configured for cross-origin admin access:
+Choose the topology that matches your frontend. Both examples require the
+usual app, database, mailer, and secret configuration.
+
+**Sibling subdomains** (`admin.myapp.com` and `api.myapp.com`) share a site.
+Keep the session cookie host-only and Lax; scope only the readable CSRF cookie:
 
 ```go
 goauth.WithSecurity(goauth.SecurityConfig{
     AllowedOrigins: []string{"https://admin.myapp.com"},
-    CSRFToken: &middleware.CSRFTokenConfig{
-        // Option A: sibling subdomains
-        CookieDomain: ".myapp.com",
-
-        // Option B: different registrable domains
-        CookieSameSite:        http.SameSiteNoneMode,
-        ExposeCSRFTokenInBody: true,
-    },
+    CSRFToken: &middleware.CSRFTokenConfig{CookieDomain: ".myapp.com"},
 })
 ```
 
-For the full topology guide, see [Deployment](./guides/deployment.mdx).
+**Different registrable domains** (`panel.acme.com` and `api.myapp.com`) need
+both cookies to permit cross-site requests. No cookie domain can make the API's
+CSRF cookie readable by the panel, so fetch the signed token from the body:
 
-<Callout type="warn" title="Session cookie vs CSRF cookie">
-  The **session cookie** doesn't need `CookieDomain` — it's sent to the API's host automatically, even cross-origin (with `SameSite=None`).
+```go
+cfg, err := goauth.NewConfig(
+    // ...required app, secret, and mailer options...
+    goauth.WithCookie(goauth.CookieConfig{
+        SameSite: http.SameSiteNoneMode,
+        Secure:   goauth.SecureAlways(),
+    }),
+    goauth.WithSecurity(goauth.SecurityConfig{
+        AllowedOrigins: []string{"https://panel.acme.com"},
+        CSRFToken: &middleware.CSRFTokenConfig{
+            CookieSameSite:        http.SameSiteNoneMode,
+            ExposeCSRFTokenInBody: true,
+        },
+    }),
+)
+```
 
-  The **CSRF cookie** needs `CookieDomain` because JavaScript must *read* it. Without it, the cookie is host-only to the API and `document.cookie` on the admin panel can't see it — every write returns `403` while reads work fine.
-</Callout>
+Place the option calls inside `NewConfig`; import `net/http` and
+`github.com/nazimdjebloun/go-auth/middleware`. The CSRF cookie inherits the
+resolved session-cookie Secure setting. Browser third-party-cookie policies can
+still block cross-site cookies; a same-origin proxy avoids that dependency.
+See [Deployment](./guides/deployment.mdx).
 
 ## The fetch wrapper
 
@@ -129,6 +153,39 @@ export async function apiRequest<T>(
   }
 
   return res.status === 204 ? (undefined as T) : res.json()
+}
+```
+
+## Authentication API methods
+
+```ts
+// lib/api/auth.ts
+import { apiRequest } from "./http"
+
+export interface AuthUser {
+  id: string
+  email: string
+  name: string
+  role: "user" | "admin" // this page assumes app permissions are disabled
+}
+export interface LoginResult {
+  user: AuthUser
+  requiresTwoFactor?: boolean
+  codeSent?: boolean
+  challengeId?: string
+  expiresAt?: string
+}
+export const authApi = {
+  login: (input: { email: string; password: string }) =>
+    apiRequest<LoginResult>("POST", "/auth/admin/login", input),
+  verifyTwoFactor: (challengeId: string, code: string) =>
+    apiRequest<{ user: AuthUser }>("POST", "/auth/2fa/verify", { challengeId, code }),
+  resendTwoFactor: (challengeId: string) =>
+    apiRequest<{ challengeId: string; expiresAt: string; codeSent: boolean }>(
+      "POST", "/auth/2fa/resend", { challengeId }
+    ),
+  me: () => apiRequest<AuthUser>("GET", "/auth/me"),
+  logout: () => apiRequest("POST", "/auth/logout"),
 }
 ```
 
@@ -222,16 +279,10 @@ export const adminApi = {
 The admin `AuthProvider` adds a critical check: a valid session is not necessarily an admin session.
 
 ```tsx
-import { useState, useEffect, useCallback, type ReactNode } from "react"
-import { authApi } from "./auth-api"
-import { setUnauthorizedHandler } from "./http"
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
+import { authApi, type AuthUser } from "../lib/api/auth"
+import { setUnauthorizedHandler } from "../lib/api/http"
 
-interface AuthUser {
-  id: string
-  email: string
-  name: string
-  role: string
-}
 
 interface TwoFactorChallenge {
   challengeId: string
@@ -286,7 +337,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setChallenge(null)
     const result = await authApi.login(input)
     if (result.requiresTwoFactor) {
-      setChallenge(result)
+      setChallenge({ challengeId: result.challengeId!, expiresAt: result.expiresAt!, codeSent: result.codeSent ?? false })
       return
     }
     await refresh()
@@ -301,15 +352,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const resendTwoFactor = useCallback(async () => {
     if (!challenge) throw new Error("No active 2FA challenge")
-    await authApi.resendTwoFactor(challenge.challengeId)
+    const result = await authApi.resendTwoFactor(challenge.challengeId)
+    setChallenge(result)
   }, [challenge])
 
   const logout = useCallback(async () => {
-    try {
-      await authApi.logout()
-    } catch {
-      // already logged out or request failed
-    }
+    await authApi.logout()
     setUser(null)
     setChallenge(null)
     if (typeof window !== "undefined") window.location.href = "/login"
@@ -333,7 +381,7 @@ export function useAuth() {
 
 When the admin panel and user app share a cookie (same host or widened `CookieDomain`), a regular user signed into the app arrives at the panel **already authenticated**. `POST /auth/admin/login` gates the login itself, but nothing gates a session minted elsewhere.
 
-Every `/admin/*` route checks `role` server-side and returns `403`, so there's no security hole — but the panel renders its entire shell before discovering that, then fails on every request.
+With app permissions disabled, `/admin/*` checks the admin role and required session assurance server-side. The browser role check improves navigation only; it cannot authorize an operation. Enabled mode uses exact library permissions or protected-admin policy, rather than a fixed account role.
 
 ```ts
 // Check once, on session load:
@@ -352,13 +400,14 @@ const login = useCallback(async (input: { email: string; password: string }) => 
   setChallenge(null)
   const result = await authApi.login(input)
   if (result.requiresTwoFactor) {
-    setChallenge(result) // show 2FA code input
+    setChallenge({ challengeId: result.challengeId!, expiresAt: result.expiresAt!, codeSent: result.codeSent ?? false }) // show emailed-code input
     return
   }
   await refresh() // only if 2FA is disabled
 }, [refresh])
 
 const verifyTwoFactor = useCallback(async (code: string) => {
+  if (!challenge) throw new Error("No active 2FA challenge")
   const result = await authApi.verifyTwoFactor(challenge.challengeId, code)
   setChallenge(null)
   setUser(requireAdmin(result.user))

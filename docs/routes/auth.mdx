@@ -6,7 +6,7 @@ icon: "LogIn"
 
 # Authentication
 
-Identity and credential flows. `Auth` is either `Public` (no session needed) or `Session` (the session cookie is required; without it the route answers `401 {"error": ..., "message": ...}`). Cookie names below are the defaults (`goauth_session`, `goauth_refresh`); see `WithCookie` on [Configuration](../configuration.mdx). Tokens travel in cookies, never in bodies: on direct login and register the handler sets both cookies and blanks the token fields before serializing. All error responses use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx).
+Identity and credential flows. `Auth` is either `Public` (no session needed) or `Session` (the session cookie is required; without it the route answers `401 {"error": ..., "message": ...}`). Cookie names below are the defaults (`goauth_session`, `goauth_refresh`); see `WithCookie` on [Configuration](../configuration.mdx). Tokens travel in cookies, never in bodies: on direct login and register the handler sets both cookies and omits token fields from JSON. User examples show the default disabled app-permissions mode; enabled mode omits `role` and returns app-role identity/assignment fields. All error responses use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx).
 
 `POST /auth/register` is only mounted when `EnableEmailPassword` is true. Invite routes are only mounted when `EnableInvite` is true.
 
@@ -52,7 +52,7 @@ Gated 2FA shape (login, register, invite register when a second factor is owed):
   "requiresTwoFactor": true,
   "codeSent": true,
   "challengeId": "c4a1...",
-  "twoFactorExpiresAt": "2026-08-09T12:05:00Z",
+  "expiresAt": "2026-08-09T12:05:00Z",
   "message": "Two-factor code sent to your email"
 }
 ```
@@ -83,14 +83,12 @@ Creates a user. `Auth:` Public.
 }
 ```
 
-2FA gated (`RequireEmail2FA` on): the gated shape above, plus a binding cookie. Complete with `POST /auth/2fa/verify`. Direct login: both cookies set, body carries the session with blanked token fields:
+2FA gated (`RequireEmail2FA` on): the gated shape above, plus a binding cookie. Complete with `POST /auth/2fa/verify`. Direct login: both cookies set, body carries the session and omits token fields:
 
 ```json
 {
   "user": { "...": "full user object" },
-  "session": { "...": "full session object" },
-  "sessionToken": "",
-  "refreshToken": ""
+  "session": { "...": "full session object" }
 }
 ```
 
@@ -126,9 +124,7 @@ Authenticates with email and password. `Auth:` Public.
 ```json
 {
   "user": { "...": "full user object" },
-  "session": { "...": "full session object" },
-  "sessionToken": "",
-  "refreshToken": ""
+  "session": { "...": "full session object" }
 }
 ```
 
@@ -174,7 +170,7 @@ Returns the caller: full user object, whether the account has a password, and th
 **Response `401 Unauthorized`:**
 
 ```json
-{ "error": "unauthorized", "message": "Not authenticated" }
+{ "error": "session_expired", "message": "Missing session cookie" }
 ```
 
 ### Change name
@@ -221,7 +217,7 @@ Queues the reset request before looking up the account. Unknown, passwordless, a
 
 POST /auth/reset-password
 
-Consumes the reset code and sets the new password. All other sessions for the user are revoked. `Auth:` Public. No email field: the code already identifies the account.
+Consumes the reset code and sets the new password. Every session for the user is revoked, including any current session. `Auth:` Public. No email field: the code already identifies the account.
 
 **Request body:**
 
@@ -274,6 +270,8 @@ Mails a set-password code to an OAuth-only account (one with no password yet). `
 ```json
 { "message": "If the email exists, a set password link has been sent." }
 ```
+
+The response's wording says “link”, but the default email template sends an eight-character code. Collect that code and the account's user ID for confirmation; the library does not generate a set-password URL.
 
 **Errors:** `already_set` (account already has a password).
 
@@ -383,7 +381,7 @@ Deletes the caller's account immediately with password confirmation. Clears both
 
 POST /auth/account/delete/request
 
-Mails a deletion code (for OAuth-only accounts, or anyone preferring email confirmation). `Auth:` Session. No body.
+Mails a deletion code for accounts without a password. Accounts with a password must use `DELETE /auth/account` instead. `Auth:` Session. No body.
 
 **Response `200 OK`:**
 
@@ -455,9 +453,7 @@ Completes registration from an invite code, creating the account and a session i
 ```json
 {
   "user": { "...": "full user object" },
-  "session": { "...": "full session object" },
-  "sessionToken": "",
-  "refreshToken": ""
+  "session": { "...": "full session object" }
 }
 ```
 

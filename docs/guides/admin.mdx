@@ -89,7 +89,7 @@ Same request shape as [Login](./authentication.mdx#login), but only succeeds for
   `POST /auth/admin/login` sends a 2FA challenge regardless of `RequireEmail2FA` and the account's `TwoFactorEnabled` setting. It therefore requires a mailer unless `TwoFactorConfig.DisableAdminTwoFactor` is set. The same default applies to ordinary admin password login, admin OAuth login, and privileged HTTP access. Global/per-user requirements still apply when the admin default is disabled. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off) and [Security](../security.mdx#two-factor-authentication).
 </Callout>
 
-**Response** (`200 OK`) — never a session directly. A correct admin password returns a gated challenge, the same shape [Login](./authentication.mdx#login) uses:
+**Response** (`200 OK`) — with the default admin 2FA policy, a correct password returns a gated challenge, the same shape [Login](./authentication.mdx#login) uses:
 
 ```json
 {
@@ -102,7 +102,9 @@ Same request shape as [Login](./authentication.mdx#login), but only succeeds for
 }
 ```
 
-No session/refresh cookie is set on this response — only the 2FA binding cookie. Complete the login with `POST /auth/2fa/verify` (`{challengeId, code}`) using the code emailed to the admin; that call is what actually sets `goauth_session`/`goauth_refresh`. See [Two-factor authentication](./authentication.mdx#two-factor-authentication) for the full request/response shape.
+No session/refresh cookie is set on the challenge response — only the 2FA binding cookie. Complete the login with `POST /auth/2fa/verify` (`{challengeId, code}`) using the code emailed to the admin; that call is what actually sets `goauth_session`/`goauth_refresh`. See [Two-factor authentication](./authentication.mdx#two-factor-authentication) for the full request/response shape.
+
+If `DisableAdminTwoFactor` is true and neither global nor per-user 2FA is required, login instead returns the ordinary login result with `user` and sets the session/refresh cookies immediately. Always branch on `requiresTwoFactor` rather than assuming a challenge.
 
 **Errors**
 
@@ -149,19 +151,24 @@ result, err := auth.Services().Auth.AdminLogin(ctx, api.LoginInput{
 })
 if err != nil {
     // wraps a *domain.AuthError — invalid_credentials covers "not an admin" too
+    return
 }
-// result.RequiresTwoFactor is always true here — result.TwoFactorChallenge is
-// the challenge id, result.BindingToken() is what the handler sets as a cookie.
-
-verified, err := auth.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
-    ChallengeID: result.TwoFactorChallenge, BindingToken: result.BindingToken(), Code: code,
-    IP: r.RemoteAddr, UserAgent: r.UserAgent(),
-})
-if err != nil {
-    // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
+if result.RequiresTwoFactor {
+    // Retain result.TwoFactorChallenge and securely bind result.BindingToken()
+    // to this client before accepting its emailed code.
+    verified, err := auth.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
+        ChallengeID: result.TwoFactorChallenge, BindingToken: result.BindingToken(), Code: code,
+        IP: r.RemoteAddr, UserAgent: r.UserAgent(),
+    })
+    if err != nil {
+        // handle the error and stop before setting session cookies
+        return
+    }
+    auth.SetSessionCookies(w, verified.SessionToken, verified.RefreshToken)
+} else {
+    // Admin 2FA opted out and no global/per-user requirement applies.
+    auth.SetSessionCookies(w, result.SessionToken, result.RefreshToken)
 }
-// verified.User is the admin; verified.SessionToken / verified.RefreshToken
-// are the raw values — set them as cookies yourself
 ```
 
 ---
@@ -170,15 +177,18 @@ if err != nil {
 
 ```ts
 const result = await apiRequest(API_BASE, "POST", "/auth/admin/login", { email, password });
-// result.requiresTwoFactor is always true — route to a "enter your code" screen
-setChallengeId(result.challengeId);
+if (result.requiresTwoFactor) {
+  setChallengeId(result.challengeId); // show the code screen
+} else {
+  setAdminUser(result.user); // session cookies are already set
+}
 
-// after the admin enters the code:
+// In the code screen, after the admin enters the code:
 const verified = await apiRequest(API_BASE, "POST", "/auth/2fa/verify", {
   challengeId,
   code,
 });
-setAdminUser(verified.user); // cookies are already set
+setAdminUser(verified.user); // session cookies are now set
 ```
 
 ---

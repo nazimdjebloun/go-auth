@@ -34,7 +34,7 @@ that did not run all fail the runner. Results, shuffle seeds, invocation details
 and coverage are written under `.test-results/<backend>/full/`.
 
 The schema suite applies the complete canonical SQL after simulated interruption,
-then reapplies it. It checks all 11 tables, column types/nullability/default
+then reapplies it. It checks all 15 tables, column types/nullability/default
 values and explicit collations, named-index columns, sort order, collations,
 access methods, operator classes and partial predicates, primary/unique keys,
 foreign-key targets/deletion actions, and declared CHECK expressions. Expectations
@@ -55,9 +55,12 @@ credential replacement, token claims, worker leases, and authorization changes.
 Database race tests use real transactions and independent pools; Go's race
 detector separately checks memory access.
 
-Every CI push/PR runs all three full backend suites. Nightly CI additionally
-runs stress tests with count 25 and fuzzes each existing target for 30 seconds.
-Manual CI runs can enable stress tests and change their count and fuzz budget.
+Every CI push/PR runs all three full backend suites and stress tests with count
+3 at both CPU settings. A manual run's stress input enables a larger repeat
+count (25 by default); otherwise its stress count remains 3. Pushes to `main`
+fuzz each existing target for 5 seconds. Manual runs also fuzz, with a
+configurable budget of 15 seconds per target by default. There is no scheduled
+nightly workflow.
 Backend artifacts are retained for 14 days. An ordinary assertion failure is
 never retried into success.
 

@@ -823,8 +823,8 @@ export function LogoutButton() {
 }
 ```
 
-<Callout type="warn" title="Don't clear local state on failure">
-  If `POST /auth/logout` returns an error, the session is still valid server-side. Do not clear user state or redirect — the user is still logged in.
+<Callout type="warn" title="Distinguish logout failures">
+  A backend failure while revoking the session can leave it valid; keep user state and offer a retry for that failure. A `401` means authentication has already failed (for example, the session expired or was revoked), so clear stale user state through the shared unauthorized handler. An error does not prove that the user is still authenticated.
 </Callout>
 
 ## Delete account

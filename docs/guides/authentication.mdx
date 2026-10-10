@@ -193,6 +193,8 @@ const result = await apiRequest(API_BASE, "POST", "/auth/register", {
 
 if (result.requiresVerification) {
   // show "check your email" — no session exists yet
+} else if (result.requiresTwoFactor) {
+  setChallengeId(result.challengeId); // show the code screen; no session exists yet
 } else {
   setUser(result.user); // cookies are already set by the browser
 }
@@ -242,18 +244,17 @@ curl -X POST https://api.myapp.com/auth/verify-email \
 
 #### Programmatic (Go)
 
-The service call only verifies the user — it doesn't create a session by itself. Mirror what the HTTP handler does and create one explicitly right after:
+The service call verifies the user without creating a session, just like the HTTP handler. Ask the user to sign in afterward so password authentication and any required second factor run before session issuance:
 
 ```go
 user, err := auth.Services().Verify.VerifyEmail(ctx, code)
 if err != nil {
     // wraps a *domain.AuthError — see Error Handling → Handling errors programmatically
+    return
 }
 
-result, err := auth.Services().Session.Create(ctx, api.CreateSessionInput{
-    UserID: user.ID, IP: r.RemoteAddr, UserAgent: r.UserAgent(),
-})
-// result.SessionToken / result.RefreshToken are the raw values — set them as cookies yourself
+// user.IsVerified is now true; continue through Auth.Login, including its
+// RequiresVerification / RequiresTwoFactor branches, before setting session cookies.
 ```
 
 ---

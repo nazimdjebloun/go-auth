@@ -27,8 +27,13 @@ The CLI in `cmd/goauth` shares the root module and is covered by these commands.
   make a change pass.
 - Cover failure, concurrency, malformed-input, and rollback paths, not only the
   happy path.
-- Use SQLite integration tests for real HTTP shape when no external service is
-  required. PostgreSQL integration tests may skip when `AUTH_DSN` is absent.
+- Shared real-database fixtures default to SQLite. Use SQLite integration tests
+  for real HTTP shape when no external service is required. Explicitly selecting
+  PostgreSQL or MySQL with `GOAUTH_TEST_DRIVER` requires `GOAUTH_POSTGRES_DSN` or
+  `GOAUTH_MYSQL_TEST_DSN`, respectively; missing configuration fails those
+  fixtures. Some standalone server tests skip without their DSN. Use the
+  backend runner in [TESTING.md](../TESTING.md) for required live-backend suites
+  and unexpected-skip detection.
 - Run `go test -race` for packages changed in concurrency-sensitive work.
 - Run `gofmt` only on edited Go files, then verify the explicit list with
   `gofmt -l`.

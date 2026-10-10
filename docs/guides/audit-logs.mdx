@@ -71,7 +71,7 @@ Delivery is **durable and at-least-once**: the delivery obligation is written in
 At the receiver boundary, make the event `id` a unique inbox key and record it in the same transaction as the side effect triggered by the event. If that insert conflicts because the ID was already processed, skip the side effect and still return a successful `2xx` response. This covers the live-lease race where the original request is still being processed when another dispatcher steals its expired claim; both deliveries may arrive, but the receiver applies the event once. Returning an error for a recognized duplicate causes needless retries and can eventually dead-letter an event that was already handled.
 
 <Callout type="info" title="Delivery health is visible">
-  `AuthenticationService.AuditDeliveryStats` (and the per-instance counters) reports `pending`, `oldest_pending_age`, `dead_lettered`, `delivery_dropped`, `delivery_orphaned`, `delivery_duplicated`, `delivery_missed`, `record_lost`, and `record_blocked`. `oldest_pending_age` is the primary "delivery is broken" alert; `record_lost` must be zero-or-alert; a non-zero `delivery_orphaned` rate means a broken invariant (bypassed retention validation or manual deletes), not routine pressure.
+  `(*Auth).AuditDeliveryStats(ctx)` (and the per-instance counters) reports `pending`, `oldest_pending_age`, `dead_lettered`, `delivery_dropped`, `delivery_orphaned`, `delivery_duplicated`, `delivery_missed`, `record_lost`, and `record_blocked`. `oldest_pending_age` is the primary "delivery is broken" alert; `record_lost` must be zero-or-alert; a non-zero `delivery_orphaned` rate means a broken invariant (bypassed retention validation or manual deletes), not routine pressure.
 </Callout>
 
 ### Consumer notes

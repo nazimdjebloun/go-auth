@@ -365,6 +365,7 @@ import { getSessionErrorMessage } from "../lib/session-errors";
 interface Session {
   id: string;
   parsedUA?: { browser: string; os: string; deviceType: string };
+  userAgent?: string;
   ipAddress?: string;
 }
 
@@ -407,14 +408,21 @@ export function RevokeSessionsBulk({
     setSuccess(null);
     setLoading(true);
     try {
-      const { revoked } = await sessionsApi.revokeMany(Array.from(selected));
+      // The API accepts at most 100 IDs per request. Earlier batches remain
+      // revoked if a later batch fails; reload the session list in either case.
+      const ids = Array.from(selected);
+      let revoked = 0;
+      for (let offset = 0; offset < ids.length; offset += 100) {
+        const result = await sessionsApi.revokeMany(ids.slice(offset, offset + 100));
+        revoked += result.revoked;
+      }
       setSuccess(revoked);
       setSelected(new Set());
-      onRevoked?.();
     } catch (err: any) {
       setError(getSessionErrorMessage(err));
     } finally {
       setLoading(false);
+      onRevoked?.();
     }
   }
 

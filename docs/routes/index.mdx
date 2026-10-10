@@ -10,7 +10,7 @@ Optional app role and permission endpoints are listed in the
 [authorization reference](./authorization.mdx). Existing administrative app
 actions use exact library permission checks when app permissions are enabled.
 
-Every HTTP route the library mounts, the request it expects, and the response it returns. `Auth` on each route is `Public` (no session needed) or `Session` (the session cookie is required). Admin routes additionally need `role: "admin"`.
+Every HTTP route the library mounts, the request it expects, and the response it returns. `Auth` on each route is `Public` (no session needed) or `Session` (the session cookie is required). With app permissions disabled, admin routes require `role: "admin"`. With app permissions enabled, app administrative actions use their exact library permission keys; catalog provisioning and organization oversight require the protected admin identity. Required MFA assurance still applies. See [Admin](./admin.mdx) and [App authorization](./authorization.mdx).
 
 Conventions used on every page:
 

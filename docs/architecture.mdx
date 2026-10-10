@@ -60,7 +60,7 @@ go-auth uses ports and adapters. The `service` package depends on interfaces in 
 | `middleware` | Cross-cutting HTTP concerns: `AuthMiddleware`/`RequireRole` (session and role gating), `OriginCheck`/`CSRFToken` (CSRF), `RateLimit`, `CORS`, `RequireOrgMember`/`RequireOrgRole` (org access control, resolved from an `{orgID}` path segment), `RequireActiveOrg` (the same role check, resolved from the session's active org instead). The root facade's `RequireOrgScope`/`RequireActiveOrgScope` compose these checks and pass an authorized `OrgScope` directly to application handlers. |
 | `provider` | Built-in OAuth provider adapters (`provider/google`, `provider/github`), each implementing `port.OAuthProvider`. |
 | `ratelimit` | The rate limiter itself: `Config`, the `Store` interface, and the built-in in-memory implementation. |
-| `audit` | The durable audit pipeline: `Service.Record` writes the record and its outbox obligation inside the caller's transaction (record-iff-commit), the dispatcher claims and delivers external sinks, and the janitor enforces the outbox clocks. |
+| `audit` | The durable audit pipeline: `Service.Record` writes the record and its outbox obligation inside the caller's transaction (successful writes commit or roll back with the change; failed writes follow the configured enqueue policy), the dispatcher claims and delivers external sinks, and the janitor enforces the outbox clocks. |
 | `emailtemplate` | The default `TemplateProvider`: embedded HTML/text templates for every email the library sends. |
 | `token` | Cryptographically random opaque token generation (`crypto/rand`, 32 bytes, hex-encoded). |
 | `hasher` | The default bcrypt `Hasher` and optional `hasher/argon2id` implementation. Callers select the latter through `WithPasswordHasher`; wiring always adds prefix dispatch and a password pipeline whose new writes use `PasswordPepperConfig.CurrentVersion` while stored rows select an exact historical key. |
@@ -160,7 +160,7 @@ Everywhere the library needs to talk to the outside world, it does so through a 
 
 | Interface | Built-in implementation | Replace it for |
 |---|---|---|
-| `port.Mailer` | SMTP via `WithEmail`, or none | Resend, Postmark, SES, or any transactional email API. See [Configuration](./configuration.mdx) |
+| `port.Mailer` | SMTP via `WithEmail`; log-only fallback in development when unconfigured; otherwise a custom mailer or none when no feature needs email | Resend, Postmark, SES, or any transactional email API. See [Configuration](./configuration.mdx) |
 | `port.TemplateProvider` | `emailtemplate` (embedded HTML/text templates) | Your own branded email templates |
 | `port.OAuthProvider` | `provider/google`, `provider/github` | Any OAuth2 provider: `Name()`, `AuthURL()`, `Exchange()` |
 | `ratelimit.Store` | bounded in-memory | A distributed store (Redis, etc.) for multi-instance deployments. One method: `Allow(ctx, key, Rate) (Result, error)` |

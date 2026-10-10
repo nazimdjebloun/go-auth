@@ -110,7 +110,7 @@ Requires the current password even though the caller is already authenticated â€
 #### curl
 
 ```bash
-curl -X PUT https://api.myapp.com/auth/password \
+curl -X POST https://api.myapp.com/auth/change-password \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt \
@@ -137,7 +137,7 @@ err := auth.Services().Password.ChangePassword(ctx, api.ChangePasswordInput{
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "PUT", "/auth/password", {
+await apiRequest(API_BASE, "POST", "/auth/change-password", {
   oldPassword: "correct horse battery staple 1",
   newPassword: "a new stronger passphrase 2",
 });
@@ -413,7 +413,7 @@ curl -X POST https://api.myapp.com/auth/verify-email/resend \
 #### Programmatic (Go)
 
 ```go
-auth.Services().Verify.SendVerificationByEmail(ctx, "ada@example.com") // error wraps a *domain.AuthError, deliberately not surfaced to the caller by the handler
+auth.Services().Verify.SendVerificationByEmail(ctx, "ada@example.com") // ErrVerificationEmailSent acknowledges queue acceptance; other errors are surfaced by the handler
 ```
 
 ---

@@ -12,8 +12,9 @@ With app permissions disabled, these routes require an admin session. With
 organization oversight remains protected-admin-only. Authentication runs before
 authorization and required MFA checks: missing/expired sessions get `401`,
 denial gets `403 forbidden`, and missing required assurance gets
-`403 two_factor_required`. On every list route, an explicitly supplied
+`403 two_factor_required`. On list routes that expose sorting, an explicitly supplied
 unsupported or empty `orderBy` or `orderDirection` is `400 invalid_input`.
+Audit-log lists and per-user session lists do not expose sorting and ignore these parameters.
 
 The reference below describes `role` payloads/filters with app permissions disabled. In enabled mode,
 user filters use `appRoleId`; the role PATCH uses `appRoleId`,
@@ -39,7 +40,7 @@ requirement; global/per-user requirements still apply.
 
 ```json
 {
-  "user": { "...": "role: admin" },
+  "user": { "...": "admin account object for the configured app mode" },
   "requiresTwoFactor": true,
   "codeSent": true,
   "challengeId": "c4a1...",
@@ -80,8 +81,10 @@ Paginated user list with filters. Invalid `role` values and unparsable dates are
 **Response** (`200 OK`):
 
 ```json
-{ "users": [...], "total": 150, "limit": 20, "offset": 0 }
+{ "users": [...], "limit": 20 }
 ```
+
+There is no `total`; use the count route below. A zero `offset` is omitted from this response; nonzero offsets are returned.
 
 ---
 
@@ -118,7 +121,7 @@ The user plus `activeSessionCount`, `hasPassword` (`false` for OAuth-only accoun
   "user": { "...": "same shape as list" },
   "activeSessionCount": 2,
   "hasPassword": true,
-  "providers": [{ "provider": "github", "providerUserID": "12345" }]
+  "providers": [{ "provider": "github", "providerUserId": "12345" }]
 }
 ```
 
@@ -413,7 +416,7 @@ GET /admin/audit-logs
 **Response** (`200 OK`):
 
 ```json
-{ "events": [...] }
+{ "events": [...], "limit": 20, "offset": 0 }
 ```
 
 ---
@@ -445,7 +448,7 @@ Scoped to one user; same query params.
 **Response** (`200 OK`):
 
 ```json
-{ "events": [...] }
+{ "events": [...], "limit": 20, "offset": 0 }
 ```
 
 ---
@@ -534,7 +537,7 @@ Counts `login.success` audit events, so it only returns data when audit logging 
 
 ## Organizations: requires organizations enabled
 
-Platform-wide org oversight regardless of the caller's own membership. Disabled feature: `404 not_found`. List routes share the pointer-limit semantics from [Organizations](./orgs.mdx) (omit for the default `20`; `0` = unlimited; else capped at `100`).
+Platform-wide org oversight regardless of the caller's own membership. These routes are not mounted when organizations are disabled; the host router determines the unmatched-route response. List routes share the pointer-limit semantics from [Organizations](./orgs.mdx) (omit for the default `20`; `0` = unlimited; else capped at `100`).
 
 ### List organizations
 
@@ -738,7 +741,7 @@ PATCH /admin/orgs/\{orgID\}/members/\{userID\}/role
 { "message": "Role updated" }
 ```
 
-**Errors**: `org_member_not_found`, `invalid_role`, `org_forbidden` (granting `owner` as a non-owner).
+**Errors**: `org_member_not_found`, `invalid_role`, `cannot_remove_last_owner` (demoting the last owner). Platform administrators can grant or revoke `owner` without belonging to the organization, subject to the last-owner guard.
 
 ---
 
@@ -799,7 +802,7 @@ POST /admin/invites
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
-| `email` | `string` | Required | The code is emailed directly and returned once as `rawCode`; lists never include it |
+| `email` | `string` | Required | The code is emailed directly; creation and list responses omit `rawCode` |
 
 **Response** (`201 Created`): the invite object.
 

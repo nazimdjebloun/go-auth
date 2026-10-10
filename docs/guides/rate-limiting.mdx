@@ -6,7 +6,7 @@ icon: "Gauge"
 
 # Rate Limiting
 
-Rate limiting is **on by default** — an in-memory store plus a built-in table of per-route limits on the sensitive endpoints (login, register, password reset, invites, admin actions, ...). Unlike everything else in these guides, there's no single "endpoint" here: this is cross-cutting middleware sitting in front of every route, so this page is organized around configuring it and handling the response it produces, rather than curl/Go/client per endpoint.
+Rate limiting is **on by default** — an in-memory store plus a built-in table of per-route limits on the sensitive endpoints (login, register, password reset, invites, admin actions, ...). Unlike everything else in these guides, there's no single "endpoint" here: this is cross-cutting middleware wrapping the applicable routes, so this page is organized around configuring it and handling the response it produces, rather than curl/Go/client per endpoint.
 
 ## Configuration
 
@@ -111,7 +111,7 @@ IPv6 addresses are masked to `IPv6Subnet` bits (default 64) before being used, s
 
 ## The default rate table
 
-Every route below has a limit unless you override it; anything not listed falls back to `Default` (60/min).
+Every rate-limited route below has a limit unless you override it. A route wrapped in rate-limit middleware without a specific entry falls back to `Default` (60/min). Routes mounted without that middleware, such as logout, name change and session listing/revocation, have no built-in route limit.
 
 | Route | Limit |
 |---|---|
@@ -185,17 +185,24 @@ Every rate-limited response carries `X-RateLimit-Limit` and `X-RateLimit-Remaini
 #### curl
 
 ```bash
-# Fire past the 5/min login limit and inspect the headers on the response that trips it
+# Use the default _csrf cookie name; adjust it if you renamed the cookie.
+curl -s -o /dev/null -c cookies.txt https://api.myapp.com/auth/csrf-token \
+  -H "Origin: https://myapp.com"
+csrf_token=$(awk '$6 == "_csrf" { token = $7 } END { print token }' cookies.txt)
+
+# Fire past a fresh 5/min login bucket and inspect the response headers.
 for i in $(seq 1 6); do
   curl -s -o /dev/null -D - https://api.myapp.com/auth/login \
     -H "Content-Type: application/json" \
     -H "Origin: https://myapp.com" \
+    -H "X-CSRF-Token: $csrf_token" \
+    -b cookies.txt \
     -d '{"email":"ada@example.com","password":"wrong"}' \
     | grep -E "HTTP|Retry-After|X-RateLimit"
 done
 ```
 
-The first five responses come back `401 invalid_credentials`; the sixth is `429` with `Retry-After` and `X-RateLimit-Remaining: 0`.
+With a fresh login bucket and an allowed origin, the first five responses come back `401 invalid_credentials`; the sixth is `429` with `Retry-After` and `X-RateLimit-Remaining: 0`. The cookie jar is read by curl and awk, which also handle Netscape cookie rows prefixed with `#HttpOnly_`; no browser JavaScript reads a session cookie.
 
 ---
 

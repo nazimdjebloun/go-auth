@@ -14,7 +14,7 @@ For admin dashboard integration (cross-origin, role checking), see [Admin Client
 
 Recommended file names and locations in your project:
 
-```
+```text
 lib/
   api/
     client.ts        ← the fetch wrapper (apiRequest, getCSRFToken, setUnauthorizedHandler)
@@ -35,14 +35,14 @@ go-auth does not handle client-side route protection — that's your frontend fr
 
 ### Two-factor authentication
 
-2FA is **optional**. All 2FA-related code in this guide (the `challenge` state, `verifyTwoFactor` method, `TwoFactorSettings` component) can be skipped entirely. If you don't enable 2FA on your server, these code paths never execute — `login()` always returns a session directly.
+go-auth uses **email codes**. Non-admin 2FA is optional unless global or per-account settings require it; admin accounts require it by default. Keep challenge handling whenever an account can require 2FA. Login may also require email verification before issuing a session. See [Authentication policy](./security.mdx#authentication-policy-matrix).
 
 ## The fetch wrapper
 
 Every API call goes through one `fetch` wrapper. It handles three things a plain `fetch` doesn't:
 
 1. **Sends cookies** — `credentials: "include"` makes the browser send and store `HttpOnly` session cookies
-2. **Attaches CSRF header** — every `POST`/`PUT`/`PATCH`/`DELETE` needs `X-CSRF-Token`
+2. **Attaches CSRF header** — protected browser mutations need `X-CSRF-Token`; OAuth callbacks use their state cookie instead
 3. **Handles errors** — parses the error response and triggers app-wide logout on `401` or `403 user_banned`
 
 ```ts
@@ -131,15 +131,21 @@ export async function apiRequest<T>(
 
 ## Same-origin setup (recommended)
 
-The simplest deployment: your frontend proxies API requests to the backend. No CORS, no cookie scope issues.
+The frontend proxies API requests to the backend. Add the frontend origin to
+`SecurityConfig.AllowedOrigins` for the browser mutation origin check, even
+though the browser does not need CORS for this topology.
 
 ### Next.js
 
 ```ts
 // next.config.ts
-async rewrites() {
-  return [{ source: "/api/:path*", destination: `${API_URL}/:path*` }]
+const API_URL = process.env.API_URL ?? "http://localhost:8080"
+const nextConfig = {
+  async rewrites() {
+    return [{ source: "/api/:path*", destination: `${API_URL}/:path*` }]
+  },
 }
+export default nextConfig
 ```
 
 ```ts
@@ -150,6 +156,8 @@ const API_BASE = "/api"
 
 ```ts
 // vite.config.ts
+import { defineConfig } from "vite"
+
 export default defineConfig({
   server: {
     proxy: {
@@ -173,7 +181,7 @@ const API_BASE = "/api"
 | CORS | Not needed | Must configure `AllowedOrigins` |
 | CSRF cookie | Host-only, readable | Needs `CookieDomain` or body token |
 | Session cookie | Host-only, sent automatically | Needs `SameSite=None` for different domains |
-| Configuration | None | Multiple settings must align |
+| Configuration | Frontend in `AllowedOrigins` | Origin and cookie settings must align |
 
 ## API methods
 
@@ -183,19 +191,39 @@ Once you have `apiRequest`, build named methods for each feature:
 // lib/api/auth.ts
 import { apiRequest } from "./client"
 
+export interface AuthUser {
+  id: string
+  email: string
+  name: string
+  role?: "user" | "admin" // omitted with app permissions enabled
+  appRoleId?: string
+  isVerified: boolean
+  twoFactorEnabled: boolean
+  hasPassword?: boolean // included by /auth/me
+}
+
+export interface LoginOutcome {
+  user: AuthUser
+  requiresVerification?: boolean
+  requiresTwoFactor?: boolean
+  codeSent?: boolean
+  challengeId?: string
+  expiresAt?: string
+}
+
 export const authApi = {
   register: (input: { email: string; password: string; name: string }) =>
-    apiRequest("POST", "/auth/register", input),
-
+    apiRequest<LoginOutcome>("POST", "/auth/register", input),
   login: (input: { email: string; password: string }) =>
-    apiRequest("POST", "/auth/login", input),
-
+    apiRequest<LoginOutcome>("POST", "/auth/login", input),
   verifyTwoFactor: (challengeId: string, code: string) =>
-    apiRequest("POST", "/auth/verify-two-factor", { challengeId, code }),
-
+    apiRequest<{ user: AuthUser }>("POST", "/auth/2fa/verify", { challengeId, code }),
+  resendTwoFactor: (challengeId: string) =>
+    apiRequest<{ challengeId: string; expiresAt: string; codeSent: boolean }>(
+      "POST", "/auth/2fa/resend", { challengeId }
+    ),
   logout: () => apiRequest("POST", "/auth/logout"),
-
-  me: () => apiRequest("GET", "/auth/me"),
+  me: () => apiRequest<AuthUser>("GET", "/auth/me"),
 }
 ```
 
@@ -229,22 +257,11 @@ export const securityApi = {
   changePassword: (oldPassword: string, newPassword: string) =>
     apiRequest("POST", "/auth/change-password", { oldPassword, newPassword }),
 
-  // --- Two-factor authentication (optional, skip if 2FA is not enabled) ---
-
-  getTwoFactorStatus: () =>
-    apiRequest("GET", "/auth/two-factor/status"),
-
-  enableTwoFactor: () =>
-    apiRequest("POST", "/auth/two-factor/enable"),
-
-  confirmTwoFactor: (code: string) =>
-    apiRequest("POST", "/auth/two-factor/confirm", { code }),
-
+  // Per-account email 2FA; both operations require the current password.
+  enableTwoFactor: (password: string, keepOtherSessions = false) =>
+    apiRequest("POST", "/auth/2fa/enable", { password, keepOtherSessions }),
   disableTwoFactor: (password: string) =>
-    apiRequest("POST", "/auth/two-factor/disable", { password }),
-
-  regenerateBackupCodes: () =>
-    apiRequest("POST", "/auth/two-factor/backup-codes"),
+    apiRequest("POST", "/auth/2fa/disable", { password }),
 
   // --- Password ---
 
@@ -270,16 +287,9 @@ Wrap your app in an `AuthProvider` to keep user state in one place:
 "use client"
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react"
-import { authApi } from "../lib/api/auth"
+import { authApi, type AuthUser, type LoginOutcome } from "../lib/api/auth"
 import { setUnauthorizedHandler } from "../lib/api/client"
 
-interface User {
-  id: string
-  email: string
-  name: string
-  role: string
-  isVerified: boolean
-}
 
 interface TwoFactorChallenge {
   challengeId: string
@@ -287,28 +297,22 @@ interface TwoFactorChallenge {
 }
 
 interface AuthContextValue {
-  user: User | null
+  user: AuthUser | null
   loading: boolean
   error: string | null
   challenge: TwoFactorChallenge | null  // null when 2FA is not enabled or not triggered
   refresh: () => Promise<void>
-  login: (input: { email: string; password: string }) => Promise<LoginOutcome>
-  register: (input: { email: string; password: string; name: string }) => Promise<LoginOutcome>
+  login: (input: { email: string; password: string }) => Promise<Partial<LoginOutcome>>
+  register: (input: { email: string; password: string; name: string }) => Promise<Partial<LoginOutcome>>
   verifyTwoFactor: (code: string) => Promise<void>
   logout: () => Promise<void>
 }
 
-type LoginOutcome = {
-  requiresVerification?: boolean
-  requiresTwoFactor?: boolean
-  challengeId?: string
-  expiresAt?: string
-}
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
+  const [user, setUser] = useState<AuthUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [challenge, setChallenge] = useState<TwoFactorChallenge | null>(null)
@@ -352,7 +356,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setChallenge(null)
     try {
       const result = await authApi.register(input)
-      if (result.requiresVerification || result.requiresTwoFactor) return result
+      if (result.requiresVerification) return result
+      if (result.requiresTwoFactor) {
+        setChallenge({ challengeId: result.challengeId!, expiresAt: result.expiresAt! })
+        return result
+      }
       await refresh()
       return {}
     } catch (err: any) {
@@ -375,10 +383,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [challenge, refresh])
 
   const logout = useCallback(async () => {
+    setError(null)
     try {
       await authApi.logout()
-    } catch {
-      // already logged out or request failed — proceed anyway
+    } catch (err: any) {
+      setError(err.message ?? err.error ?? "Could not sign out")
+      throw err
     }
     setUser(null)
     setChallenge(null)
@@ -403,9 +413,10 @@ export function useAuth(): AuthContextValue {
 
 ```tsx
 // app/layout.tsx
+import type { ReactNode } from "react"
 import { AuthProvider } from "../providers/auth-provider"
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html>
       <body>
@@ -418,16 +429,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 ```tsx
 // components/account-menu.tsx (or any component using useAuth)
-function AccountMenu() {
-  const { user, loading, logout } = useAuth()
+import { useAuth } from "../providers/auth-provider"
 
-  if (loading) return <Skeleton />
+function AccountMenu() {
+  const { user, loading, error, logout } = useAuth()
+
+  if (loading) return <p>Loading account…</p>
   if (!user) return <a href="/login">Log in</a>
 
   return (
     <div>
       {user.name}
-      <button onClick={logout}>Log out</button>
+      <button onClick={() => { void logout().catch(() => {}) }}>Log out</button>
+      {error && <p role="alert">{error}</p>}
     </div>
   )
 }
@@ -435,30 +449,44 @@ function AccountMenu() {
 
 ### 2FA login flow (optional)
 
-When a user has two-factor authentication enabled, `login()` returns `{ requiresTwoFactor: true, challengeId }` instead of logging in. Show a code input and call `verifyTwoFactor`. If 2FA is not enabled on your server, this never happens — `login()` returns `{}` and calls `refresh()` directly.
+When login policy requires email 2FA, `login()` returns `{ requiresTwoFactor: true, challengeId, expiresAt }`. Show the emailed-code input and call `verifyTwoFactor`. Challenged registration uses the same state. Session-producing results call `refresh()`; verification-required results must finish email verification and sign in again.
 
 ```tsx
 // components/login-form.tsx (or any component handling 2FA)
+import { useState, type FormEvent } from "react"
+import { useAuth } from "../providers/auth-provider"
+
 function LoginForm() {
   const { login, verifyTwoFactor, challenge, error } = useAuth()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [twoFactorCode, setTwoFactorCode] = useState("")
+  const [needsVerification, setNeedsVerification] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    await login({ email, password })
+    setNeedsVerification(false)
+    try {
+      const result = await login({ email, password })
+      setNeedsVerification(result.requiresVerification === true)
+    } catch {
+      // The provider exposes the failure through error below.
+    }
   }
 
-  const handleVerify = async (e: React.FormEvent) => {
+  const handleVerify = async (e: FormEvent) => {
     e.preventDefault()
-    await verifyTwoFactor(twoFactorCode)
+    try {
+      await verifyTwoFactor(twoFactorCode)
+    } catch {
+      // Keep the challenge visible and display the provider error.
+    }
   }
 
   if (challenge) {
     return (
       <form onSubmit={handleVerify}>
-        <p>Enter the code from your authenticator app</p>
+        <p>Enter the code sent to your email</p>
         <input
           type="text"
           value={twoFactorCode}
@@ -473,6 +501,7 @@ function LoginForm() {
 
   return (
     <form onSubmit={handleSubmit}>
+      {needsVerification && <p>Verify your email, then sign in again.</p>}
       <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
       <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
       {error && <p className="error">{error}</p>}
@@ -488,7 +517,7 @@ function LoginForm() {
 - **`loading` starts as `true`** — gate route rendering on `loading === false`
 - **`setUnauthorizedHandler`** — clears user state app-wide on `401` or `403 user_banned`
 - **Gated login** — `requiresVerification` or `requiresTwoFactor` returns without calling `refresh()`
-- **2FA challenge** — `challenge` is set when `requiresTwoFactor` is true (only when 2FA is enabled on the server), cleared on `verifyTwoFactor` success or `logout()`
+- **2FA challenge** — `challenge` is set whenever login policy requires it, including default admin MFA, and cleared on successful verification or logout
 
 ## Route protection (Next.js proxy)
 
@@ -529,7 +558,14 @@ export const config = {
   This checks that a cookie *exists*, not that it's valid. An expired or forged cookie passes. It also doesn't check role — a non-admin user reaches `/admin` pages. Use Option 2 when validation matters.
 </Callout>
 
-### Option 2: Validated via `/auth/me` (slower, correct)
+### Option 2: Validate via `/auth/me` and forward rotated cookies
+
+This example assumes the same-origin `/api` proxy above: host-only auth cookies
+belong to the frontend host and reach the Next.js request. Cookies restricted to
+a separate API host are unavailable to this proxy. The `/admin` role guard below
+assumes **app permissions are disabled**. Enabled mode uses `/auth/access` and
+exact permission keys; see the [app permissions client guide](./guides/client/app-permissions.mdx).
+Backend actions still perform their own authorization and session-assurance checks.
 
 ```ts
 // proxy.ts (validated version)
@@ -544,25 +580,54 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
   const isProtected = protectedRoutes.some((route) => pathname.startsWith(route))
   const isAdmin = adminRoutes.some((route) => pathname.startsWith(route))
-
   if (!isProtected && !isAdmin) return NextResponse.next()
 
-  const res = await fetch(`${API_BASE}/auth/me`, {
-    headers: { cookie: request.headers.get("cookie") ?? "" },
-  })
-
-  if (!res.ok) {
+  let res: Response
+  try {
+    res = await fetch(`${API_BASE}/auth/me`, {
+      headers: { cookie: request.headers.get("cookie") ?? "" },
+      cache: "no-store",
+      redirect: "manual",
+    })
+  } catch {
     return NextResponse.redirect(new URL("/login", request.url))
   }
 
-  if (isAdmin) {
-    const user = await res.json()
-    if (user.role !== "admin") {
-      return NextResponse.redirect(new URL("/", request.url))
+  // Preserve individual headers: Expires contains commas.
+  const setCookies = res.headers.getSetCookie()
+  const requestHeaders = new Headers(request.headers)
+  const cookies = new Map<string, string>()
+  for (const part of (requestHeaders.get("cookie") ?? "").split(";")) {
+    const entry = part.trim()
+    const separator = entry.indexOf("=")
+    if (separator > 0) cookies.set(entry.slice(0, separator), entry.slice(separator + 1))
+  }
+  for (const header of setCookies) {
+    const pair = header.split(";", 1)[0]
+    const separator = pair.indexOf("=")
+    if (separator < 1) continue
+    const name = pair.slice(0, separator)
+    const value = pair.slice(separator + 1)
+    if (!value || /(?:^|;)\s*max-age=0(?:;|$)/i.test(header)) cookies.delete(name)
+    else cookies.set(name, value)
+  }
+  requestHeaders.set("cookie", Array.from(cookies, ([name, value]) => `${name}=${value}`).join("; "))
+
+  let response: NextResponse
+  if (!res.ok) {
+    response = NextResponse.redirect(new URL("/login", request.url))
+  } else {
+    try {
+      const user: { role?: string } = await res.json()
+      response = isAdmin && user.role !== "admin"
+        ? NextResponse.redirect(new URL("/", request.url))
+        : NextResponse.next({ request: { headers: requestHeaders } })
+    } catch {
+      response = NextResponse.redirect(new URL("/login", request.url))
     }
   }
-
-  return NextResponse.next()
+  for (const header of setCookies) response.headers.append("Set-Cookie", header)
+  return response
 }
 
 export const config = {
@@ -571,7 +636,7 @@ export const config = {
 ```
 
 <Callout type="info" title="Trade-off">
-  Every matched navigation waits on a round trip to the API. This fails closed (redirects to `/login`) if the API is slow or unreachable. It also doesn't do transparent token refresh — an expired-but-refreshable session bounces to `/login` instead of renewing silently.
+  Every matched navigation waits on the API. Fetch failures and rejected credentials redirect to `/login`. `/auth/me` can transparently rotate an expired-but-refreshable session. The example relays every raw `Set-Cookie` header, including on redirects, and updates the downstream request cookie header so server-rendered code sees the new tokens immediately. Use a server runtime with `Headers.getSetCookie()`; never comma-split these headers.
 </Callout>
 
 ## Error handling
@@ -590,7 +655,7 @@ Handle them uniformly:
 ```ts
 try {
   await authApi.login({ email, password })
-} catch (err) {
+} catch (err: any) {
   if (err.error === "rate_limit_exceeded") {
     showError(`Too many attempts — try again in ${err.retryAfter ?? 60}s`)
     return
@@ -606,7 +671,7 @@ The `apiRequest` wrapper attaches `retryAfter` (from `Retry-After` header) on `4
 ```ts
 try {
   await apiRequest("POST", "/auth/login", { email, password })
-} catch (err) {
+} catch (err: any) {
   if (err.error === "rate_limit_exceeded" || err.error === "rate_limit_error") {
     showError(`Too many attempts — try again in ${err.retryAfter ?? 60}s`)
     return
@@ -615,65 +680,58 @@ try {
 }
 ```
 
-## Managing two-factor authentication (optional)
+## Managing email two-factor authentication
 
-2FA is not enabled by default. If you want users to manage it, use the `securityApi` methods:
+Read `twoFactorEnabled` from `/auth/me`. This per-account flag does not describe
+global mandatory 2FA or default admin MFA. Changing it requires the current
+password; passwordless accounts must set a password first. With `RequireEmail2FA`,
+changes return `two_factor_already_enforced`. Enabling revokes other sessions
+unless `keepOtherSessions: true` is supplied.
 
 ```tsx
-// components/two-factor-settings.tsx (optional, only if 2FA is enabled)
+// components/two-factor-settings.tsx
+import { useState } from "react"
+import { useAuth } from "../providers/auth-provider"
 import { securityApi } from "../lib/api/security"
 
 function TwoFactorSettings() {
-  const [status, setStatus] = useState<{ enabled: boolean; backupCodes?: string[] } | null>(null)
-  const [qrCode, setQrCode] = useState<string | null>(null)
-  const [enableCode, setEnableCode] = useState("")
-
-  useEffect(() => {
-    securityApi.getTwoFactorStatus().then(setStatus)
-  }, [])
-
-  const handleEnable = async () => {
-    const result = await securityApi.enableTwoFactor()
-    setQrCode(result.qrCode) // data URL or SVG
+  const { user, refresh } = useAuth()
+  const [password, setPassword] = useState("")
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const changeSetting = async () => {
+    if (!user) return
+    setPending(true)
+    setError(null)
+    try {
+      if (user.twoFactorEnabled) await securityApi.disableTwoFactor(password)
+      else await securityApi.enableTwoFactor(password)
+      setPassword("")
+      await refresh()
+    } catch (err: any) {
+      setError(err.message ?? err.error ?? "Could not change email 2FA")
+    } finally {
+      setPending(false)
+    }
   }
-
-  const handleConfirm = async () => {
-    const result = await securityApi.confirmTwoFactor(enableCode)
-    setStatus({ enabled: true, backupCodes: result.backupCodes })
-    setQrCode(null)
-  }
-
-  const handleDisable = async (password: string) => {
-    await securityApi.disableTwoFactor(password)
-    setStatus({ enabled: false })
-  }
-
-  if (status?.enabled) {
-    return (
-      <div>
-        <p>Two-factor authentication is enabled</p>
-        <button onClick={() => handleDisable(prompt("Enter password")!)}>Disable 2FA</button>
-      </div>
-    )
-  }
-
-  if (qrCode) {
-    return (
-      <div>
-        <img src={qrCode} alt="Scan with authenticator app" />
-        <input value={enableCode} onChange={(e) => setEnableCode(e.target.value)} placeholder="Enter code" />
-        <button onClick={handleConfirm}>Confirm</button>
-      </div>
-    )
-  }
-
-  return <button onClick={handleEnable}>Enable 2FA</button>
+  if (!user) return null
+  if (!user.hasPassword) return <p>Set a password before changing email 2FA.</p>
+  return (
+    <div>
+      <p>Per-account email 2FA is {user.twoFactorEnabled ? "enabled" : "disabled"}.</p>
+      <input type="password" autoComplete="current-password" value={password}
+        onChange={(event) => setPassword(event.target.value)} placeholder="Current password" />
+      <button disabled={pending || !password} onClick={changeSetting}>
+        {user.twoFactorEnabled ? "Disable" : "Enable"} email 2FA
+      </button>
+      {error && <p role="alert">{error}</p>}
+    </div>
+  )
 }
 ```
 
-<Callout type="warn" title="Backup codes">
-  When 2FA is enabled, the server returns one-time backup codes. Show these to the user once and tell them to store them securely — they can't be retrieved later.
-</Callout>
+Future login challenges use emailed codes. There is no QR enrollment,
+authenticator-app secret, confirmation endpoint, or backup-code API.
 
 ## Example apps coming soon
 

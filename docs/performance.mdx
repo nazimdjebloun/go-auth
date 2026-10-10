@@ -19,7 +19,7 @@ go-auth ships `testing` benchmarks instead of published latency claims. Run them
 | `BenchmarkLogin/audit=on` | root | The same login with durable `audit_log` recording enabled; no external sink |
 | `BenchmarkValidateSession` | Root | Per-request hot path (token hash lookup + user fetch) |
 | `BenchmarkRefreshSession` | Root | Chained rotation: consume refresh, write new tokens |
-| `BenchmarkRateLimitAllow` | Root | In-memory limiter decision (runs before every route) |
+| `BenchmarkRateLimitAllow` | Root | In-memory limiter decision (used only on routes wrapped by rate-limit middleware) |
 | `BenchmarkHashCost12` | Root | bcrypt cost 12 in isolation (the register/login floor at default settings) |
 | `BenchmarkLivePostgres_*` | Root | Validate/refresh against a real PostgreSQL server (env-gated) |
 | `BenchmarkLiveMySQL_ValidateSession` | Root | Validate against a real MySQL server (env-gated) |
@@ -104,7 +104,7 @@ For numbers you intend to act on, use `-benchtime 10s -count 5` and `benchstat` 
 
 - HTTP-end-to-end latency (benchmarks call services directly)
 - Concurrent load; every benchmark is single-goroutine
-- MySQL refresh/validate (benchmark exists for validate; add flows as needed)
+- MySQL refresh (the live MySQL benchmark covers validation)
 - Audit sink throughput under backpressure
 
 Adding a number to this page requires the command that produced it. Numbers without commands get deleted.

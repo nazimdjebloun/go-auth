@@ -93,6 +93,8 @@ Pass option functions to `NewConfig(opts ...Option)`. The table maps each option
 | `WithCookie` | Cookie name, domain, path, `SameSite`, `Secure` |
 | `WithRegistration` | Which signup methods are available |
 | `WithOrganizations` | Multi-tenant organizations |
+| `WithAppPermissions` | Opt-in application roles and delegated library permissions |
+| `WithMaintenance` | Background cleanup of expired sessions and tokens |
 | `WithMailer` | A custom mailer implementation |
 | `WithEmail` | The built-in SMTP mailer |
 | `WithTemplates` | Custom email templates |

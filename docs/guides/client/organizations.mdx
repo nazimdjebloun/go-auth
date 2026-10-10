@@ -547,8 +547,7 @@ import { getOrgErrorMessage } from "../lib/org-errors";
 
 interface Member {
   userId: string;
-  name: string;
-  email: string;
+  user: { name: string; email: string } | null;
   role: "owner" | "admin" | "member";
   joinedAt: string;
 }
@@ -604,8 +603,8 @@ export function MemberList({ orgId, currentUserId }: { orgId: string; currentUse
             {members.map((m) => (
               <div key={m.userId} className="flex items-center justify-between rounded-md border p-3">
                 <div>
-                  <p className="font-medium">{m.name}</p>
-                  <p className="text-sm text-muted-foreground">{m.email}</p>
+                  <p className="font-medium">{m.user?.name ?? "Unavailable user"}</p>
+                  <p className="text-sm text-muted-foreground">{m.user?.email ?? ""}</p>
                 </div>
                 <Badge variant={m.role === "owner" ? "default" : "secondary"}>{m.role}</Badge>
               </div>
@@ -1130,7 +1129,6 @@ interface Invite {
   id: string;
   email: string;
   role: "owner" | "admin" | "member";
-  status: "pending" | "expired";
   expiresAt: string;
   createdAt: string;
 }
@@ -1190,7 +1188,9 @@ export function InviteList({ orgId }: { orgId: string }) {
                   <p className="text-sm text-muted-foreground">Expires {new Date(inv.expiresAt).toLocaleDateString()}</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant={inv.status === "pending" ? "default" : "destructive"}>{inv.status}</Badge>
+                  <Badge variant={new Date(inv.expiresAt).getTime() > Date.now() ? "default" : "destructive"}>
+                    {new Date(inv.expiresAt).getTime() > Date.now() ? "pending" : "expired"}
+                  </Badge>
                   <Badge variant="secondary">{inv.role}</Badge>
                 </div>
               </div>

@@ -256,7 +256,7 @@ export function AuditLogsTable() {
                       {event.success ? "Success" : "Failed"}
                     </Badge>
                     {event.severity !== "info" && (
-                      <Badge variant={severity variant(event.severity)}>
+                      <Badge variant={severityVariant(event.severity)}>
                         {event.severity}
                       </Badge>
                     )}
