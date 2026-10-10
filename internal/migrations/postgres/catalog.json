@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "release": "v0.4.0",
+  "dialect": "postgres",
+  "targetRevision": 1,
+  "bootstrapRevision": 1,
+  "migrations": [
+    {
+      "id": 1,
+      "file": "000001_v0.4.0_001.sql",
+      "checksum": "7f0849bd78fcc0e9211d958df963c31af9e0c75827a408306b446cba209e34d2",
+      "kind": "baseline",
+      "transactional": true,
+      "schema": "schema_000001.sql",
+      "checks": [],
+      "schemaChecksum": "34639c9659e6bac74e854aceb15dd45fb8bed711c5216b0fffbb99740359b077"
+    }
+  ]
+}

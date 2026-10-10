@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "release": "v0.4.0",
+  "dialect": "sqlite",
+  "targetRevision": 1,
+  "bootstrapRevision": 1,
+  "migrations": [
+    {
+      "id": 1,
+      "file": "000001_v0.4.0_001.sql",
+      "checksum": "cf90896794dbc8749fa371dafa2549fb2d6d99ecc398400e8e495fde4c296897",
+      "kind": "baseline",
+      "transactional": true,
+      "schema": "schema_000001.sql",
+      "checks": [],
+      "schemaChecksum": "f61c1793b1cf7a964e14777d97b3ae04c9ad9fb525b9887634c7d75417e1678c"
+    }
+  ]
+}

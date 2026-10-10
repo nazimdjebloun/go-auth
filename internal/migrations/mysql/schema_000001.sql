@@ -1,0 +1,282 @@
+-- Public recovery requests are queued before any account lookup. Times are
+-- UTC Unix seconds; no raw reset token or verification code is stored here.
+CREATE TABLE IF NOT EXISTS recovery_requests (
+    id VARCHAR(36) PRIMARY KEY,
+    kind VARCHAR(32) NOT NULL,
+    email VARCHAR(254) NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    available_at BIGINT NOT NULL,
+    lease_until BIGINT NOT NULL DEFAULT 0,
+    claim_owner VARCHAR(36) NOT NULL DEFAULT '',
+    dead_lettered INTEGER NOT NULL DEFAULT 0,
+    created_at BIGINT NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_recovery_requests_claim ON recovery_requests(dead_lettered, available_at, lease_until);
+CREATE INDEX idx_recovery_requests_created ON recovery_requests(created_at);
+
+CREATE TABLE IF NOT EXISTS app_roles (
+    id VARCHAR(36) PRIMARY KEY,
+    slug VARCHAR(80) NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    system_key VARCHAR(40) UNIQUE,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CHECK (system_key IS NULL OR system_key IN ('platform_admin', 'user'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS app_permissions (
+    id VARCHAR(36) PRIMARY KEY,
+    permission_key VARCHAR(160) COLLATE utf8mb4_bin NOT NULL UNIQUE,
+    name VARCHAR(120) NOT NULL,
+    description TEXT NOT NULL,
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    is_system BOOLEAN NOT NULL DEFAULT false,
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME(6) NOT NULL,
+    updated_at DATETIME(6) NOT NULL,
+    CHECK (NOT is_system OR is_enabled),
+    CONSTRAINT app_permissions_namespace_owner
+        CHECK (is_system = (substr(permission_key, 1, 11) = 'goauth.app.'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS app_authorization_state (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
+    created_at DATETIME(6) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(36) PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash TEXT,
+    app_role_id VARCHAR(36),
+    app_role_assignment_revision BIGINT NOT NULL DEFAULT 0 CHECK (app_role_assignment_revision >= 0),
+    password_pepper_version INT UNSIGNED,
+    name TEXT NOT NULL,
+    role VARCHAR(20) NOT NULL DEFAULT 'user',
+    is_verified BOOLEAN NOT NULL DEFAULT false,
+    verified_at DATETIME,
+    is_banned BOOLEAN NOT NULL DEFAULT false,
+    banned_at DATETIME,
+    two_factor_enabled BOOLEAN NOT NULL DEFAULT false,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    org_owner_count INT NOT NULL DEFAULT 0,
+    last_login_at DATETIME,
+    FOREIGN KEY (app_role_id) REFERENCES app_roles(id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_users_password_pepper_version ON users(password_pepper_version);
+
+CREATE INDEX idx_users_app_role ON users(app_role_id, id);
+
+CREATE TABLE IF NOT EXISTS app_role_permissions (
+    role_id VARCHAR(36) NOT NULL,
+    permission_id VARCHAR(36) NOT NULL,
+    granted_by VARCHAR(36),
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (role_id, permission_id),
+    FOREIGN KEY (role_id) REFERENCES app_roles(id) ON DELETE CASCADE,
+    FOREIGN KEY (permission_id) REFERENCES app_permissions(id) ON DELETE RESTRICT,
+    FOREIGN KEY (granted_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_app_role_permissions_permission ON app_role_permissions(permission_id, role_id);
+
+
+CREATE TABLE IF NOT EXISTS organizations (
+    id VARCHAR(36) PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    slug VARCHAR(255) NOT NULL UNIQUE,
+    created_by VARCHAR(36),
+    owner_count INT NOT NULL DEFAULT 0,
+    member_count INT NOT NULL DEFAULT 0,
+    metadata JSON NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_org_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS organization_members (
+    org_id VARCHAR(36) NOT NULL,
+    user_id VARCHAR(36) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    joined_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (org_id, user_id),
+    CONSTRAINT fk_org_mem_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_org_mem_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS organization_invites (
+    id VARCHAR(36) PRIMARY KEY,
+    org_id VARCHAR(36) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(50) NOT NULL,
+    code_hash VARCHAR(64) COLLATE utf8mb4_bin NOT NULL UNIQUE,
+    invited_by VARCHAR(36) NOT NULL,
+    expires_at DATETIME(6) NOT NULL,
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    CONSTRAINT fk_org_inv_org FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_org_inv_user FOREIGN KEY (invited_by) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS sessions (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    token_hash VARCHAR(255) COLLATE utf8mb4_bin UNIQUE NOT NULL,
+    -- Indexed hashes need bounded types; binary collation preserves exact matching.
+    refresh_token_hash VARCHAR(255) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+    prev_refresh_token_hash VARCHAR(255) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
+    ip_address TEXT NOT NULL DEFAULT (''),
+    user_agent TEXT NOT NULL DEFAULT (''),
+    is_revoked BOOLEAN NOT NULL DEFAULT false,
+    expires_at DATETIME NOT NULL,
+    refresh_expires_at DATETIME,
+    refresh_rotated_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    revoked_at DATETIME,
+    last_active_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    active_org_id VARCHAR(36),
+    active_org_role VARCHAR(50),
+    two_factor_verified_at DATETIME(6),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (active_org_id) REFERENCES organizations(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS verification_tokens (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36),
+    email TEXT NOT NULL,
+    token_hash VARCHAR(255) COLLATE utf8mb4_bin UNIQUE NOT NULL,
+    type VARCHAR(30) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    used_at DATETIME,
+    code_verifier TEXT,
+    attempts INT NOT NULL DEFAULT 0,
+    resend_count INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS provider_accounts (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL,
+    provider VARCHAR(50) COLLATE utf8mb4_0900_bin NOT NULL,
+    provider_user_id VARCHAR(255) COLLATE utf8mb4_0900_bin NOT NULL,
+    provider_email TEXT NOT NULL,
+    provider_name TEXT NOT NULL,
+    avatar_url TEXT NOT NULL,
+    access_token TEXT,
+    refresh_token TEXT,
+    token_expires_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(provider, provider_user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS invites (
+    id VARCHAR(36) PRIMARY KEY,
+    email TEXT NOT NULL,
+    code VARCHAR(255) UNIQUE NOT NULL,
+    created_by VARCHAR(36) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    expires_at DATETIME NOT NULL,
+    accepted_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (created_by) REFERENCES users(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_sessions_user_id ON sessions(user_id);
+CREATE INDEX idx_sessions_token_hash ON sessions(token_hash);
+CREATE INDEX idx_verification_tokens_token_hash ON verification_tokens(token_hash);
+CREATE INDEX idx_invites_email ON invites(email(255));
+CREATE INDEX idx_invites_code ON invites(code(255));
+CREATE INDEX idx_provider_accounts_user_id ON provider_accounts(user_id);
+CREATE INDEX idx_provider_accounts_provider ON provider_accounts(provider, provider_user_id);
+CREATE INDEX idx_sessions_refresh_token_hash ON sessions(refresh_token_hash);
+CREATE INDEX idx_sessions_prev_refresh_token_hash ON sessions(prev_refresh_token_hash);
+
+CREATE INDEX idx_org_members_user ON organization_members(user_id);
+CREATE INDEX idx_org_members_org_role ON organization_members(org_id, role);
+CREATE INDEX idx_org_members_org_joined ON organization_members(org_id, joined_at);
+CREATE INDEX idx_org_invites_org ON organization_invites(org_id);
+CREATE INDEX idx_org_invites_email ON organization_invites(email);
+CREATE INDEX idx_sessions_user_active_org ON sessions(user_id, active_org_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id VARCHAR(64) PRIMARY KEY,
+    event_type VARCHAR(128) NOT NULL,
+    severity VARCHAR(16) NOT NULL DEFAULT 'info',
+    success BOOLEAN NOT NULL DEFAULT TRUE,
+    actor_id VARCHAR(64),
+    target_id VARCHAR(64),
+    session_id VARCHAR(64),
+    org_id VARCHAR(64),
+    ip VARCHAR(45),
+    user_agent TEXT NOT NULL DEFAULT (''),
+    parsed_ua JSON,
+    request_id VARCHAR(64) NOT NULL DEFAULT '',
+    correlation_id VARCHAR(64) NOT NULL DEFAULT '',
+    metadata JSON,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_audit_log_event_type ON audit_log(event_type);
+CREATE INDEX idx_audit_log_actor_id ON audit_log(actor_id);
+CREATE INDEX idx_audit_log_target_id ON audit_log(target_id);
+CREATE INDEX idx_audit_log_session_id ON audit_log(session_id);
+CREATE INDEX idx_audit_log_org_id ON audit_log(org_id);
+CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
+CREATE INDEX idx_audit_log_event_type_created_at ON audit_log(event_type, created_at);
+
+-- Audit outbox — durable delivery. Ephemeral
+-- companion to audit_log: a row exists only while the event still must be
+-- delivered to an external sink. audit_log is insert-only and immutable;
+-- all churn (claim, attempt, retry) lives here. No foreign key: it would
+-- add a check to the credential path; orphans are found by the janitor's
+-- periodic scan.
+CREATE TABLE IF NOT EXISTS audit_outbox (
+    audit_log_id VARCHAR(64) PRIMARY KEY,
+    org_id VARCHAR(64),
+    priority INT NOT NULL DEFAULT 0,
+    attempts INT NOT NULL DEFAULT 0,
+    next_attempt_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    claimed_at DATETIME(6),
+    claim_owner VARCHAR(255) NOT NULL DEFAULT '',
+    last_error TEXT NULL,
+    dead_lettered_at DATETIME(6),
+    created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE INDEX idx_audit_outbox_claim ON audit_outbox(priority, next_attempt_at);
+CREATE INDEX idx_audit_outbox_created_at ON audit_outbox(created_at);
+
+-- Admin console read paths — large-tenant list / count / filter / sort.
+-- (No partial indexes on MySQL; the equality-prefixed composites serve the
+-- selective side of each flag filter.)
+CREATE INDEX idx_users_role_created_at ON users (role, created_at);
+CREATE INDEX idx_users_updated_at ON users (updated_at);
+CREATE INDEX idx_users_last_login_at ON users (last_login_at);
+CREATE INDEX idx_users_banned_created_at ON users (is_banned, created_at);
+CREATE INDEX idx_users_verified_created_at ON users (is_verified, created_at);
+CREATE INDEX idx_users_two_factor_created_at ON users (two_factor_enabled, created_at);
+-- Prefix search fallback ("term%"): email's UNIQUE index already serves it;
+-- name is TEXT so it needs its own prefix index.
+CREATE INDEX idx_users_name ON users (name(255));
+
+CREATE INDEX idx_sessions_created_at ON sessions (created_at);
+CREATE INDEX idx_sessions_last_active_at ON sessions (last_active_at);
+CREATE INDEX idx_sessions_expires_at ON sessions (expires_at);
+CREATE INDEX idx_sessions_ip_address ON sessions (ip_address(64));
+
+CREATE INDEX idx_invites_status_created_at ON invites (status, created_at);
+CREATE INDEX idx_invites_created_at ON invites (created_at, id);
+CREATE INDEX idx_invites_expires_at ON invites (expires_at);
+
+CREATE INDEX idx_audit_log_actor_created_at ON audit_log (actor_id, created_at);
+CREATE INDEX idx_audit_log_target_created_at ON audit_log (target_id, created_at);

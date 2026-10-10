@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "release": "v0.4.0",
+  "dialect": "mysql",
+  "targetRevision": 1,
+  "bootstrapRevision": 1,
+  "migrations": [
+    {
+      "id": 1,
+      "file": "000001_v0.4.0_001.sql",
+      "checksum": "48e7b536804f76e04449ff215c104d88efc2d869adff937b130d4ae1478950ee",
+      "kind": "baseline",
+      "transactional": false,
+      "schema": "schema_000001.sql",
+      "checks": [],
+      "schemaChecksum": "0f414c30e8a07dd8b34fe0d81349db1256e5757613ecb63f2ca5fd99b92e51ba"
+    }
+  ]
+}
