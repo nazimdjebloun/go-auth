@@ -11,6 +11,16 @@ spec.loader.exec_module(runner)
 
 
 class BackendEvidenceTests(unittest.TestCase):
+    def test_migration_upgrade_and_recovery_evidence_is_required(self):
+        package = runner.MODULE + "internal/migrations"
+        for backend in ["sqlite", "postgres", "mysql"]:
+            for stress in [False, True]:
+                with self.subTest(backend=backend, stress=stress):
+                    expected = runner.required_tests(backend, stress)
+                    self.assertIn((package, "TestSelectedBackendUpgradeFailureRecovery"), expected)
+                    self.assertEqual((package, "TestSelectedBackendPopulatedUpgrade") in expected, not stress)
+                    self.assertEqual((package, "TestSQLiteRebuildRejectsHostOrphansAndRestoresSettings") in expected, backend == "sqlite")
+
     def test_authorization_coverage_is_required_in_full_and_stress_modes(self):
         coverage = {
             (runner.MODULE.rstrip("/"), name) for name in [

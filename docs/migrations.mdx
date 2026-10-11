@@ -18,6 +18,12 @@ are no earlier upgrade steps in this catalog. A database from an older release
 must match this supported schema before adoption; its installed Go version
 does not identify its database layout.
 
+The published `v0.3.0` SQL at commit
+`c289be372e62f84cabe3f3ee74eea1a67ed01db2` has the same schema checksums as
+these baseline fixtures for all three dialects. Actual databases still require
+live adoption validation: the old bootstrap could have left partial or modified
+objects. Earlier schema layouts require a reviewed reconciliation procedure.
+
 ## Exported artifacts
 
 From an application module with `go-auth` pinned in `go.mod`:

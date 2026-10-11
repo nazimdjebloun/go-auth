@@ -49,11 +49,20 @@ func run(ctx context.Context, db *sql.DB, options Options, operation string, id 
 	if db == nil {
 		return status, fmt.Errorf("goauth: migration database is nil")
 	}
-	options, err = options.defaults()
+	catalog, err := Load(options.Driver)
 	if err != nil {
 		return status, err
 	}
-	catalog, err := Load(options.Driver)
+	return runCatalog(ctx, db, options, catalog, operation, id)
+}
+
+// Only validated, library-owned catalogs enter here. Keeping loading separate
+// lets upgrade fixtures exercise the same executor without mutable global state.
+func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalog, operation string, id int64) (status Status, err error) {
+	if db == nil {
+		return status, fmt.Errorf("goauth: migration database is nil")
+	}
+	options, err = options.defaults()
 	if err != nil {
 		return status, err
 	}
@@ -150,8 +159,14 @@ func run(ctx context.Context, db *sql.DB, options Options, operation string, id 
 			if err := verifyStep(ctx, q, catalog.Dialect, baseline); err != nil {
 				return status, &Error{Dialect: catalog.Dialect, MigrationID: id, Phase: "adoption validation", Cause: err}
 			}
-		} else if err := requireUnused(ctx, q, catalog.Dialect, baseline.schemaSQL); err != nil {
-			return status, err
+		} else {
+			// Future steps can reserve names absent from the bootstrap snapshot.
+			// Reject those collisions before any auth DDL or history initialization.
+			for _, step := range catalog.Migrations {
+				if err := requireUnused(ctx, q, catalog.Dialect, step.schemaSQL); err != nil {
+					return status, err
+				}
+			}
 		}
 		if !exists {
 			if _, err := q.ExecContext(ctx, journalSQL(catalog.Dialect)); err != nil {

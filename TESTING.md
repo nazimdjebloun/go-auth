@@ -35,8 +35,13 @@ and coverage are written under `.test-results/<backend>/full/`.
 
 The schema suite installs the published baseline, validates explicit adoption
 of the complete canonical SQL, and repeats tracked execution. The migration
-package also covers concurrent runners, rollback versus durable dirty state,
-verified repair and untracked/modified schema refusal. It checks all 15 tables, column types/nullability/default
+package also covers populated multi-step upgrades from executed and adopted
+baselines, skipped releases, password verification and token lookup after upgrades,
+incomplete MySQL backfills, verified repair, concurrent runners, and rollback
+versus durable dirty state. SQLite rebuild fixtures include host-owned foreign
+keys, indexes and triggers, and reject orphaned host references before committing.
+The historical provenance fixture records the exact v0.3.0 schema checksums
+matching baseline 000001. It checks all 15 tables, column types/nullability/default
 values and explicit collations, named-index columns, sort order, collations,
 access methods, operator classes and partial predicates, primary/unique keys,
 foreign-key targets/deletion actions, and declared CHECK expressions. Expectations

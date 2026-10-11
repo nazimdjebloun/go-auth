@@ -18,7 +18,7 @@ REQUIRED = {
         ".": ["TestAppPermissionsHTTPUserRoleJSON", "TestAppPermissionsHTTPAssuranceAndOptionalManagement", "TestAppPermissionsStatsAuthorization", "TestAppPermissionsSameRoleAssignmentPreservesAccessRevision", "TestAppPermissionsTargetAccessHTTP", "TestAppPermissionsDisabledCapabilityFailsClosed", "TestAppAuthorizationRouteInventory", "TestAppAuthorizationRouteCoverage", "TestAppAuthorizationHTTPPolicyMatrix", "TestAppAuthorizationMountedRoutesDenyUnprivileged"],
         "integration": ["TestMigrations_CreateTables", "TestHTTPBackendSecurityContract"],
         "cmd/goauth/cmd": ["TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend"],
-        "internal/migrations": ["TestStandaloneSelectedBackend", "TestSelectedBackendFailureState", "TestSelectedBackendRejectsWeakenedForeignKeys", "TestConcurrentStandaloneRunners"],
+        "internal/migrations": ["TestStandaloneSelectedBackend", "TestSelectedBackendFailureState", "TestSelectedBackendRejectsWeakenedForeignKeys", "TestConcurrentStandaloneRunners", "TestSelectedBackendPopulatedUpgrade", "TestSelectedBackendUpgradeFailureRecovery"],
         "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack", "TestAppSameRoleAssignmentIsNoOp", "TestAppConcurrentSameRoleAssignmentsPreserveRevision", "TestAppConcurrentRoleReplacementHasOneWinner", "TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess", "TestAppAuthorizationServiceInventory", "TestAppAuthorizationServiceCoverage"],
         "internal/sqlstore": ["TestRecoveryClaimIsExclusiveAndStaleCompletionCannotDeleteReclaimedJob", "TestAdminGuard_ConcurrentReductionsAcrossPools", "TestBackendTokenClaimConcurrentAcrossPools", "TestBackendProviderIdentityIsExact", "TestBackendRefreshZeroGraceRejectsFutureRotation", "TestBackendSessionAssuranceRoundTrip", "TestAppDefaultRoleSharedReadRequiresTransaction", "TestAppPermissionNamespaceOwnership"],
     }.items()
@@ -29,12 +29,12 @@ STRESS_PATTERN = (
     "TestLoginCredentialReplacement|TestTwoFactorVerify|"
     "TestAdminGuard|TestAdminAccessRequires|TestOrgMutationChecks|"
     "TestInviteRevocationCannot|TestOAuthUnlinkCounts|"
-    "TestAppSignup|Test(Postgres|MySQL)_App|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole|TestAppPermissions|TestAppAuthorization|TestSelectedBackendFailureState|TestSelectedBackendRejectsWeakenedForeignKeys|TestPostgres_MigrationPoolDiscard"
+    "TestAppSignup|Test(Postgres|MySQL)_App|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole|TestAppPermissions|TestAppAuthorization|TestSelectedBackendFailureState|TestSelectedBackendRejectsWeakenedForeignKeys|TestSelectedBackendUpgradeFailureRecovery|TestSQLiteRebuild|TestPostgres_MigrationPoolDiscard"
 )
 
 
 def required_tests(backend, stress=False):
-    excluded = {"TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend", "TestStandaloneSelectedBackend", "TestHTTPBackendSecurityContract"} if stress else set()
+    excluded = {"TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend", "TestStandaloneSelectedBackend", "TestSelectedBackendPopulatedUpgrade", "TestHTTPBackendSecurityContract"} if stress else set()
     expected = {key for key in REQUIRED if key[1] not in excluded}
     prefix = {"postgres": "Postgres", "mysql": "MySQL"}.get(backend)
     if prefix:
@@ -46,6 +46,8 @@ def required_tests(backend, stress=False):
         expected.add((MODULE + "internal/service", "TestMySQL_AppAuthorizationRejectsRevokedSessionFromOldSnapshot"))
     if backend == "postgres" and not stress:
         expected.add((MODULE.rstrip("/"), "TestDatabaseBudget_PostgresURL"))
+    if backend == "sqlite":
+        expected.add((MODULE + "internal/migrations", "TestSQLiteRebuildRejectsHostOrphansAndRestoresSettings"))
     return expected
 
 

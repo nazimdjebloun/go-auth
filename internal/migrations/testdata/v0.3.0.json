@@ -1,0 +1,9 @@
+{
+  "release": "v0.3.0",
+  "commit": "c289be372e62f84cabe3f3ee74eea1a67ed01db2",
+  "schemaChecksums": {
+    "postgres": "34639c9659e6bac74e854aceb15dd45fb8bed711c5216b0fffbb99740359b077",
+    "mysql": "0f414c30e8a07dd8b34fe0d81349db1256e5757613ecb63f2ca5fd99b92e51ba",
+    "sqlite": "f61c1793b1cf7a964e14777d97b3ae04c9ad9fb525b9887634c7d75417e1678c"
+  }
+}
