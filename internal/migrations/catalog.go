@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"regexp"
 	"strconv"
 	"strings"
@@ -63,11 +64,29 @@ func Dialect(driver string) (string, error) {
 
 // Load returns a fresh copy, validating names, ordering and published checksums.
 func Load(driver string) (Catalog, error) {
+	catalog, err := ReadCatalog(files, driver)
+	if err != nil {
+		return Catalog{}, err
+	}
+	desired, err := schema.For(driver)
+	if err != nil {
+		return Catalog{}, err
+	}
+	if err := ValidateTarget(catalog, desired); err != nil {
+		return Catalog{}, err
+	}
+	return catalog, nil
+}
+
+// ReadCatalog validates frozen artifacts independently of the desired schema.
+// Maintainer tooling uses this while canonical schemas contain unreleased edits.
+// The filesystem root contains postgres/, mysql/, and sqlite/ directories.
+func ReadCatalog(source fs.FS, driver string) (Catalog, error) {
 	dialect, err := Dialect(driver)
 	if err != nil {
 		return Catalog{}, err
 	}
-	b, err := files.ReadFile(dialect + "/catalog.json")
+	b, err := fs.ReadFile(source, dialect+"/catalog.json")
 	if err != nil {
 		return Catalog{}, err
 	}
@@ -99,10 +118,10 @@ func Load(driver string) (Catalog, error) {
 		if dialect == "sqlite" && !step.Transactional {
 			return Catalog{}, fmt.Errorf("goauth: SQLite migration %d must be transactional", id)
 		}
-		if !snapshotName.MatchString(step.Schema) {
+		if !snapshotName.MatchString(step.Schema) || step.Schema != fmt.Sprintf("schema_%06d.sql", id) {
 			return Catalog{}, fmt.Errorf("goauth: invalid schema snapshot for migration %d", id)
 		}
-		b, err := files.ReadFile(dialect + "/" + step.File)
+		b, err := fs.ReadFile(source, dialect+"/"+step.File)
 		if err != nil {
 			return Catalog{}, err
 		}
@@ -115,7 +134,7 @@ func Load(driver string) (Catalog, error) {
 		if err != nil {
 			return Catalog{}, fmt.Errorf("goauth: parse migration %d: %w", id, err)
 		}
-		b, err = files.ReadFile(dialect + "/" + step.Schema)
+		b, err = fs.ReadFile(source, dialect+"/"+step.Schema)
 		if err != nil {
 			return Catalog{}, err
 		}
@@ -127,6 +146,9 @@ func Load(driver string) (Catalog, error) {
 		if _, err := parseDefinition(dialect, step.schemaSQL); err != nil {
 			return Catalog{}, fmt.Errorf("goauth: invalid verification snapshot for migration %d: %w", id, err)
 		}
+		if step.SQLiteRebuild && dialect != "sqlite" {
+			return Catalog{}, fmt.Errorf("goauth: SQLite rebuild metadata on %s migration %d", dialect, id)
+		}
 		for _, check := range step.Checks {
 			if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(check)), "SELECT ") {
 				return Catalog{}, fmt.Errorf("goauth: migration %d requires SELECT verification queries", id)
@@ -136,24 +158,32 @@ func Load(driver string) (Catalog, error) {
 	if catalog.BootstrapRevision != catalog.Migrations[0].ID || catalog.TargetRevision != previous {
 		return Catalog{}, fmt.Errorf("goauth: invalid baseline or target revision for %s", dialect)
 	}
-	desired, err := schema.For(dialect)
-	if err != nil {
-		return Catalog{}, err
+	return catalog, nil
+}
+
+// ValidateTarget ensures a canonical schema matches the last frozen fixture.
+// This checks artifacts; live database verification is a separate deployment step.
+func ValidateTarget(catalog Catalog, desired string) error {
+	if len(catalog.Migrations) == 0 {
+		return fmt.Errorf("goauth: empty migration catalog")
+	}
+	if _, err := parseDefinition(catalog.Dialect, desired); err != nil {
+		return fmt.Errorf("goauth: invalid canonical schema: %w", err)
 	}
 	// Comments/whitespace in the desired schema do not create new revisions.
 	// Published migration and verification fixture bytes remain immutable.
 	normalizedDesired, err := normalizedDDL(desired)
 	if err != nil {
-		return Catalog{}, err
+		return err
 	}
 	normalizedTarget, err := normalizedDDL(catalog.Migrations[len(catalog.Migrations)-1].schemaSQL)
 	if err != nil {
-		return Catalog{}, err
+		return err
 	}
 	if normalizedDesired != normalizedTarget {
-		return Catalog{}, fmt.Errorf("goauth: canonical schema differs from the catalog's target snapshot")
+		return fmt.Errorf("goauth: canonical schema differs from the catalog's target snapshot")
 	}
-	return catalog, nil
+	return nil
 }
 
 // Statement boundaries are authored explicitly. This permits dollar-quoted
@@ -168,7 +198,7 @@ func statements(script string) ([]string, error) {
 	result := make([]string, 0, len(parts)-1)
 	for _, part := range parts[1:] {
 		part = strings.TrimSpace(part)
-		if part == "" {
+		if part == "" || len(schema.SplitSQL(part)) == 0 {
 			return nil, fmt.Errorf("empty migration statement")
 		}
 		result = append(result, part)

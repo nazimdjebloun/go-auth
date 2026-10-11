@@ -237,6 +237,11 @@ never construct `Auth`, and never close a caller-owned database.
 
 ## Authoring later migrations
 
+The [maintainer authoring tool](./migration-authoring) drafts SQL with pinned
+Atlas/development versions, validates replay before sealing new catalog entries,
+and handles release metadata updates without empty migration files. It operates
+on a maintainer checkout; application deployments use the standalone runner.
+
 Maintainers update all affected canonical schemas, append a globally increasing
 ID for each step, and retain published SQL/verification fixtures byte for byte.
 The filename form is `000042_v0.4.0_001.sql`; semantic versions do not determine

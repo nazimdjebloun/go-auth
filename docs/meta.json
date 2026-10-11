@@ -6,6 +6,7 @@
     "installation",
     "schemas",
     "migrations",
+    "migration-authoring",
     "configuration",
     "client-config",
     "admin-client-config",

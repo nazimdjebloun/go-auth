@@ -87,8 +87,11 @@ configuration hooks.
 - New middleware / cross-cutting HTTP concern → `middleware/`, then construct
   it in `wire_http.go` and apply it to the relevant `internal/httproutes` entries.
 - Schema change → `internal/schema` (embedded SQL, one file per driver)
-  — every `CREATE` statement must stay `IF NOT EXISTS`; `goauth migrate`
-  has to stay idempotent on an already-migrated database.
+  plus reviewed numbered migrations and full verification fixtures under
+  `internal/migrations`. Canonical bootstrap definitions retain `IF NOT EXISTS`;
+  the standalone runner uses history and checksums for repeated execution.
+  Follow the [maintainer authoring workflow](docs/migration-authoring.mdx) to
+  draft, review, seal and verify new release steps.
 
 Core operations can be called programmatically or through optional HTTP
 routes. For example, `auth.Services().Auth.Register(...)` and the registration

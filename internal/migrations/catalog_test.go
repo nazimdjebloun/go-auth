@@ -44,6 +44,24 @@ func TestStatementBoundariesPreserveCompoundSQL(t *testing.T) {
 	if _, err := statements("SELECT 1;"); err == nil {
 		t.Fatal("unbounded SQL was accepted")
 	}
+	if _, err := statements("-- goauth:statement\n-- unfilled manual draft\n"); err == nil {
+		t.Fatal("comment-only migration was accepted")
+	}
+}
+
+func TestMaintainerCatalogCanLoadBeforeCanonicalTargetMatches(t *testing.T) {
+	catalog, err := ReadCatalog(files, "sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired, err := schema.For("sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired += "\nCREATE TABLE future_table (\n    id TEXT PRIMARY KEY\n);\n"
+	if err := ValidateTarget(catalog, desired); err == nil {
+		t.Fatal("unpublished desired edits matched a frozen catalog target")
+	}
 }
 
 func TestExpressionsPreservePrecedenceAndCase(t *testing.T) {

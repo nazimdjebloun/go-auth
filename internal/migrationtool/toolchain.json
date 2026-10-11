@@ -1,0 +1,8 @@
+{
+  "atlasVersion": "v1.3.0",
+  "devDatabases": {
+    "postgres": "docker://postgres/18.0/dev?search_path=public",
+    "mysql": "docker://mysql/8.4.0/dev",
+    "sqlite": "sqlite://dev?mode=memory"
+  }
+}

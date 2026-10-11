@@ -130,6 +130,9 @@ or ORM migrations. `New` never migrates; `CheckSchema: true` checks recorded
 compatibility before workers start. Existing untracked auth tables need explicit,
 validated adoption. See [Migrations](docs/migrations.mdx).
 
+Maintainers prepare reviewed release SQL with the separate
+[migration authoring tool](docs/migration-authoring.mdx).
+
 Email verification marks the address verified and then requires a separate
 sign-in; it does not issue session cookies. OAuth initiation sets a short-lived
 browser state cookie that must return on the callback. Provider linking also
