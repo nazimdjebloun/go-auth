@@ -142,6 +142,30 @@ func TestWrongAtlasVersionAndNoChangeProduceNoDraft(t *testing.T) {
 	}
 }
 
+func TestPinnedAtlasAcceptsOfficialAndCommunityVersionOutput(t *testing.T) {
+	for _, test := range []struct {
+		output string
+		valid  bool
+	}{
+		{"atlas version v1.3.0\nhttps://github.com/ariga/atlas/releases/tag/v1.3.0\n", true},
+		{"atlas community version v1.3.0\nhttps://github.com/ariga/atlas/releases/tag/v1.3.0\n", true},
+		{"atlas version v1.3.0-community\n", true},
+		{"atlas community version v1.2.0\n", false},
+		{"atlas version v1.3.01\n", false},
+		{"another-tool version v1.3.0\n", false},
+	} {
+		t.Run(strings.Split(test.output, "\n")[0], func(t *testing.T) {
+			tool := Tool{run: func(context.Context, string, string, ...string) ([]byte, error) {
+				return []byte(test.output), nil
+			}}
+			_, err := tool.pinnedAtlas(t.Context())
+			if (err == nil) != test.valid {
+				t.Fatalf("version acceptance=%t, want %t: %v", err == nil, test.valid, err)
+			}
+		})
+	}
+}
+
 func TestSealAppendsReviewedDataMigrationAndPreservesPublishedArtifacts(t *testing.T) {
 	f := authorCheckout(t)
 	directory, err := f.tool.CreateDraft(t.Context(), DraftOptions{Driver: "sqlite", Release: "v0.5.0", Sequence: 1, Manual: true})

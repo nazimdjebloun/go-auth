@@ -25,7 +25,7 @@ import (
 var toolchainJSON []byte
 
 var releaseName = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[a-zA-Z0-9.-]+)?$`)
-var atlasVersion = regexp.MustCompile(`(?m)^atlas version (v[0-9]+\.[0-9]+\.[0-9]+)(?:[-+\s]|$)`)
+var atlasVersion = regexp.MustCompile(`(?m)^atlas(?: community)? version (v[0-9]+\.[0-9]+\.[0-9]+)(?:[-+\s]|$)`)
 
 type toolchain struct {
 	AtlasVersion string            `json:"atlasVersion"`

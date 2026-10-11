@@ -12,8 +12,11 @@ the repository root; on Windows, use WSL as required by the development guide.
 `go run ./tools/migrations` provides `draft`, `seal`, `check`, and `release`.
 It uses the existing root Go module and adds no runtime dependency on Atlas.
 Install Atlas CLI `v1.3.0` from its [official release](https://github.com/ariga/atlas/releases/tag/v1.3.0).
-The wrapper checks the release version before invoking Atlas; community build
-suffixes are accepted. `--atlas` selects an executable path.
+The wrapper checks the release version before invoking Atlas. Both
+`atlas version v1.3.0` and `atlas community version v1.3.0` are accepted,
+including build suffixes. `--atlas` selects an executable path. A WSL user-local
+installation can use `--atlas /home/<user>/.local/bin/atlas` if that directory
+is not already on `PATH`; `atlas version` reports the installed build.
 
 `internal/migrationtool/toolchain.json` pins Atlas and its disposable databases:
 
