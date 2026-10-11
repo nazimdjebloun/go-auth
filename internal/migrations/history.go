@@ -11,13 +11,15 @@ import (
 
 // Sentinel errors describe deployment failures, not HTTP authentication errors.
 var (
-	ErrUntracked      = errors.New("auth schema has no migration history; explicitly adopt a validated baseline")
-	ErrDirty          = errors.New("auth migration is incomplete; inspect and verify recovery before continuing")
-	ErrIncompatible   = errors.New("auth schema revision is incompatible with this library")
-	ErrDrift          = errors.New("auth schema differs from the published definition")
-	ErrLockTimeout    = errors.New("timed out acquiring auth migration serialization")
-	ErrUnknownHistory = errors.New("auth migration history is not a prefix of the published catalog")
-	ErrChecksum       = errors.New("auth migration checksum does not match the published catalog")
+	ErrUntracked        = errors.New("auth schema has no migration history; explicitly adopt a validated baseline")
+	ErrDirty            = errors.New("auth migration is incomplete; inspect and verify recovery before continuing")
+	ErrIncompatible     = errors.New("auth schema revision is incompatible with this library")
+	ErrDrift            = errors.New("auth schema differs from the published definition")
+	ErrLockTimeout      = errors.New("timed out acquiring auth migration serialization")
+	ErrUnknownHistory   = errors.New("auth migration history is not a prefix of the published catalog")
+	ErrChecksum         = errors.New("auth migration checksum does not match the published catalog")
+	ErrPrecondition     = errors.New("auth migration starting data conditions were not verified")
+	ErrRetryUnsupported = errors.New("auth migration does not publish a verified retry policy")
 )
 
 // Error identifies the failed phase without including a DSN or SQL statement.

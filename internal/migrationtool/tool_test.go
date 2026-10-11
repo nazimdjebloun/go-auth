@@ -263,3 +263,40 @@ func TestCanceledAuthoringDoesNotPublish(t *testing.T) {
 		t.Fatalf("cancellation was lost: %v", err)
 	}
 }
+
+func TestSealPreservesReviewedPreconditionsAndRetryPolicy(t *testing.T) {
+	f := authorCheckout(t)
+	directory, err := f.tool.CreateDraft(t.Context(), DraftOptions{Driver: "postgres", Release: "v0.5.0", Sequence: 1, Manual: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft Draft
+	if err := readJSON(filepath.Join(directory, "draft.json"), &draft); err != nil {
+		t.Fatal(err)
+	}
+	draft.Transactional = false
+	draft.Preconditions = []string{"SELECT TRUE"}
+	draft.Retry = &migrations.RetryPolicy{Checks: []string{"SELECT TRUE"}, Instructions: "Inspect and verify the unchanged starting data before replay."}
+	metadata, err := jsonBytes(draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "draft.json"), metadata, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "migration.sql"), []byte("-- goauth:statement\nUPDATE users SET name=name;\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.tool.Seal(t.Context(), directory, true); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := migrations.ReadCatalog(os.DirFS(filepath.Join(f.tool.Root, "internal/migrations")), "postgres")
+	if err != nil {
+		t.Fatal(err)
+	}
+	step := catalog.Migrations[1]
+	if len(step.Preconditions) != 1 || step.Preconditions[0] != "SELECT TRUE" || step.Retry == nil ||
+		len(step.Retry.Checks) != 1 || step.Retry.Instructions != draft.Retry.Instructions {
+		t.Fatal("sealing dropped reviewed execution conditions")
+	}
+}

@@ -3,7 +3,10 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"io"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	goauth "github.com/nazimdjebloun/go-auth"
@@ -70,5 +73,46 @@ func TestApplySchema_UnsupportedDriver_ReturnsErrorWithoutTouchingDB(t *testing.
 	err = applySchema(context.Background(), db, "oracle")
 	if err == nil {
 		t.Fatal("expected an error for an unsupported driver, got nil")
+	}
+}
+
+func TestRetryCommandRequiresPositiveIDBeforeOpeningDatabase(t *testing.T) {
+	for _, id := range []string{"", "0", "-1"} {
+		t.Run("id="+id, func(t *testing.T) {
+			cmd := newMigrateCommand()
+			cmd.SetOut(io.Discard)
+			cmd.SetErr(io.Discard)
+			args := []string{"retry", "--driver", "sqlite", "--dsn", "never-opened"}
+			if id != "" {
+				args = append(args, "--id", id)
+			}
+			cmd.SetArgs(args)
+			if err := cmd.ExecuteContext(t.Context()); err == nil || !strings.Contains(err.Error(), "id") {
+				t.Fatal("invalid retry ID reached database execution", err)
+			}
+		})
+	}
+}
+
+func TestRetryCommandRefusesBaselineWithoutPublishedPolicy(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "retry.db")
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if err := applySchema(t.Context(), db, "sqlite"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("UPDATE goauth_migrations SET state='started', completed_at=NULL"); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newMigrateCommand()
+	cmd.SetOut(io.Discard)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs([]string{"retry", "--driver", "sqlite", "--dsn", dsn, "--id", "1"})
+	err = cmd.ExecuteContext(t.Context())
+	if !errors.Is(err, goauth.ErrMigrationRetryUnsupported) || strings.Contains(err.Error(), dsn) {
+		t.Fatal("unsupported retry or safe diagnostics were lost", err)
 	}
 }

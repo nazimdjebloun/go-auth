@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,5 +121,35 @@ func TestExportRefusesChangedPublishedSQL(t *testing.T) {
 	}
 	if content, err := os.ReadFile(path); err != nil || string(content) != "modified" {
 		t.Fatal("changed migration was not preserved")
+	}
+}
+
+func TestExportRefusesChangedExecutionMetadata(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "auth")
+	if err := Export("sqlite", directory); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "migrations", "catalog.json")
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := decodeCatalog(contents)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog.Migrations[0].Checks = []string{"SELECT FALSE"}
+	changed, err := json.Marshal(catalog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, changed, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := Export("sqlite", directory); err == nil {
+		t.Fatal("modified execution metadata was overwritten")
+	}
+	if preserved, err := os.ReadFile(path); err != nil || string(preserved) != string(changed) {
+		t.Fatal("changed manifest was not preserved", err)
 	}
 }

@@ -13,6 +13,9 @@ type MigrationCatalog = migrations.Catalog
 // Migration describes one published migration and its verification metadata.
 type Migration = migrations.Step
 
+// MigrationRetryPolicy describes published data checks and recovery instructions.
+type MigrationRetryPolicy = migrations.RetryPolicy
+
 // MigrationOptions configures the separate runner. Database ownership stays
 // with the caller; zero timeouts select the documented execution defaults.
 type MigrationOptions = migrations.Options
@@ -39,15 +42,24 @@ type MigrationRepairOptions struct {
 	MigrationID int64
 }
 
+// MigrationRetryOptions identifies one incomplete upgrade to replay after
+// verifying its published retry policy and the previous completed schema.
+type MigrationRetryOptions struct {
+	MigrationOptions
+	MigrationID int64
+}
+
 // Deployment sentinels support errors.Is; they are separate from AuthError.
 var (
-	ErrUntrackedSchema         = migrations.ErrUntracked
-	ErrDirtyMigration          = migrations.ErrDirty
-	ErrIncompatibleSchema      = migrations.ErrIncompatible
-	ErrSchemaDrift             = migrations.ErrDrift
-	ErrMigrationLockTimeout    = migrations.ErrLockTimeout
-	ErrUnknownMigrationHistory = migrations.ErrUnknownHistory
-	ErrMigrationChecksum       = migrations.ErrChecksum
+	ErrUntrackedSchema           = migrations.ErrUntracked
+	ErrDirtyMigration            = migrations.ErrDirty
+	ErrIncompatibleSchema        = migrations.ErrIncompatible
+	ErrSchemaDrift               = migrations.ErrDrift
+	ErrMigrationLockTimeout      = migrations.ErrLockTimeout
+	ErrUnknownMigrationHistory   = migrations.ErrUnknownHistory
+	ErrMigrationChecksum         = migrations.ErrChecksum
+	ErrMigrationPrecondition     = migrations.ErrPrecondition
+	ErrMigrationRetryUnsupported = migrations.ErrRetryUnsupported
 )
 
 // GetMigrationCatalog returns a validated, independently owned catalog copy.
@@ -76,6 +88,13 @@ func AdoptSchema(ctx context.Context, db *sql.DB, options BaselineAdoptionOption
 // the specified incomplete step complete. It does not execute migration SQL.
 func RepairMigration(ctx context.Context, db *sql.DB, options MigrationRepairOptions) (MigrationStatus, error) {
 	return migrations.RepairComplete(ctx, db, options.MigrationOptions, options.MigrationID)
+}
+
+// RetryMigration verifies the exact incomplete upgrade's starting conditions,
+// then replays its original SQL without replacing history. Later steps remain
+// pending. Only published, nontransactional retry policies are supported.
+func RetryMigration(ctx context.Context, db *sql.DB, options MigrationRetryOptions) (MigrationStatus, error) {
+	return migrations.Retry(ctx, db, options.MigrationOptions, options.MigrationID)
 }
 
 // GetMigrationStatus reads history without creating metadata or executing DDL.

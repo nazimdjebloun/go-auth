@@ -40,6 +40,9 @@ baselines, skipped releases, password verification and token lookup after upgrad
 incomplete MySQL backfills, verified repair, concurrent runners, and rollback
 versus durable dirty state. SQLite rebuild fixtures include host-owned foreign
 keys, indexes and triggers, and reject orphaned host references before committing.
+Retry fixtures verify failed prerequisites without a started record, refusal of
+partial DDL and unpublished policies, retained dirty state after another failure,
+and serialized PostgreSQL/MySQL retries that preserve the original journal row.
 The historical provenance fixture records the exact v0.3.0 schema checksums
 matching baseline 000001. It checks all 15 tables, column types/nullability/default
 values and explicit collations, named-index columns, sort order, collations,

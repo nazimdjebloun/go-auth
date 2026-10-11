@@ -193,6 +193,29 @@ repair unknown history, changed checksums, or a partially populated backfill.
 Transactional failures roll back and can be retried after resolving their cause;
 an uncertain outcome always needs inspection first.
 
+An incomplete nontransactional **upgrade** may also publish a `retry` policy in
+the exported catalog. Read its `instructions`, reconcile the database to the
+previous completed schema and the declared starting data conditions, then run:
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate retry \
+  --driver mysql --dsn "$DATABASE_URL" --id 42
+```
+
+The ID is illustrative; use the actual last incomplete ID. `retry` holds the
+migration lock while checking history, the previous schema and its data postconditions,
+the step's `preconditions`, and its `retry.checks`. All checks must pass before
+SQL executes. It replays that step in full, preserves its original journal row
+and start time, and verifies the target before recording completion. Later steps
+remain pending; run `migrate` to continue. A second failed attempt remains dirty.
+
+Partial DDL is refused until the published starting structure is restored.
+Reconciliation must also account for data and external effects; a matching table
+definition alone does not establish safe replay. There is no arbitrary statement
+offset, force flag, or automatic undo. The initial catalog publishes only the
+baseline, which has no retry policy. Future retry policies need actual-engine
+upgrade and recovery coverage before release.
+
 Migrations are forward-only. Application rollback depends on actual schema/data
 compatibility; there are no down scripts or arbitrary future-schema allowances.
 Test backup restoration and account for restored revocations, consumed one-time
@@ -235,7 +258,8 @@ _ = status
 ```
 
 `AdoptSchema` takes `BaselineAdoptionOptions`; `RepairMigration` takes
-`MigrationRepairOptions`. `GetMigrationStatus` reads the journal. `VerifySchema`
+`MigrationRepairOptions`; `RetryMigration` takes `MigrationRetryOptions` with the
+exact incomplete `MigrationID`. `GetMigrationStatus` reads the journal. `VerifySchema`
 checks the tracked target under serialization. `GetMigrationCatalog` returns
 an independent copy of validated metadata and SQL. `ExportSchema(driver, directory)`
 exports artifacts without database access. Database operations accept `*sql.DB`,
@@ -254,8 +278,13 @@ The filename form is `000042_v0.4.0_001.sql`; semantic versions do not determine
 execution order. Do not insert a backport behind an already published ID. A
 parallel release line with divergent history needs an explicit future policy.
 
-Catalog metadata declares transaction mode, target structural fixture and
-postcondition queries. Each SQL statement begins with `-- goauth:statement` on
+Catalog metadata declares transaction mode, target structural fixture,
+postconditions, optional starting-data preconditions and opt-in retry policies.
+Failed `preconditions` or `retry.checks` stop initial execution before the step's
+started record or SQL. Preconditions use the statement timeout as a shared
+validation budget. `ErrMigrationPrecondition` identifies that failure;
+`ErrMigrationRetryUnsupported` identifies a step without a retry contract.
+Each SQL statement begins with `-- goauth:statement` on
 its own line. This reserved marker must never occur inside a statement body;
 compound functions/triggers and dollar-quoted blocks remain one authored unit.
 Historical verification fixtures remain internal; public export has one complete

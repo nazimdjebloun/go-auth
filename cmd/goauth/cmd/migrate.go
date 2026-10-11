@@ -47,7 +47,7 @@ workers before running migrations. Incomplete history blocks further execution.`
 			panic(err)
 		}
 	}
-	cmd.AddCommand(newMigrationStatusCommand(), newMigrationVerifyCommand(), newMigrationAdoptCommand(), newMigrationRepairCommand())
+	cmd.AddCommand(newMigrationStatusCommand(), newMigrationVerifyCommand(), newMigrationAdoptCommand(), newMigrationRepairCommand(), newMigrationRetryCommand())
 	return cmd
 }
 
@@ -139,6 +139,34 @@ func newMigrationRepairCommand() *cobra.Command {
 	return cmd
 }
 
+func newMigrationRetryCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use: "retry", Short: "Verify starting conditions and replay one incomplete upgrade with a published retry policy", Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			id, err := cmd.Flags().GetInt64("id")
+			if err != nil {
+				return err
+			}
+			if id <= 0 {
+				return fmt.Errorf("goauth: --id must be positive")
+			}
+			return withMigrationDatabase(cmd, func(ctx context.Context, db *sql.DB, options goauth.MigrationOptions) error {
+				status, err := goauth.RetryMigration(ctx, db, goauth.MigrationRetryOptions{
+					MigrationOptions: options, MigrationID: id,
+				})
+				if err != nil {
+					return err
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "goauth: retried and completed migration %06d; run migrate for remaining steps\n", status.Revision)
+				return err
+			})
+		},
+	}
+	cmd.Flags().Int64("id", 0, "Exact incomplete migration ID with a published retry policy")
+	mustMarkFlagRequired(cmd, "id")
+	return cmd
+}
+
 func withMigrationDatabase(cmd *cobra.Command, run func(context.Context, *sql.DB, goauth.MigrationOptions) error) (err error) {
 	driver, err := cmd.Flags().GetString("driver")
 	if err != nil {
@@ -226,9 +254,10 @@ func migrationCommandError(err error) error {
 		}
 	}
 	for _, known := range []error{
+		context.Canceled, context.DeadlineExceeded,
 		goauth.ErrUntrackedSchema, goauth.ErrDirtyMigration, goauth.ErrIncompatibleSchema,
 		goauth.ErrSchemaDrift, goauth.ErrMigrationLockTimeout, goauth.ErrUnknownMigrationHistory,
-		goauth.ErrMigrationChecksum, context.Canceled, context.DeadlineExceeded,
+		goauth.ErrMigrationChecksum, goauth.ErrMigrationPrecondition, goauth.ErrMigrationRetryUnsupported,
 	} {
 		if errors.Is(err, known) {
 			message := known.Error()

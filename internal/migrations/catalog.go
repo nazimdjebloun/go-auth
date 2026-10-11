@@ -3,11 +3,13 @@
 package migrations
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"regexp"
 	"strconv"
@@ -34,18 +36,28 @@ type Catalog struct {
 
 // Step describes a reviewed, immutable migration. SQL is exported separately.
 type Step struct {
-	ID             int64    `json:"id"`
-	File           string   `json:"file"`
-	Checksum       string   `json:"checksum"`
-	Kind           string   `json:"kind"`
-	Transactional  bool     `json:"transactional"`
-	Schema         string   `json:"schema,omitempty"` // Internal verification fixture; omitted from exported manifests.
-	SchemaChecksum string   `json:"schemaChecksum"`
-	Checks         []string `json:"checks"`
-	SQLiteRebuild  bool     `json:"sqliteRebuild,omitempty"`
-	SQL            string   `json:"-"`
+	ID             int64        `json:"id"`
+	File           string       `json:"file"`
+	Checksum       string       `json:"checksum"`
+	Kind           string       `json:"kind"`
+	Transactional  bool         `json:"transactional"`
+	Schema         string       `json:"schema,omitempty"` // Internal verification fixture; omitted from exported manifests.
+	SchemaChecksum string       `json:"schemaChecksum"`
+	Checks         []string     `json:"checks"`
+	Preconditions  []string     `json:"preconditions,omitempty"`
+	Retry          *RetryPolicy `json:"retry,omitempty"`
+	SQLiteRebuild  bool         `json:"sqliteRebuild,omitempty"`
+	SQL            string       `json:"-"`
 	schemaSQL      string
 	statements     []string
+}
+
+// RetryPolicy permits full replay only after the previous schema and these
+// data checks are verified. Instructions describe operator reconciliation;
+// they are never executed and must not contain credentials.
+type RetryPolicy struct {
+	Checks       []string `json:"checks"`
+	Instructions string   `json:"instructions"`
 }
 
 // Dialect resolves exactly the aliases accepted by the schema API.
@@ -90,8 +102,8 @@ func ReadCatalog(source fs.FS, driver string) (Catalog, error) {
 	if err != nil {
 		return Catalog{}, err
 	}
-	var catalog Catalog
-	if err := json.Unmarshal(b, &catalog); err != nil {
+	catalog, err := decodeCatalog(b)
+	if err != nil {
 		return Catalog{}, fmt.Errorf("goauth: decode migration catalog: %w", err)
 	}
 	if catalog.Format != 1 || catalog.Dialect != dialect || len(catalog.Migrations) == 0 {
@@ -149,7 +161,15 @@ func ReadCatalog(source fs.FS, driver string) (Catalog, error) {
 		if step.SQLiteRebuild && dialect != "sqlite" {
 			return Catalog{}, fmt.Errorf("goauth: SQLite rebuild metadata on %s migration %d", dialect, id)
 		}
-		for _, check := range step.Checks {
+		queries := append([]string(nil), step.Checks...)
+		queries = append(queries, step.Preconditions...)
+		if step.Retry != nil {
+			if step.Kind != "upgrade" || step.Transactional || len(step.Retry.Checks) == 0 || strings.TrimSpace(step.Retry.Instructions) == "" {
+				return Catalog{}, fmt.Errorf("goauth: migration %d retry requires a nontransactional upgrade, data checks and recovery instructions", id)
+			}
+			queries = append(queries, step.Retry.Checks...)
+		}
+		for _, check := range queries {
 			if !strings.HasPrefix(strings.ToUpper(strings.TrimSpace(check)), "SELECT ") {
 				return Catalog{}, fmt.Errorf("goauth: migration %d requires SELECT verification queries", id)
 			}
@@ -157,6 +177,19 @@ func ReadCatalog(source fs.FS, driver string) (Catalog, error) {
 	}
 	if catalog.BootstrapRevision != catalog.Migrations[0].ID || catalog.TargetRevision != previous {
 		return Catalog{}, fmt.Errorf("goauth: invalid baseline or target revision for %s", dialect)
+	}
+	return catalog, nil
+}
+
+func decodeCatalog(contents []byte) (Catalog, error) {
+	var catalog Catalog
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&catalog); err != nil {
+		return catalog, err
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return catalog, fmt.Errorf("trailing content in migration catalog")
 	}
 	return catalog, nil
 }

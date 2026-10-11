@@ -18,7 +18,7 @@ REQUIRED = {
         ".": ["TestAppPermissionsHTTPUserRoleJSON", "TestAppPermissionsHTTPAssuranceAndOptionalManagement", "TestAppPermissionsStatsAuthorization", "TestAppPermissionsSameRoleAssignmentPreservesAccessRevision", "TestAppPermissionsTargetAccessHTTP", "TestAppPermissionsDisabledCapabilityFailsClosed", "TestAppAuthorizationRouteInventory", "TestAppAuthorizationRouteCoverage", "TestAppAuthorizationHTTPPolicyMatrix", "TestAppAuthorizationMountedRoutesDenyUnprivileged"],
         "integration": ["TestMigrations_CreateTables", "TestHTTPBackendSecurityContract"],
         "cmd/goauth/cmd": ["TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend"],
-        "internal/migrations": ["TestStandaloneSelectedBackend", "TestSelectedBackendFailureState", "TestSelectedBackendRejectsWeakenedForeignKeys", "TestConcurrentStandaloneRunners", "TestSelectedBackendPopulatedUpgrade", "TestSelectedBackendUpgradeFailureRecovery"],
+        "internal/migrations": ["TestStandaloneSelectedBackend", "TestSelectedBackendFailureState", "TestSelectedBackendRejectsWeakenedForeignKeys", "TestConcurrentStandaloneRunners", "TestSelectedBackendPopulatedUpgrade", "TestSelectedBackendUpgradeFailureRecovery", "TestSelectedBackendVerifiedRetry"],
         "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack", "TestAppSameRoleAssignmentIsNoOp", "TestAppConcurrentSameRoleAssignmentsPreserveRevision", "TestAppConcurrentRoleReplacementHasOneWinner", "TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess", "TestAppAuthorizationServiceInventory", "TestAppAuthorizationServiceCoverage"],
         "internal/sqlstore": ["TestRecoveryClaimIsExclusiveAndStaleCompletionCannotDeleteReclaimedJob", "TestAdminGuard_ConcurrentReductionsAcrossPools", "TestBackendTokenClaimConcurrentAcrossPools", "TestBackendProviderIdentityIsExact", "TestBackendRefreshZeroGraceRejectsFutureRotation", "TestBackendSessionAssuranceRoundTrip", "TestAppDefaultRoleSharedReadRequiresTransaction", "TestAppPermissionNamespaceOwnership"],
     }.items()
@@ -29,7 +29,7 @@ STRESS_PATTERN = (
     "TestLoginCredentialReplacement|TestTwoFactorVerify|"
     "TestAdminGuard|TestAdminAccessRequires|TestOrgMutationChecks|"
     "TestInviteRevocationCannot|TestOAuthUnlinkCounts|"
-    "TestAppSignup|Test(Postgres|MySQL)_App|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole|TestAppPermissions|TestAppAuthorization|TestSelectedBackendFailureState|TestSelectedBackendRejectsWeakenedForeignKeys|TestSelectedBackendUpgradeFailureRecovery|TestSQLiteRebuild|TestPostgres_MigrationPoolDiscard"
+    "TestAppSignup|Test(Postgres|MySQL)_App|TestAppDefaultRole|TestAppPermissionNamespaceOwnership|TestAppSameRole|TestAppPermissions|TestAppAuthorization|TestSelectedBackendFailureState|TestSelectedBackendRejectsWeakenedForeignKeys|TestSelectedBackendUpgradeFailureRecovery|TestSelectedBackendVerifiedRetry|TestSQLiteRebuild|TestPostgres_MigrationPoolDiscard"
 )
 
 

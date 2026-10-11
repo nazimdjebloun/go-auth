@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -38,8 +39,8 @@ func Export(driver, directory string) error {
 	manifest = append(manifest, '\n')
 	manifestPath := filepath.Join(directory, "migrations", "catalog.json")
 	if existing, err := os.ReadFile(manifestPath); err == nil {
-		var old Catalog
-		if err := json.Unmarshal(existing, &old); err != nil {
+		old, err := decodeCatalog(existing)
+		if err != nil {
 			return fmt.Errorf("goauth: invalid existing export manifest: %w", err)
 		}
 		if old.Dialect != catalog.Dialect || old.TargetRevision > catalog.TargetRevision {
@@ -52,9 +53,10 @@ func Export(driver, directory string) error {
 		}
 		for i, previous := range old.Migrations {
 			step := catalog.Migrations[i]
-			if previous.ID != step.ID || previous.File != step.File || previous.Checksum != step.Checksum ||
-				previous.SchemaChecksum != step.SchemaChecksum {
-				return fmt.Errorf("goauth: existing export identity/checksum differs at migration %d", previous.ID)
+			previousMetadata, _ := json.Marshal(previous)
+			metadata, _ := json.Marshal(step)
+			if !bytes.Equal(previousMetadata, metadata) {
+				return fmt.Errorf("goauth: existing export metadata differs at migration %d", previous.ID)
 			}
 		}
 	} else if !os.IsNotExist(err) {

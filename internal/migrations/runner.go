@@ -45,6 +45,13 @@ func RepairComplete(ctx context.Context, db *sql.DB, options Options, id int64) 
 	return run(ctx, db, options, "repair", id)
 }
 
+// Retry replays only the specified incomplete nontransactional upgrade after
+// verifying its published starting schema and data conditions. No journal row
+// is deleted or replaced, and later pending steps are not executed.
+func Retry(ctx context.Context, db *sql.DB, options Options, id int64) (Status, error) {
+	return run(ctx, db, options, "retry", id)
+}
+
 func run(ctx context.Context, db *sql.DB, options Options, operation string, id int64) (status Status, err error) {
 	if db == nil {
 		return status, fmt.Errorf("goauth: migration database is nil")
@@ -141,6 +148,10 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		}
 		return readHistory(ctx, q, catalog)
 	}
+	if operation == "retry" {
+		phase = "retry"
+		return retryStep(ctx, q, catalog, status, id, options)
+	}
 	if status.Dirty {
 		return status, &Error{
 			Dialect: catalog.Dialect, MigrationID: status.History[len(status.History)-1].ID,
@@ -192,8 +203,9 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		phase = "execution"
 		activeID = step.ID
 		if err := applyStep(ctx, l, catalog, step, options); err != nil {
-			if !step.Transactional {
-				status.Dirty = true
+			var failure *Error
+			if errors.As(err, &failure) {
+				status.Dirty = failure.Dirty
 			}
 			return status, err
 		}
@@ -242,12 +254,31 @@ func applyStep(ctx context.Context, l *lease, catalog Catalog, step Step, option
 		defer func() { _ = tx.Rollback() }()
 		q = tx
 	}
+	if err := checkPreconditions(ctx, q, step, options); err != nil {
+		return &Error{Dialect: l.dialect, MigrationID: step.ID, Phase: "preconditions", Cause: err}
+	}
 	dirty := !step.Transactional
 	fail := func(phase string, cause error) error {
 		return &Error{Dialect: l.dialect, MigrationID: step.ID, Phase: phase, Dirty: dirty, Uncertain: dirty, Cause: cause}
 	}
 	if err := startRecord(ctx, q, catalog, step, "executed"); err != nil {
 		return fail("start journal", err)
+	}
+	if err := executeStep(ctx, q, l.dialect, step, options); err != nil {
+		return err
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return &Error{Dialect: l.dialect, MigrationID: step.ID, Phase: "commit", Uncertain: true, Cause: err}
+		}
+	}
+	return nil
+}
+
+func executeStep(ctx context.Context, q queryer, dialect string, step Step, options Options) error {
+	fail := func(phase string, cause error) error {
+		return &Error{Dialect: dialect, MigrationID: step.ID, Phase: phase,
+			Dirty: !step.Transactional, Uncertain: !step.Transactional, Cause: cause}
 	}
 	for i, statement := range step.statements {
 		statementCtx, cancel := context.WithTimeout(ctx, options.StatementTimeout)
@@ -257,16 +288,11 @@ func applyStep(ctx context.Context, l *lease, catalog Catalog, step Step, option
 			return fail(fmt.Sprintf("statement %d", i+1), err)
 		}
 	}
-	if err := verifyStep(ctx, q, l.dialect, step); err != nil {
+	if err := verifyStep(ctx, q, dialect, step); err != nil {
 		return fail("postconditions", err)
 	}
-	if err := completeRecord(ctx, q, l.dialect, step); err != nil {
+	if err := completeRecord(ctx, q, dialect, step); err != nil {
 		return fail("completion journal", err)
-	}
-	if tx != nil {
-		if err := tx.Commit(); err != nil {
-			return &Error{Dialect: l.dialect, MigrationID: step.ID, Phase: "commit", Uncertain: true, Cause: err}
-		}
 	}
 	return nil
 }
@@ -284,25 +310,8 @@ func verifyStep(ctx context.Context, q queryer, dialect string, step Step) error
 	if err := verify(ctx, q, dialect, step.schemaSQL); err != nil {
 		return err
 	}
-	for i, check := range step.Checks {
-		rows, err := q.QueryContext(ctx, check)
-		if err != nil {
-			return fmt.Errorf("data postcondition %d: %w", i+1, err)
-		}
-		var valid bool
-		if !rows.Next() {
-			_ = rows.Close()
-			return fmt.Errorf("data postcondition %d returned no result", i+1)
-		}
-		err = rows.Scan(&valid)
-		extra := rows.Next()
-		err = errors.Join(err, rows.Err(), rows.Close())
-		if err != nil {
-			return err
-		}
-		if !valid || extra {
-			return fmt.Errorf("data postcondition %d must return exactly one true value", i+1)
-		}
+	if err := checkQueries(ctx, q, step.Checks, "data postcondition"); err != nil {
+		return err
 	}
 	if dialect == "sqlite" {
 		rows, err := q.QueryContext(ctx, "PRAGMA foreign_key_check")
@@ -316,6 +325,32 @@ func verifyStep(ctx context.Context, q queryer, dialect string, step Step) error
 		}
 		if hasViolation {
 			return fmt.Errorf("%w: SQLite foreign_key_check found an integrity violation", ErrDrift)
+		}
+	}
+	return nil
+}
+
+func checkQueries(ctx context.Context, q queryer, checks []string, label string) error {
+	for i, check := range checks {
+		rows, err := q.QueryContext(ctx, check)
+		if err != nil {
+			return fmt.Errorf("%s %d: %w", label, i+1, err)
+		}
+		var valid bool
+		if !rows.Next() {
+			if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+				return fmt.Errorf("%s %d: %w", label, i+1, err)
+			}
+			return fmt.Errorf("%s %d returned no result", label, i+1)
+		}
+		err = rows.Scan(&valid)
+		extra := rows.Next()
+		err = errors.Join(err, rows.Err(), rows.Close())
+		if err != nil {
+			return fmt.Errorf("%s %d: %w", label, i+1, err)
+		}
+		if !valid || extra {
+			return fmt.Errorf("%s %d must return exactly one true value", label, i+1)
 		}
 	}
 	return nil

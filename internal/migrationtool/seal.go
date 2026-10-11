@@ -67,6 +67,7 @@ func (t Tool) Seal(ctx context.Context, directory string, reviewed bool) error {
 		ID: draft.ID, File: file, Checksum: checksum(sql), Kind: "upgrade",
 		Transactional: draft.Transactional, SQLiteRebuild: draft.SQLiteRebuild,
 		Schema: fmt.Sprintf("schema_%06d.sql", draft.ID), SchemaChecksum: checksum(snapshot), Checks: draft.Checks,
+		Preconditions: draft.Preconditions, Retry: draft.Retry,
 	}
 	catalog.Migrations = append(catalog.Migrations, step)
 	catalog.TargetRevision, catalog.Release = step.ID, draft.Release

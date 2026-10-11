@@ -104,6 +104,32 @@ OAuth-only accounts remain valid. Matching the table definition alone cannot
 establish this. Never regenerate hashes, tokens, pepper versions or encrypted
 credential material through a structural diff.
 
+Use `preconditions` for required starting-data predicates. They run before the
+step's started record and SQL, returning exactly one true value per `SELECT`.
+Describe unavailable external keys or operator input in deployment instructions;
+SQL checks cannot establish the presence of material outside the database.
+
+Only a nontransactional upgrade may opt into full replay through a `retry` object:
+
+```json
+{
+  "checks": ["SELECT COUNT(*)=0 FROM users WHERE password_hash IS NOT NULL AND password_hash = ''"],
+  "instructions": "Inspect the failure, reconcile schema and data to the documented starting state, and verify all external effects before retrying."
+}
+```
+
+This is the shape of `retry`, not a complete draft or a sufficient policy for
+every migration. Its nonempty `checks` also run before initial execution. Author
+checks covering the data conditions that make full replay valid, with specific
+recovery instructions; do not use an unconditional true value as evidence of
+recovered data. `retry` verifies the previous completed structural snapshot and
+data postconditions before these checks, replays only this step, and retains its
+original started record. Partial schema changes require reviewed reconciliation
+first. Baselines and transactional steps cannot publish retry policies. Cover
+failed prerequisites, partial DDL, failed retries, and concurrent retry attempts
+on each applicable actual engine before releasing such a policy. Unknown catalog
+fields and changed exported execution metadata are rejected.
+
 After review:
 
 ```sh

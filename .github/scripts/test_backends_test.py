@@ -18,6 +18,7 @@ class BackendEvidenceTests(unittest.TestCase):
                 with self.subTest(backend=backend, stress=stress):
                     expected = runner.required_tests(backend, stress)
                     self.assertIn((package, "TestSelectedBackendUpgradeFailureRecovery"), expected)
+                    self.assertIn((package, "TestSelectedBackendVerifiedRetry"), expected)
                     self.assertEqual((package, "TestSelectedBackendPopulatedUpgrade") in expected, not stress)
                     self.assertEqual((package, "TestSQLiteRebuildRejectsHostOrphansAndRestoresSettings") in expected, backend == "sqlite")
 

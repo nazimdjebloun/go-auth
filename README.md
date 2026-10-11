@@ -128,7 +128,8 @@ version pinned in `go.mod`; from this source checkout, use `go run ./cmd/goauth`
 Auth has its own numbered migration history and stays separate from application
 or ORM migrations. `New` never migrates; `CheckSchema: true` checks recorded
 compatibility before workers start. Existing untracked auth tables need explicit,
-validated adoption. See [Migrations](docs/migrations.mdx).
+validated adoption. Recovery provides verified completion and policy-controlled
+retries of interrupted upgrades. See [Migrations](docs/migrations.mdx).
 
 Maintainers prepare reviewed release SQL with the separate
 [migration authoring tool](docs/migration-authoring.mdx).

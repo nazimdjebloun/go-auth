@@ -56,18 +56,20 @@ type DraftOptions struct {
 // Draft records the exact inputs reviewed before sealing a new catalog entry.
 // Maintainers edit execution mode and data checks along with migration.sql.
 type Draft struct {
-	Format              int      `json:"format"`
-	Dialect             string   `json:"dialect"`
-	Release             string   `json:"release"`
-	ID                  int64    `json:"id"`
-	Sequence            int      `json:"sequence"`
-	File                string   `json:"file"`
-	BaseRevision        int64    `json:"baseRevision"`
-	BaseCatalogChecksum string   `json:"baseCatalogChecksum"`
-	DesiredChecksum     string   `json:"desiredChecksum"`
-	Transactional       bool     `json:"transactional"`
-	SQLiteRebuild       bool     `json:"sqliteRebuild,omitempty"`
-	Checks              []string `json:"checks"`
+	Format              int                     `json:"format"`
+	Dialect             string                  `json:"dialect"`
+	Release             string                  `json:"release"`
+	ID                  int64                   `json:"id"`
+	Sequence            int                     `json:"sequence"`
+	File                string                  `json:"file"`
+	BaseRevision        int64                   `json:"baseRevision"`
+	BaseCatalogChecksum string                  `json:"baseCatalogChecksum"`
+	DesiredChecksum     string                  `json:"desiredChecksum"`
+	Transactional       bool                    `json:"transactional"`
+	SQLiteRebuild       bool                    `json:"sqliteRebuild,omitempty"`
+	Checks              []string                `json:"checks"`
+	Preconditions       []string                `json:"preconditions,omitempty"`
+	Retry               *migrations.RetryPolicy `json:"retry,omitempty"`
 }
 
 func (t Tool) prepare() (Tool, error) {
