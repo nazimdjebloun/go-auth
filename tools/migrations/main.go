@@ -77,16 +77,20 @@ func newCommand() *cobra.Command {
 	seal.Flags().StringVar(&directory, "draft", "", "Directory containing reviewed draft.json, migration.sql and schema.sql")
 	seal.Flags().BoolVar(&reviewed, "reviewed", false, "Confirm SQL, backfills, checks, execution mode and recovery were reviewed")
 	_ = seal.MarkFlagRequired("draft")
+	var checks migrationtool.CheckOptions
 	check := &cobra.Command{
-		Use: "check", Short: "Check canonical targets and immutable artifacts without a database", Args: cobra.NoArgs,
+		Use: "check", Short: "Check canonical targets, immutable history and optional release replay", Args: cobra.NoArgs,
 		RunE: run(func(ctx context.Context, cmd *cobra.Command) error {
-			if err := tool.Check(ctx); err != nil {
+			if err := tool.CheckPublication(ctx, checks); err != nil {
 				return err
 			}
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), "Canonical targets and immutable catalog prefixes match.")
+			_, err := fmt.Fprintln(cmd.OutOrStdout(), "Migration catalog checks passed.")
 			return err
 		}),
 	}
+	check.Flags().BoolVar(&checks.Published, "published", false, "Verify the immutable prefix of every fetched migration-enabled release tag")
+	check.Flags().StringVar(&checks.Release, "release", "", "Require all dialect catalogs to declare this library release")
+	check.Flags().BoolVar(&checks.Replay, "replay", false, "Replay all dialect histories with pinned Atlas and disposable databases")
 	var release string
 	metadata := &cobra.Command{
 		Use: "release", Short: "Set library release metadata without creating empty migrations", Args: cobra.NoArgs,

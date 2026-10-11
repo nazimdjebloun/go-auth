@@ -50,6 +50,11 @@ access methods, operator classes and partial predicates, primary/unique keys,
 foreign-key targets/deletion actions, and declared CHECK expressions. Expectations
 account for intentional differences between dialects.
 
+The CI `migration-catalog` job separately guards published migration identities
+and release labels, then replays all dialect histories through checksum-verified,
+pinned Atlas in disposable databases. Replay checks empty structural results;
+the populated database suites above verify data preservation and recovery.
+
 ## Repeated security and concurrency tests
 
 ```sh

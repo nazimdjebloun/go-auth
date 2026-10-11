@@ -18,6 +18,20 @@ including build suffixes. `--atlas` selects an executable path. A WSL user-local
 installation can use `--atlas /home/<user>/.local/bin/atlas` if that directory
 is not already on `PATH`; `atlas version` reports the installed build.
 
+On Linux/WSL amd64, the checkout includes an installer that reads the pin and
+verifies the community binary's published SHA-256 before installation:
+
+```sh
+bash tools/migrations/install-atlas.sh
+export PATH="$HOME/.local/bin:$PATH"
+atlas version
+```
+
+It requires Python 3, curl and standard Linux utilities. The default target is
+`~/.local/bin/atlas`; pass an unused executable path to select another location.
+An existing file with the same checksum is retained; a different existing file
+is refused. Other platforms can download the pinned release from Atlas directly.
+
 `internal/migrationtool/toolchain.json` pins Atlas and its disposable databases:
 
 | Dialect | Development database |
@@ -171,15 +185,31 @@ Once each dialect reaches its desired target:
 
 ```sh
 go run ./tools/migrations release --release v0.5.0 --base-ref HEAD
-go run ./tools/migrations check --base-ref HEAD
+go run ./tools/migrations check --base-ref HEAD --published --release v0.5.0 --replay
 ```
 
 `release` updates library-release metadata for all dialects and retains their
 existing revisions and migration identities. A release with no schema or data
 changes uses these commands without creating empty migration files. `check`
 requires matching canonical targets, a preserved immutable prefix, consistent
-library-release metadata and no undeclared artifacts. It needs Git, but neither
-Atlas nor a database.
+library-release metadata and no undeclared artifacts. The default check needs Git,
+but neither Atlas nor a database.
+
+`--published` verifies every fetched semantic-version tag containing migration
+catalogs; fetch full tag history for this check. Tags predating all three catalogs
+are skipped. A partially published dialect catalog, changed frozen metadata or
+artifacts, or a catalog release label differing from its tag is rejected.
+`--release` requires all current catalogs to declare the selected library version.
+`--replay` uses pinned Atlas and disposable databases to replay all three histories
+and require no remaining structural diff. It does not write source artifacts or
+run upgrades against an application database. Empty-schema replay cannot validate
+populated credential data; the actual-engine upgrade suites remain required.
+
+The CI `migration-catalog` job checks the PR base or previous push when it contains
+a catalog, every fetched migration-enabled release tag, and the declared library
+version on version-tag pushes. It also installs checksum-verified pinned Atlas
+and replays all dialects. Before the first catalog exists on the base, CI checks
+the new catalog against `HEAD` and any available published catalogs.
 
 Check against the last published migration-enabled tag again before release;
 `HEAD` alone protects committed history in the current checkout. Review and
@@ -190,6 +220,10 @@ push, and does not execute upgrades against application databases.
 ## Interrupted authoring
 
 Source publication and release metadata updates hold `.migration-author.lock`.
+Before sealing, the tool rechecks catalog, canonical, draft metadata, SQL and
+snapshot inputs after Atlas replay. Edits made during that replay stop publication
+and remain in the checkout for review. Cancellation before publication also stops
+sealing or draft publication.
 If a maintainer process crashes, inspect its PID and working tree before removing
 the stale lock. A crash during publication may leave a numbered SQL or fixture
 file outside the catalog; `check` reports it. Reconcile those local artifacts

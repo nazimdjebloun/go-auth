@@ -96,6 +96,9 @@ func (t Tool) CreateDraft(ctx context.Context, options DraftOptions) (string, er
 			return "", err
 		}
 	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if err := os.Rename(staging, directory); err != nil {
 		return "", err
 	}

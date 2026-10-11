@@ -1,6 +1,7 @@
 package migrationtool
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -93,6 +94,43 @@ func (t Tool) Seal(ctx context.Context, directory string, reviewed bool) error {
 	}
 	if len(remaining) != 0 {
 		return fmt.Errorf("migrationtool: reviewed history does not produce the canonical schema; source files were left unchanged")
+	}
+	// Atlas replay may take minutes. Preserve edits made while it was running
+	// instead of publishing stale reviewed inputs over the current checkout.
+	_, currentManifest, err := t.catalog(ctx, catalog.Dialect)
+	if err != nil {
+		return err
+	}
+	currentDesired, err := t.desired(catalog.Dialect)
+	if err != nil {
+		return err
+	}
+	currentSQL, err := os.ReadFile(filepath.Join(directory, "migration.sql"))
+	if err != nil {
+		return err
+	}
+	currentSnapshot, err := os.ReadFile(filepath.Join(directory, "schema.sql"))
+	if err != nil {
+		return err
+	}
+	var currentDraft Draft
+	if err := readJSON(filepath.Join(directory, "draft.json"), &currentDraft); err != nil {
+		return err
+	}
+	reviewedMetadata, err := jsonBytes(draft)
+	if err != nil {
+		return err
+	}
+	currentMetadata, err := jsonBytes(currentDraft)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(manifest, currentManifest) || !bytes.Equal(desired, currentDesired) ||
+		!bytes.Equal(sql, currentSQL) || !bytes.Equal(snapshot, currentSnapshot) || !bytes.Equal(reviewedMetadata, currentMetadata) {
+		return fmt.Errorf("migrationtool: source or review inputs changed during replay; inspect and review them again before sealing")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	contents, err := jsonBytes(catalog)
 	if err != nil {
@@ -238,6 +276,9 @@ func (t Tool) SetRelease(ctx context.Context, release string) error {
 		writes[dialect] = contents
 	}
 	for _, dialect := range []string{"postgres", "mysql", "sqlite"} {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if err := replaceFile(filepath.Join(t.Root, "internal/migrations", dialect, "catalog.json"), writes[dialect]); err != nil {
 			return err
 		}

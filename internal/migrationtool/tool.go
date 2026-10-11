@@ -146,6 +146,9 @@ func (t Tool) checkPrefix(ctx context.Context, catalog migrations.Catalog) error
 	if err := json.Unmarshal(contents, &base); err != nil {
 		return fmt.Errorf("migrationtool: invalid base catalog: %w", err)
 	}
+	if tag := strings.TrimPrefix(t.BaseRef, "refs/tags/"); releaseName.MatchString(tag) && base.Release != tag {
+		return fmt.Errorf("migrationtool: %s base catalog release does not match tag %s", catalog.Dialect, tag)
+	}
 	if base.Format != catalog.Format || base.Dialect != catalog.Dialect || base.BootstrapRevision != catalog.BootstrapRevision ||
 		len(base.Migrations) == 0 || len(base.Migrations) > len(catalog.Migrations) ||
 		base.TargetRevision != base.Migrations[len(base.Migrations)-1].ID {

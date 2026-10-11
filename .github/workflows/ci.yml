@@ -56,6 +56,42 @@ jobs:
       - run: go build ./...
       - run: go vet ./...
 
+  migration-catalog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.9"
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Check immutable history and release metadata
+        env:
+          IMMUTABLE_BASE: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+        run: |
+          set -euo pipefail
+          base=HEAD
+          if [[ -n "$IMMUTABLE_BASE" && ! "$IMMUTABLE_BASE" =~ ^0+$ ]]; then
+            catalogs="$(git ls-tree -r --name-only "$IMMUTABLE_BASE" -- internal/migrations/postgres/catalog.json internal/migrations/mysql/catalog.json internal/migrations/sqlite/catalog.json)"
+            if [[ -n "$catalogs" ]]; then
+              base="$IMMUTABLE_BASE"
+            fi
+          fi
+          options=(check --published --base-ref "$base")
+          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" == v* ]]; then
+            options+=(--release "$GITHUB_REF_NAME")
+          fi
+          go run ./tools/migrations "${options[@]}"
+      - name: Install checksum-verified pinned Atlas
+        run: |
+          bash tools/migrations/install-atlas.sh "$RUNNER_TEMP/goauth-tools/atlas"
+          printf '%s\n' "$RUNNER_TEMP/goauth-tools" >> "$GITHUB_PATH"
+      - name: Replay all dialect histories in disposable databases
+        run: go run ./tools/migrations check --replay --base-ref HEAD --timeout 20m
+
   unit:
     runs-on: ubuntu-latest
     timeout-minutes: 30
