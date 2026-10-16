@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
@@ -140,8 +141,8 @@ func seedUpgradeData(t *testing.T, db *sql.DB, dialect string) (string, string) 
 		VALUES (?,'password@example.com','Password',?,2,?,5,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, upgradeUser, hash, upgradeRole)
 	upgradeExec(t, db, dialect, `INSERT INTO users(id,email,name,created_at,updated_at)
 		VALUES (?,'oauth@example.com','OAuth',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, upgradeOAuth)
-	upgradeExec(t, db, dialect, `INSERT INTO sessions(id,user_id,token_hash,refresh_token_hash,prev_refresh_token_hash,is_revoked,revoked_at,expires_at,created_at,last_active_at)
-		VALUES (?,?,?,?,?,TRUE,'2021-01-01 00:00:00','2030-01-01 00:00:00',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
+	upgradeExec(t, db, dialect, `INSERT INTO sessions(id,user_id,token_hash,refresh_token_hash,prev_refresh_token_hash,is_revoked,revoked_at,expires_at,refresh_expires_at,created_at,last_active_at)
+		VALUES (?,?,?,?,?,TRUE,'2021-01-01 00:00:00','2030-01-01 00:00:00','2030-02-01 00:00:00',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,
 		upgradeSession, upgradeUser, fixtureChecksum("session-token"), fixtureChecksum("refresh-token"), fixtureChecksum("previous-refresh-token"))
 	upgradeExec(t, db, dialect, `INSERT INTO verification_tokens(id,user_id,email,token_hash,type,expires_at,used_at,created_at)
 		VALUES ('44444444-4444-4444-4444-444444444444',?,'password@example.com',?,'reset_password','2030-01-01 00:00:00','2021-01-01 00:00:00',CURRENT_TIMESTAMP)`, upgradeUser, fixtureChecksum("consumed-token"))
@@ -169,7 +170,20 @@ func seedUpgradeData(t *testing.T, db *sql.DB, dialect string) (string, string) 
 			upgradeExec(t, db, dialect, query)
 		}
 	}
+	assertUpgradeSessionData(t, db, dialect)
 	return hash, password
+}
+
+func assertUpgradeSessionData(t *testing.T, db *sql.DB, dialect string) {
+	t.Helper()
+	store := sqlstore.NewDB(db, dialect)
+	session, err := sqlstore.NewSessionRepository(store).GetByTokenHash(t.Context(), fixtureChecksum("session-token"))
+	if err != nil || session == nil || !session.IsRevoked || session.RevokedAt == nil ||
+		session.RefreshTokenHash != fixtureChecksum("refresh-token") || session.PreviousRefreshHash != fixtureChecksum("previous-refresh-token") ||
+		!session.ExpiresAt.Equal(time.Date(2030, time.January, 1, 0, 0, 0, 0, time.UTC)) ||
+		!session.RefreshExpiresAt.Equal(time.Date(2030, time.February, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Fatal("session lookup, rotation, expiry or revocation state changed", err)
+	}
 }
 
 func assertUpgradeData(t *testing.T, db *sql.DB, dialect, expectedHash, password string) {
@@ -191,11 +205,7 @@ func assertUpgradeData(t *testing.T, db *sql.DB, dialect, expectedHash, password
 	if err != nil || oauth == nil || oauth.PasswordHash != nil {
 		t.Fatal("OAuth-only password state changed", err)
 	}
-	session, err := sqlstore.NewSessionRepository(store).GetByTokenHash(t.Context(), fixtureChecksum("session-token"))
-	if err != nil || session == nil || !session.IsRevoked || session.RevokedAt == nil ||
-		session.RefreshTokenHash != fixtureChecksum("refresh-token") || session.PreviousRefreshHash != fixtureChecksum("previous-refresh-token") || session.ExpiresAt.Year() != 2030 {
-		t.Fatal("session lookup, rotation, expiry or revocation state changed", err)
-	}
+	assertUpgradeSessionData(t, db, dialect)
 	var valid bool
 	if err := db.QueryRowContext(t.Context(), bind(dialect, `SELECT
 		(SELECT COUNT(*)=1 FROM verification_tokens WHERE used_at IS NOT NULL AND token_hash=? AND expires_at='2030-01-01 00:00:00')

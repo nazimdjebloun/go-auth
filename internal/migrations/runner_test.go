@@ -320,8 +320,8 @@ func TestSelectedBackendRejectsWeakenedForeignKeys(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, insertErr := conn.ExecContext(t.Context(), `INSERT INTO users(id,email,name,app_role_id)
-		VALUES ('11111111-1111-1111-1111-111111111111','orphan@example.com','','22222222-2222-2222-2222-222222222222')`)
+	_, insertErr := conn.ExecContext(t.Context(), `INSERT INTO users(id,email,name,app_role_id,created_at,updated_at)
+		VALUES ('11111111-1111-1111-1111-111111111111','orphan@example.com','','22222222-2222-2222-2222-222222222222',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
 	if dialect != "postgres" {
 		if _, err := conn.ExecContext(t.Context(), restore); err != nil {
 			_ = conn.Close()
