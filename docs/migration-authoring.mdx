@@ -18,6 +18,20 @@ including build suffixes. `--atlas` selects an executable path. A WSL user-local
 installation can use `--atlas /home/<user>/.local/bin/atlas` if that directory
 is not already on `PATH`; `atlas version` reports the installed build.
 
+Atlas failures normally report only a safe operation/failure summary. To inspect
+the failed subprocess's raw output, repeat the maintainer command with
+`--diagnostics`. This opt-in writes failed Atlas output to stderr, including
+partial output after cancellation; successful Atlas output stays internal. It
+does not print command arguments or create diagnostic log files automatically.
+Returned errors remain redacted and retain their process/cancellation causes.
+
+Use diagnostics only in a trusted maintainer terminal. Raw Atlas output may
+include reviewed SQL, development connection details or other sensitive values;
+it is deliberately not redacted. Keep it out of shared logs unless reviewed.
+Programmatic maintainer callers can explicitly set `Tool.Diagnostics` to an
+`io.Writer`; its nil default suppresses raw output. A diagnostic write failure
+retains the original Atlas failure and the writer cause for inspection.
+
 On Linux/WSL amd64, the checkout includes an installer that reads the pin and
 verifies the community binary's published SHA-256 before installation:
 

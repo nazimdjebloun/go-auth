@@ -40,7 +40,10 @@ type Tool struct {
 	Root      string
 	AtlasPath string
 	BaseRef   string
-	run       commandRunner
+	// Diagnostics receives raw Atlas output only on failure. Nil keeps it
+	// private; use a trusted maintainer terminal because output may contain SQL.
+	Diagnostics io.Writer
+	run         commandRunner
 }
 
 // DraftOptions identifies the next ordered release step. Manual prepares a
@@ -105,12 +108,9 @@ func runCommand(ctx context.Context, executable, directory string, args ...strin
 	command := exec.CommandContext(ctx, executable, args...)
 	command.Dir = directory
 	output, err := command.CombinedOutput()
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	// Keep driver SQL and subprocess output out of automatic logs. The wrapped
-	// exit error retains the process result for callers without leaking data.
-	return output, err
+	// Preserve partial diagnostics and both process/context causes. Callers
+	// decide whether raw output is safe to display; errors never include it.
+	return output, errors.Join(err, ctx.Err())
 }
 
 func (t Tool) catalog(ctx context.Context, driver string) (migrations.Catalog, []byte, error) {
@@ -181,10 +181,61 @@ func (t Tool) desired(dialect string) ([]byte, error) {
 func (t Tool) atlas(ctx context.Context, directory string, args ...string) ([]byte, error) {
 	output, err := t.run(ctx, t.AtlasPath, directory, args...)
 	if err != nil {
-		return nil, fmt.Errorf("migrationtool: Atlas %s failed: %w", strings.Join(args[:min(2, len(args))], " "), err)
+		operation := "command"
+		if len(args) > 0 && args[0] == "version" {
+			operation = "version"
+		} else if len(args) > 1 && args[0] == "migrate" && (args[1] == "hash" || args[1] == "diff") {
+			operation = "migrate " + args[1]
+		}
+		var writeErr error
+		if t.Diagnostics != nil && len(output) != 0 {
+			var written int
+			written, writeErr = t.Diagnostics.Write(output)
+			if written != len(output) && writeErr == nil {
+				writeErr = io.ErrShortWrite
+			}
+		}
+		return nil, &atlasError{
+			operation: operation, cause: errors.Join(err, writeErr, ctx.Err()),
+			diagnosticsFailed: writeErr != nil, outputHidden: t.Diagnostics == nil && len(output) != 0,
+		}
 	}
 	return output, nil
 }
+
+// Keep automatic error rendering independent of output, argv and arbitrary
+// runner/writer messages. Unwrap retains the full causes for deliberate inspection.
+type atlasError struct {
+	operation         string
+	cause             error
+	diagnosticsFailed bool
+	outputHidden      bool
+}
+
+func (e *atlasError) Error() string {
+	message := "migrationtool: Atlas " + e.operation + " failed"
+	var exit *exec.ExitError
+	var unavailable *exec.Error
+	switch {
+	case errors.Is(e.cause, context.Canceled):
+		message += ": canceled"
+	case errors.Is(e.cause, context.DeadlineExceeded):
+		message += ": deadline exceeded"
+	case errors.As(e.cause, &exit):
+		message += fmt.Sprintf(": exit status %d", exit.ExitCode())
+	case errors.As(e.cause, &unavailable), errors.Is(e.cause, os.ErrNotExist), errors.Is(e.cause, os.ErrPermission):
+		message += ": executable unavailable"
+	}
+	if e.diagnosticsFailed {
+		message += "; diagnostic output could not be written"
+	}
+	if e.outputHidden {
+		message += "; use --diagnostics in a trusted maintainer terminal for raw output"
+	}
+	return message
+}
+
+func (e *atlasError) Unwrap() error { return e.cause }
 
 func (t Tool) pinnedAtlas(ctx context.Context) (toolchain, error) {
 	var pin toolchain

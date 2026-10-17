@@ -25,6 +25,7 @@ func main() {
 func newCommand() *cobra.Command {
 	var tool migrationtool.Tool
 	var timeout time.Duration
+	var diagnostics bool
 	root := &cobra.Command{
 		Use: "migrationtool", Short: "Maintainer-only auth migration authoring",
 		SilenceUsage: true, SilenceErrors: true,
@@ -33,6 +34,7 @@ func newCommand() *cobra.Command {
 	root.PersistentFlags().StringVar(&tool.AtlasPath, "atlas", "atlas", "Path to the pinned Atlas executable")
 	root.PersistentFlags().StringVar(&tool.BaseRef, "base-ref", "HEAD", "Git ref containing immutable migration history")
 	root.PersistentFlags().DurationVar(&timeout, "timeout", 20*time.Minute, "Overall command timeout")
+	root.PersistentFlags().BoolVar(&diagnostics, "diagnostics", false, "Show raw failed Atlas output on stderr (trusted maintainer terminals only)")
 	run := func(action func(context.Context, *cobra.Command) error) func(*cobra.Command, []string) error {
 		return func(cmd *cobra.Command, _ []string) error {
 			if timeout <= 0 {
@@ -40,6 +42,10 @@ func newCommand() *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), timeout)
 			defer cancel()
+			tool.Diagnostics = nil
+			if diagnostics {
+				tool.Diagnostics = cmd.ErrOrStderr()
+			}
 			return action(ctx, cmd)
 		}
 	}
