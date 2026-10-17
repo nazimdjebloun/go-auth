@@ -41,7 +41,7 @@ workers before running migrations. Incomplete history blocks further execution.`
 	cmd.PersistentFlags().String("dsn", "", "Database DSN")
 	cmd.PersistentFlags().Duration("timeout", 30*time.Minute, "Overall operation timeout")
 	cmd.PersistentFlags().Duration("lock-timeout", 30*time.Second, "Migration serialization and metadata-lock timeout")
-	cmd.PersistentFlags().Duration("statement-timeout", 5*time.Minute, "Timeout per migration statement")
+	cmd.PersistentFlags().Duration("statement-timeout", 5*time.Minute, "Budget per migration statement, verification phase, or precondition phase")
 	for _, name := range []string{"driver", "dsn"} {
 		if err := cmd.MarkPersistentFlagRequired(name); err != nil {
 			panic(err)

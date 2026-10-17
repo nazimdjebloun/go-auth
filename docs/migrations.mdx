@@ -172,8 +172,18 @@ definitions; it freezes the current complete schema as the first baseline.
 
 CLI defaults are `--timeout 30m`, `--lock-timeout 30s`, and
 `--statement-timeout 5m`. All CLI timeout values must be positive. Go migration
-options use zero to select the 30-second lock and five-minute statement defaults;
-the caller context supplies the overall timeout. Lock waits honor cancellation
+options use zero to select the 30-second lock and five-minute statement/phase defaults;
+the caller context supplies the overall timeout. Each migration SQL statement
+gets its own statement-timeout budget. Each verification phase shares one budget
+of the same duration across structural checks, reserved-name absence, foreign-key
+scans and data postconditions. Journal structural validation and fresh-install
+name-collision preflight each get a separate shared budget. A phase's budget is
+not renewed for each query or row; an earlier caller deadline or cancellation
+still takes precedence. Journal-existence and history reads outside verification
+use the caller context. Cleanup has an independent five-second budget to release locks and
+restore settings even after cancellation.
+
+Lock waits honor cancellation
 and include reserving a physical connection. PostgreSQL lock/statement settings,
 MySQL metadata-lock/FK settings and SQLite busy/FK settings are restored before
 returning a borrowed connection. A connection whose cleanup or lock ownership

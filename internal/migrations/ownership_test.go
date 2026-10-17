@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/nazimdjebloun/go-auth/internal/testdb"
 )
@@ -252,7 +253,7 @@ func TestSelectedBackendOwnedTableRetry(t *testing.T) {
 			if dialect == "sqlite" {
 				// SQLite has no nontransactional retry. Exercise the same
 				// starting-schema verifier directly against a simulated state.
-				if err := verifyStep(t.Context(), db, catalog, catalog.Migrations[0]); !errors.Is(err, ErrDrift) {
+				if err := verifyStep(t.Context(), db, catalog, catalog.Migrations[0], time.Second); !errors.Is(err, ErrDrift) {
 					t.Fatal("starting schema accepted a partial addition", err)
 				}
 			} else if _, err := runCatalog(t.Context(), db, options, catalog, "retry", 2); !errors.Is(err, ErrDrift) {
@@ -264,7 +265,7 @@ func TestSelectedBackendOwnedTableRetry(t *testing.T) {
 			}
 			upgradeExec(t, db, dialect, "DROP TABLE "+name)
 			if dialect == "sqlite" {
-				if err := verifyStep(t.Context(), db, catalog, catalog.Migrations[0]); err != nil {
+				if err := verifyStep(t.Context(), db, catalog, catalog.Migrations[0], time.Second); err != nil {
 					t.Fatal("restored starting schema failed", err)
 				}
 			} else if state, err = runCatalog(t.Context(), db, options, catalog, "retry", 2); err != nil || state.Dirty || state.Revision != 2 {

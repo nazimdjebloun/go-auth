@@ -132,6 +132,7 @@ validated adoption. Recovery provides verified completion and policy-controlled
 retries of interrupted upgrades. See [Migrations](docs/migrations.mdx).
 Verification and recovery reject retired auth tables left behind by incomplete
 drops or renames.
+The statement timeout also bounds each shared verification phase.
 
 Maintainers prepare reviewed release SQL with the separate
 [migration authoring tool](docs/migration-authoring.mdx).

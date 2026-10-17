@@ -10,9 +10,11 @@ import (
 
 // Options configures explicit, standalone execution on a borrowed database.
 type Options struct {
-	Driver           string
-	LockTimeout      time.Duration // Zero selects 30 seconds.
-	StatementTimeout time.Duration // Zero selects 5 minutes per statement.
+	Driver      string
+	LockTimeout time.Duration // Zero selects 30 seconds.
+	// Budget per migration SQL statement, verification phase or precondition phase.
+	// Zero selects 5 minutes; queries within one phase share its budget.
+	StatementTimeout time.Duration
 }
 
 func (o Options) defaults() (Options, error) {
@@ -111,7 +113,9 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		return status, err
 	}
 	if exists {
-		if err := verify(ctx, q, catalog.Dialect, journalSQL(catalog.Dialect), nil); err != nil {
+		if err := verifyPhase(ctx, options.StatementTimeout, func(ctx context.Context) error {
+			return verify(ctx, q, catalog.Dialect, journalSQL(catalog.Dialect), nil)
+		}); err != nil {
 			return status, &Error{Dialect: catalog.Dialect, Phase: "journal validation", Cause: err}
 		}
 		status, err = readHistory(ctx, q, catalog)
@@ -132,7 +136,7 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		if status.Revision != catalog.TargetRevision {
 			return status, ErrIncompatible
 		}
-		return status, verifyStep(ctx, q, catalog, catalog.Migrations[len(catalog.Migrations)-1])
+		return status, verifyStep(ctx, q, catalog, catalog.Migrations[len(catalog.Migrations)-1], options.StatementTimeout)
 	}
 	if operation == "repair" {
 		phase = "repair"
@@ -140,7 +144,7 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 			return status, fmt.Errorf("%w: repair requires the exact incomplete migration ID", ErrDirty)
 		}
 		step := catalog.Migrations[len(status.History)-1]
-		if err := verifyStep(ctx, q, catalog, step); err != nil {
+		if err := verifyStep(ctx, q, catalog, step, options.StatementTimeout); err != nil {
 			return status, &Error{Dialect: catalog.Dialect, MigrationID: id, Phase: "repair verification", Dirty: true, Cause: err}
 		}
 		if err := completeRecord(ctx, q, catalog.Dialect, step); err != nil {
@@ -167,16 +171,21 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		activeID = baseline.ID
 		if operation == "adopt" {
 			phase = "adoption"
-			if err := verifyStep(ctx, q, catalog, baseline); err != nil {
+			if err := verifyStep(ctx, q, catalog, baseline, options.StatementTimeout); err != nil {
 				return status, &Error{Dialect: catalog.Dialect, MigrationID: id, Phase: "adoption validation", Cause: err}
 			}
 		} else {
 			// Future steps can reserve names absent from the bootstrap snapshot.
 			// Reject those collisions before any auth DDL or history initialization.
-			for _, step := range catalog.Migrations {
-				if err := requireUnused(ctx, q, catalog.Dialect, step.schemaSQL); err != nil {
-					return status, err
+			if err := verifyPhase(ctx, options.StatementTimeout, func(ctx context.Context) error {
+				for _, step := range catalog.Migrations {
+					if err := requireUnused(ctx, q, catalog.Dialect, step.schemaSQL); err != nil {
+						return err
+					}
 				}
+				return nil
+			}); err != nil {
+				return status, err
 			}
 		}
 		if !exists {
@@ -192,7 +201,7 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		}
 	} else {
 		previous := catalog.Migrations[len(status.History)-1]
-		if err := verifyStep(ctx, q, catalog, previous); err != nil {
+		if err := verifyStep(ctx, q, catalog, previous, options.StatementTimeout); err != nil {
 			return status, &Error{Dialect: catalog.Dialect, MigrationID: previous.ID, Phase: "preflight", Cause: err}
 		}
 	}
@@ -289,7 +298,7 @@ func executeStep(ctx context.Context, q queryer, catalog Catalog, step Step, opt
 			return fail(fmt.Sprintf("statement %d", i+1), err)
 		}
 	}
-	if err := verifyStep(ctx, q, catalog, step); err != nil {
+	if err := verifyStep(ctx, q, catalog, step, options.StatementTimeout); err != nil {
 		return fail("postconditions", err)
 	}
 	if err := completeRecord(ctx, q, dialect, step); err != nil {
@@ -298,7 +307,23 @@ func executeStep(ctx context.Context, q queryer, catalog Catalog, step Step, opt
 	return nil
 }
 
-func verifyStep(ctx context.Context, q queryer, catalog Catalog, step Step) error {
+// All queries in one verification phase share a deadline. Keep the caller's
+// earlier cancellation/deadline and retain it even when a driver reports only
+// an interruption error from Query, Scan or Rows.Err.
+func verifyPhase(ctx context.Context, budget time.Duration, check func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	err := check(ctx)
+	return errors.Join(err, ctx.Err())
+}
+
+func verifyStep(ctx context.Context, q queryer, catalog Catalog, step Step, budget time.Duration) error {
+	return verifyPhase(ctx, budget, func(ctx context.Context) error {
+		return verifyStepState(ctx, q, catalog, step)
+	})
+}
+
+func verifyStepState(ctx context.Context, q queryer, catalog Catalog, step Step) error {
 	dialect := catalog.Dialect
 	if dialect == "postgres" {
 		var extensions int

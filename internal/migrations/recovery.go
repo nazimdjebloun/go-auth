@@ -34,7 +34,7 @@ func retryStep(ctx context.Context, q queryer, catalog Catalog, status Status, i
 	if index == 0 || step.Transactional || step.Retry == nil {
 		return fail("retry policy", ErrRetryUnsupported)
 	}
-	if err := verifyStep(ctx, q, catalog, catalog.Migrations[index-1]); err != nil {
+	if err := verifyStep(ctx, q, catalog, catalog.Migrations[index-1], options.StatementTimeout); err != nil {
 		return fail("retry starting schema", err)
 	}
 	if err := checkPreconditions(ctx, q, step, options); err != nil {
