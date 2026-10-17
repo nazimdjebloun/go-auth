@@ -19,6 +19,9 @@ class BackendEvidenceTests(unittest.TestCase):
                     expected = runner.required_tests(backend, stress)
                     self.assertIn((package, "TestSelectedBackendUpgradeFailureRecovery"), expected)
                     self.assertIn((package, "TestSelectedBackendVerifiedRetry"), expected)
+                    for name in ["TestSelectedBackendOwnedTableRetirement", "TestSelectedBackendOwnedTableRetry", "TestSelectedBackendOwnedObjectNamespaces"]:
+                        self.assertIn((package, name), expected)
+                        self.assertRegex(name, runner.STRESS_PATTERN)
                     self.assertEqual((package, "TestSelectedBackendPopulatedUpgrade") in expected, not stress)
                     self.assertEqual((package, "TestSQLiteRebuildRejectsHostOrphansAndRestoresSettings") in expected, backend == "sqlite")
 

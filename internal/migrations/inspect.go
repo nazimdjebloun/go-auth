@@ -56,10 +56,13 @@ func drift(object, detail string) error {
 	return fmt.Errorf("%w: %s: %s", ErrDrift, object, detail)
 }
 
-func verify(ctx context.Context, q queryer, dialect, script string) error {
+func verify(ctx context.Context, q queryer, dialect, script string, ownedNames []string) error {
 	def, err := parseDefinition(dialect, script)
 	if err != nil {
 		return fmt.Errorf("goauth: invalid published schema snapshot: %w", err)
+	}
+	if err := verifyOwnedAbsence(ctx, q, dialect, def, ownedNames); err != nil {
+		return err
 	}
 	if dialect == "sqlite" {
 		return verifySQLite(ctx, q, def)
@@ -95,6 +98,50 @@ func verify(ctx context.Context, q queryer, dialect, script string) error {
 		}
 	}
 	return nil
+}
+
+// Ownership survives removal from a snapshot and includes pending additions.
+// Checking only the expected objects would accept incomplete drops/renames or
+// mistake leftover new tables for a fully restored retry starting state.
+func verifyOwnedAbsence(ctx context.Context, q queryer, dialect string, def definition, ownedNames []string) error {
+	absent := map[string]bool{}
+	for _, name := range ownedNames {
+		if _, expected := def.tables[name]; expected {
+			continue
+		}
+		if _, expected := def.indexes[name]; dialect != "mysql" && expected {
+			continue
+		}
+		absent[name] = true
+	}
+	if len(absent) == 0 {
+		return nil
+	}
+	var query string
+	switch dialect {
+	case "postgres":
+		query = `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+			WHERE n.nspname=current_schema() ORDER BY c.relname`
+	case "mysql":
+		query = "SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() ORDER BY table_name"
+	case "sqlite":
+		query = "SELECT name FROM main.sqlite_schema ORDER BY name"
+	}
+	rows, err := q.QueryContext(ctx, query)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		if absent[name] {
+			return drift(name, "owned object must be absent at this revision")
+		}
+	}
+	return rows.Err()
 }
 
 func normalizedDDL(ddl string) (string, error) {

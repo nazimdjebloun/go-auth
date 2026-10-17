@@ -286,7 +286,7 @@ func TestDataPostconditionMustBeTrue(t *testing.T) {
 	}
 	step := catalog.Migrations[0]
 	step.Checks = []string{"SELECT FALSE"}
-	if err := verifyStep(t.Context(), db, "sqlite", step); err == nil {
+	if err := verifyStep(t.Context(), db, catalog, step); err == nil {
 		t.Fatal("failed data transformation was accepted")
 	}
 }

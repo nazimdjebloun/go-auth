@@ -129,7 +129,7 @@ func TestSelectedBackendVerifiedRetry(t *testing.T) {
 		if err != nil || len(status.History) != 1 || status.Dirty {
 			t.Fatal("data preflight created an incomplete record", err)
 		}
-		if err := verifyStep(t.Context(), db, dialect, catalog.Migrations[0]); err != nil {
+		if err := verifyStep(t.Context(), db, catalog, catalog.Migrations[0]); err != nil {
 			t.Fatal("data preflight ran schema mutations", err)
 		}
 	}

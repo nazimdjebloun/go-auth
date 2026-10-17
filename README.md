@@ -130,6 +130,8 @@ or ORM migrations. `New` never migrates; `CheckSchema: true` checks recorded
 compatibility before workers start. Existing untracked auth tables need explicit,
 validated adoption. Recovery provides verified completion and policy-controlled
 retries of interrupted upgrades. See [Migrations](docs/migrations.mdx).
+Verification and recovery reject retired auth tables left behind by incomplete
+drops or renames.
 
 Maintainers prepare reviewed release SQL with the separate
 [migration authoring tool](docs/migration-authoring.mdx).

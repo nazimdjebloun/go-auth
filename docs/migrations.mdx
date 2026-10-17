@@ -129,6 +129,12 @@ identity errors and checksum mismatches are rejected. `verify` requires clean
 history at the target revision, holds migration serialization, and checks live
 schema definitions and published data postconditions.
 
+Structural checks also require reserved names absent from the inspected snapshot
+to be absent from the database. Ownership comes from every snapshot in the embedded
+catalog, so verification and repair reject obsolete tables left behind by an
+incomplete drop or rename. Starting-schema checks also reject partial additions
+from pending steps. Unrelated application objects remain outside these checks.
+
 `DatabaseConfig.CheckSchema` is optional and defaults to `false`. When enabled,
 `New` checks history before constructing services or starting workers, using
 the shared ten-second startup database timeout. The first policy accepts only
@@ -224,8 +230,11 @@ tokens and durable audit obligations in the recovery procedure.
 ## Application and ORM ownership
 
 Auth uses fixed names such as `users`, `sessions` and `organizations`; deployments
-must resolve naming conflicts on their side. The full reserved inventory is in
-the desired schema and generated reference, plus `goauth_migrations`. Use extension
+must resolve naming conflicts on their side. Names appearing in any catalog
+snapshot remain reserved, including retired names and pending additions. The
+desired schema and generated reference list the target objects; the journal
+`goauth_migrations` is also reserved. Explicit index names are schema-wide in
+PostgreSQL/SQLite and table-scoped in MySQL. Use extension
 tables for application fields. The current declared stable FK targets are
 `users.id` and `organizations.id`; changing a declared stable target requires a
 major-version change. The reference publishes the selected dialect's key types.

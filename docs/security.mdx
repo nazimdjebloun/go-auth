@@ -277,6 +277,8 @@ traffic and workers. Use separate deployment credentials for DDL and runtime
 credentials for ordinary operations. `New` never migrates. Enable
 `DatabaseConfig.CheckSchema` to reject incompatible or incomplete recorded
 history before workers start; structural drift needs deployment verification.
+Structural verification and recovery reject retired auth objects that remain
+after an incomplete drop or rename, including names from older catalog snapshots.
 
 Do not replace published auth upgrades with an ORM-generated diff: data
 transformations and credential invariants belong to the reviewed migration.

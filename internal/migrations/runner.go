@@ -111,7 +111,7 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		return status, err
 	}
 	if exists {
-		if err := verify(ctx, q, catalog.Dialect, journalSQL(catalog.Dialect)); err != nil {
+		if err := verify(ctx, q, catalog.Dialect, journalSQL(catalog.Dialect), nil); err != nil {
 			return status, &Error{Dialect: catalog.Dialect, Phase: "journal validation", Cause: err}
 		}
 		status, err = readHistory(ctx, q, catalog)
@@ -132,7 +132,7 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		if status.Revision != catalog.TargetRevision {
 			return status, ErrIncompatible
 		}
-		return status, verifyStep(ctx, q, catalog.Dialect, catalog.Migrations[len(catalog.Migrations)-1])
+		return status, verifyStep(ctx, q, catalog, catalog.Migrations[len(catalog.Migrations)-1])
 	}
 	if operation == "repair" {
 		phase = "repair"
@@ -140,7 +140,7 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 			return status, fmt.Errorf("%w: repair requires the exact incomplete migration ID", ErrDirty)
 		}
 		step := catalog.Migrations[len(status.History)-1]
-		if err := verifyStep(ctx, q, catalog.Dialect, step); err != nil {
+		if err := verifyStep(ctx, q, catalog, step); err != nil {
 			return status, &Error{Dialect: catalog.Dialect, MigrationID: id, Phase: "repair verification", Dirty: true, Cause: err}
 		}
 		if err := completeRecord(ctx, q, catalog.Dialect, step); err != nil {
@@ -167,7 +167,7 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		activeID = baseline.ID
 		if operation == "adopt" {
 			phase = "adoption"
-			if err := verifyStep(ctx, q, catalog.Dialect, baseline); err != nil {
+			if err := verifyStep(ctx, q, catalog, baseline); err != nil {
 				return status, &Error{Dialect: catalog.Dialect, MigrationID: id, Phase: "adoption validation", Cause: err}
 			}
 		} else {
@@ -192,7 +192,7 @@ func runCatalog(ctx context.Context, db *sql.DB, options Options, catalog Catalo
 		}
 	} else {
 		previous := catalog.Migrations[len(status.History)-1]
-		if err := verifyStep(ctx, q, catalog.Dialect, previous); err != nil {
+		if err := verifyStep(ctx, q, catalog, previous); err != nil {
 			return status, &Error{Dialect: catalog.Dialect, MigrationID: previous.ID, Phase: "preflight", Cause: err}
 		}
 	}
@@ -264,7 +264,7 @@ func applyStep(ctx context.Context, l *lease, catalog Catalog, step Step, option
 	if err := startRecord(ctx, q, catalog, step, "executed"); err != nil {
 		return fail("start journal", err)
 	}
-	if err := executeStep(ctx, q, l.dialect, step, options); err != nil {
+	if err := executeStep(ctx, q, catalog, step, options); err != nil {
 		return err
 	}
 	if tx != nil {
@@ -275,7 +275,8 @@ func applyStep(ctx context.Context, l *lease, catalog Catalog, step Step, option
 	return nil
 }
 
-func executeStep(ctx context.Context, q queryer, dialect string, step Step, options Options) error {
+func executeStep(ctx context.Context, q queryer, catalog Catalog, step Step, options Options) error {
+	dialect := catalog.Dialect
 	fail := func(phase string, cause error) error {
 		return &Error{Dialect: dialect, MigrationID: step.ID, Phase: phase,
 			Dirty: !step.Transactional, Uncertain: !step.Transactional, Cause: cause}
@@ -288,7 +289,7 @@ func executeStep(ctx context.Context, q queryer, dialect string, step Step, opti
 			return fail(fmt.Sprintf("statement %d", i+1), err)
 		}
 	}
-	if err := verifyStep(ctx, q, dialect, step); err != nil {
+	if err := verifyStep(ctx, q, catalog, step); err != nil {
 		return fail("postconditions", err)
 	}
 	if err := completeRecord(ctx, q, dialect, step); err != nil {
@@ -297,7 +298,8 @@ func executeStep(ctx context.Context, q queryer, dialect string, step Step, opti
 	return nil
 }
 
-func verifyStep(ctx context.Context, q queryer, dialect string, step Step) error {
+func verifyStep(ctx context.Context, q queryer, catalog Catalog, step Step) error {
+	dialect := catalog.Dialect
 	if dialect == "postgres" {
 		var extensions int
 		if err := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM pg_extension WHERE extname IN ('pgcrypto','pg_trgm')").Scan(&extensions); err != nil {
@@ -307,7 +309,7 @@ func verifyStep(ctx context.Context, q queryer, dialect string, step Step) error
 			return fmt.Errorf("%w: provision pgcrypto and pg_trgm before migration/adoption", ErrDrift)
 		}
 	}
-	if err := verify(ctx, q, dialect, step.schemaSQL); err != nil {
+	if err := verify(ctx, q, dialect, step.schemaSQL, catalog.ownedNames); err != nil {
 		return err
 	}
 	if err := checkQueries(ctx, q, step.Checks, "data postcondition"); err != nil {

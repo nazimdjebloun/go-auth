@@ -43,6 +43,10 @@ keys, indexes and triggers, and reject orphaned host references before committin
 Retry fixtures verify failed prerequisites without a started record, refusal of
 partial DDL and unpublished policies, retained dirty state after another failure,
 and serialized PostgreSQL/MySQL retries that preserve the original journal row.
+Ownership fixtures reject incomplete drops/renames and partial additions before
+retry, retain retired names across later revisions, and check host-object
+namespaces and intentional name reuse. SQLite recovery states are simulated;
+its starting-schema checks run directly because retry requires nontransactional DDL.
 The historical provenance fixture records the exact v0.3.0 schema checksums
 matching baseline 000001. It checks all 15 tables, column types/nullability/default
 values and explicit collations, named-index columns, sort order, collations,

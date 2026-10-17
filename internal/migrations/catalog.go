@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -32,6 +34,8 @@ type Catalog struct {
 	TargetRevision    int64  `json:"targetRevision"`
 	BootstrapRevision int64  `json:"bootstrapRevision"`
 	Migrations        []Step `json:"migrations"`
+
+	ownedNames []string
 }
 
 // Step describes a reviewed, immutable migration. SQL is exported separately.
@@ -110,6 +114,7 @@ func ReadCatalog(source fs.FS, driver string) (Catalog, error) {
 		return Catalog{}, fmt.Errorf("goauth: invalid %s migration catalog", dialect)
 	}
 	var previous int64
+	ownedNames := map[string]struct{}{}
 	for i := range catalog.Migrations {
 		step := &catalog.Migrations[i]
 		match := migrationName.FindStringSubmatch(step.File)
@@ -155,8 +160,19 @@ func ReadCatalog(source fs.FS, driver string) (Catalog, error) {
 		if hex.EncodeToString(digest[:]) != step.SchemaChecksum {
 			return Catalog{}, fmt.Errorf("goauth: schema snapshot checksum mismatch for migration %d", id)
 		}
-		if _, err := parseDefinition(dialect, step.schemaSQL); err != nil {
+		def, err := parseDefinition(dialect, step.schemaSQL)
+		if err != nil {
 			return Catalog{}, fmt.Errorf("goauth: invalid verification snapshot for migration %d: %w", id, err)
+		}
+		for name := range def.tables {
+			ownedNames[name] = struct{}{}
+		}
+		// PostgreSQL and SQLite reserve index names in the schema namespace.
+		// MySQL indexes belong to their table and are verified with that table.
+		if dialect != "mysql" {
+			for name := range def.indexes {
+				ownedNames[name] = struct{}{}
+			}
 		}
 		if step.SQLiteRebuild && dialect != "sqlite" {
 			return Catalog{}, fmt.Errorf("goauth: SQLite rebuild metadata on %s migration %d", dialect, id)
@@ -178,6 +194,7 @@ func ReadCatalog(source fs.FS, driver string) (Catalog, error) {
 	if catalog.BootstrapRevision != catalog.Migrations[0].ID || catalog.TargetRevision != previous {
 		return Catalog{}, fmt.Errorf("goauth: invalid baseline or target revision for %s", dialect)
 	}
+	catalog.ownedNames = slices.Sorted(maps.Keys(ownedNames))
 	return catalog, nil
 }
 

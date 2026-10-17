@@ -34,13 +34,13 @@ func retryStep(ctx context.Context, q queryer, catalog Catalog, status Status, i
 	if index == 0 || step.Transactional || step.Retry == nil {
 		return fail("retry policy", ErrRetryUnsupported)
 	}
-	if err := verifyStep(ctx, q, catalog.Dialect, catalog.Migrations[index-1]); err != nil {
+	if err := verifyStep(ctx, q, catalog, catalog.Migrations[index-1]); err != nil {
 		return fail("retry starting schema", err)
 	}
 	if err := checkPreconditions(ctx, q, step, options); err != nil {
 		return fail("retry preconditions", err)
 	}
-	if err := executeStep(ctx, q, catalog.Dialect, step, options); err != nil {
+	if err := executeStep(ctx, q, catalog, step, options); err != nil {
 		return status, err
 	}
 	return readHistory(ctx, q, catalog)
