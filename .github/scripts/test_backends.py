@@ -18,7 +18,7 @@ REQUIRED = {
         ".": ["TestAppPermissionsHTTPUserRoleJSON", "TestAppPermissionsHTTPAssuranceAndOptionalManagement", "TestAppPermissionsStatsAuthorization", "TestAppPermissionsSameRoleAssignmentPreservesAccessRevision", "TestAppPermissionsTargetAccessHTTP", "TestAppPermissionsDisabledCapabilityFailsClosed", "TestAppAuthorizationRouteInventory", "TestAppAuthorizationRouteCoverage", "TestAppAuthorizationHTTPPolicyMatrix", "TestAppAuthorizationMountedRoutesDenyUnprivileged"],
         "integration": ["TestMigrations_CreateTables", "TestHTTPBackendSecurityContract"],
         "cmd/goauth/cmd": ["TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend"],
-        "internal/migrations": ["TestStandaloneSelectedBackend", "TestSelectedBackendFailureState", "TestSelectedBackendRejectsWeakenedForeignKeys", "TestConcurrentStandaloneRunners", "TestSelectedBackendPopulatedUpgrade", "TestSelectedBackendUpgradeFailureRecovery", "TestSelectedBackendVerifiedRetry", "TestSelectedBackendOwnedTableRetirement", "TestSelectedBackendOwnedTableRetry", "TestSelectedBackendOwnedObjectNamespaces"],
+        "internal/migrations": ["TestStandaloneSelectedBackend", "TestSelectedBackendFailureState", "TestSelectedBackendRejectsWeakenedForeignKeys", "TestConcurrentStandaloneRunners", "TestSelectedBackendPublishedCatalogUpgradePrefixes", "TestSelectedBackendPopulatedUpgrade", "TestSelectedBackendUpgradeFailureRecovery", "TestSelectedBackendVerifiedRetry", "TestSelectedBackendOwnedTableRetirement", "TestSelectedBackendOwnedTableRetry", "TestSelectedBackendOwnedObjectNamespaces"],
         "internal/service": ["TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack", "TestAppSameRoleAssignmentIsNoOp", "TestAppConcurrentSameRoleAssignmentsPreserveRevision", "TestAppConcurrentRoleReplacementHasOneWinner", "TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess", "TestAppAuthorizationServiceInventory", "TestAppAuthorizationServiceCoverage"],
         "internal/sqlstore": ["TestRecoveryClaimIsExclusiveAndStaleCompletionCannotDeleteReclaimedJob", "TestAdminGuard_ConcurrentReductionsAcrossPools", "TestBackendTokenClaimConcurrentAcrossPools", "TestBackendProviderIdentityIsExact", "TestBackendRefreshZeroGraceRejectsFutureRotation", "TestBackendSessionAssuranceRoundTrip", "TestAppDefaultRoleSharedReadRequiresTransaction", "TestAppPermissionNamespaceOwnership"],
     }.items()
@@ -34,7 +34,7 @@ STRESS_PATTERN = (
 
 
 def required_tests(backend, stress=False):
-    excluded = {"TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend", "TestStandaloneSelectedBackend", "TestSelectedBackendPopulatedUpgrade", "TestHTTPBackendSecurityContract"} if stress else set()
+    excluded = {"TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend", "TestStandaloneSelectedBackend", "TestSelectedBackendPublishedCatalogUpgradePrefixes", "TestSelectedBackendPopulatedUpgrade", "TestHTTPBackendSecurityContract"} if stress else set()
     expected = {key for key in REQUIRED if key[1] not in excluded}
     prefix = {"postgres": "Postgres", "mysql": "MySQL"}.get(backend)
     if prefix:

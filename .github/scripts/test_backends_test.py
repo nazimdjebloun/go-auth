@@ -11,6 +11,19 @@ spec.loader.exec_module(runner)
 
 
 class BackendEvidenceTests(unittest.TestCase):
+    def test_published_catalog_prefixes_are_required_only_in_full_mode(self):
+        key = (runner.MODULE + "internal/migrations", "TestSelectedBackendPublishedCatalogUpgradePrefixes")
+        self.assertNotRegex(key[1], runner.STRESS_PATTERN)
+        for backend in ["sqlite", "postgres", "mysql"]:
+            with self.subTest(backend=backend):
+                expected = runner.required_tests(backend)
+                self.assertIn(key, expected)
+                self.assertNotIn(key, runner.required_tests(backend, stress=True))
+                events = [{"Action": "pass", "Package": package, "Test": name} for package, name in expected if (package, name) != key]
+                self.assertTrue(runner.analyze(events, expected)[1])
+                events.append({"Action": "pass", "Package": key[0], "Test": key[1]})
+                self.assertFalse(runner.analyze(events, expected)[1])
+
     def test_migration_upgrade_and_recovery_evidence_is_required(self):
         package = runner.MODULE + "internal/migrations"
         for backend in ["sqlite", "postgres", "mysql"]:

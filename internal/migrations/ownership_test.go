@@ -11,26 +11,6 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/testdb"
 )
 
-func ownershipBaselineCatalog(t *testing.T, dialect string) Catalog {
-	t.Helper()
-	catalog, err := ReadCatalog(files, dialect)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// Synthetic upgrades always start from the immutable first baseline,
-	// independently of later published migrations or canonical schema edits.
-	catalog.Migrations = catalog.Migrations[:1:1]
-	catalog.TargetRevision, catalog.Release = catalog.BootstrapRevision, "v0.4.0"
-	return validateFixture(t, catalog)
-}
-
-func applyOwnershipBaseline(t *testing.T, db *sql.DB, dialect string) {
-	t.Helper()
-	if _, err := runCatalog(t.Context(), db, Options{Driver: dialect}, ownershipBaselineCatalog(t, dialect), "apply", 0); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func appendOwnershipStep(t *testing.T, catalog Catalog, snapshot string, statements ...string) Catalog {
 	t.Helper()
 	id := catalog.TargetRevision + 1
@@ -47,7 +27,7 @@ func appendOwnershipStep(t *testing.T, catalog Catalog, snapshot string, stateme
 // published schema or promising an actual outbox removal.
 func retirementCatalog(t *testing.T, dialect, mode string) Catalog {
 	t.Helper()
-	catalog := ownershipBaselineCatalog(t, dialect)
+	catalog := bootstrapCatalog(t, dialect)
 	snapshot := catalog.Migrations[0].schemaSQL
 	def, err := parseDefinition(dialect, snapshot)
 	if err != nil {
@@ -113,7 +93,7 @@ func TestSelectedBackendOwnedTableRetirement(t *testing.T) {
 	t.Run("adoption reserves future names", func(t *testing.T) {
 		db := testdb.OpenSelected(t)
 		dialect := testdb.Driver(db)
-		applyOwnershipBaseline(t, db, dialect)
+		applyBootstrap(t, db, dialect)
 		// Represent an existing bootstrap installation without tracked history.
 		upgradeExec(t, db, dialect, "DROP TABLE goauth_migrations")
 		catalog := retirementCatalog(t, dialect, "rename")
@@ -153,7 +133,7 @@ func TestSelectedBackendOwnedTableRetirement(t *testing.T) {
 				db := testdb.OpenSelected(t)
 				dialect := testdb.Driver(db)
 				options := Options{Driver: dialect}
-				applyOwnershipBaseline(t, db, dialect)
+				applyBootstrap(t, db, dialect)
 				seedOwnershipHost(t, db, dialect)
 				catalog := retirementCatalog(t, dialect, mode)
 				partial := []string{"SELECT TRUE"}
@@ -226,11 +206,11 @@ func TestSelectedBackendOwnedTableRetry(t *testing.T) {
 			db := testdb.OpenSelected(t)
 			dialect := testdb.Driver(db)
 			options := Options{Driver: dialect}
-			applyOwnershipBaseline(t, db, dialect)
+			applyBootstrap(t, db, dialect)
 			catalog := retirementCatalog(t, dialect, "rename")
 			name := "archived_outbox"
 			if mode == "add" {
-				catalog = ownershipBaselineCatalog(t, dialect)
+				catalog = bootstrapCatalog(t, dialect)
 				name = "added_owned_table"
 				ddl := "CREATE TABLE added_owned_table (\n    id INTEGER PRIMARY KEY\n)"
 				if dialect == "mysql" {

@@ -37,10 +37,7 @@ func fixtureChecksum(contents string) string {
 // backfill. They are not published auth schema changes or release promises.
 func upgradeCatalog(t *testing.T, dialect string) Catalog {
 	t.Helper()
-	catalog, err := Load(dialect)
-	if err != nil {
-		t.Fatal(err)
-	}
+	catalog := bootstrapCatalog(t, dialect)
 	baseline := catalog.Migrations[0].schemaSQL
 	definition, err := parseDefinition(dialect, baseline)
 	if err != nil {
@@ -234,14 +231,14 @@ func TestSelectedBackendPopulatedUpgrade(t *testing.T) {
 			db := testdb.OpenSelected(t)
 			dialect := testdb.Driver(db)
 			options := Options{Driver: dialect}
+			baseline := bootstrapCatalog(t, dialect)
+			applyBootstrap(t, db, dialect)
 			if mode == "adopted" {
-				testdb.Apply(t, db)
-			} else if _, err := Apply(t.Context(), db, options); err != nil {
-				t.Fatal(err)
+				upgradeExec(t, db, dialect, "DROP TABLE goauth_migrations")
 			}
 			hash, password := seedUpgradeData(t, db, dialect)
 			if mode == "adopted" {
-				if _, err := Adopt(t.Context(), db, options, 1); err != nil {
+				if _, err := runCatalog(t.Context(), db, options, baseline, "adopt", baseline.BootstrapRevision); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -262,9 +259,7 @@ func TestSelectedBackendUpgradeFailureRecovery(t *testing.T) {
 	db := testdb.OpenSelected(t)
 	dialect := testdb.Driver(db)
 	options := Options{Driver: dialect}
-	if _, err := Apply(t.Context(), db, options); err != nil {
-		t.Fatal(err)
-	}
+	applyBootstrap(t, db, dialect)
 	hash, password := seedUpgradeData(t, db, dialect)
 	broken := upgradeCatalog(t, dialect)
 	broken.Migrations[1].statements[1] = "INSERT INTO missing_upgrade_table VALUES (1)"
@@ -299,9 +294,8 @@ func TestSQLiteRebuildRejectsHostOrphansAndRestoresSettings(t *testing.T) {
 	upgradeExec(t, db, "sqlite", "PRAGMA foreign_keys=ON")
 	upgradeExec(t, db, "sqlite", "PRAGMA busy_timeout=321")
 	options := Options{Driver: "sqlite"}
-	if _, err := Apply(t.Context(), db, options); err != nil {
-		t.Fatal(err)
-	}
+	baseline := bootstrapCatalog(t, "sqlite")
+	applyBootstrap(t, db, "sqlite")
 	hash, password := seedUpgradeData(t, db, "sqlite")
 	catalog := upgradeCatalog(t, "sqlite")
 	catalog.Migrations[2].statements = append(catalog.Migrations[2].statements,
@@ -309,7 +303,7 @@ func TestSQLiteRebuildRejectsHostOrphansAndRestoresSettings(t *testing.T) {
 	if _, err := runCatalog(t.Context(), db, options, catalog, "apply", 0); !errors.Is(err, ErrDrift) {
 		t.Fatal("host-owned orphan was committed", err)
 	}
-	if err := Verify(t.Context(), db, options); err != nil {
+	if _, err := runCatalog(t.Context(), db, options, baseline, "verify", 0); err != nil {
 		t.Fatal("failed rebuild did not restore baseline schema", err)
 	}
 	var foreignKeys, busy int

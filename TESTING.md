@@ -34,8 +34,18 @@ that did not run all fail the runner. Results, shuffle seeds, invocation details
 and coverage are written under `.test-results/<backend>/full/`.
 
 The schema suite installs the published baseline, validates explicit adoption
-of the complete canonical SQL, and repeats tracked execution. The migration
-package also covers populated multi-step upgrades from executed and adopted
+of the complete canonical SQL, and repeats tracked execution. The required
+`TestSelectedBackendPublishedCatalogUpgradePrefixes` installs every prefix of
+the real embedded catalog in a separate fresh selected-backend database,
+including the bootstrap and latest revisions. A test manifest selects each
+prefix while preserving the published SQL, snapshots and checksums. The actual
+Go runner installs that prefix, upgrades it through public `Apply`, verifies
+the current target with `Verify`, and repeats `Apply` without changing completed
+journal records. Each result must have no pending or dirty state. This test runs
+in all three full backend suites and is excluded from stress runs.
+
+The migration package separately uses bootstrap-isolated synthetic histories
+to cover populated multi-step upgrades from executed and adopted
 baselines, skipped releases, password verification and token lookup after upgrades,
 incomplete MySQL backfills, verified repair, concurrent runners, and rollback
 versus durable dirty state. SQLite rebuild fixtures include host-owned foreign
@@ -56,8 +66,14 @@ account for intentional differences between dialects.
 
 The CI `migration-catalog` job separately guards published migration identities
 and release labels, then replays all dialect histories through checksum-verified,
-pinned Atlas in disposable databases. Replay checks empty structural results;
-the populated database suites above verify data preservation and recovery.
+pinned Atlas in disposable databases. Atlas replay checks structural results
+from an empty database; it does not run the Go runner's preconditions or data
+postconditions. The every-prefix Go test exercises actual execution metadata,
+runtime checks and journal transitions, starting without application data.
+Each published schema or data change must also add populated upgrade fixtures
+for its supported starting revisions and relevant failure/recovery paths.
+The synthetic fixtures above exercise runner behavior and do not replace that
+per-change data-preservation coverage.
 
 ## Repeated security and concurrency tests
 

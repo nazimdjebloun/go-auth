@@ -132,8 +132,9 @@ OAuth-only accounts remain valid. Matching the table definition alone cannot
 establish this. Never regenerate hashes, tokens, pepper versions or encrypted
 credential material through a structural diff.
 
-Use `preconditions` for required starting-data predicates. They run before the
-step's started record and SQL, returning exactly one true value per `SELECT`.
+Use `preconditions` for required starting-data predicates. In the Go runner,
+they run before the step's started record and SQL, returning exactly one true
+value per `SELECT`.
 Describe unavailable external keys or operator input in deployment instructions;
 SQL checks cannot establish the presence of material outside the database.
 
@@ -167,8 +168,9 @@ go run ./tools/migrations seal \
 
 `seal` checks that the catalog and canonical inputs still match the reviewed
 draft. It validates the candidate catalog, then replays the complete candidate
-history in the pinned disposable database. A remaining structural diff stops
-publication. On success it appends:
+history through Atlas in the pinned disposable database. A remaining structural
+diff stops publication. `seal` does not run the Go runner or execute its
+preconditions and data postconditions. On success it appends:
 
 ```text
 internal/migrations/postgres/
@@ -187,11 +189,25 @@ intermediate target, update canonical SQL for the next target, then draft with
 the next `--step`. Numeric migration IDs establish ordering across releases.
 Every step has its own expected structure and required data postconditions.
 
-Sealing validates the empty-schema replay. Before release, add populated upgrade
-coverage for supported starting revisions, skipped releases, credential/token
-preservation, failures and recovery. SQLite rebuild coverage must include
-application-owned child tables. The maintainer must run the actual engine suites
-before advertising a new supported upgrade path.
+The full backend suites require
+`TestSelectedBackendPublishedCatalogUpgradePrefixes` on SQLite, PostgreSQL and
+MySQL. In a fresh database for every published prefix, including bootstrap and
+latest, it installs that prefix through the actual Go runner using the original
+embedded SQL and verification snapshots, upgrades to the current target through
+`Apply`, runs `Verify`, and requires a no-op repeat apply. It preserves published
+artifact checksums and asserts that completed journal records survive with no
+pending or dirty state.
+This test is excluded from stress runs.
+
+Atlas's empty structural replay and the every-prefix Go test serve different
+checks. The Go test exercises execution metadata, preconditions, data
+postconditions and journal transitions, starting without application data.
+For each published schema or data change, also add populated upgrade coverage
+for supported starting revisions, skipped releases, credential/token
+preservation, failures and recovery. Existing synthetic runner fixtures do not
+replace those per-change tests. SQLite rebuild coverage must include
+application-owned child tables. Run the actual engine suites before advertising
+a new supported upgrade path.
 
 ## Finish the release
 
@@ -216,8 +232,9 @@ artifacts, or a catalog release label differing from its tag is rejected.
 `--release` requires all current catalogs to declare the selected library version.
 `--replay` uses pinned Atlas and disposable databases to replay all three histories
 and require no remaining structural diff. It does not write source artifacts or
-run upgrades against an application database. Empty-schema replay cannot validate
-populated credential data; the actual-engine upgrade suites remain required.
+run the Go runner's preconditions or data postconditions, or upgrade an application
+database. Empty-schema replay cannot validate populated credential data; the
+actual-engine upgrade suites remain required.
 
 The CI `migration-catalog` job checks the PR base or previous push when it contains
 a catalog, every fetched migration-enabled release tag, and the declared library

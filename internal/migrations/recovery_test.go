@@ -101,9 +101,7 @@ func TestSelectedBackendVerifiedRetry(t *testing.T) {
 	db := testdb.OpenSelected(t)
 	dialect := testdb.Driver(db)
 	options := Options{Driver: dialect}
-	if _, err := Apply(t.Context(), db, options); err != nil {
-		t.Fatal(err)
-	}
+	applyBootstrap(t, db, dialect)
 	hash, password := seedUpgradeData(t, db, dialect)
 	catalog := upgradeCatalog(t, dialect)
 	catalog.Migrations[1].Preconditions = []string{"SELECT COUNT(*)=0 FROM users WHERE name='prerequisite-missing'"}

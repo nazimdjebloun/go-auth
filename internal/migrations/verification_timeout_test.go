@@ -47,8 +47,8 @@ func (p *verificationProbe) QueryRowContext(ctx context.Context, query string, a
 func TestVerificationPostconditionCancellationRollsBackAndRestoresConnection(t *testing.T) {
 	db := migrationDB(t)
 	upgradeExec(t, db, "sqlite", "PRAGMA busy_timeout=217")
-	applyOwnershipBaseline(t, db, "sqlite")
-	catalog := ownershipBaselineCatalog(t, "sqlite")
+	applyBootstrap(t, db, "sqlite")
+	catalog := bootstrapCatalog(t, "sqlite")
 	ddl := "CREATE TABLE verification_marker (\n    id INTEGER PRIMARY KEY\n);\n"
 	catalog = appendOwnershipStep(t, catalog, catalog.Migrations[0].schemaSQL+"\n"+ddl, ddl)
 	catalog.Migrations[1].Checks = []string{"SELECT 42=42"}
@@ -118,7 +118,7 @@ func TestVerificationPostconditionCancellationRollsBackAndRestoresConnection(t *
 func TestVerificationDeadlineAllDialects(t *testing.T) {
 	for _, dialect := range []string{"sqlite", "postgres", "mysql"} {
 		t.Run(dialect, func(t *testing.T) {
-			catalog := ownershipBaselineCatalog(t, dialect)
+			catalog := bootstrapCatalog(t, dialect)
 			probe := &verificationProbe{queryer: migrationDB(t), block: "*"}
 			caller, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
@@ -134,8 +134,8 @@ func TestVerificationDeadlineAllDialects(t *testing.T) {
 
 func TestVerificationPhaseSharesDeadlineAndPreservesCaller(t *testing.T) {
 	db := migrationDB(t)
-	applyOwnershipBaseline(t, db, "sqlite")
-	catalog := ownershipBaselineCatalog(t, "sqlite")
+	applyBootstrap(t, db, "sqlite")
+	catalog := bootstrapCatalog(t, "sqlite")
 	ddl := "CREATE TABLE future_verification_table (\n    id INTEGER PRIMARY KEY\n);\n"
 	catalog = appendOwnershipStep(t, catalog, catalog.Migrations[0].schemaSQL+"\n"+ddl, ddl)
 	step := catalog.Migrations[0]
