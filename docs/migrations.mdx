@@ -244,7 +244,9 @@ must resolve naming conflicts on their side. Names appearing in any catalog
 snapshot remain reserved, including retired names and pending additions. The
 desired schema and generated reference list the target objects; the journal
 `goauth_migrations` is also reserved. Explicit index names are schema-wide in
-PostgreSQL/SQLite and table-scoped in MySQL. Use extension
+PostgreSQL/SQLite and table-scoped in MySQL. SQLite compares reserved table,
+index and view names without regard to ASCII case. Triggers on application
+tables may share reserved names; triggers on auth tables are rejected. Use extension
 tables for application fields. The current declared stable FK targets are
 `users.id` and `organizations.id`; changing a declared stable target requires a
 major-version change. The reference publishes the selected dialect's key types.

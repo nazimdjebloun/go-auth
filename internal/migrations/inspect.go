@@ -19,7 +19,7 @@ func objectExists(ctx context.Context, q queryer, dialect, name string) (bool, e
 	case "mysql":
 		query = "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=?"
 	case "sqlite":
-		query = "SELECT COUNT(*) FROM main.sqlite_schema WHERE name=?"
+		query = "SELECT COUNT(*) FROM main.sqlite_schema WHERE name=? COLLATE NOCASE AND type IN ('table','index','view')"
 	}
 	err := q.QueryRowContext(ctx, query, name).Scan(&count)
 	return count != 0, err
@@ -125,7 +125,8 @@ func verifyOwnedAbsence(ctx context.Context, q queryer, dialect string, def defi
 	case "mysql":
 		query = "SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() ORDER BY table_name"
 	case "sqlite":
-		query = "SELECT name FROM main.sqlite_schema ORDER BY name"
+		// Published identifiers are lowercase ASCII; SQLite lower uses ASCII folding.
+		query = "SELECT lower(name) FROM main.sqlite_schema WHERE type IN ('table','index','view') ORDER BY name"
 	}
 	rows, err := q.QueryContext(ctx, query)
 	if err != nil {
@@ -163,7 +164,7 @@ func normalizedDDL(ddl string) (string, error) {
 }
 
 func verifySQLite(ctx context.Context, q queryer, def definition) error {
-	rows, err := q.QueryContext(ctx, "SELECT type,name,tbl_name,sql FROM main.sqlite_schema ORDER BY name")
+	rows, err := q.QueryContext(ctx, "SELECT type,lower(name),lower(tbl_name),sql FROM main.sqlite_schema ORDER BY name")
 	if err != nil {
 		return err
 	}
@@ -174,6 +175,13 @@ func verifySQLite(ctx context.Context, q queryer, def definition) error {
 		var ddl sql.NullString
 		if err := rows.Scan(&kind, &name, &table, &ddl); err != nil {
 			return err
+		}
+		// Triggers have a separate namespace; ownership follows their table.
+		if kind == "trigger" {
+			if _, owned := def.tables[table]; owned {
+				return drift(table, "unexpected trigger "+name)
+			}
+			continue
 		}
 		var expected string
 		if spec, ok := def.tables[name]; ok {

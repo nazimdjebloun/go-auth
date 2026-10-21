@@ -57,6 +57,9 @@ Ownership fixtures reject incomplete drops/renames and partial additions before
 retry, retain retired names across later revisions, and check host-object
 namespaces and intentional name reuse. SQLite recovery states are simulated;
 its starting-schema checks run directly because retry requires nontransactional DDL.
+SQLite name fixtures cover ASCII case variants of reserved table/index/view names
+and distinct non-ASCII names, preserve triggers on host tables sharing reserved
+names, and reject triggers on auth tables.
 The historical provenance fixture records the exact v0.3.0 schema checksums
 matching baseline 000001. It checks all 15 tables, column types/nullability/default
 values and explicit collations, named-index columns, sort order, collations,
