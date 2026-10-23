@@ -103,9 +103,22 @@ func TestAtlasDiagnosticWriterFailureRetainsRedactedCauses(t *testing.T) {
 }
 
 const atlasHelperOutput = "Atlas diagnostic: SELECT private_value FROM users; postgres://secret@dev.example/auth\n"
+const atlasHelperSchema = "schema \"main\" {}\n"
+const atlasHelperNotice = "Atlas diagnostic: schema inspection completed\n"
 
 func TestAtlasDiagnosticHelper(_ *testing.T) {
 	switch os.Getenv("GOAUTH_ATLAS_DIAGNOSTIC_HELPER") {
+	case "schema", "streams-failure":
+		if _, err := fmt.Fprint(os.Stdout, atlasHelperSchema); err != nil {
+			os.Exit(98)
+		}
+		if _, err := fmt.Fprint(os.Stderr, atlasHelperNotice); err != nil {
+			os.Exit(98)
+		}
+		if os.Getenv("GOAUTH_ATLAS_DIAGNOSTIC_HELPER") == "streams-failure" {
+			os.Exit(17)
+		}
+		os.Exit(0)
 	case "failure":
 		if _, err := fmt.Fprint(os.Stdout, atlasHelperOutput); err != nil {
 			os.Exit(98)
@@ -121,6 +134,38 @@ func TestAtlasDiagnosticHelper(_ *testing.T) {
 		}
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
+	}
+}
+
+func TestSuccessfulAtlasSchemaExcludesStderr(t *testing.T) {
+	t.Setenv("GOAUTH_ATLAS_DIAGNOSTIC_HELPER", "schema")
+	var diagnostics bytes.Buffer
+	tool := Tool{AtlasPath: os.Args[0], Diagnostics: &diagnostics, run: runCommand}
+	output, err := tool.atlas(t.Context(), t.TempDir(), "-test.run=^TestAtlasDiagnosticHelper$")
+	if err != nil || string(output) != atlasHelperSchema {
+		t.Fatalf("successful schema output includes diagnostics: output=%q err=%v", output, err)
+	}
+	if diagnostics.Len() != 0 {
+		t.Fatal("successful stderr was emitted as failure diagnostics")
+	}
+}
+
+func TestFailedAtlasRetainsBothOutputStreams(t *testing.T) {
+	t.Setenv("GOAUTH_ATLAS_DIAGNOSTIC_HELPER", "streams-failure")
+	var diagnostics bytes.Buffer
+	tool := Tool{AtlasPath: os.Args[0], Diagnostics: &diagnostics, run: runCommand}
+	output, err := tool.atlas(t.Context(), t.TempDir(), "-test.run=^TestAtlasDiagnosticHelper$")
+	var exit *exec.ExitError
+	if output != nil || !errors.As(err, &exit) || exit.ExitCode() != 17 {
+		t.Fatal("failed Atlas execution lost its exit status", err)
+	}
+	for _, stream := range []string{atlasHelperSchema, atlasHelperNotice} {
+		if !strings.Contains(diagnostics.String(), stream) {
+			t.Fatal("opt-in failure diagnostics lost an output stream")
+		}
+		if strings.Contains(err.Error(), stream) {
+			t.Fatal("automatic error output leaked raw subprocess output")
+		}
 	}
 }
 

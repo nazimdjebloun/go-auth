@@ -28,6 +28,13 @@ Returned errors remain redacted and retain their process/cancellation causes.
 Use diagnostics only in a trusted maintainer terminal. Raw Atlas output may
 include reviewed SQL, development connection details or other sensitive values;
 it is deliberately not redacted. Keep it out of shared logs unless reviewed.
+
+Successful commands return stdout separately from stderr. In particular, Atlas
+notices cannot become part of the temporary SQLite HCL schema. On failure,
+opt-in diagnostics retain both output streams, including partial output.
+The CI replay step enables diagnostics because it uses public source SQL and
+pinned disposable databases, never application DSNs or application data.
+
 Programmatic maintainer callers can explicitly set `Tool.Diagnostics` to an
 `io.Writer`; its nil default suppresses raw output. A diagnostic write failure
 retains the original Atlas failure and the writer cause for inspection.

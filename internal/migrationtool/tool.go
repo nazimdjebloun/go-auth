@@ -109,10 +109,15 @@ func runCommand(ctx context.Context, executable, directory string, args ...strin
 	// #nosec G204 -- Maintainer-selected Atlas executable or fixed Git command; arguments bypass the shell.
 	command := exec.CommandContext(ctx, executable, args...)
 	command.Dir = directory
-	output, err := command.CombinedOutput()
-	// Preserve partial diagnostics and both process/context causes. Callers
-	// decide whether raw output is safe to display; errors never include it.
-	return output, errors.Join(err, ctx.Err())
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	err := errors.Join(command.Run(), ctx.Err())
+	if err != nil {
+		// Keep both partial streams for opt-in failure diagnostics. Successful
+		// stdout can be machine-readable HCL and must never include notices.
+		return append(stdout.Bytes(), stderr.Bytes()...), err
+	}
+	return stdout.Bytes(), nil
 }
 
 func (t Tool) catalog(ctx context.Context, driver string) (migrations.Catalog, []byte, error) {

@@ -90,7 +90,8 @@ jobs:
           bash tools/migrations/install-atlas.sh "$RUNNER_TEMP/goauth-tools/atlas"
           printf '%s\n' "$RUNNER_TEMP/goauth-tools" >> "$GITHUB_PATH"
       - name: Replay all dialect histories in disposable databases
-        run: go run ./tools/migrations check --replay --base-ref HEAD --timeout 20m
+        # Replay uses public source SQL and pinned disposable databases, never application DSNs or data.
+        run: go run ./tools/migrations check --replay --base-ref HEAD --timeout 20m --diagnostics
 
   unit:
     runs-on: ubuntu-latest
