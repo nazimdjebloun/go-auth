@@ -26,6 +26,7 @@ const (
 	upgradeOAuth   = "22222222-2222-2222-2222-222222222222"
 	upgradeSession = "33333333-3333-3333-3333-333333333333"
 	upgradeRole    = "66666666-6666-6666-6666-666666666666"
+	upgradeAudit   = "88888888-8888-8888-8888-888888888888"
 )
 
 func fixtureChecksum(contents string) string {
@@ -146,9 +147,9 @@ func seedUpgradeData(t *testing.T, db *sql.DB, dialect string) (string, string) 
 	upgradeExec(t, db, dialect, `INSERT INTO provider_accounts(id,user_id,provider,provider_user_id,provider_email,provider_name,avatar_url,access_token,created_at,updated_at)
 		VALUES ('55555555-5555-5555-5555-555555555555',?,'github','CaseSensitiveIdentity','oauth@example.com','OAuth','','encrypted-fixture',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, upgradeOAuth)
 	upgradeExec(t, db, dialect, `INSERT INTO audit_log(id,event_type,success,created_at)
-		VALUES ('audit-record','password_changed',TRUE,CURRENT_TIMESTAMP)`)
+		VALUES (?,'password_changed',TRUE,CURRENT_TIMESTAMP)`, upgradeAudit)
 	upgradeExec(t, db, dialect, `INSERT INTO audit_outbox(audit_log_id,attempts,next_attempt_at,created_at)
-		VALUES ('audit-record',3,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`)
+		VALUES (?,3,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, upgradeAudit)
 	idType, suffix := "TEXT", ""
 	if dialect == "postgres" {
 		idType = "UUID"
@@ -207,9 +208,9 @@ func assertUpgradeData(t *testing.T, db *sql.DB, dialect, expectedHash, password
 	if err := db.QueryRowContext(t.Context(), bind(dialect, `SELECT
 		(SELECT COUNT(*)=1 FROM verification_tokens WHERE used_at IS NOT NULL AND token_hash=? AND expires_at='2030-01-01 00:00:00')
 		AND (SELECT COUNT(*)=1 FROM provider_accounts WHERE provider_user_id='CaseSensitiveIdentity' AND access_token='encrypted-fixture')
-		AND (SELECT COUNT(*)=1 FROM audit_log WHERE id='audit-record' AND success=TRUE)
-		AND (SELECT COUNT(*)=1 FROM audit_outbox WHERE audit_log_id='audit-record' AND attempts=3)
-		AND (SELECT COUNT(*)=1 FROM user_profiles WHERE note='preserved')`), fixtureChecksum("consumed-token")).Scan(&valid); err != nil || !valid {
+		AND (SELECT COUNT(*)=1 FROM audit_log WHERE id=? AND success=TRUE)
+		AND (SELECT COUNT(*)=1 FROM audit_outbox WHERE audit_log_id=? AND attempts=3)
+		AND (SELECT COUNT(*)=1 FROM user_profiles WHERE note='preserved')`), fixtureChecksum("consumed-token"), upgradeAudit, upgradeAudit).Scan(&valid); err != nil || !valid {
 		t.Fatal("one-time consumption, provider state, audit obligation or host child changed", err)
 	}
 	if _, err := db.ExecContext(t.Context(), bind(dialect, `INSERT INTO provider_accounts(id,user_id,provider,provider_user_id,provider_email,provider_name,avatar_url,created_at,updated_at)
