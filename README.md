@@ -56,7 +56,7 @@ columns even when the feature is disabled.
 
 ## Install
 
-go-auth requires Go 1.26.9 or later.
+go-auth requires Go 1.26.10 or later.
 
 ```bash
 go get github.com/nazimdjebloun/go-auth

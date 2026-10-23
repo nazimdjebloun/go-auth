@@ -17,6 +17,7 @@ func TestMaintainerDiagnosticsFlag(t *testing.T) {
 	}
 	const raw = "Atlas CLI detail: SELECT private_value FROM users; postgres://secret@dev.example/auth"
 	atlas := filepath.Join(t.TempDir(), "atlas")
+	// #nosec G306 -- This private test fixture is an executable shell script.
 	if err := os.WriteFile(atlas, []byte("#!/bin/sh\nprintf '%s\\n' '"+raw+"' >&2\nexit 17\n"), 0700); err != nil {
 		t.Fatal(err)
 	}

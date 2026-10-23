@@ -50,6 +50,7 @@ func (t Tool) Seal(ctx context.Context, directory string, reviewed bool) error {
 	if err != nil {
 		return err
 	}
+	// #nosec G304 -- The maintainer explicitly selects this local review directory.
 	snapshot, err := os.ReadFile(filepath.Join(directory, "schema.sql"))
 	if err != nil {
 		return err
@@ -57,6 +58,7 @@ func (t Tool) Seal(ctx context.Context, directory string, reviewed bool) error {
 	if checksum(desired) != draft.DesiredChecksum || checksum(snapshot) != draft.DesiredChecksum {
 		return fmt.Errorf("migrationtool: desired schema changed since drafting; create and review a new draft")
 	}
+	// #nosec G304 -- Read reviewed SQL from the maintainer-selected draft, never from a request.
 	sql, err := os.ReadFile(filepath.Join(directory, "migration.sql"))
 	if err != nil {
 		return err
@@ -105,10 +107,12 @@ func (t Tool) Seal(ctx context.Context, directory string, reviewed bool) error {
 	if err != nil {
 		return err
 	}
+	// #nosec G304 -- Re-read the same explicitly selected draft to detect edits during replay.
 	currentSQL, err := os.ReadFile(filepath.Join(directory, "migration.sql"))
 	if err != nil {
 		return err
 	}
+	// #nosec G304 -- Re-read the same explicitly selected snapshot to detect edits during replay.
 	currentSnapshot, err := os.ReadFile(filepath.Join(directory, "schema.sql"))
 	if err != nil {
 		return err

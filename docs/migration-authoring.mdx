@@ -92,6 +92,11 @@ file there and runs `atlas migrate diff` against the updated canonical SQL.
 Atlas's temporary timestamp filename becomes the proposed next auth ID, such
 as `000002_v0.5.0_001.sql`; published files retain their existing names.
 
+For SQLite, the wrapper inspects the desired SQL into temporary HCL and omits
+SQLite-generated UNIQUE index names from that input. This avoids a pinned Atlas
+normalization mismatch while preserving uniqueness, index parts, predicates,
+and explicit index names. Published SQL and verification snapshots are unchanged.
+
 Each generated command has an explicit `-- goauth:statement` boundary. The
 wrapper requests these boundaries directly from Atlas's plan formatter and
 preserves each command intact, including compound SQL. See the

@@ -35,6 +35,7 @@ func authorCheckout(t *testing.T) *authorFixture {
 		if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 			t.Fatal(err)
 		}
+		// #nosec G703 -- Fixture paths are authored by these tests beneath their private temporary root.
 		if err := os.WriteFile(path, contents, 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -53,6 +54,7 @@ func authorCheckout(t *testing.T) *authorFixture {
 		write(filepath.Join("internal/migrations", dialect, "catalog.json"), manifest)
 		for _, step := range catalog.Migrations {
 			write(filepath.Join("internal/migrations", dialect, step.File), []byte(step.SQL))
+			// #nosec G304 -- Both dialect and snapshot filename come from the validated embedded catalog.
 			snapshot, err := os.ReadFile(filepath.Join("../migrations", dialect, step.Schema))
 			if err != nil {
 				t.Fatal(err)
@@ -103,6 +105,9 @@ func (f *authorFixture) command(_ context.Context, executable, _ string, args ..
 	if args[0] == "version" {
 		return []byte(f.version), nil
 	}
+	if len(args) > 1 && args[0] == "schema" && args[1] == "inspect" {
+		return []byte("table \"users\" {\n  index \"sqlite_autoindex_users_2\" {\n    unique = true\n    columns = [column.email]\n  }\n}\n"), nil
+	}
 	if len(args) > 1 && args[1] == "diff" && f.diff != nil {
 		for i, arg := range args {
 			if arg == "--dir" {
@@ -138,6 +143,7 @@ func TestPublicationChecksLegacyTagsReleaseMetadataAndAllDialectReplay(t *testin
 		t.Fatal("publication did not replay all pinned dialects")
 	}
 	for path, expected := range f.base {
+		// #nosec G304 -- Baseline paths are authored by this fixture inside its private temporary checkout.
 		contents, err := os.ReadFile(filepath.Join(f.tool.Root, path))
 		if err != nil || string(contents) != string(expected) {
 			t.Fatal("publication check mutated source", path, err)
@@ -260,6 +266,7 @@ func TestSealRefusesInputsEditedDuringAtlasReplay(t *testing.T) {
 			if err := f.tool.Seal(t.Context(), directory, true); err == nil {
 				t.Fatal("stale reviewed inputs were published")
 			}
+			// #nosec G304 -- Inspect the exact temporary fixture file deliberately edited by this test.
 			if contents, err := os.ReadFile(editedPath); err != nil || string(contents) != string(edited) {
 				t.Fatal("editing during replay was overwritten", err)
 			}
@@ -392,6 +399,7 @@ func TestSealAppendsReviewedDataMigrationAndPreservesPublishedArtifacts(t *testi
 		if !strings.HasPrefix(path, "internal/migrations/") || strings.HasSuffix(path, "catalog.json") {
 			continue
 		}
+		// #nosec G304 -- Only validated immutable artifacts from the temporary fixture checkout are read.
 		contents, err := os.ReadFile(filepath.Join(f.tool.Root, path))
 		if err != nil || string(contents) != string(previous) {
 			t.Fatal("immutable migration or fixture was rewritten", path, err)

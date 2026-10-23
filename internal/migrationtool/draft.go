@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,8 @@ import (
 )
 
 const statementFormat = "{{ range .Changes }}-- goauth:statement\n{{ .Cmd }};\n\n{{ end }}"
+
+var sqliteAutoindexLabel = regexp.MustCompile(`(?m)^(\s*)index "sqlite_autoindex_[a-z_]+_[0-9]+" \{`)
 
 // CreateDraft compares released history with canonical SQL in a disposable
 // Atlas database. It writes review files only, leaving source catalogs untouched.
@@ -163,6 +166,19 @@ func (t Tool) diff(ctx context.Context, pin toolchain, work string, catalog migr
 	devURL, ok := pin.DevDatabases[catalog.Dialect]
 	if !ok {
 		return nil, fmt.Errorf("migrationtool: no pinned dev database for %s", catalog.Dialect)
+	}
+	if catalog.Dialect == "sqlite" {
+		// Atlas v1.3.0 renames UNIQUE autoindexes on only one side of its
+		// diff. Keep their full definitions but omit SQLite-generated names
+		// from the temporary desired HCL so Atlas matches them by their parts.
+		hcl, err := t.atlas(ctx, work, "schema", "inspect", "--url", fileURL(schemaPath), "--dev-url", devURL)
+		if err != nil {
+			return nil, err
+		}
+		schemaPath = filepath.Join(work, "schema.hcl")
+		if err := writeNew(schemaPath, sqliteAutoindexLabel.ReplaceAll(hcl, []byte("${1}index {"))); err != nil {
+			return nil, err
+		}
 	}
 	if _, err := t.atlas(ctx, work, "migrate", "diff", "review", "--dir", fileURL(history),
 		"--to", fileURL(schemaPath), "--dev-url", devURL, "--format", statementFormat); err != nil {

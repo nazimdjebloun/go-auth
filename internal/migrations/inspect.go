@@ -364,6 +364,19 @@ func normalizeDefault(dialect, kind, value string, live bool) (string, error) {
 			return "'" + strings.ReplaceAll(value, "'", "''") + "'", nil
 		}
 	}
+	if dialect == "mysql" {
+		var err error
+		if live {
+			value, err = mysqlMetadataSQL(value)
+			if err != nil {
+				return "", err
+			}
+		}
+		value, err = mysqlLiterals(value)
+		if err != nil {
+			return "", err
+		}
+	}
 	value, err := expression(value)
 	if err != nil {
 		return "", err
@@ -484,7 +497,7 @@ func mysqlConstraints(ctx context.Context, q queryer, table string) ([]string, e
 				delete: deleteAction, update: updateAction,
 			}))
 		case "CHECK":
-			expr, err := expression(check)
+			expr, err := mysqlCheckExpression(check)
 			if err != nil {
 				return nil, drift(table, "unsupported live CHECK expression")
 			}

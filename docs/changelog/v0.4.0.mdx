@@ -145,3 +145,9 @@ See [exported artifacts](../migrations.mdx#exported-artifacts) and
   replay does not execute the Go runner's data preconditions or postconditions.
 
 See [Migration authoring](../migration-authoring.mdx) for the maintainer workflow.
+
+## Go toolchain security update
+
+The minimum Go version and CI toolchain advance to **1.26.10**, which includes
+the `crypto/x509` fix for [GO-2026-6809](https://pkg.go.dev/vuln/GO-2026-6809).
+Build deployment binaries with Go 1.26.10 or a newer patched toolchain.

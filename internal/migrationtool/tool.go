@@ -84,6 +84,7 @@ func (t Tool) prepare() (Tool, error) {
 		return t, err
 	}
 	t.Root = root
+	// #nosec G304 -- The maintainer chooses the checkout root; this read verifies its module identity.
 	module, err := os.ReadFile(filepath.Join(root, "go.mod"))
 	if err != nil || !strings.HasPrefix(string(module), "module github.com/nazimdjebloun/go-auth\n") &&
 		!strings.HasPrefix(string(module), "module github.com/nazimdjebloun/go-auth\r\n") {
@@ -105,6 +106,7 @@ func (t Tool) prepare() (Tool, error) {
 }
 
 func runCommand(ctx context.Context, executable, directory string, args ...string) ([]byte, error) {
+	// #nosec G204 -- Maintainer-selected Atlas executable or fixed Git command; arguments bypass the shell.
 	command := exec.CommandContext(ctx, executable, args...)
 	command.Dir = directory
 	output, err := command.CombinedOutput()
@@ -174,6 +176,7 @@ func (t Tool) checkPrefix(ctx context.Context, catalog migrations.Catalog) error
 }
 
 func (t Tool) desired(dialect string) ([]byte, error) {
+	// #nosec G304 -- Root is the maintainer-selected checkout and dialect comes from the validated catalog.
 	contents, err := os.ReadFile(filepath.Join(t.Root, "internal/schema", dialect+".sql"))
 	return bytes.ReplaceAll(contents, []byte("\r\n"), []byte("\n")), err
 }
@@ -186,6 +189,8 @@ func (t Tool) atlas(ctx context.Context, directory string, args ...string) ([]by
 			operation = "version"
 		} else if len(args) > 1 && args[0] == "migrate" && (args[1] == "hash" || args[1] == "diff") {
 			operation = "migrate " + args[1]
+		} else if len(args) > 1 && args[0] == "schema" && args[1] == "inspect" {
+			operation = "schema inspect"
 		}
 		var writeErr error
 		if t.Diagnostics != nil && len(output) != 0 {
@@ -267,6 +272,7 @@ func checksum(contents []byte) string {
 }
 
 func readJSON(path string, target any) error {
+	// #nosec G304 -- This maintainer helper reads an explicitly selected draft or a validated catalog artifact.
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		return err
@@ -288,6 +294,7 @@ func jsonBytes(value any) ([]byte, error) {
 }
 
 func writeNew(path string, contents []byte) error {
+	// #nosec G304 -- Maintainer publication selects the path; exclusive creation refuses existing files.
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err

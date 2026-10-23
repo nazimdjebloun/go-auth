@@ -18,6 +18,8 @@ type CheckOptions struct {
 	Replay    bool
 }
 
+// CheckPublication validates source history and optional published-tag and
+// disposable replay checks without modifying source artifacts.
 func (t Tool) CheckPublication(ctx context.Context, options CheckOptions) error {
 	if options.Release != "" && !releaseName.MatchString(options.Release) {
 		return fmt.Errorf("migrationtool: --release must be vMAJOR.MINOR.PATCH")

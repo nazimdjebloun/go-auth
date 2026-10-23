@@ -38,6 +38,7 @@ func Export(driver, directory string) error {
 	}
 	manifest = append(manifest, '\n')
 	manifestPath := filepath.Join(directory, "migrations", "catalog.json")
+	// #nosec G304 -- Export explicitly targets a caller-selected directory and a fixed manifest filename.
 	if existing, err := os.ReadFile(manifestPath); err == nil {
 		old, err := decodeCatalog(existing)
 		if err != nil {
@@ -72,6 +73,7 @@ func Export(driver, directory string) error {
 	}
 	for _, step := range catalog.Migrations {
 		path := filepath.Join(directory, "migrations", step.File)
+		// #nosec G304 -- The caller selects the export directory; filenames come from the validated embedded catalog.
 		if existing, err := os.ReadFile(path); err == nil && string(existing) != step.SQL {
 			return fmt.Errorf("goauth: refusing to replace modified published artifact %q", path)
 		} else if err != nil && !os.IsNotExist(err) {

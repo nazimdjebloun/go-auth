@@ -10,11 +10,22 @@ import (
 // Normalization preserves boolean precedence and literal case. Removing all
 // parentheses would incorrectly accept different CHECK constraints.
 func expression(sql string) (string, error) {
+	return parseExpression(sql, false)
+}
+
+func parseExpression(sql string, mysql bool) (string, error) {
+	if mysql {
+		var err error
+		sql, err = mysqlLiterals(sql)
+		if err != nil {
+			return "", err
+		}
+	}
 	tokens, err := tokenize(sql)
 	if err != nil {
 		return "", err
 	}
-	p := expressionParser{tokens: tokens}
+	p := expressionParser{tokens: tokens, mysql: mysql}
 	value, err := p.parse(0)
 	if err != nil {
 		return "", err
@@ -22,7 +33,7 @@ func expression(sql string) (string, error) {
 	if p.pos != len(p.tokens) {
 		return "", fmt.Errorf("unsupported verification expression near %q", p.tokens[p.pos])
 	}
-	return value, nil
+	return p.condition(value), nil
 }
 
 func tokenize(sql string) ([]string, error) {
@@ -84,11 +95,14 @@ func tokenize(sql string) ([]string, error) {
 		if start == i {
 			return nil, fmt.Errorf("unsupported verification token")
 		}
-		token := strings.ToLower(sql[start:i])
-		if token == "_utf8mb4" || token == "_utf8mb3" {
-			continue // MySQL's explicit introducer for string literals.
+		word := strings.ToLower(sql[start:i])
+		switch word {
+		case "_utf8mb4", "_utf8mb3", "_latin1", "_ascii":
+			if i < len(sql) && sql[i] == '\'' {
+				continue // MySQL's explicit introducer for string literals.
+			}
 		}
-		tokens = append(tokens, token)
+		tokens = append(tokens, word)
 	}
 	return tokens, nil
 }
@@ -96,6 +110,32 @@ func tokenize(sql string) ([]string, error) {
 type expressionParser struct {
 	tokens []string
 	pos    int
+	mysql  bool
+}
+
+// MySQL deparses truth predicates as comparisons against zero. Normalize only
+// boolean positions; a comparison used as a scalar operand must stay intact.
+func (p *expressionParser) condition(value string) string {
+	if !p.mysql {
+		return value
+	}
+	for _, op := range []string{"=", "!="} {
+		var operand string
+		switch {
+		case strings.HasPrefix(value, op+"(0,"):
+			operand = value[len(op)+3 : len(value)-1]
+		case strings.HasPrefix(value, op+"(") && strings.HasSuffix(value, ",0)"):
+			operand = value[len(op)+1 : len(value)-3]
+		default:
+			continue
+		}
+		operand = p.condition(operand)
+		if op == "=" {
+			return "not(" + operand + ")"
+		}
+		return operand
+	}
+	return value
 }
 
 func (p *expressionParser) take(token string) bool {
@@ -156,6 +196,9 @@ func (p *expressionParser) parse(minimum int) (string, error) {
 		if op == "<>" {
 			op = "!="
 		}
+		if op == "and" || op == "or" {
+			left, right = p.condition(left), p.condition(right)
+		}
 		left = op + "(" + left + "," + right + ")"
 	}
 	return left, nil
@@ -167,7 +210,7 @@ func (p *expressionParser) atom() (string, error) {
 	}
 	if p.take("not") {
 		value, err := p.parse(3)
-		return "not(" + value + ")", err
+		return "not(" + p.condition(value) + ")", err
 	}
 	var value string
 	if p.take("(") {

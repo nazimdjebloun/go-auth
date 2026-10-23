@@ -119,6 +119,7 @@ func TestExportRefusesChangedPublishedSQL(t *testing.T) {
 	if err := Export("sqlite", directory); err == nil {
 		t.Fatal("modified published migration was overwritten")
 	}
+	// #nosec G304 -- Read the exported artifact inside this test's private temporary directory.
 	if content, err := os.ReadFile(path); err != nil || string(content) != "modified" {
 		t.Fatal("changed migration was not preserved")
 	}
@@ -130,6 +131,7 @@ func TestExportRefusesChangedExecutionMetadata(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(directory, "migrations", "catalog.json")
+	// #nosec G304 -- Read the fixed manifest path inside this test's private temporary directory.
 	contents, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -143,12 +145,14 @@ func TestExportRefusesChangedExecutionMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G703 -- The export manifest path is fixed inside this test's private temporary directory.
 	if err := os.WriteFile(path, changed, 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := Export("sqlite", directory); err == nil {
 		t.Fatal("modified execution metadata was overwritten")
 	}
+	// #nosec G304 -- Inspect the same manifest this test deliberately changed in its temporary directory.
 	if preserved, err := os.ReadFile(path); err != nil || string(preserved) != string(changed) {
 		t.Fatal("changed manifest was not preserved", err)
 	}

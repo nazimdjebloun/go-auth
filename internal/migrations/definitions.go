@@ -144,7 +144,7 @@ func parseDefinition(dialect, script string) (definition, error) {
 			return result, err
 		}
 		for _, check := range checks {
-			expression, err := expression(check)
+			expression, err := parseExpression(check, dialect == "mysql")
 			if err != nil {
 				return result, fmt.Errorf("%s CHECK: %w", table.name, err)
 			}

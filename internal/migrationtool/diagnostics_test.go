@@ -14,16 +14,17 @@ import (
 )
 
 func TestAtlasFailureRedactsArgumentsOutputAndCause(t *testing.T) {
-	secret := "postgres://reviewer:credential@dev.example/auth"
-	cause := errors.New("runner failed while applying SELECT private_value FROM users: " + secret)
+	// #nosec G101 -- Intentionally fake credentials verify that subprocess errors redact connection details.
+	fixtureDSN := "postgres://reviewer:credential@dev.example/auth"
+	cause := errors.New("runner failed while applying SELECT private_value FROM users: " + fixtureDSN)
 	tool := Tool{run: func(context.Context, string, string, ...string) ([]byte, error) {
-		return []byte("raw Atlas SQL: SELECT private_value FROM users\n" + secret), cause
+		return []byte("raw Atlas SQL: SELECT private_value FROM users\n" + fixtureDSN), cause
 	}}
-	_, err := tool.atlas(t.Context(), t.TempDir(), "schema", secret)
+	_, err := tool.atlas(t.Context(), t.TempDir(), "schema", fixtureDSN)
 	if err == nil || !errors.Is(err, cause) {
 		t.Fatal("Atlas failure lost its original cause", err)
 	}
-	for _, sensitive := range []string{secret, "private_value", "raw Atlas SQL"} {
+	for _, sensitive := range []string{fixtureDSN, "private_value", "raw Atlas SQL"} {
 		if strings.Contains(err.Error(), sensitive) {
 			t.Fatal("default Atlas error exposed subprocess details")
 		}
@@ -41,6 +42,7 @@ func TestAtlasFailureUsesOnlyKnownOperationNames(t *testing.T) {
 		{[]string{"version"}, "Atlas version failed"},
 		{[]string{"migrate", "hash", "private argument"}, "Atlas migrate hash failed"},
 		{[]string{"migrate", "diff", "private argument"}, "Atlas migrate diff failed"},
+		{[]string{"schema", "inspect", "private argument"}, "Atlas schema inspect failed"},
 		{[]string{"private argument"}, "Atlas command failed"},
 	} {
 		t.Run(test.want, func(t *testing.T) {
@@ -102,7 +104,7 @@ func TestAtlasDiagnosticWriterFailureRetainsRedactedCauses(t *testing.T) {
 
 const atlasHelperOutput = "Atlas diagnostic: SELECT private_value FROM users; postgres://secret@dev.example/auth\n"
 
-func TestAtlasDiagnosticHelper(t *testing.T) {
+func TestAtlasDiagnosticHelper(_ *testing.T) {
 	switch os.Getenv("GOAUTH_ATLAS_DIAGNOSTIC_HELPER") {
 	case "failure":
 		if _, err := fmt.Fprint(os.Stdout, atlasHelperOutput); err != nil {
@@ -113,6 +115,7 @@ func TestAtlasDiagnosticHelper(t *testing.T) {
 		if _, err := fmt.Fprint(os.Stdout, atlasHelperOutput); err != nil {
 			os.Exit(98)
 		}
+		// #nosec G703 -- The parent test passes a readiness file in its private temporary directory.
 		if err := os.WriteFile(os.Getenv("GOAUTH_ATLAS_DIAGNOSTIC_READY"), nil, 0600); err != nil {
 			os.Exit(99)
 		}

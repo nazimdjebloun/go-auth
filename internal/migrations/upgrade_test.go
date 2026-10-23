@@ -151,9 +151,10 @@ func seedUpgradeData(t *testing.T, db *sql.DB, dialect string) (string, string) 
 	upgradeExec(t, db, dialect, `INSERT INTO audit_outbox(audit_log_id,attempts,next_attempt_at,created_at)
 		VALUES (?,3,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`, upgradeAudit)
 	idType, suffix := "TEXT", ""
-	if dialect == "postgres" {
+	switch dialect {
+	case "postgres":
 		idType = "UUID"
-	} else if dialect == "mysql" {
+	case "mysql":
 		idType, suffix = "VARCHAR(36)", " ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"
 	}
 	upgradeExec(t, db, dialect, fmt.Sprintf(`CREATE TABLE user_profiles (user_id %s PRIMARY KEY, note TEXT NOT NULL,
