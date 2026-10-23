@@ -1,0 +1,147 @@
+---
+title: "v0.4.0"
+description: "Standalone auth migrations with immutable history, verified adoption and recovery, schema exports, and maintainer authoring tools."
+date: "2026-10-23"
+---
+
+Auth schema deployment gains a versioned migration catalog for PostgreSQL,
+MySQL, and SQLite. Applications run auth migrations explicitly, separately
+from their own schema or ORM migrations. `New` never executes migrations.
+
+The initial catalog contains one complete baseline, revision `000001`, for
+each dialect. This release adds migration tracking and execution without
+changing the baseline auth table definitions. It does not publish incremental
+upgrades from arbitrary older schemas.
+
+## Standalone migration execution
+
+- **`goauth migrate` installs or upgrades the auth schema.** The runner validates
+  recorded history, verifies the last completed schema, and executes pending
+  migration IDs in increasing numeric order. Repeated execution verifies the
+  existing state and skips completed SQL.
+- **The runner executes its embedded catalog.** It does not read migration SQL
+  exported into an application's checkout. Updating the go-auth dependency
+  supplies the published migrations for that version; editing generated copies
+  does not change execution.
+- **Auth has its own `goauth_migrations` journal.** Records include migration
+  identity, SQL and schema-snapshot checksums, execution or adoption mode,
+  started/completed state, and timestamps. Unknown or non-prefix history,
+  checksum mismatches, and incomplete migrations block ordinary execution.
+- **The Go deployment API does not require an `Auth` instance.** `Migrate`,
+  `AdoptSchema`, `GetMigrationStatus`, `CheckSchema`, `VerifySchema`,
+  `RepairMigration`, and `RetryMigration` accept caller-owned database handles.
+  They do not close the supplied database.
+
+Run the CLI from the application's Go module so it uses the dependency selected
+by `go.mod`, without an independent version suffix:
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
+  --driver postgres --dsn "$DATABASE_URL"
+```
+
+Stop auth traffic and auth-writing workers before execution. An installed CLI
+must match the library release. See [Migrations](../migrations.mdx) for the
+deployment sequence and Go API.
+
+## Existing installations and compatibility checks
+
+- **Existing untracked auth tables require explicit adoption.**
+  `migrate adopt --baseline 1` validates the complete supported baseline before
+  recording it as adopted. It executes no baseline creation SQL and does not
+  rewrite auth data. Partial or modified schemas require reviewed reconciliation.
+- **The supported baseline matches the recorded v0.3.0 schema fixtures.**
+  Actual installations still require live validation; a previous dependency
+  version alone does not prove their database structure is compatible.
+- **`migrate status` reports history without initializing metadata.** Its JSON
+  output includes the completed revision, pending IDs, and dirty state. Missing
+  history is an error.
+- **`DatabaseConfig.CheckSchema` adds an optional startup compatibility check.**
+  It defaults to `false`. When enabled, missing, dirty, unknown, checksum-mismatched,
+  or incompatible history rejects startup before services and workers start.
+  It uses the shared ten-second startup database timeout and executes no DDL.
+- **`migrate verify` checks live structure and data postconditions.** A successful
+  history or startup check alone does not certify absence of schema drift.
+  Verification checks the tracked target under migration serialization.
+
+## Database locks, verification, and recovery
+
+- **PostgreSQL runners hold a session advisory lock.** Transactional steps commit
+  their changes and completion record together. Explicit nontransactional steps
+  can leave incomplete state. Migration sessions require
+  `session_replication_role=origin`.
+- **MySQL runners hold a named lock for the selected database.** DDL steps are
+  nontransactional and require session `autocommit=1`. A durable started record
+  precedes migration SQL so a partial failure blocks later execution.
+- **SQLite runs the invocation in one `BEGIN IMMEDIATE` transaction.** Rebuild
+  metadata controls foreign-key settings before the transaction. Verification
+  includes `foreign_key_check`, including application-owned child references.
+- **Verification detects structural and ownership drift.** Checks include
+  columns, defaults, constraints, indexes, collations, triggers, and foreign-key
+  integrity. Reserved names come from every catalog snapshot, including retired
+  objects and pending additions. SQLite respects case-insensitive table/index/view
+  names and the separate trigger namespace.
+- **`migrate repair --id N` verifies completion without replaying SQL.** Only the
+  exact last incomplete step can be repaired, and all its structural and data
+  postconditions must pass before its journal record is marked complete.
+- **`migrate retry --id N` requires a published retry policy.** It supports only
+  incomplete nontransactional upgrades, verifies the previous completed schema
+  and starting-data predicates, and replays that step in full while preserving
+  its original journal row. Later steps remain pending. The initial baseline
+  has no retry policy.
+
+CLI defaults are a 30-minute overall timeout, a 30-second lock timeout, and a
+five-minute budget per SQL statement or verification/precondition phase. Go
+options use zero for the lock and statement/phase defaults; the caller context
+supplies the overall deadline. Cleanup uses an independent five-second budget,
+restores connection settings, and discards sessions with uncertain cleanup.
+
+Migrations are forward-only. There are no down scripts, force-complete flags,
+or automatic reconciliation of partial changes. Errors expose migration identity,
+phase, dirty/uncertain flags, and wrapped causes; CLI output suppresses raw driver
+messages. See [recovery procedures](../migrations.mdx#transactions-locks-and-recovery).
+
+## Schema exports and application ownership
+
+- **Breaking CLI change: `generate --out` now selects a directory.** The default
+  is `goauth`. Export writes `auth.schema.sql`, `reference.md`, and
+  `migrations/catalog.json` with the numbered published SQL. It connects to no
+  database and refuses to replace changed published SQL or incompatible catalog
+  metadata. Use separate output directories for different dialects.
+- **Single-file Go exports remain available.** `GenerateSchema(driver, path)`
+  still writes raw desired DDL for inspection. `ExportSchema(driver, directory)`
+  produces the complete review artifacts. Neither records applied state.
+- **Applications and ORMs retain ownership of their own tables.** Both may share
+  the database with auth, but auth definitions and history stay separate. Run auth
+  migrations before application migrations that create child foreign keys. Keep
+  custom account fields in extension tables; do not let ORM auto-migration alter
+  auth objects. The declared stable FK targets are `users.id` and
+  `organizations.id`.
+
+See [exported artifacts](../migrations.mdx#exported-artifacts) and
+[application and ORM ownership](../migrations.mdx#application-and-orm-ownership).
+
+## Maintainer authoring and regression coverage
+
+- **`tools/migrations` provides `draft`, `seal`, `check`, and `release`.** Pinned
+  Atlas and disposable development databases draft structural changes and replay
+  candidate histories. Maintainers review SQL, backfills, execution metadata,
+  data checks, and recovery instructions before sealing new immutable artifacts.
+- **Publication checks protect existing history.** Checks compare the immutable
+  base and fetched migration-enabled release tags, validate canonical targets,
+  and reject undeclared artifacts. Releases without schema changes update release
+  metadata without creating empty migration files.
+- **Atlas diagnostics are opt-in.** `--diagnostics` exposes failed subprocess
+  output in a trusted maintainer terminal; ordinary errors omit that raw output.
+- **Regression coverage exercises deployment and recovery behavior.** Tests cover
+  fresh/repeat execution, adoption, concurrent runners, dirty history, failed
+  backfills, verified repair/retry, shared verification deadlines, reserved
+  names, and SQLite rebuilds with application references. Every published catalog
+  prefix is installed and upgraded through the Go runner. Populated synthetic
+  upgrades check credential, token, provider, audit, and application-data
+  preservation; each future published upgrade still needs its own populated cases.
+- **CI adds a migration-catalog gate.** It checks immutable history and release
+  metadata and replays all three dialect histories with pinned Atlas. Structural
+  replay does not execute the Go runner's data preconditions or postconditions.
+
+See [Migration authoring](../migration-authoring.mdx) for the maintainer workflow.
