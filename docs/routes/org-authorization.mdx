@@ -1,0 +1,84 @@
+---
+title: "Org authorization"
+description: "Organization-local permission, role, grant, invitation and access APIs."
+---
+
+# Org authorization
+
+`WithOrgPermissions(OrgPermissionsConfig{Enable:true})` exposes self access.
+`EnableManagementHTTP:true` additionally mounts initialization and management.
+Organizations must be enabled. All routes authenticate the current session and
+use rate limiting; writes also use the configured CSRF token and origin checks.
+Actors come from the session, never the JSON body.
+
+For management paths below, `BASE` is `/auth/orgs/{orgID}/authorization`.
+The exact operation keys listed below start with `goauth.org.`.
+
+| Method and path | Access | Input / result |
+|---|---|---|
+| `GET /auth/orgs/{orgID}/access` | Current enabled member role | `{role,isFullAccess,permissionKeys,assignmentRevision,revision}` |
+| `POST BASE/initialize` | Current owner | No body; 204 |
+| `GET BASE/library-permissions` | Protected owner | `{permissions:[{key,name,description}]}` |
+| `PATCH BASE/library-permissions` | Protected owner | `{create:[keys],delete:[keys]}`; atomic result `{created,deleted,unchanged}` |
+| `GET BASE/permissions` | `permissions.read` | `limit`, `offset`; `{permissions:[...]}` |
+| `POST BASE/permissions` | `permissions.create` | `{key,name,description?}`; definition, 201 |
+| `PATCH BASE/permissions/{permissionID}` | `permissions.update` | `{expectedRevision,name?,description?,isEnabled?}`; business definition only |
+| `DELETE BASE/permissions/{permissionID}` | `permissions.delete` | Required `expectedRevision` query; 204 |
+| `GET BASE/roles` | `roles.read` | `limit`, `offset`; `{roles:[...]}` |
+| `POST BASE/roles` | `roles.create` | `{slug,name,description?,permissionKeys?}`; role, 201 |
+| `PATCH BASE/roles/{roleID}` | `roles.update` | `{expectedRevision,name?,description?,isEnabled?}` |
+| `PUT BASE/roles/{roleID}/permissions` | `roles.update` | `{expectedRevision,permissionKeys:[...]}`; replaces grants, `[]` clears |
+| `DELETE BASE/roles/{roleID}` | `roles.delete` | Required `expectedRevision` query; 204 |
+| `GET BASE/members/{userID}/role` | `roles.read`, including for self | `{role,assignmentRevision}` |
+| `GET BASE/members/{userID}/access` | `roles.read` for another member | Target member's effective access |
+| `PUT BASE/members/{userID}/role` | `roles.assign` | `{roleId,expectedRoleRevision,expectedAssignmentRevision}`; assignment |
+
+Other successful reads/updates return 200. Authorization IDs are lowercase,
+hyphenated UUIDs. Management JSON is limited to 64 KiB and rejects unknown fields
+and trailing documents. Lists default to 20; limits 1–100 are accepted, zero
+selects the default, and offsets must be nonnegative. Role/definition results
+include `orgId`, IDs, metadata, enabled state, revisions and timestamps. Built-in
+roles expose `systemKey`; custom roles contain explicit `permissionKeys`.
+The member-role GET remains available to an authorized caller when the target
+is banned or its assigned role is disabled; it returns the assignment revision
+needed to replace that role.
+Authorized target-access reads return that metadata with an empty effective
+`permissionKeys` array and `isFullAccess: false` for disabled roles or banned
+members. The requesting caller must still pass authentication and authorization.
+
+Business-definition deletion enforces the same held-key delegation bound as
+updates, and still rejects referenced definitions. In the current grant model,
+owners can delete unused business definitions; non-owners cannot bypass either check.
+
+With the feature enabled, existing org operations use these exact permission
+checks in addition to membership and business invariants:
+
+| Operation | Permission |
+|---|---|
+| Read org | `goauth.org.organization.read` |
+| Update org | `goauth.org.organization.update` |
+| Delete org | `goauth.org.organization.delete` |
+| List/count members | `goauth.org.members.read` |
+| Direct `AddMember` | `goauth.org.members.create` |
+| Remove another member | `goauth.org.members.remove`; touching an owner also requires protected owner identity |
+| Update fixed member role | `goauth.org.roles.assign`; old/new delegation bounds and owner restrictions apply |
+| Create/read/resend/delete org invitations | `goauth.org.invites.create/read/resend/delete`, respectively |
+
+Invitation creation accepts either `{email,role}` or
+`{email,orgRoleId,expectedRoleRevision}`. The latter also requires `roles.assign`.
+Malformed or noncanonical `orgRoleId` values return `400 invalid_input`.
+Membership responses expose `orgRoleId` and, after explicit assignment,
+`orgRoleAssignmentRevision`; their fixed `role` remains the owner/admin/member
+classification used by legacy APIs and ownership counters. Invitation responses
+expose `orgRoleId` and `orgRoleRevision` for the proposed role.
+
+The same authorization, delegation and revision checks run in direct Go services.
+Use `GET /auth/orgs/{orgID}/access` for self-inspection without `roles.read`.
+Resending a role-linked invitation requires the resender's `invites.resend` grant
+and the original inviter's current delegation authority; even an owner must
+delete and recreate an invitation after that authority is lost.
+An invitation whose saved role changed or is disabled returns
+`409 org_invite_role_changed` on acceptance or resend. An authorized inviter
+must delete and recreate it after reviewing the current role.
+See the [usage guide](../guides/org-permissions.mdx) for initialization, invitation
+invalidation and the boundary between app and org administration.

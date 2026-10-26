@@ -14,7 +14,9 @@ import (
 
 var compositePrimary = regexp.MustCompile(`PRIMARY KEY \(([a-z_, ]+)\)`)
 var inlineReference = regexp.MustCompile(`(?m)^\s+([a-z_]+) [^\n]*?REFERENCES ([a-z_]+)\(([a-z_]+)\)(?: ON DELETE (CASCADE|SET NULL))?`)
-var tableReference = regexp.MustCompile(`FOREIGN KEY \(([a-z_]+)\) REFERENCES ([a-z_]+)\(([a-z_]+)\)(?: ON DELETE (CASCADE|SET NULL))?`)
+var tableReference = regexp.MustCompile(`FOREIGN KEY \(([a-z_, ]+)\) REFERENCES ([a-z_]+)\(([a-z_, ]+)\)(?: ON DELETE (CASCADE|SET NULL))?`)
+var uniqueKey = regexp.MustCompile(`UNIQUE\s*\(([a-z_, ]+)\)`)
+var namedUniqueKey = regexp.MustCompile(`(?m)^CREATE UNIQUE INDEX(?: IF NOT EXISTS)? [a-z_]+ ON ([a-z_]+)\(([a-z_, ]+)\);`)
 var checks = regexp.MustCompile(`CHECK\s*\(`)
 var checkCast = regexp.MustCompile(`::(?:character varying|bigint|integer|text)(?:\[\])?`)
 var checkIn = regexp.MustCompile(`(?i)([a-z_]+) IN \(([^)]+)\)`)
@@ -47,9 +49,14 @@ func AssertKeys(t *testing.T, db *sql.DB) {
 				if match := compositePrimary.FindStringSubmatch(line); match != nil {
 					wantKeys["PRIMARY KEY:"+strings.ReplaceAll(match[1], " ", "")] = true
 				}
-				if strings.HasPrefix(strings.TrimSpace(line), "UNIQUE(") {
-					columns := strings.TrimSuffix(strings.TrimPrefix(strings.TrimRight(strings.TrimSpace(line), ","), "UNIQUE("), ")")
-					wantKeys["UNIQUE:"+strings.ReplaceAll(columns, " ", "")] = true
+				if match := uniqueKey.FindStringSubmatch(line); match != nil {
+					wantKeys["UNIQUE:"+strings.ReplaceAll(match[1], " ", "")] = true
+				}
+
+			}
+			for _, idx := range namedUniqueKey.FindAllStringSubmatch(ddl, -1) {
+				if idx[1] == table[1] {
+					wantKeys["UNIQUE:"+strings.ReplaceAll(idx[2], " ", "")] = true
 				}
 			}
 			gotKeys := catalogKeys(t, db, table[1])
@@ -63,7 +70,7 @@ func AssertKeys(t *testing.T, db *sql.DB) {
 					if action == "" {
 						action = "RESTRICT"
 					}
-					wantFK[fk[1]] = fk[2] + "." + fk[3] + ":" + action
+					wantFK[strings.ReplaceAll(fk[1], " ", "")] = fk[2] + "." + strings.ReplaceAll(fk[3], " ", "") + ":" + action
 				}
 			}
 			gotFK := catalogForeignKeys(t, db, table[1])
@@ -129,38 +136,65 @@ func catalogKeys(t *testing.T, db *sql.DB, table string) map[string]bool {
 	for name, columns := range groups {
 		result[kinds[name]+":"+strings.Join(columns, ",")] = true
 	}
+	if Driver(db) == "postgres" {
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		indexes, err := db.QueryContext(t.Context(), SQL(db, `SELECT string_agg(a.attname,',' ORDER BY k.ordinality) FROM pg_index i JOIN pg_class tab ON tab.oid=i.indrelid JOIN pg_namespace ns ON ns.oid=tab.relnamespace JOIN LATERAL unnest(i.indkey) WITH ORDINALITY k(attribute,ordinality) ON true JOIN pg_attribute a ON a.attrelid=tab.oid AND a.attnum=k.attribute WHERE ns.nspname='public' AND tab.relname=? AND i.indisunique AND NOT i.indisprimary GROUP BY i.indexrelid`), table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, columns := range scanStrings(t, indexes) {
+			result["UNIQUE:"+columns] = true
+		}
+	}
 	return result
 }
 
 func catalogForeignKeys(t *testing.T, db *sql.DB, table string) map[string]string {
 	t.Helper()
-	result := make(map[string]string)
 	var query string
 	switch Driver(db) {
 	case "sqlite":
-		query = `SELECT "from","table","to",on_delete FROM pragma_foreign_key_list(?)`
+		query = `SELECT CAST(id AS TEXT),seq,"from","table","to",on_delete FROM pragma_foreign_key_list(?) ORDER BY id,seq`
 	case "mysql":
-		query = `SELECT k.column_name,k.referenced_table_name,k.referenced_column_name,r.delete_rule FROM information_schema.key_column_usage k JOIN information_schema.referential_constraints r ON r.constraint_schema=k.constraint_schema AND r.constraint_name=k.constraint_name AND r.table_name=k.table_name WHERE k.table_schema=DATABASE() AND k.table_name=? AND k.referenced_table_name IS NOT NULL`
+		query = `SELECT k.constraint_name,k.ordinal_position,k.column_name,k.referenced_table_name,k.referenced_column_name,r.delete_rule FROM information_schema.key_column_usage k JOIN information_schema.referential_constraints r ON r.constraint_schema=k.constraint_schema AND r.constraint_name=k.constraint_name AND r.table_name=k.table_name WHERE k.table_schema=DATABASE() AND k.table_name=? AND k.referenced_table_name IS NOT NULL ORDER BY k.constraint_name,k.ordinal_position`
 	default:
-		query = `SELECT k.column_name,c.table_name,c.column_name,r.delete_rule FROM information_schema.referential_constraints r JOIN information_schema.key_column_usage k ON k.constraint_schema=r.constraint_schema AND k.constraint_name=r.constraint_name JOIN information_schema.constraint_column_usage c ON c.constraint_schema=r.unique_constraint_schema AND c.constraint_name=r.unique_constraint_name WHERE k.table_schema='public' AND k.table_name=?`
+		query = `SELECT co.conname,k.ordinality,a.attname,parent.relname,b.attname,CASE co.confdeltype WHEN 'c' THEN 'CASCADE' WHEN 'n' THEN 'SET NULL' ELSE 'RESTRICT' END FROM pg_constraint co JOIN pg_class child ON child.oid=co.conrelid JOIN pg_namespace ns ON ns.oid=child.relnamespace JOIN pg_class parent ON parent.oid=co.confrelid JOIN LATERAL unnest(co.conkey,co.confkey) WITH ORDINALITY k(source,target,ordinality) ON true JOIN pg_attribute a ON a.attrelid=child.oid AND a.attnum=k.source JOIN pg_attribute b ON b.attrelid=parent.oid AND b.attnum=k.target WHERE ns.nspname='public' AND child.relname=? AND co.contype='f' ORDER BY co.conname,k.ordinality`
 	}
 	rows, err := db.QueryContext(t.Context(), SQL(db, query), table)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = rows.Close() }()
+	type foreign struct {
+		columns, targets []string
+		parent, action   string
+	}
+	groups := map[string]*foreign{}
 	for rows.Next() {
-		var column, parent, target, action string
-		if err := rows.Scan(&column, &parent, &target, &action); err != nil {
+		var name, column, parent, target, action string
+		var ordinal int
+		if err := rows.Scan(&name, &ordinal, &column, &parent, &target, &action); err != nil {
 			t.Fatal(err)
 		}
 		if action == "NO ACTION" {
 			action = "RESTRICT"
 		}
-		result[column] = parent + "." + target + ":" + action
+		g := groups[name]
+		if g == nil {
+			g = &foreign{parent: parent, action: action}
+			groups[name] = g
+		}
+		g.columns = append(g.columns, column)
+		g.targets = append(g.targets, target)
 	}
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
+	}
+	result := map[string]string{}
+	for _, g := range groups {
+		result[strings.Join(g.columns, ",")] = g.parent + "." + strings.Join(g.targets, ",") + ":" + g.action
 	}
 	return result
 }

@@ -36,7 +36,7 @@ func TestMigrationCommandFreshStatusAndVerify(t *testing.T) {
 		t.Fatal(err)
 	}
 	var status goauth.MigrationStatus
-	if err := json.Unmarshal([]byte(output), &status); err != nil || status.Revision != 1 {
+	if err := json.Unmarshal([]byte(output), &status); err != nil || status.Revision != status.TargetRevision || status.Revision < 2 {
 		t.Fatalf("invalid status report: %s, %v", output, err)
 	}
 	if _, err := executeMigrationCommand(t, append([]string{"verify"}, flags...)...); err != nil {

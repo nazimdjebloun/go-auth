@@ -17,7 +17,8 @@ type OrgMemberFilter struct {
 	OrderBy        api.OrgMemberSortField
 	OrderDirection api.SortDirection
 	Offset         int
-	Limit          int // 0 means unlimited
+	Limit          int  // 0 means unlimited
+	IncludeOrgRole bool // populate effective role identity and assignment revision
 }
 
 // UserOrgFilter narrows and orders OrgCRUD.ListUserOrgs for one user.

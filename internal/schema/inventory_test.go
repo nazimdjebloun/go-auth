@@ -11,7 +11,7 @@ import (
 // Compare the split inventory to the actual line-oriented canonical DDL,
 // independently of SplitSQL so a skipped leading-comment index is observable.
 func TestSplitSQL_EmbeddedInventories(t *testing.T) {
-	definition := regexp.MustCompile(`(?m)^CREATE (?:TABLE IF NOT EXISTS|INDEX(?: IF NOT EXISTS)?) ([a-z_]+)`)
+	definition := regexp.MustCompile(`(?m)^CREATE (?:TABLE IF NOT EXISTS|(?:UNIQUE )?INDEX(?: IF NOT EXISTS)?) ([a-z_]+)`)
 	for _, driver := range []string{"sqlite", "postgres", "mysql"} {
 		t.Run(driver, func(t *testing.T) {
 			script, err := For(driver)

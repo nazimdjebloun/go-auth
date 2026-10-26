@@ -146,3 +146,22 @@ type Event struct {
 	Metadata      map[string]any        `json:"metadata,omitempty"`
 	CreatedAt     time.Time             `json:"createdAt"`
 }
+
+const (
+	EventOrgAuthorizationInitialized  EventType = "org.authorization.initialized"
+	EventOrgPermissionCreated         EventType = "org.permission.created"
+	EventOrgPermissionUpdated         EventType = "org.permission.updated"
+	EventOrgPermissionDeleted         EventType = "org.permission.deleted"
+	EventOrgRoleCreated               EventType = "org.role.created"
+	EventOrgRoleUpdated               EventType = "org.role.updated"
+	EventOrgRoleGrantsChanged         EventType = "org.role.grants_changed"
+	EventOrgRoleDeleted               EventType = "org.role.deleted"
+	EventOrgLibraryPermissionsChanged EventType = "org.library_permissions.changed"
+)
+
+const (
+	EventOrgInviteCreated  EventType = "org.invite.created"
+	EventOrgInviteResent   EventType = "org.invite.resent"
+	EventOrgInviteDeleted  EventType = "org.invite.deleted"
+	EventOrgInviteAccepted EventType = "org.invite.accepted"
+)

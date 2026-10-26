@@ -53,7 +53,7 @@ func (h *Handler) GetOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID := r.PathValue("orgID")
-	org, err := h.services.Org.GetByID(r.Context(), api.GetOrgInput{OrgID: orgID, ActorID: user.ID})
+	org, err := h.services.Org.GetByID(r.Context(), api.GetOrgInput{OrgID: orgID, ActorID: user.ID, ActorSessionID: actorSessionID(r)})
 	if err != nil {
 		h.writeError(w, err)
 		return
@@ -86,7 +86,7 @@ func (h *Handler) UpdateOrg(w http.ResponseWriter, r *http.Request) {
 		OrgID:   orgID,
 		Name:    body.Name,
 		Slug:    body.Slug,
-		ActorID: user.ID,
+		ActorID: user.ID, ActorSessionID: actorSessionID(r),
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -107,7 +107,7 @@ func (h *Handler) DeleteOrg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	orgID := r.PathValue("orgID")
-	if err := h.services.Org.DeleteOrg(r.Context(), api.DeleteOrgInput{OrgID: orgID, ActorID: user.ID}); err != nil {
+	if err := h.services.Org.DeleteOrg(r.Context(), api.DeleteOrgInput{OrgID: orgID, ActorID: user.ID, ActorSessionID: actorSessionID(r)}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -233,7 +233,7 @@ func (h *Handler) ListOrgMembers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.services.Org.ListMembers(r.Context(), api.ListMembersInput{
-		OrgID: orgID, ActorID: user.ID, Offset: offset, Limit: limit,
+		OrgID: orgID, ActorID: user.ID, ActorSessionID: actorSessionID(r), Offset: offset, Limit: limit,
 		Role: role, Search: search, OrderBy: orderBy, OrderDirection: orderDirection,
 	})
 	if err != nil {
@@ -268,7 +268,7 @@ func (h *Handler) CountOrgMembers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	n, err := h.services.Org.CountMembers(r.Context(), api.ListMembersInput{
-		OrgID: orgID, ActorID: user.ID, Role: role, Search: search,
+		OrgID: orgID, ActorID: user.ID, ActorSessionID: actorSessionID(r), Role: role, Search: search,
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -290,7 +290,7 @@ func (h *Handler) RemoveMember(w http.ResponseWriter, r *http.Request) {
 	}
 	orgID := r.PathValue("orgID")
 	userID := r.PathValue("userID")
-	if err := h.services.Org.RemoveMember(r.Context(), api.RemoveMemberInput{OrgID: orgID, UserID: userID, ActorID: actor.ID}); err != nil {
+	if err := h.services.Org.RemoveMember(r.Context(), api.RemoveMemberInput{OrgID: orgID, UserID: userID, ActorID: actor.ID, ActorSessionID: actorSessionID(r)}); err != nil {
 		h.writeError(w, err)
 		return
 	}
@@ -322,7 +322,7 @@ func (h *Handler) UpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 		OrgID:   orgID,
 		UserID:  userID,
 		NewRole: domain.OrgRole(body.Role),
-		ActorID: actor.ID,
+		ActorID: actor.ID, ActorSessionID: actorSessionID(r),
 	}); err != nil {
 		h.writeError(w, err)
 		return
@@ -408,8 +408,10 @@ func (h *Handler) CreateOrgInvite(w http.ResponseWriter, r *http.Request) {
 	orgID := r.PathValue("orgID")
 
 	var body struct {
-		Email string `json:"email"`
-		Role  string `json:"role"`
+		Email                string `json:"email"`
+		OrgRoleID            string `json:"orgRoleId"`
+		ExpectedRoleRevision uint64 `json:"expectedRoleRevision"`
+		Role                 string `json:"role"`
 	}
 	if !h.decodeJSON(w, r, &body) {
 		return
@@ -420,6 +422,7 @@ func (h *Handler) CreateOrgInvite(w http.ResponseWriter, r *http.Request) {
 		Email:     body.Email,
 		Role:      domain.OrgRole(body.Role),
 		InvitedBy: user.ID,
+		OrgRoleID: body.OrgRoleID, ExpectedRoleRevision: body.ExpectedRoleRevision, ActorSessionID: actorSessionID(r),
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -505,7 +508,7 @@ func (h *Handler) ListOrgInvites(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.services.OrgInvite.ListOrgInvites(r.Context(), api.ListOrgInvitesInput{
-		OrgID: orgID, ActorID: user.ID, Offset: offset, Limit: limit,
+		OrgID: orgID, ActorID: user.ID, ActorSessionID: actorSessionID(r), Offset: offset, Limit: limit,
 		Role: role, Status: status, Search: search, OrderBy: orderBy, OrderDirection: orderDirection,
 	})
 	if err != nil {
@@ -546,7 +549,7 @@ func (h *Handler) CountOrgInvites(w http.ResponseWriter, r *http.Request) {
 	}
 
 	n, err := h.services.OrgInvite.CountOrgInvites(r.Context(), api.ListOrgInvitesInput{
-		OrgID: orgID, ActorID: user.ID, Role: role, Status: status, Search: search,
+		OrgID: orgID, ActorID: user.ID, ActorSessionID: actorSessionID(r), Role: role, Status: status, Search: search,
 	})
 	if err != nil {
 		h.writeError(w, err)
@@ -571,7 +574,7 @@ func (h *Handler) ResendOrgInvite(w http.ResponseWriter, r *http.Request) {
 	if err := h.services.OrgInvite.ResendOrgInviteEmail(r.Context(), api.ResendOrgInviteEmailInput{
 		OrgID:    orgID,
 		InviteID: inviteID,
-		ActorID:  user.ID,
+		ActorID:  user.ID, ActorSessionID: actorSessionID(r),
 	}); err != nil {
 		h.writeError(w, err)
 		return
@@ -595,7 +598,7 @@ func (h *Handler) DeleteOrgInvite(w http.ResponseWriter, r *http.Request) {
 	if err := h.services.OrgInvite.DeleteOrgInvite(r.Context(), api.DeleteOrgInviteInput{
 		OrgID:    orgID,
 		InviteID: inviteID,
-		ActorID:  user.ID,
+		ActorID:  user.ID, ActorSessionID: actorSessionID(r),
 	}); err != nil {
 		h.writeError(w, err)
 		return

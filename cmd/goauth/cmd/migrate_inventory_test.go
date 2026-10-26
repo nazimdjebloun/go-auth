@@ -12,6 +12,7 @@ import (
 	"github.com/go-sql-driver/mysql"
 	"github.com/google/uuid"
 	goauth "github.com/nazimdjebloun/go-auth"
+	"github.com/nazimdjebloun/go-auth/internal/migrations"
 	"github.com/nazimdjebloun/go-auth/internal/schema"
 )
 
@@ -54,7 +55,11 @@ func TestApplySchema_MySQL(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A partial installation made by the old bootstrap executor is untracked.
-	statements := schema.SplitSQL(script)
+	catalog, err := migrations.Load("mysql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	statements := schema.SplitSQL(catalog.Migrations[0].SQL)
 	for _, stmt := range statements[:2] {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			t.Fatal(err)
@@ -128,9 +133,12 @@ func TestApplySchema_SQLite_Inventory(t *testing.T) {
 // Raw canonical DDL is deliberately parsed independently of SplitSQL.
 func assertSchemaInventory(t *testing.T, db *sql.DB, dialect, script string) {
 	t.Helper()
-	definition := regexp.MustCompile(`(?m)^CREATE (TABLE|INDEX)(?: IF NOT EXISTS)? ([a-z_]+)`)
+	definition := regexp.MustCompile(`(?m)^CREATE (TABLE|(?:UNIQUE )?INDEX)(?: IF NOT EXISTS)? ([a-z_]+)`)
 	for _, match := range definition.FindAllStringSubmatch(script, -1) {
 		kind, name := strings.ToLower(match[1]), match[2]
+		if kind == "unique index" {
+			kind = "index"
+		}
 		var count int
 		var err error
 		if dialect == "sqlite" {

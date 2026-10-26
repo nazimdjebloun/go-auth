@@ -49,6 +49,35 @@ See the [usage guide](./guides/app-permissions.mdx) and
 
 go-auth uses ports and adapters. The `service` package depends on interfaces in `port`, not on HTTP types or database drivers. `New()` in `auth.go` wires repositories, mail delivery, and OAuth adapters at startup.
 
+## Optional organization authorization
+
+`WithOrgPermissions` wires `OrgPermissionsService` independently of app roles.
+The public capability is `Services.OrgPermissions`; inputs live in
+`api/org_permissions.go`, with domain types in `domain/org_permissions.go`.
+`OrgPermissionRole` is the granular role record; the existing `OrgRole` enum
+remains the fixed owner/admin/member classification used by ownership counters.
+
+Narrow org permission reader/writer, role/assignment and revision-state ports
+are implemented by SQL repositories with explicit org predicates. Composite
+foreign keys prevent cross-org grants and assignments. Membership-linked role
+records preserve the existing membership schema; unassigned memberships resolve
+to their protected fixed role after explicit org initialization.
+
+Mutations acquire the existing all-user guard, then the organization row, then
+current authorization/membership records. This serializes management writes
+across accounts and organizations, a deliberate correctness tradeoff matching
+the existing account guard. Active-org selection and platform oversight use the
+same order when enabled. Database errors abort instead of being converted to a
+permission or not-found decision. Durable audit records join the mutation.
+Invitation creation/resend commit before email delivery.
+
+Existing org services perform exact action checks before their established
+counter/last-owner helpers. HTTP middleware performs corresponding prechecks;
+direct Go calls retain enforcement. No permission snapshot is stored in a session.
+See [org permissions](./guides/org-permissions.mdx) and its
+[HTTP reference](./routes/org-authorization.mdx). The fixed-role access model
+below describes the default mode; opt-in custom roles use explicit operation grants.
+
 ## Package map
 
 | Package | Responsibility |

@@ -28,23 +28,25 @@ func (g *defaultTokenGen) Generate() (string, error) {
 
 // OrgInviteService manages organization invitations.
 type OrgInviteService struct {
-	orgInvites port.OrgInviteRepository
-	orgs       port.OrgRepository
-	users      port.UserRepository
-	txManager  port.TxManager
-	gen        port.TokenGenerator
-	mailer     port.Mailer
-	templates  port.TemplateProvider
-	maxOrgs    int
-	inviteTTL  time.Duration
-	baseURL    string
-	appName    string
-	log        *slog.Logger
-	audit      AuditPublisher
+	orgPermissions *OrgPermissionsService
+	orgInvites     port.OrgInviteRepository
+	orgs           port.OrgRepository
+	users          port.UserRepository
+	txManager      port.TxManager
+	gen            port.TokenGenerator
+	mailer         port.Mailer
+	templates      port.TemplateProvider
+	maxOrgs        int
+	inviteTTL      time.Duration
+	baseURL        string
+	appName        string
+	log            *slog.Logger
+	audit          AuditPublisher
 }
 
 // OrgInviteServiceConfig configures organization invitations.
 type OrgInviteServiceConfig struct {
+	OrgPermissions   *OrgPermissionsService
 	MaxOrgsPerUser   int
 	InviteTTL        time.Duration
 	BaseURL          string
@@ -76,19 +78,20 @@ func NewOrgInviteService(
 	}
 	resolvedMaxOrgs := resolveMaxOrgsPerUser(cfg.MaxOrgsPerUser)
 	return &OrgInviteService{
-		orgInvites: orgInvites,
-		orgs:       orgs,
-		users:      users,
-		txManager:  txManager,
-		gen:        gen,
-		mailer:     mailer,
-		templates:  resolveTemplates(cfg.TemplateProvider, cfg.URLValidator),
-		maxOrgs:    resolvedMaxOrgs,
-		inviteTTL:  cfg.InviteTTL,
-		baseURL:    cfg.BaseURL,
-		appName:    cfg.AppName,
-		log:        cfg.Logger,
-		audit:      cfg.Audit,
+		orgInvites:     orgInvites,
+		orgPermissions: cfg.OrgPermissions,
+		orgs:           orgs,
+		users:          users,
+		txManager:      txManager,
+		gen:            gen,
+		mailer:         mailer,
+		templates:      resolveTemplates(cfg.TemplateProvider, cfg.URLValidator),
+		maxOrgs:        resolvedMaxOrgs,
+		inviteTTL:      cfg.InviteTTL,
+		baseURL:        cfg.BaseURL,
+		appName:        cfg.AppName,
+		log:            cfg.Logger,
+		audit:          cfg.Audit,
 	}
 }
 
@@ -96,6 +99,9 @@ func NewOrgInviteService(
 // See OrgService.requireRole for the rationale — the same defense-in-depth
 // applies here: HTTP middleware pre-checks this, this is the real authority.
 func (s *OrgInviteService) requireRole(ctx context.Context, orgID, actorID string, minimumRole domain.OrgRole) error {
+	if orgOperationAuthorized(ctx, orgID) {
+		return nil
+	}
 	if actorID == "" {
 		return domain.ErrForbidden
 	}
@@ -118,6 +124,9 @@ func (s *OrgInviteService) requireRole(ctx context.Context, orgID, actorID strin
 
 // CreateOrgInvite creates an organization invitation.
 func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input api.CreateOrgInviteInput) (*domain.OrgInvite, error) {
+	if s.orgPermissions != nil {
+		return s.createPermissionInvite(ctx, input)
+	}
 	if !input.Role.IsValid() {
 		return nil, domain.ErrInvalidOrgRole
 	}
@@ -205,6 +214,9 @@ func (s *OrgInviteService) AcceptInvite(ctx context.Context, input api.AcceptInv
 		return domain.ErrOrgInviteEmailMismatch
 	}
 
+	if s.orgPermissions != nil {
+		return s.acceptPermissionInvite(ctx, input, invite, codeHash)
+	}
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		// The claim asserts the exact code hash looked up above, not just
 		// the invite ID: an admin resend rotates code_hash, so an old code
@@ -272,6 +284,10 @@ func orgInviteFilterFromInput(input api.ListOrgInvitesInput, limit int) port.Org
 
 // ListOrgInvites returns an organization's invitations.
 func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input api.ListOrgInvitesInput) (*api.ListOrgInvitesResult, error) {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgRead(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.invites.read", func(ctx context.Context) (*api.ListOrgInvitesResult, error) { return s.ListOrgInvites(ctx, input) })
+	}
+
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return nil, err
 	}
@@ -284,7 +300,9 @@ func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input api.ListOrg
 			limit = 100
 		}
 	}
-	invites, err := s.orgInvites.ListByOrgID(ctx, input.OrgID, orgInviteFilterFromInput(input, limit))
+	filter := orgInviteFilterFromInput(input, limit)
+	filter.IncludeOrgRole = s.orgPermissions != nil
+	invites, err := s.orgInvites.ListByOrgID(ctx, input.OrgID, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +316,10 @@ func (s *OrgInviteService) ListOrgInvites(ctx context.Context, input api.ListOrg
 // filters (pagination ignored). Split from ListOrgInvites so a paginated
 // invite table doesn't run a COUNT(*) on every page.
 func (s *OrgInviteService) CountOrgInvites(ctx context.Context, input api.ListOrgInvitesInput) (int, error) {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgRead(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.invites.read", func(ctx context.Context) (int, error) { return s.CountOrgInvites(ctx, input) })
+	}
+
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return 0, err
 	}
@@ -310,6 +332,10 @@ func (s *OrgInviteService) CountOrgInvites(ctx context.Context, input api.ListOr
 // guards against an admin of one org deleting an invite that actually
 // belongs to a different org by guessing/enumerating its ID.
 func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, input api.DeleteOrgInviteInput) error {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgMutationVoid(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.invites.delete", func(ctx context.Context) error { return s.DeleteOrgInvite(ctx, input) })
+	}
+
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return err
 	}
@@ -325,6 +351,9 @@ func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, input api.Delete
 		s.log.Error("failed to delete org invite", "err", err, "invite_id", input.InviteID)
 		return err
 	}
+	if s.orgPermissions != nil {
+		return s.orgPermissions.record(ctx, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), audit.EventOrgInviteDeleted, map[string]any{"inviteId": input.InviteID})
+	}
 	s.log.Info("org invite deleted", "invite_id", input.InviteID)
 	return nil
 }
@@ -334,6 +363,10 @@ func (s *OrgInviteService) DeleteOrgInvite(ctx context.Context, input api.Delete
 // ResendOrgInviteEmail resends inviteID, which must belong to orgID — same
 // cross-org guard as DeleteOrgInvite.
 func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, input api.ResendOrgInviteEmailInput) error {
+	if s.orgPermissions != nil {
+		return s.resendPermissionInvite(ctx, input)
+	}
+
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return err
 	}

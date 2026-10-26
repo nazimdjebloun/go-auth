@@ -24,6 +24,7 @@ type Services struct {
 	TwoFactor      TwoFactorOperations
 	AuditLog       port.AuditLogRepository
 	AppPermissions AppPermissionsOperations
+	OrgPermissions OrgPermissionsOperations
 }
 
 // AppPermissionsOperations is available only with WithAppPermissions enabled.
@@ -48,6 +49,30 @@ type AppPermissionsOperations interface {
 }
 
 var _ AppPermissionsOperations = (*service.AppPermissionsService)(nil)
+
+// OrgPermissionsOperations is available only with WithOrgPermissions enabled.
+// Actor identity must come from trusted backend authentication.
+type OrgPermissionsOperations interface {
+	Initialize(context.Context, api.InitializeOrgPermissionsInput) error
+	CreatePermission(context.Context, api.CreateOrgPermissionInput) (*domain.OrgPermission, error)
+	UpdatePermission(context.Context, api.UpdateOrgPermissionInput) (*domain.OrgPermission, error)
+	DeletePermission(context.Context, api.DeleteOrgPermissionInput) error
+	ListPermissions(context.Context, api.ListOrgPermissionsInput) ([]domain.OrgPermission, error)
+	CreateRole(context.Context, api.CreateOrgRoleInput) (*domain.OrgPermissionRole, error)
+	UpdateRole(context.Context, api.UpdateOrgRoleInput) (*domain.OrgPermissionRole, error)
+	DeleteRole(context.Context, api.DeleteOrgRoleInput) error
+	ListRoles(context.Context, api.ListOrgRolesInput) ([]domain.OrgPermissionRole, error)
+	SetRolePermissions(context.Context, api.SetOrgRolePermissionsInput) (*domain.OrgPermissionRole, error)
+	SetMemberRole(context.Context, api.SetOrgMemberRoleInput) (*api.OrgMemberRoleResult, error)
+	GetMemberRole(context.Context, api.GetOrgMemberRoleInput) (*api.OrgMemberRoleResult, error)
+	CheckPermission(context.Context, api.CheckOrgPermissionInput) (*api.OrgPermissionDecision, error)
+	RequirePermission(context.Context, api.CheckOrgPermissionInput) error
+	ListEffectivePermissions(context.Context, api.ListOrgEffectivePermissionsInput) (*api.OrgAccess, error)
+	LibraryPermissionCatalog() []domain.OrgLibraryPermissionDefinition
+	UpdateLibraryPermissions(context.Context, api.UpdateOrgLibraryPermissionsInput) (*api.UpdateOrgLibraryPermissionsResult, error)
+}
+
+var _ OrgPermissionsOperations = (*service.OrgPermissionsService)(nil)
 
 // AuthOperations exposes the auth service methods available to callers.
 type AuthOperations interface {

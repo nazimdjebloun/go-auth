@@ -17,7 +17,8 @@ type OrgInviteFilter struct {
 	OrderBy        api.OrgInviteSortField
 	OrderDirection api.SortDirection
 	Offset         int
-	Limit          int // 0 means unlimited
+	Limit          int  // 0 means unlimited
+	IncludeOrgRole bool // populate the proposed role identity and revision
 }
 
 // OrgInviteRepository stores invitations to join organizations.

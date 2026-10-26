@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"database/sql"
+	"github.com/nazimdjebloun/go-auth/internal/migrations"
+	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"testing"
 
 	goauth "github.com/nazimdjebloun/go-auth"
@@ -22,7 +25,7 @@ func TestApplySchema_SelectedBackend(t *testing.T) {
 
 func TestAdoptSchema_SelectedBackend(t *testing.T) {
 	db := testdb.OpenSelected(t)
-	testdb.Apply(t, db)
+	applyPublishedBaseline(t, db, testdb.Driver(db))
 	status, err := goauth.AdoptSchema(t.Context(), db, goauth.BaselineAdoptionOptions{
 		MigrationOptions: goauth.MigrationOptions{Driver: testdb.Driver(db)}, BaselineRevision: 1,
 	})
@@ -34,5 +37,18 @@ func TestAdoptSchema_SelectedBackend(t *testing.T) {
 	}
 	if err := applySchema(t.Context(), db, testdb.Driver(db)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func applyPublishedBaseline(t *testing.T, db *sql.DB, driver string) {
+	t.Helper()
+	catalog, err := migrations.Load(driver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range schema.SplitSQL(catalog.Migrations[0].SQL) {
+		if _, err = db.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

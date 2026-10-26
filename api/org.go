@@ -8,16 +8,18 @@ import (
 
 // DeleteOrgInviteInput identifies an organization invitation and its trusted actor.
 type DeleteOrgInviteInput struct {
-	OrgID    string `json:"orgId"`
-	InviteID string `json:"inviteId"`
-	ActorID  string `json:"-"`
+	OrgID          string `json:"orgId"`
+	InviteID       string `json:"inviteId"`
+	ActorID        string `json:"-"`
+	ActorSessionID string `json:"-"`
 }
 
 // ResendOrgInviteEmailInput identifies an organization invitation and its trusted actor.
 type ResendOrgInviteEmailInput struct {
-	OrgID    string `json:"orgId"`
-	InviteID string `json:"inviteId"`
-	ActorID  string `json:"-"`
+	OrgID          string `json:"orgId"`
+	InviteID       string `json:"inviteId"`
+	ActorID        string `json:"-"`
+	ActorSessionID string `json:"-"`
 }
 
 // AcceptInviteInput contains values used to accept an organization invitation.
@@ -28,10 +30,11 @@ type AcceptInviteInput struct {
 
 // AddMemberInput identifies the user and role to add to an organization.
 type AddMemberInput struct {
-	OrgID   string
-	UserID  string
-	Role    domain.OrgRole
-	ActorID string
+	OrgID          string
+	UserID         string
+	Role           domain.OrgRole
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // AdminAddMemberInput identifies the member and role an administrator adds.
@@ -134,28 +137,34 @@ type CreateOrgInput struct {
 
 // CreateOrgInviteInput contains values used to invite an organization member.
 type CreateOrgInviteInput struct {
-	OrgID     string
-	Email     string
-	Role      domain.OrgRole
-	InvitedBy string
+	OrgRoleID            string
+	ExpectedRoleRevision uint64
+	ActorSessionID       string `json:"-"`
+	OrgID                string
+	Email                string
+	Role                 domain.OrgRole
+	InvitedBy            string
 }
 
 // DeleteOrgInput identifies an organization to delete.
 type DeleteOrgInput struct {
-	OrgID   string
-	ActorID string
+	OrgID          string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // GetOrgBySlugInput identifies an organization by slug and requesting user.
 type GetOrgBySlugInput struct {
-	Slug    string
-	ActorID string
+	Slug           string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // GetOrgInput identifies an organization and requesting user.
 type GetOrgInput struct {
-	OrgID   string
-	ActorID string
+	OrgID          string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // GetOrgMembershipInput identifies a user's organization membership.
@@ -174,6 +183,7 @@ type LeaveOrgInput struct {
 type ListMembersInput struct {
 	OrgID          string
 	ActorID        string
+	ActorSessionID string `json:"-"`
 	Role           *domain.OrgRole
 	Search         *string
 	OrderBy        OrgMemberSortField
@@ -193,6 +203,7 @@ type ListMembersResult struct {
 type ListOrgInvitesInput struct {
 	OrgID          string
 	ActorID        string
+	ActorSessionID string `json:"-"`
 	Role           *domain.OrgRole
 	Status         *string
 	Search         *string
@@ -229,9 +240,10 @@ type ListUserOrgsResult struct {
 
 // RemoveMemberInput identifies the member to remove from an organization.
 type RemoveMemberInput struct {
-	OrgID   string
-	UserID  string
-	ActorID string
+	OrgID          string
+	UserID         string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }
 
 // SetActiveOrgInput identifies the session and organization to activate.
@@ -243,16 +255,18 @@ type SetActiveOrgInput struct {
 
 // UpdateMemberRoleInput identifies an organization member and their new role.
 type UpdateMemberRoleInput struct {
-	OrgID   string
-	UserID  string
-	NewRole domain.OrgRole
-	ActorID string // user performing the action
+	OrgID          string
+	UserID         string
+	NewRole        domain.OrgRole
+	ActorID        string // user performing the action
+	ActorSessionID string `json:"-"`
 }
 
 // UpdateOrgInput contains organization changes and the requesting user.
 type UpdateOrgInput struct {
-	OrgID   string
-	Name    *string
-	Slug    *string
-	ActorID string
+	OrgID          string
+	Name           *string
+	Slug           *string
+	ActorID        string
+	ActorSessionID string `json:"-"`
 }

@@ -14,22 +14,26 @@ import (
 
 // OrgService manages organizations and memberships.
 type OrgService struct {
-	appPermissions *AppPermissionsService
-	orgs           port.OrgRepository
-	users          port.UserRepository
-	sessions       port.ActiveOrgSessionStore
-	txManager      port.TxManager
-	maxOrgs        int
-	log            *slog.Logger
-	audit          AuditPublisher
+	appPermissions  *AppPermissionsService
+	orgPermissions  *OrgPermissionsService
+	roleAssignments port.OrgMemberRoleStore
+	orgs            port.OrgRepository
+	users           port.UserRepository
+	sessions        port.ActiveOrgSessionStore
+	txManager       port.TxManager
+	maxOrgs         int
+	log             *slog.Logger
+	audit           AuditPublisher
 }
 
 // OrgServiceConfig configures organization limits.
 type OrgServiceConfig struct {
-	AppPermissions *AppPermissionsService
-	MaxOrgsPerUser int
-	Logger         *slog.Logger
-	Audit          AuditPublisher
+	AppPermissions  *AppPermissionsService
+	OrgPermissions  *OrgPermissionsService
+	RoleAssignments port.OrgMemberRoleStore
+	MaxOrgsPerUser  int
+	Logger          *slog.Logger
+	Audit           AuditPublisher
 }
 
 // NewOrgService returns an organization service.
@@ -44,15 +48,20 @@ func NewOrgService(
 		cfg.Logger = slog.Default()
 	}
 	resolvedMaxOrgs := resolveMaxOrgsPerUser(cfg.MaxOrgsPerUser)
+	if cfg.RoleAssignments == nil && cfg.OrgPermissions != nil {
+		cfg.RoleAssignments = cfg.OrgPermissions.roles
+	}
 	return &OrgService{
-		appPermissions: cfg.AppPermissions,
-		orgs:           orgs,
-		users:          users,
-		sessions:       sessions,
-		txManager:      txManager,
-		maxOrgs:        resolvedMaxOrgs,
-		log:            cfg.Logger,
-		audit:          cfg.Audit,
+		appPermissions:  cfg.AppPermissions,
+		orgPermissions:  cfg.OrgPermissions,
+		roleAssignments: cfg.RoleAssignments,
+		orgs:            orgs,
+		users:           users,
+		sessions:        sessions,
+		txManager:       txManager,
+		maxOrgs:         resolvedMaxOrgs,
+		log:             cfg.Logger,
+		audit:           cfg.Audit,
 	}
 }
 
@@ -68,6 +77,9 @@ func (s *OrgService) guardAndIncrementOwnerCount(ctx context.Context, userID str
 // pre-checked by that middleware) or directly through this service — this is
 // the actual authority, the HTTP middleware is only a fast-fail pre-check.
 func (s *OrgService) requireRole(ctx context.Context, orgID, actorID string, minimumRole domain.OrgRole) error {
+	if orgOperationAuthorized(ctx, orgID) {
+		return nil
+	}
 	if actorID == "" {
 		return domain.ErrForbidden
 	}
@@ -143,6 +155,12 @@ func (s *OrgService) CreateOrg(ctx context.Context, input api.CreateOrgInput) (*
 			return err
 		}
 
+		if s.orgPermissions != nil {
+			if err := s.orgPermissions.initializeNew(txCtx, api.OrgPermissionActor{OrgID: org.ID, UserID: input.OwnerID}); err != nil {
+				return err
+			}
+		}
+
 		// Inside the transaction: the record commits with the org and its
 		// owner membership.
 		if s.audit != nil {
@@ -162,6 +180,10 @@ func (s *OrgService) CreateOrg(ctx context.Context, input api.CreateOrgInput) (*
 
 // GetByID returns an organization by ID.
 func (s *OrgService) GetByID(ctx context.Context, input api.GetOrgInput) (*domain.Organization, error) {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgRead(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.organization.read", func(ctx context.Context) (*domain.Organization, error) { return s.GetByID(ctx, input) })
+	}
+
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
 		return nil, err
 	}
@@ -186,6 +208,12 @@ func (s *OrgService) GetBySlug(ctx context.Context, input api.GetOrgBySlugInput)
 	if org == nil {
 		return nil, domain.ErrOrgNotFound
 	}
+	if s.orgPermissions != nil {
+		if err := s.orgPermissions.require(ctx, orgActor(org.ID, input.ActorID, input.ActorSessionID), "goauth.org.organization.read"); err != nil {
+			return nil, err
+		}
+		return org, nil
+	}
 	if err := s.requireRole(ctx, org.ID, input.ActorID, domain.OrgRoleMember); err != nil {
 		return nil, err
 	}
@@ -194,6 +222,10 @@ func (s *OrgService) GetBySlug(ctx context.Context, input api.GetOrgBySlugInput)
 
 // UpdateOrg changes an organization.
 func (s *OrgService) UpdateOrg(ctx context.Context, input api.UpdateOrgInput) (*domain.Organization, error) {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgMutation(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.organization.update", func(ctx context.Context) (*domain.Organization, error) { return s.UpdateOrg(ctx, input) })
+	}
+
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleAdmin); err != nil {
 		return nil, err
 	}
@@ -291,6 +323,10 @@ func (s *OrgService) deleteOrgTx(ctx context.Context, orgID string, record func(
 
 // DeleteOrg deletes an organization.
 func (s *OrgService) DeleteOrg(ctx context.Context, input api.DeleteOrgInput) error {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgMutationVoid(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.organization.delete", func(ctx context.Context) error { return s.DeleteOrg(ctx, input) })
+	}
+
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleOwner); err != nil {
 		return err
 	}
@@ -341,6 +377,22 @@ func (s *OrgService) GetMembership(ctx context.Context, input api.GetOrgMembersh
 	}
 	if m == nil {
 		return nil, domain.ErrOrgMemberNotFound
+	}
+	if s.orgPermissions != nil {
+		role, revision, err := s.orgPermissions.roles.MemberRole(ctx, input.OrgID, input.UserID)
+		if err != nil {
+			return nil, err
+		}
+		if role == nil {
+			role, err = s.orgPermissions.roles.RoleBySlug(ctx, input.OrgID, string(m.Role))
+			if err != nil {
+				return nil, err
+			}
+		}
+		if role != nil {
+			m.OrgRoleID = &role.ID
+			m.OrgRoleAssignmentRevision = revision
+		}
 	}
 	return m, nil
 }
@@ -410,10 +462,19 @@ func (s *OrgService) addMemberTx(ctx context.Context, orgID, userID string, role
 
 // AddMember adds a member to an organization.
 func (s *OrgService) AddMember(ctx context.Context, input api.AddMemberInput) error {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgMutationVoid(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.members.create", func(ctx context.Context) error { return s.AddMember(ctx, input) })
+	}
+
 	if !input.Role.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
 	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if s.orgPermissions != nil {
+			if err := s.orgPermissions.authorizeFixedAssignment(txCtx, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), input.UserID, input.Role); err != nil {
+				return err
+			}
+		}
 		if input.ActorID == "" {
 			return domain.ErrForbidden
 		}
@@ -425,7 +486,7 @@ func (s *OrgService) AddMember(ctx context.Context, input api.AddMemberInput) er
 		if input.Role == domain.OrgRoleOwner {
 			minimum = domain.OrgRoleOwner
 		}
-		if err := requireOrgRole(actor, minimum); err != nil {
+		if err := s.requireMemberMutation(txCtx, input.OrgID, actor, minimum); err != nil {
 			return err
 		}
 		return s.addMemberTx(txCtx, input.OrgID, input.UserID, input.Role, func(txCtx context.Context) error {
@@ -526,6 +587,18 @@ func (s *OrgService) membershipRaceError(txCtx context.Context, orgID, userID st
 
 // RemoveMember removes a member from an organization.
 func (s *OrgService) RemoveMember(ctx context.Context, input api.RemoveMemberInput) error {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) && input.ActorID == input.UserID {
+		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
+			if err := s.orgPermissions.state.LockOrg(ctx, input.OrgID); err != nil {
+				return err
+			}
+			return s.RemoveMember(context.WithValue(ctx, orgOperationContextKey{}, input.OrgID), input)
+		})
+	}
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) && input.ActorID != input.UserID {
+		return runOrgMutationVoid(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.members.remove", func(ctx context.Context) error { return s.RemoveMember(ctx, input) })
+	}
+
 	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		actor, target, err := s.lockActorAndTarget(txCtx, input.OrgID, input.ActorID, input.UserID)
 		if err != nil {
@@ -541,7 +614,7 @@ func (s *OrgService) RemoveMember(ctx context.Context, input api.RemoveMemberInp
 				minimum = domain.OrgRoleOwner
 			}
 		}
-		if err := requireOrgRole(actor, minimum); err != nil {
+		if err := s.requireMemberMutation(txCtx, input.OrgID, actor, minimum); err != nil {
 			return err
 		}
 		_, err = s.removeMemberTx(txCtx, input.OrgID, input.UserID, func(txCtx context.Context, _ domain.OrgRole) error {
@@ -560,14 +633,23 @@ func (s *OrgService) RemoveMember(ctx context.Context, input api.RemoveMemberInp
 // owner-escalation guard (see UpdateMemberRole's doc comment for why that
 // guard stays out of this shared helper). Returns the member's prior role
 // (empty if no change was made) for the caller to log/audit.
-func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID string, newRole domain.OrgRole, record func(txCtx context.Context, oldRole domain.OrgRole) error) (domain.OrgRole, error) {
+func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID string, newRole domain.OrgRole, record func(txCtx context.Context, oldRole domain.OrgRole, assignment map[string]any) error) (domain.OrgRole, error) {
 	var oldRole domain.OrgRole
 	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		var assignment map[string]any
 		// Like removeMemberTx, the membership is read inside the
 		// transaction and the role update below is conditional on that
 		// role — and it runs FIRST, so only the request that actually
 		// changes the row proceeds to the counter upkeep.
-		member, err := s.orgs.GetMembership(txCtx, orgID, userID)
+		var member *domain.OrgMember
+		var err error
+		if s.roleAssignments != nil {
+			// A caller's MySQL repeatable-read snapshot may predate the guard.
+			// Reconciliation must use the current fixed classification too.
+			member, err = s.orgs.LockMembership(txCtx, orgID, userID)
+		} else {
+			member, err = s.orgs.GetMembership(txCtx, orgID, userID)
+		}
 		if err != nil {
 			s.log.Error("failed to get membership for role update", "err", err, "org_id", orgID, "user_id", userID)
 			return err
@@ -576,6 +658,19 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 			return domain.ErrOrgMemberNotFound
 		}
 		if member.Role == newRole {
+			if s.roleAssignments != nil {
+				assignment, err = s.resetBuiltinAssignment(txCtx, orgID, userID, newRole)
+				if err != nil {
+					return err
+				}
+				if assignment != nil {
+					oldRole = member.Role
+					if record != nil {
+						return record(txCtx, oldRole, assignment)
+					}
+				}
+				return nil
+			}
 			return nil
 		}
 
@@ -626,6 +721,10 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 			}
 		}
 
+		if assignment, err = s.resetBuiltinAssignment(txCtx, orgID, userID, newRole); err != nil {
+			return err
+		}
+
 		if err := s.sessions.UpdateActiveOrgRoleForUser(txCtx, userID, orgID, newRole); err != nil {
 			return err
 		}
@@ -634,7 +733,7 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 		// treats it as "no change", so the closure is only invoked when a
 		// role actually moved.
 		if record != nil && oldRole != "" {
-			if err := record(txCtx, oldRole); err != nil {
+			if err := record(txCtx, oldRole, assignment); err != nil {
 				return err
 			}
 		}
@@ -658,10 +757,27 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 // against a same-org Admin abusing the self-service path, which doesn't
 // apply to a platform admin acting via AdminUpdateMemberRole.
 func (s *OrgService) UpdateMemberRole(ctx context.Context, input api.UpdateMemberRoleInput) error {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgMutationVoid(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.roles.assign", func(ctx context.Context) error { return s.UpdateMemberRole(ctx, input) })
+	}
+	managementOrgID, hasManagementScope := ctx.Value(orgManagementContextKey{}).(string)
+	if s.roleAssignments != nil && (!hasManagementScope || managementOrgID != input.OrgID) {
+		// Retained assignments share the enabled-mode user guard even when
+		// authorization uses fixed roles, before locking any memberships.
+		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
+			return s.UpdateMemberRole(context.WithValue(ctx, orgManagementContextKey{}, input.OrgID), input)
+		})
+	}
+
 	if !input.NewRole.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
 	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		if s.orgPermissions != nil {
+			if err := s.orgPermissions.authorizeFixedAssignment(txCtx, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), input.UserID, input.NewRole); err != nil {
+				return err
+			}
+		}
 		actor, target, err := s.lockActorAndTarget(txCtx, input.OrgID, input.ActorID, input.UserID)
 		if err != nil {
 			return err
@@ -673,14 +789,16 @@ func (s *OrgService) UpdateMemberRole(ctx context.Context, input api.UpdateMembe
 		if input.NewRole == domain.OrgRoleOwner || target.Role == domain.OrgRoleOwner {
 			minimum = domain.OrgRoleOwner
 		}
-		if err := requireOrgRole(actor, minimum); err != nil {
+		if err := s.requireMemberMutation(txCtx, input.OrgID, actor, minimum); err != nil {
 			return err
 		}
-		_, err = s.updateMemberRoleTx(txCtx, input.OrgID, input.UserID, input.NewRole, func(txCtx context.Context, _ domain.OrgRole) error {
+		_, err = s.updateMemberRoleTx(txCtx, input.OrgID, input.UserID, input.NewRole, func(txCtx context.Context, _ domain.OrgRole, assignment map[string]any) error {
 			if s.audit == nil {
 				return nil
 			}
-			return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
+			evt := audit.NewOrgEvent(audit.EventOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID)
+			evt.Metadata = assignment
+			return s.audit.Record(txCtx, evt)
 		})
 		return err
 	})
@@ -693,6 +811,10 @@ func (s *OrgService) LeaveOrg(ctx context.Context, input api.LeaveOrgInput) erro
 
 // ListMembers returns an organization's members.
 func (s *OrgService) ListMembers(ctx context.Context, input api.ListMembersInput) (*api.ListMembersResult, error) {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgRead(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.members.read", func(ctx context.Context) (*api.ListMembersResult, error) { return s.ListMembers(ctx, input) })
+	}
+
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
 		return nil, err
 	}
@@ -712,6 +834,7 @@ func (s *OrgService) ListMembers(ctx context.Context, input api.ListMembersInput
 		OrderDirection: input.OrderDirection,
 		Offset:         input.Offset,
 		Limit:          limit,
+		IncludeOrgRole: s.orgPermissions != nil,
 	})
 	if err != nil {
 		return nil, err
@@ -724,6 +847,15 @@ func (s *OrgService) ListMembers(ctx context.Context, input api.ListMembersInput
 
 // SetActiveOrg selects a session's active organization.
 func (s *OrgService) SetActiveOrg(ctx context.Context, input api.SetActiveOrgInput) error {
+	if s.orgPermissions != nil && ctx.Value(orgManagementContextKey{}) == nil {
+		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
+			if err := s.orgPermissions.state.LockOrg(ctx, input.OrgID); err != nil {
+				return err
+			}
+			return s.SetActiveOrg(context.WithValue(ctx, orgManagementContextKey{}, input.OrgID), input)
+		})
+	}
+
 	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		member, err := s.orgs.LockMembership(txCtx, input.OrgID, input.UserID)
 		if err != nil {

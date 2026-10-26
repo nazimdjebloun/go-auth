@@ -199,6 +199,26 @@ Callback errors do not arrive as JSON. See [HTTP contract and redirect exception
 
 ## Organizations
 
+### Granular org authorization
+
+| Code | Status | Meaning |
+|---|---|---|
+| `org_permissions_disabled` | 503 | The capability is disabled. |
+| `org_permissions_not_initialized` | 503 | The organization owner must initialize authorization. |
+| `org_permissions_already_initialized` | 409 | Initialization already completed. |
+| `org_permission_not_found` | 404 | An installed org permission was not found. |
+| `org_permission_exists` | 409 | The org already has this permission key. |
+| `org_permission_in_use` | 409 | Remove role grants before deleting the business definition. |
+| `protected_org_permission` | 403 | Only an owner can provision library definitions; custom CRUD cannot edit them. |
+| `org_role_not_found` | 404 | The same-org role is absent or unavailable for assignment. |
+| `org_role_exists` | 409 | The org already has this role slug. |
+| `org_role_in_use` | 409 | A member or invitation references the role. |
+| `protected_org_role` | 403 | Built-in org roles cannot be edited or deleted. |
+| `org_authorization_conflict` | 409 | A role/definition/assignment revision changed; refresh the resource before retrying the write. |
+| `org_invite_role_changed` | 409 | The invitation's saved role changed or is disabled; an authorized inviter must delete and recreate it. Retrying or resending cannot refresh its saved revision. |
+
+Fixed-role and membership errors also apply:
+
 | Code | Status | Message | Hint |
 |---|---|---|---|
 | `organizations_disabled` | 503 | Organizations are not enabled | Organization middleware was requested while organizations are disabled. |

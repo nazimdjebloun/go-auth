@@ -10,6 +10,7 @@
     "oauth",
     "admin",
     "app-permissions",
+    "org-permissions",
     "audit-logs",
     "deployment",
     "rate-limiting",

@@ -301,3 +301,37 @@ This library handles auth-specific correctness. It does not, and cannot, cover:
 - **Multi-instance rate-limit consistency**: the default in-memory `Store` is per-process; running multiple instances behind a load balancer needs `WithRateLimitStore` pointed at a shared store (Redis, etc.) for limits to apply globally rather than per-instance.
 - **Tenant-owned application queries**: organization middleware authorizes membership and role, but it cannot rewrite SQL issued by the consuming application. Use `RequireOrgScope` or `RequireActiveOrgScope` so the authorized `goauth.OrgScope` is a required handler argument, pass that complete scope into repository methods, and include `scope.OrgID` in every tenant-owned read, update, and delete predicate. A query filtered only by resource ID can become a cross-tenant disclosure even though the route itself was authenticated.
 - **URL-borne token leakage on your landing pages**: password-reset, invite, and org-invite links embed the raw high-entropy token in the query string (`?token=...`), the conventional approach and not a defect by itself, but it carries the standard risks of any URL-borne secret: `Referer` leakage if the landing page loads third-party resources, and retention in browser history/autocomplete and server/proxy access logs. Set `Referrer-Policy: no-referrer` (or `same-origin`) on the pages that read these tokens, and consider stripping the token from the visible URL (e.g. `history.replaceState`) once you have read it client-side. There is no library-side mitigation for this: go-auth issues the token and the link; what the browser does with the URL after that is your frontend's call.
+
+## Organization permission boundaries
+
+Org permissions are separately opt-in. Backend checks load the current user,
+membership, role, definition and grants for the requested organization. Missing
+membership remains `org_member_not_found`; denied role/grant access is
+`org_forbidden`; infrastructure failures remain server errors. A supplied session
+ID is reloaded and checked for ownership, expiry, revocation and required 2FA.
+Trusted Go callers must supply authenticated identity and session attribution;
+JSON cannot select the actor.
+
+Protected owner access never bypasses last-owner, counter or session invariants.
+Non-owners cannot grant/revoke ownership, edit their own role, reassign themselves,
+or delegate permissions beyond their current effective grants. App administration
+confers no automatic normal org access. Platform oversight is an explicit separate
+path. Membership removal cascades its assignment, and pending invitation acceptance
+rechecks the issuer and the role revision before its atomic claim.
+Deleting business definitions applies the held-key delegation bound as well as
+the reference guard. Authorized inspection of an ineligible target returns its
+assignment metadata with no effective access; it does not authorize the target
+or relax checks on the requesting actor. Role-linked invitations keep their
+saved revisions: `org_invite_role_changed` requires review and recreation rather
+than silently adopting changed grants.
+
+Fixed-role changes reconcile persisted assignments even while org permission
+enforcement is disabled, using the shared account-mutation guard. When audit is
+enabled, org authorization audit events identify the actor and organization and
+mark successful changes with `success: true`. They use the configured durable
+audit pipeline.
+
+Use `RequireOrgPermissionScope` or `RequireActiveOrgPermissionScope` for custom
+business routes, and constrain every application-owned query by `scope.OrgID`.
+Access response flags are informational. The library cannot authorize individual
+application resources without the application's own tenant/resource predicates.

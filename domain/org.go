@@ -51,10 +51,12 @@ type Organization struct {
 
 // OrgMember records a user's role in an organization.
 type OrgMember struct {
-	OrgID    string    `json:"orgId"`
-	UserID   string    `json:"userId"`
-	Role     OrgRole   `json:"role"`
-	JoinedAt time.Time `json:"joinedAt"`
+	OrgRoleID                 *string   `json:"orgRoleId,omitempty"`
+	OrgRoleAssignmentRevision uint64    `json:"orgRoleAssignmentRevision,omitempty"`
+	OrgID                     string    `json:"orgId"`
+	UserID                    string    `json:"userId"`
+	Role                      OrgRole   `json:"role"`
+	JoinedAt                  time.Time `json:"joinedAt"`
 }
 
 // OrgMemberDetail combines a membership with its user.
@@ -65,15 +67,17 @@ type OrgMemberDetail struct {
 
 // OrgInvite records an invitation to join an organization.
 type OrgInvite struct {
-	ID        string    `json:"id"`
-	OrgID     string    `json:"orgId"`
-	Email     string    `json:"email"`
-	Role      OrgRole   `json:"role"`
-	CodeHash  string    `json:"-"`
-	RawCode   string    `json:"rawCode,omitempty"` // populated once on creation, omitted in list
-	InvitedBy string    `json:"invitedBy"`
-	ExpiresAt time.Time `json:"expiresAt"`
-	CreatedAt time.Time `json:"createdAt"`
+	OrgRoleID       *string   `json:"orgRoleId,omitempty"`
+	OrgRoleRevision uint64    `json:"orgRoleRevision,omitempty"`
+	ID              string    `json:"id"`
+	OrgID           string    `json:"orgId"`
+	Email           string    `json:"email"`
+	Role            OrgRole   `json:"role"`
+	CodeHash        string    `json:"-"`
+	RawCode         string    `json:"rawCode,omitempty"` // populated once on creation, omitted in list
+	InvitedBy       string    `json:"invitedBy"`
+	ExpiresAt       time.Time `json:"expiresAt"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 // ReservedOrgSlugs lists slugs unavailable for organization creation.

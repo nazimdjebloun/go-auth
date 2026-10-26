@@ -2,6 +2,41 @@ package audit
 
 import "testing"
 
+func TestNewOrgAuthorizationEventsPreserveAttribution(t *testing.T) {
+	types := []EventType{
+		EventOrgAuthorizationInitialized,
+		EventOrgPermissionCreated,
+		EventOrgPermissionUpdated,
+		EventOrgPermissionDeleted,
+		EventOrgRoleCreated,
+		EventOrgRoleUpdated,
+		EventOrgRoleGrantsChanged,
+		EventOrgRoleDeleted,
+		EventOrgLibraryPermissionsChanged,
+		EventOrgInviteCreated,
+		EventOrgInviteResent,
+		EventOrgInviteDeleted,
+		EventOrgInviteAccepted,
+	}
+	for _, typ := range types {
+		t.Run(string(typ), func(t *testing.T) {
+			event := NewOrgEvent(typ, "actor", "org", nil)
+			if event.Type != typ || !event.Success {
+				t.Fatalf("event type=%q success=%v", event.Type, event.Success)
+			}
+			if event.ActorID == nil || *event.ActorID != "actor" || event.OrgID == nil || *event.OrgID != "org" {
+				t.Fatalf("event lost attribution: %+v", event)
+			}
+			if event.Metadata["error"] != nil {
+				t.Fatalf("valid event was rejected: %+v", event.Metadata)
+			}
+		})
+	}
+	if event := NewOrgEvent(EventLoginSuccess, "actor", "org", nil); event.Success {
+		t.Fatal("non-organization event was accepted")
+	}
+}
+
 func TestEmailOnlyEventsKeepActorIDDatabaseSafe(t *testing.T) {
 	tests := []struct {
 		name  string

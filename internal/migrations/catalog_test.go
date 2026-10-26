@@ -28,7 +28,7 @@ func TestCatalogMatchesCanonicalSchemas(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(def.tables) != 15 || len(def.indexes) < 30 {
+			if len(def.tables) != 21 || len(def.indexes) < 30 {
 				t.Fatal("incomplete auth object inventory")
 			}
 		})

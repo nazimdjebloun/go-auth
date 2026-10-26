@@ -41,7 +41,7 @@ func TestNewSchemaCheckRejectsUntrackedAndDirtyBorrowedDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	auth.Close()
-	if _, err := db.Exec("UPDATE goauth_migrations SET state='started', completed_at=NULL"); err != nil {
+	if _, err := db.Exec("UPDATE goauth_migrations SET state='started', completed_at=NULL WHERE migration_id=(SELECT MAX(migration_id) FROM goauth_migrations)"); err != nil {
 		t.Fatal("Auth.Close closed the borrowed database", err)
 	}
 	if auth, err := New(cfg); !errors.Is(err, ErrDirtyMigration) || auth != nil {

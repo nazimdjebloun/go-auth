@@ -77,6 +77,9 @@ func (s *OrgService) CountOrgs(ctx context.Context, input api.AdminListOrgsInput
 
 // CountMembers returns how many members of the org match the input's filters.
 func (s *OrgService) CountMembers(ctx context.Context, input api.ListMembersInput) (int, error) {
+	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) {
+		return runOrgRead(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.members.read", func(ctx context.Context) (int, error) { return s.CountMembers(ctx, input) })
+	}
 	if err := s.requireRole(ctx, input.OrgID, input.ActorID, domain.OrgRoleMember); err != nil {
 		return 0, err
 	}
@@ -227,6 +230,15 @@ func (s *OrgService) AdminCountOrgMembers(ctx context.Context, input api.AdminLi
 // the event metadata, since the organizations row won't survive the delete
 // for anything to join against later.
 func (s *OrgService) AdminDeleteOrg(ctx context.Context, input api.AdminOrgActionInput) error {
+	if s.orgPermissions != nil && ctx.Value(orgManagementContextKey{}) == nil {
+		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
+			if err := s.orgPermissions.state.LockOrg(ctx, input.OrgID); err != nil {
+				return err
+			}
+			return s.AdminDeleteOrg(context.WithValue(ctx, orgManagementContextKey{}, input.OrgID), input)
+		})
+	}
+
 	if s.appPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
 		return runProtectedAppMutation(ctx, s.appPermissions, appActor(input.ActorID, input.ActorSessionID), func(ctx context.Context) error { return s.AdminDeleteOrg(ctx, input) })
 	}
@@ -251,6 +263,15 @@ func (s *OrgService) AdminDeleteOrg(ctx context.Context, input api.AdminOrgActio
 // since both require the target to already be a member. Publishes
 // EventAdminOrgMemberAdded.
 func (s *OrgService) AdminAddMember(ctx context.Context, input api.AdminAddMemberInput) error {
+	if s.orgPermissions != nil && ctx.Value(orgManagementContextKey{}) == nil {
+		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
+			if err := s.orgPermissions.state.LockOrg(ctx, input.OrgID); err != nil {
+				return err
+			}
+			return s.AdminAddMember(context.WithValue(ctx, orgManagementContextKey{}, input.OrgID), input)
+		})
+	}
+
 	if s.appPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
 		return runProtectedAppMutation(ctx, s.appPermissions, appActor(input.ActorID, input.ActorSessionID), func(ctx context.Context) error { return s.AdminAddMember(ctx, input) })
 	}
@@ -272,6 +293,15 @@ func (s *OrgService) AdminAddMember(ctx context.Context, input api.AdminAddMembe
 // caller's own membership. Publishes EventAdminOrgMemberRemoved — distinct
 // from the self-service EventOrgMemberRemoved.
 func (s *OrgService) AdminRemoveMember(ctx context.Context, input api.AdminRemoveMemberInput) error {
+	if s.orgPermissions != nil && ctx.Value(orgManagementContextKey{}) == nil {
+		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
+			if err := s.orgPermissions.state.LockOrg(ctx, input.OrgID); err != nil {
+				return err
+			}
+			return s.AdminRemoveMember(context.WithValue(ctx, orgManagementContextKey{}, input.OrgID), input)
+		})
+	}
+
 	if s.appPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
 		return runProtectedAppMutation(ctx, s.appPermissions, appActor(input.ActorID, input.ActorSessionID), func(ctx context.Context) error { return s.AdminRemoveMember(ctx, input) })
 	}
@@ -294,6 +324,18 @@ func (s *OrgService) AdminRemoveMember(ctx context.Context, input api.AdminRemov
 // self-promoting, and doesn't apply to a platform admin acting from outside
 // the org. Publishes EventAdminOrgMemberRoleChanged.
 func (s *OrgService) AdminUpdateMemberRole(ctx context.Context, input api.AdminUpdateMemberRoleInput) error {
+	managementOrgID, hasManagementScope := ctx.Value(orgManagementContextKey{}).(string)
+	if s.roleAssignments != nil && (!hasManagementScope || managementOrgID != input.OrgID) {
+		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
+			if s.orgPermissions != nil {
+				if err := s.orgPermissions.state.LockOrg(ctx, input.OrgID); err != nil {
+					return err
+				}
+			}
+			return s.AdminUpdateMemberRole(context.WithValue(ctx, orgManagementContextKey{}, input.OrgID), input)
+		})
+	}
+
 	if s.appPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
 		return runProtectedAppMutation(ctx, s.appPermissions, appActor(input.ActorID, input.ActorSessionID), func(ctx context.Context) error { return s.AdminUpdateMemberRole(ctx, input) })
 	}
@@ -303,11 +345,13 @@ func (s *OrgService) AdminUpdateMemberRole(ctx context.Context, input api.AdminU
 	if err := s.requirePlatformAdmin(ctx, input.ActorID, input.ActorSessionID); err != nil {
 		return err
 	}
-	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole, func(txCtx context.Context, _ domain.OrgRole) error {
+	oldRole, err := s.updateMemberRoleTx(ctx, input.OrgID, input.UserID, input.NewRole, func(txCtx context.Context, _ domain.OrgRole, assignment map[string]any) error {
 		if s.audit == nil {
 			return nil
 		}
-		return s.audit.Record(txCtx, audit.NewOrgEvent(audit.EventAdminOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID))
+		evt := audit.NewOrgEvent(audit.EventAdminOrgMemberRoleChanged, input.ActorID, input.OrgID, &input.UserID)
+		evt.Metadata = assignment
+		return s.audit.Record(txCtx, evt)
 	})
 	if err != nil {
 		return err

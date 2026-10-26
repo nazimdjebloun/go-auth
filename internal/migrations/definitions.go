@@ -179,6 +179,13 @@ func parseDefinition(dialect, script string) (definition, error) {
 			idx.predicate = predicate
 		}
 		result.indexes[idx.name] = idx
+		// MySQL reports standalone unique indexes as UNIQUE constraints too.
+		// Keep the named-index check and its table-level candidate key in sync.
+		if dialect == "mysql" && idx.unique {
+			table := result.tables[idx.table]
+			table.constraints = append(table.constraints, "unique("+strings.Join(idx.columns, ",")+")")
+			slices.Sort(table.constraints)
+		}
 	}
 	if len(tableStart.FindAllStringIndex(script, -1)) != len(result.tables) ||
 		len(indexStart.FindAllStringIndex(script, -1)) != len(result.indexes) {

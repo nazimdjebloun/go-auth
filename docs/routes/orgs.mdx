@@ -6,6 +6,14 @@ icon: "Building2"
 
 # Organizations
 
+The role rules on this page describe the default fixed-role mode. Opt into
+[org permissions](../guides/org-permissions.mdx) for custom roles, custom business definitions and exact
+operation grants. In that mode built-in roles retain their preset powers, while
+custom roles receive explicit grants and use the separate authorization API.
+Membership JSON exposes `orgRoleId` and `orgRoleAssignmentRevision`; `role` remains
+the fixed classification. Invites accept `orgRoleId` plus `expectedRoleRevision`
+in place of `role`. Use permission middleware to enforce custom-role access.
+
 Mounted only when organizations are enabled. Every route needs the session cookie. With the feature off, these routes are absent; the host router determines the unmatched-route response. Roles are `owner`, `admin`, `member`; an invalid `role` query value is `400 invalid_input`. On every list route, an explicitly supplied unsupported or empty `orderBy` or `orderDirection` is also `400 invalid_input`; omit either parameter to use its documented default. See the [Organizations guide](../guides/organizations.mdx) for flows and role rules.
 
 Orgs serialize camelCase:
@@ -368,6 +376,13 @@ Total for the list above. `Auth:` Session, org admin.
 POST /auth/orgs/\{orgID\}/invites/\{inviteID\}/resend
 
 Mails a fresh code for the invite. `Auth:` Session, org admin. No body.
+
+With org permissions enabled, the caller needs `goauth.org.invites.resend`.
+For invitations with a saved role link, the original inviter must still have
+authority to delegate that role, and its revision must still match. Owners
+cannot override these checks; delete and recreate a stale invitation.
+When the saved role revision changed or the role is disabled, acceptance and
+resend return `409 org_invite_role_changed` with that recovery instruction.
 
 **Path params:**
 

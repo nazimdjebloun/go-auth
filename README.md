@@ -27,6 +27,8 @@ authentication policy, and startup/shutdown ownership rules.
 - Administrative user, session, organization, invitation, and audit-log APIs
 - Opt-in [application roles and granular permissions](docs/guides/app-permissions.mdx),
   with one role per account and selective delegation of library actions
+- Opt-in [organization roles and granular permissions](docs/guides/org-permissions.mdx),
+  with custom roles, custom business permissions and one role per membership
 - CSRF protection, route-specific rate limiting, and enumeration-resistant
   credential flows
 - PostgreSQL, MySQL, and SQLite schemas embedded in the library
@@ -53,6 +55,23 @@ seeding, atomic bulk changes, single-role assignment, and backend checks.
 
 The canonical schema includes the app authorization tables and account role
 columns even when the feature is disabled.
+
+Org permissions are separately enabled with
+`WithOrgPermissions(OrgPermissionsConfig{Enable: true, EnableManagementHTTP: true})`
+and require organizations. New orgs initialize protected owner/admin/member roles
+atomically; an existing org must be initialized by its owner. Custom roles combine
+installed library actions and org-local business permissions. Use
+`RequireOrgPermissionScope` or `RequireActiveOrgPermissionScope` for application
+routes. Apply migration revision 2 before enabling the feature; app roles and
+permissions remain independent. See the [org permission guide](docs/guides/org-permissions.mdx).
+Use the self `/access` endpoint to inspect current permissions; role-management
+reads require `goauth.org.roles.read` and allow authorized inspection of banned
+members and disabled roles. Fixed-role changes keep assignments consistent even
+while org permission enforcement is disabled. Invite resends also retain the original
+inviter's delegation checks, as described in the guide.
+Authorized effective-access inspection reports no effective permissions for
+disabled roles or banned members. Stale role-linked invitations return
+`org_invite_role_changed` with instructions to delete and recreate the invitation.
 
 ## Install
 

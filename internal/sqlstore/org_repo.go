@@ -50,6 +50,7 @@ var orgInviteOrderByWhitelist = map[string]string{
 type OrgRepository struct {
 	db             *DB
 	appPermissions bool
+	orgPermissions bool
 }
 
 // NewOrgRepository returns an organization repository.
@@ -139,6 +140,13 @@ func (r *OrgRepository) Update(ctx context.Context, org *domain.Organization) er
 
 // Delete removes an organization by ID.
 func (r *OrgRepository) Delete(ctx context.Context, id string) (bool, error) {
+	if r.orgPermissions {
+		for _, q := range []string{`DELETE FROM org_invite_roles WHERE org_id=$1`, `DELETE FROM org_member_roles WHERE org_id=$1`} {
+			if _, err := r.db.ExecContext(ctx, q, id); err != nil {
+				return false, err
+			}
+		}
+	}
 	return affected(r.db.ExecContext(ctx, orgDeleteQuery, id))
 }
 
@@ -244,11 +252,19 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 		orderDir = "ASC"
 	}
 
+	columns := orgMemberSelectCols
+	roleJoins := ""
+	if filter.IncludeOrgRole {
+		columns += ", COALESCE(assigned.role_id, builtin.id), COALESCE(assigned.revision, 0)"
+		roleJoins = `
+		LEFT JOIN org_member_roles assigned ON assigned.org_id = om.org_id AND assigned.user_id = om.user_id
+		LEFT JOIN org_roles builtin ON builtin.org_id = om.org_id AND builtin.slug = om.role AND assigned.role_id IS NULL`
+	}
 	base := fmt.Sprintf(`
 		SELECT %s
 		FROM organization_members om
-		JOIN users u ON u.id = om.user_id
-		WHERE %s ORDER BY %s %s`, orgMemberSelectCols, whereClause, orderCol, orderDir)
+		JOIN users u ON u.id = om.user_id%s
+		WHERE %s ORDER BY %s %s`, columns, roleJoins, whereClause, orderCol, orderDir)
 
 	query := base
 	if filter.Limit > 0 {
@@ -265,11 +281,15 @@ func (r *OrgRepository) ListMembers(ctx context.Context, orgID string, filter po
 	for rows.Next() {
 		var md domain.OrgMemberDetail
 		u := &domain.User{}
-		if err := rows.Scan(
+		dest := []any{
 			&md.OrgID, &md.UserID, &md.Role, &md.JoinedAt,
 			&u.ID, &u.Email, &u.Name, &u.Role, &u.IsVerified, &u.IsBanned, &u.CreatedAt, &u.UpdatedAt,
 			&u.AppRoleID, &u.AppRoleAssignmentRevision,
-		); err != nil {
+		}
+		if filter.IncludeOrgRole {
+			dest = append(dest, &md.OrgRoleID, &md.OrgRoleAssignmentRevision)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
@@ -575,9 +595,10 @@ func NewOrgInviteRepository(db *DB) *OrgInviteRepository {
 	return &OrgInviteRepository{db: db}
 }
 
-func scanOrgInvite(sc interface{ Scan(dest ...any) error }) (*domain.OrgInvite, error) {
+func scanOrgInvite(sc interface{ Scan(dest ...any) error }, extra ...any) (*domain.OrgInvite, error) {
 	i := &domain.OrgInvite{}
-	if err := sc.Scan(&i.ID, &i.OrgID, &i.Email, &i.Role, &i.CodeHash, &i.InvitedBy, &i.ExpiresAt, &i.CreatedAt); err != nil {
+	dest := []any{&i.ID, &i.OrgID, &i.Email, &i.Role, &i.CodeHash, &i.InvitedBy, &i.ExpiresAt, &i.CreatedAt}
+	if err := sc.Scan(append(dest, extra...)...); err != nil {
 		return nil, err
 	}
 	return i, nil
@@ -609,24 +630,24 @@ func (r *OrgInviteRepository) GetByCodeHash(ctx context.Context, codeHash string
 	return i, err
 }
 
-// orgInvitesWhere builds the " ... " predicate (always starting "org_id = $1")
+// orgInvitesWhere builds the predicate scoped to the organization_invites alias i
 // and args shared by ListByOrgID and CountByOrgID.
 func (r *OrgInviteRepository) orgInvitesWhere(orgID string, filter port.OrgInviteFilter) (string, []any) {
-	where := []string{"org_id = $1"}
+	where := []string{"i.org_id = $1"}
 	args := []any{orgID}
 	argIdx := 2
 
 	if filter.Role != nil {
-		where = append(where, fmt.Sprintf("role = $%d", argIdx))
+		where = append(where, fmt.Sprintf("i.role = $%d", argIdx))
 		args = append(args, string(*filter.Role))
 		argIdx++
 	}
 	if filter.Status != nil {
 		now := time.Now().UTC()
 		if *filter.Status == "expired" {
-			where = append(where, fmt.Sprintf("expires_at <= $%d", argIdx))
+			where = append(where, fmt.Sprintf("i.expires_at <= $%d", argIdx))
 		} else {
-			where = append(where, fmt.Sprintf("expires_at > $%d", argIdx))
+			where = append(where, fmt.Sprintf("i.expires_at > $%d", argIdx))
 		}
 		args = append(args, now)
 		argIdx++
@@ -643,7 +664,7 @@ func (r *OrgInviteRepository) orgInvitesWhere(orgID string, filter port.OrgInvit
 		// rather than reusing one — DB.Rebind rewrites every textual "$N" to
 		// "?" positionally for mysql/sqlite, so a reused placeholder silently
 		// desyncs args from the generated "?" count on those drivers.
-		where = append(where, fmt.Sprintf("email %s $%d", op, argIdx))
+		where = append(where, fmt.Sprintf("i.email %s $%d", op, argIdx))
 		args = append(args, searchTerm)
 	}
 	return strings.Join(where, " AND "), args
@@ -654,7 +675,7 @@ func (r *OrgInviteRepository) orgInvitesWhere(orgID string, filter port.OrgInvit
 func (r *OrgInviteRepository) CountByOrgID(ctx context.Context, orgID string, filter port.OrgInviteFilter) (int, error) {
 	whereClause, args := r.orgInvitesWhere(orgID, filter)
 	var total int
-	q := fmt.Sprintf("SELECT COUNT(*) FROM organization_invites WHERE %s", whereClause)
+	q := fmt.Sprintf("SELECT COUNT(*) FROM organization_invites i WHERE %s", whereClause)
 	if err := r.db.QueryRowContext(ctx, q, args...).Scan(&total); err != nil {
 		return 0, err
 	}
@@ -675,7 +696,13 @@ func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, fil
 		orderDir = "ASC"
 	}
 
-	base := fmt.Sprintf("SELECT %s FROM organization_invites WHERE %s ORDER BY %s %s", orgInviteCols, whereClause, orderCol, orderDir)
+	columns := orgInviteSelectColsAliased
+	roleJoin := ""
+	if filter.IncludeOrgRole {
+		columns += ", assigned.role_id, COALESCE(assigned.role_revision, 0)"
+		roleJoin = " LEFT JOIN org_invite_roles assigned ON assigned.org_id = i.org_id AND assigned.invite_id = i.id"
+	}
+	base := fmt.Sprintf("SELECT %s FROM organization_invites i%s WHERE %s ORDER BY i.%s %s", columns, roleJoin, whereClause, orderCol, orderDir)
 
 	query := base
 	if filter.Limit > 0 {
@@ -690,11 +717,18 @@ func (r *OrgInviteRepository) ListByOrgID(ctx context.Context, orgID string, fil
 
 	invites := []domain.OrgInvite{}
 	for rows.Next() {
-		i, err := scanOrgInvite(rows)
+		var roleID *string
+		var revision uint64
+		var extra []any
+		if filter.IncludeOrgRole {
+			extra = []any{&roleID, &revision}
+		}
+		i, err := scanOrgInvite(rows, extra...)
 		if err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
+		i.OrgRoleID, i.OrgRoleRevision = roleID, revision
 		invites = append(invites, *i)
 	}
 	if err := rows.Err(); err != nil {
@@ -732,3 +766,6 @@ func (r *OrgInviteRepository) ClaimInvite(ctx context.Context, id, codeHash stri
 	}
 	return rows > 0, nil
 }
+
+// WithOrgPermissions enables cleanup of restrictive org role references.
+func (r *OrgRepository) WithOrgPermissions() *OrgRepository { r.orgPermissions = true; return r }

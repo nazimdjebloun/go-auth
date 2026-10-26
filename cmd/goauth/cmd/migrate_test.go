@@ -101,7 +101,8 @@ func TestRetryCommandRefusesBaselineWithoutPublishedPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if err := applySchema(t.Context(), db, "sqlite"); err != nil {
+	applyPublishedBaseline(t, db, "sqlite")
+	if _, err := goauth.AdoptSchema(t.Context(), db, goauth.BaselineAdoptionOptions{MigrationOptions: goauth.MigrationOptions{Driver: "sqlite"}, BaselineRevision: 1}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Exec("UPDATE goauth_migrations SET state='started', completed_at=NULL"); err != nil {

@@ -199,23 +199,33 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		oauthSvc.AttachTwoFactor(twoFactorSvc)
 	}
 
+	var orgPermissionsSvc *service.OrgPermissionsService
 	var orgSvc *service.OrgService
 	var orgInviteSvc *service.OrgInviteService
 	var orgRepo port.OrgRepository
 	if cfg.organizations.Enable {
-		orgStore := sqlstore.NewOrgRepository(sqlDB)
+		// Role links remain persisted if granular authorization is later disabled.
+		// Org deletion must still remove their restrictive references.
+		orgStore := sqlstore.NewOrgRepository(sqlDB).WithOrgPermissions()
 		if cfg.appPermissions.Enable {
 			orgStore.WithAppPermissions()
+		}
+		orgPermissionRepo := sqlstore.NewOrgPermissionsRepository(sqlDB)
+		if cfg.orgPermissions.Enable {
+			orgPermissionsSvc = service.NewOrgPermissionsService(userRepo, orgStore, sessionRepo, sessSvc, orgPermissionRepo, orgPermissionRepo, orgPermissionRepo, orgPermissionRepo, service.OrgPermissionsServiceConfig{RequireUserTwoFactor: cfg.twoFactor.RequireEmail2FA, Audit: auditPub})
 		}
 		orgRepo = orgStore
 		orgInviteRepo := sqlstore.NewOrgInviteRepository(sqlDB)
 		orgSvc = service.NewOrgService(orgRepo, userRepo, sessionRepo, sqlDB, service.OrgServiceConfig{
-			AppPermissions: appPermissionsSvc,
-			MaxOrgsPerUser: cfg.organizations.MaxOrgsPerUser,
-			Logger:         cfg.logger,
-			Audit:          auditPub,
+			AppPermissions:  appPermissionsSvc,
+			OrgPermissions:  orgPermissionsSvc,
+			RoleAssignments: orgPermissionRepo,
+			MaxOrgsPerUser:  cfg.organizations.MaxOrgsPerUser,
+			Logger:          cfg.logger,
+			Audit:           auditPub,
 		})
 		orgInviteSvc = service.NewOrgInviteService(orgInviteRepo, orgRepo, userRepo, sqlDB, genImpl, mailer, service.OrgInviteServiceConfig{
+			OrgPermissions:   orgPermissionsSvc,
 			MaxOrgsPerUser:   cfg.organizations.MaxOrgsPerUser,
 			InviteTTL:        cfg.organizations.InviteTTL,
 			BaseURL:          cfg.app.BaseURL,
@@ -225,6 +235,10 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 			Logger:           cfg.logger,
 			Audit:            auditPub,
 		})
+	}
+
+	if orgPermissionsSvc != nil {
+		orgPermissionsSvc.AttachOrgService(orgSvc)
 	}
 
 	// One shared account-deletion coordinator for both services: every
@@ -244,6 +258,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 			OAuth: oauthSvc, Org: orgSvc, OrgInvite: orgInviteSvc,
 			TwoFactor: twoFactorSvc, AuditLog: auditLogRepo,
 			AppPermissions: appPermissionsSvc,
+			OrgPermissions: orgPermissionsSvc,
 		},
 		sessionRepo: sessionRepo, tokenRepo: tokenRepo, userRepo: userRepo,
 		orgRepo: orgRepo, cookies: cookies, auditService: auditSvc,

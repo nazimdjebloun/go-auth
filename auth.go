@@ -59,6 +59,7 @@ type serviceSet struct {
 	TwoFactor      *service.TwoFactorService
 	AuditLog       port.AuditLogRepository
 	AppPermissions *service.AppPermissionsService
+	OrgPermissions *service.OrgPermissionsService
 }
 
 // Services returns a copy of the configured programmatic capabilities.
@@ -82,6 +83,9 @@ func (a *Auth) Services() Services {
 	}
 	if a.services.AppPermissions != nil {
 		s.AppPermissions = a.services.AppPermissions
+	}
+	if a.services.OrgPermissions != nil {
+		s.OrgPermissions = a.services.OrgPermissions
 	}
 	return s
 }

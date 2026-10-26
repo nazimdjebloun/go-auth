@@ -50,7 +50,8 @@ const (
 	orgDecrementOwnerCountForOrgOwnersQuery = `UPDATE users SET org_owner_count = org_owner_count - 1
 		WHERE id IN (SELECT user_id FROM organization_members WHERE org_id = $1 AND role = 'owner')`
 
-	orgInviteCols = "id, org_id, email, role, code_hash, invited_by, expires_at, created_at"
+	orgInviteCols              = "id, org_id, email, role, code_hash, invited_by, expires_at, created_at"
+	orgInviteSelectColsAliased = "i.id, i.org_id, i.email, i.role, i.code_hash, i.invited_by, i.expires_at, i.created_at"
 
 	orgInviteCreateQuery = `INSERT INTO organization_invites (` + orgInviteCols + `) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 

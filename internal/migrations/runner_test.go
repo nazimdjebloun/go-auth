@@ -25,6 +25,10 @@ func migrationDB(t *testing.T) *sql.DB {
 }
 
 func TestStandaloneFreshRepeatAndBorrowedSettings(t *testing.T) {
+	catalog, err := Load("sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
 	db := migrationDB(t)
 	if _, err := db.Exec("PRAGMA busy_timeout=1234"); err != nil {
 		t.Fatal(err)
@@ -34,7 +38,7 @@ func TestStandaloneFreshRepeatAndBorrowedSettings(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if status.Revision != 1 || len(status.History) != 1 || status.History[0].Mode != "executed" || status.Dirty {
+		if status.Revision != catalog.TargetRevision || len(status.History) != len(catalog.Migrations) || status.History[0].Mode != "executed" || status.Dirty {
 			t.Fatalf("incorrect tracked state: %+v", status)
 		}
 		if err := Check(t.Context(), db, "sqlite"); err != nil {
@@ -58,7 +62,8 @@ func TestStandaloneFreshRepeatAndBorrowedSettings(t *testing.T) {
 
 func legacySchema(t *testing.T, db *sql.DB) {
 	t.Helper()
-	ddl, err := schema.For("sqlite")
+	ddl := bootstrapCatalog(t, "sqlite").Migrations[0].schemaSQL
+	var err error
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,11 +133,15 @@ func TestAdoptionRejectsDriftWithoutCreatingHistory(t *testing.T) {
 }
 
 func TestDirtyStateBlocksUntilVerifiedRepair(t *testing.T) {
+	catalog, err := Load("sqlite")
+	if err != nil {
+		t.Fatal(err)
+	}
 	db := migrationDB(t)
 	if _, err := Apply(t.Context(), db, Options{Driver: "sqlite"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.Exec("UPDATE goauth_migrations SET state='started', completed_at=NULL"); err != nil {
+	if _, err := db.Exec("UPDATE goauth_migrations SET state='started', completed_at=NULL WHERE migration_id=(SELECT MAX(migration_id) FROM goauth_migrations)"); err != nil {
 		t.Fatal(err)
 	}
 	if err := Check(t.Context(), db, "sqlite"); !errors.Is(err, ErrDirty) {
@@ -144,13 +153,13 @@ func TestDirtyStateBlocksUntilVerifiedRepair(t *testing.T) {
 	if _, err := db.Exec("DROP INDEX idx_users_app_role"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RepairComplete(t.Context(), db, Options{Driver: "sqlite"}, 1); !errors.Is(err, ErrDrift) {
+	if _, err := RepairComplete(t.Context(), db, Options{Driver: "sqlite"}, catalog.TargetRevision); !errors.Is(err, ErrDrift) {
 		t.Fatalf("incomplete schema was marked complete: %v", err)
 	}
 	if _, err := db.Exec("CREATE INDEX idx_users_app_role ON users(app_role_id,id)"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RepairComplete(t.Context(), db, Options{Driver: "sqlite"}, 1); err != nil {
+	if _, err := RepairComplete(t.Context(), db, Options{Driver: "sqlite"}, catalog.TargetRevision); err != nil {
 		t.Fatal(err)
 	}
 	if err := Check(t.Context(), db, "sqlite"); err != nil {
@@ -165,7 +174,7 @@ func TestChecksumAndFutureHistoryAreRejected(t *testing.T) {
 		want error
 	}{
 		{name: "checksum", sql: "UPDATE goauth_migrations SET checksum='modified'", want: ErrChecksum},
-		{name: "future", sql: "UPDATE goauth_migrations SET migration_id=42", want: ErrUnknownHistory},
+		{name: "future", sql: "UPDATE goauth_migrations SET migration_id=42 WHERE migration_id=(SELECT MAX(migration_id) FROM goauth_migrations)", want: ErrUnknownHistory},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := migrationDB(t)
@@ -220,8 +229,12 @@ func TestConcurrentStandaloneRunners(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	catalog, err := Load(testdb.Driver(db))
+	if err != nil {
+		t.Fatal(err)
+	}
 	status, err := Inspect(ctx, db, testdb.Driver(db))
-	if err != nil || len(status.History) != 1 || status.Dirty {
+	if err != nil || len(status.History) != len(catalog.Migrations) || status.Dirty {
 		t.Fatalf("concurrent runners duplicated or corrupted history: %+v, %v", status, err)
 	}
 }

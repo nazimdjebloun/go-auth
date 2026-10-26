@@ -193,11 +193,11 @@ func TestAppAuthorizationRouteCoverage(t *testing.T) {
 	}
 	// Exercise every feature combination, including optional invite, organization,
 	// OAuth and management groups. An added feature field must be classified too.
-	if reflect.TypeFor[httproutes.Features]().NumField() != 6 {
+	if reflect.TypeFor[httproutes.Features]().NumField() != 8 {
 		t.Fatal("classify new HTTP features in authorization coverage")
 	}
-	for mask := range 64 {
-		features := httproutes.Features{AppPermissions: mask&1 != 0, AppPermissionManagement: mask&2 != 0, EmailRegistration: mask&4 != 0, Invite: mask&8 != 0, OAuth: mask&16 != 0, Organizations: mask&32 != 0}
+	for mask := range 256 {
+		features := httproutes.Features{AppPermissions: mask&1 != 0, AppPermissionManagement: mask&2 != 0, EmailRegistration: mask&4 != 0, Invite: mask&8 != 0, OAuth: mask&16 != 0, Organizations: mask&32 != 0, OrgPermissions: mask&64 != 0, OrgPermissionManagement: mask&128 != 0}
 		t.Run(strconv.Itoa(mask), func(t *testing.T) {
 			seen := map[string]bool{}
 			for _, entry := range httproutes.Build(features, &handler.Handler{}, &handler.OAuthHandlers{}, mw) {

@@ -129,3 +129,22 @@ var (
 	// err.Code can't tell the two apart even though the messages differ.
 	ErrTwoFactorPasswordRequired = NewError("two_factor_password_required", "Password is required to change two-factor settings")
 )
+
+var (
+	ErrOrgPermissionsDisabled       = NewError("org_permissions_disabled", "Organization permissions are disabled")
+	ErrOrgPermissionsNotInitialized = NewError("org_permissions_not_initialized", "Initialize organization permissions first")
+	ErrOrgPermissionsInitialized    = NewError("org_permissions_already_initialized", "Organization permissions are already initialized")
+	ErrOrgPermissionNotFound        = NewError("org_permission_not_found", "Organization permission not found")
+	ErrOrgPermissionExists          = NewError("org_permission_exists", "Organization permission already exists")
+	ErrOrgPermissionInUse           = NewError("org_permission_in_use", "Remove role grants before deleting this permission")
+	ErrProtectedOrgPermission       = NewError("protected_org_permission", "Library definitions can only be installed or removed by an owner")
+	ErrOrgRoleNotFound              = NewError("org_role_not_found", "Organization role not found")
+	ErrOrgRoleExists                = NewError("org_role_exists", "Organization role already exists")
+	ErrOrgRoleInUse                 = NewError("org_role_in_use", "Organization role is assigned to members or invitations")
+	ErrProtectedOrgRole             = NewError("protected_org_role", "Built-in organization roles cannot be changed")
+	ErrOrgAuthorizationConflict     = NewError("org_authorization_conflict", "Organization authorization changed; refresh and retry")
+	ErrOrgInviteRoleChanged         = NewError(
+		"org_invite_role_changed",
+		"Invitation role changed or is disabled; ask an authorized inviter to delete and recreate it",
+	)
+)

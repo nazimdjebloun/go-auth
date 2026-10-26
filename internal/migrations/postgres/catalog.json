@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "release": "v0.4.0",
+  "release": "v0.5.0",
   "dialect": "postgres",
-  "targetRevision": 1,
+  "targetRevision": 2,
   "bootstrapRevision": 1,
   "migrations": [
     {
@@ -12,8 +12,18 @@
       "kind": "baseline",
       "transactional": true,
       "schema": "schema_000001.sql",
-      "checks": [],
-      "schemaChecksum": "34639c9659e6bac74e854aceb15dd45fb8bed711c5216b0fffbb99740359b077"
+      "schemaChecksum": "34639c9659e6bac74e854aceb15dd45fb8bed711c5216b0fffbb99740359b077",
+      "checks": []
+    },
+    {
+      "id": 2,
+      "file": "000002_v0.5.0_001.sql",
+      "checksum": "50d50bcf3af454a2bd0227875003b677f4014b275fcfb4e328bdb0ad47628a01",
+      "kind": "upgrade",
+      "transactional": true,
+      "schema": "schema_000002.sql",
+      "schemaChecksum": "77d1c012824e8aae21132d191fa053a29d6c3c84d70d15802131c52d00e5bba7",
+      "checks": []
     }
   ]
 }

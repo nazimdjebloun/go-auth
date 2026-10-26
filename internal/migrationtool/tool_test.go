@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -27,6 +29,12 @@ type authorFixture struct {
 }
 
 func authorCheckout(t *testing.T) *authorFixture {
+	return authorCheckoutCatalog(t, true)
+}
+
+// Existing synthetic publication cases describe the v0.4.0 -> v0.5.0 history.
+// Keep them on their immutable baseline as new real catalog steps are published.
+func authorCheckoutCatalog(t *testing.T, baselineOnly bool) *authorFixture {
 	t.Helper()
 	f := &authorFixture{base: map[string][]byte{}, version: "atlas version v1.3.0\n"}
 	f.tool = Tool{Root: t.TempDir(), BaseRef: "published", run: f.command}
@@ -47,6 +55,11 @@ func authorCheckout(t *testing.T) *authorFixture {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if baselineOnly {
+			catalog.Migrations = catalog.Migrations[:1]
+			catalog.TargetRevision = catalog.BootstrapRevision
+			catalog.Release = "v0.4.0"
+		}
 		manifest, err := jsonBytes(catalog)
 		if err != nil {
 			t.Fatal(err)
@@ -65,9 +78,64 @@ func authorCheckout(t *testing.T) *authorFixture {
 		if err != nil {
 			t.Fatal(err)
 		}
+		if baselineOnly {
+			snapshot, err := os.ReadFile(filepath.Join("../migrations", dialect, catalog.Migrations[0].Schema))
+			if err != nil {
+				t.Fatal(err)
+			}
+			desired = string(snapshot)
+		}
 		write(filepath.Join("internal/schema", dialect+".sql"), []byte(strings.ReplaceAll(desired, "\r\n", "\n")))
 	}
 	return f
+}
+
+func TestDraftAppendsToCurrentPublishedCatalog(t *testing.T) {
+	f := authorCheckoutCatalog(t, false)
+	catalog, err := migrations.Load("postgres")
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := catalog.Migrations[len(catalog.Migrations)-1]
+	sequence := 1
+	if strings.Contains(last.File, "_"+catalog.Release+"_") {
+		parts := strings.Split(strings.TrimSuffix(last.File, ".sql"), "_")
+		prior, err := strconv.Atoi(parts[len(parts)-1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		sequence = prior + 1
+	}
+	f.diff = func(directory string) error {
+		entries, err := os.ReadDir(directory)
+		if err != nil {
+			return err
+		}
+		if len(entries) != len(catalog.Migrations) {
+			t.Fatal("Atlas did not receive every published migration")
+		}
+		for i, entry := range entries {
+			if entry.Name() != catalog.Migrations[i].File {
+				t.Fatal("published migration identity changed", entry.Name())
+			}
+		}
+		return os.WriteFile(filepath.Join(directory, "20261024000000_review.sql"), []byte("-- goauth:statement\nUPDATE users SET name=name;\n"), 0600)
+	}
+	directory, err := f.tool.CreateDraft(t.Context(), DraftOptions{Driver: "postgres", Release: catalog.Release, Sequence: sequence})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var draft Draft
+	if err := readJSON(filepath.Join(directory, "draft.json"), &draft); err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("%06d_%s_%03d.sql", catalog.TargetRevision+1, catalog.Release, sequence)
+	if draft.ID != catalog.TargetRevision+1 || draft.File != want || draft.BaseRevision != catalog.TargetRevision {
+		t.Fatalf("incorrect next identity: %+v, want %s", draft, want)
+	}
+	if err := f.tool.Check(t.Context()); err != nil {
+		t.Fatal("drafting changed the published catalog", err)
+	}
 }
 
 func (f *authorFixture) command(_ context.Context, executable, _ string, args ...string) ([]byte, error) {

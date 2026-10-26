@@ -15,6 +15,7 @@ import (
 // goauth.Services a consumer actually reads off Auth.
 type Deps struct {
 	AppPermissions *service.AppPermissionsService
+	OrgPermissions *service.OrgPermissionsService
 	Auth           *service.AuthService
 	Password       *service.PasswordService
 	Session        *service.SessionService

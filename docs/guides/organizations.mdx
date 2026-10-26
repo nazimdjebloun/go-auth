@@ -6,6 +6,14 @@ icon: "Building2"
 
 # Organizations
 
+The role rules on this page describe the default fixed-role mode. Opt into
+[org permissions](./org-permissions.mdx) for custom roles, custom business definitions and exact
+operation grants. In that mode built-in roles retain their preset powers, while
+custom roles receive explicit grants and use the separate authorization API.
+Membership JSON exposes `orgRoleId` and `orgRoleAssignmentRevision`; `role` remains
+the fixed classification. Invites accept `orgRoleId` plus `expectedRoleRevision`
+in place of `role`. Use permission middleware to enforce custom-role access.
+
 Multi-tenancy: users can belong to more than one organization, hold a different role in each, and scope a session to one of them at a time. Disabled by default — with `WithOrganizations` unset (or `Enable: false`), none of the routes on this page are mounted at all, and `auth.Services().Org` is `nil`.
 
 For state-changing requests, every curl example below needs the same `-H "Origin: https://myapp.com"` treatment as [Authentication](./authentication.mdx#origin-checking) — omitted from most snippets below for brevity, but required in practice.

@@ -88,15 +88,44 @@ requires `is_system = (substr(permission_key, 1, 11) = 'goauth.app.')`.
 Migration execution creates no roles or permission records; initialize them
 through the [application permission workflow](./guides/app-permissions.mdx).
 
+## Organization authorization tables
+
+The canonical schema includes these tables even when org permissions are disabled.
+Migration revision 2 creates their structure without inserting roles or grants.
+
+| Table | Purpose |
+|---|---|
+| `org_authorization_state` | One revision row per initialized organization; references `organizations` with cascade deletion. |
+| `org_roles` | Org-local IDs/slugs and protected `owner`, `admin`, `member` identities; enabled state and optimistic revision. |
+| `org_permissions` | Org-local exact keys, metadata, enabled state, system ownership and revision. |
+| `org_role_permissions` | Explicit grants; both role and permission references include `org_id`. |
+| `org_member_roles` | At most one explicit role per `(org_id,user_id)` membership, plus assignment revision. |
+| `org_invite_roles` | Proposed role and observed role revision per `(org_id,invite_id)` invitation. |
+
+Role and permission candidate keys `(org_id,id)` enforce same-org links. A unique
+`organization_invites(org_id,id)` index supports its composite invitation foreign
+key. Assignment links restrict role deletion; services reject roles referenced by
+members or invitations. Membership and invitation deletion cascade their links.
+Organization deletion through the service removes assignment links before its
+existing cascades. Role/permission deletion cascades grant links at SQL level;
+services refuse referenced business-definition deletion and explicitly clean up
+library grants during owner-authorized removal.
+
+`org_permissions_namespace_owner` requires
+`is_system = (substr(permission_key, 1, 11) = 'goauth.org.')`. Built-in role system
+keys are constrained to `owner`, `admin`, `member`, unique per organization.
+Keys/slugs use binary collation on MySQL. See the complete embedded canonical SQL
+and the [org permission workflow](./guides/org-permissions.mdx).
+
 ## The tables
 
-Fifteen tables. Most foreign keys to `users` are `ON DELETE CASCADE`, so deleting a
+Twenty-one tables. Most foreign keys to `users` are `ON DELETE CASCADE`, so deleting a
 user takes their sessions, tokens, linked OAuth accounts, and org memberships
 with it. `sessions.active_org_id` and `organizations.created_by` use
 `ON DELETE SET NULL`: deleting an org clears it from sessions pointing at it,
 and an org outlives its creator's account. `invites.created_by` declares no
 delete action. `app_role_permissions.granted_by` uses `ON DELETE SET NULL`.
-`users.app_role_id` and grant links to permission definitions use
+`users.app_role_id` and app-role grant links to permission definitions use
 `ON DELETE RESTRICT`, so referenced roles and definitions cannot be deleted.
 
 `recovery_requests` has no account foreign key: the same row is written for

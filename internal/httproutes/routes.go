@@ -16,6 +16,8 @@ type Entry struct {
 
 // Features selects the route groups enabled by the validated configuration.
 type Features struct {
+	OrgPermissions          bool
+	OrgPermissionManagement bool
 	AppPermissions          bool
 	AppPermissionManagement bool
 	EmailRegistration       bool
@@ -27,6 +29,7 @@ type Features struct {
 // Middleware contains the exact wrappers used by the built-in HTTP routes.
 // The order in each Build entry is outermost to innermost.
 type Middleware struct {
+	OrgOperation                                  func(string) func(http.Handler) http.Handler
 	AppOperation                                  func(string) func(http.Handler) http.Handler
 	CORS, RateLimit, CSRFToken, CSRF, Auth, Admin func(http.Handler) http.Handler
 	OrgMember, OrgAdmin, OrgOwner                 func(http.Handler) http.Handler
@@ -45,6 +48,12 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 		return adminMW
 	}
 	orgMemberMW, orgAdminMW, orgOwnerMW := mw.OrgMember, mw.OrgAdmin, mw.OrgOwner
+	orgOperation := func(key string, legacy func(http.Handler) http.Handler) func(http.Handler) http.Handler {
+		if features.OrgPermissions && mw.OrgOperation != nil {
+			return mw.OrgOperation(key)
+		}
+		return legacy
+	}
 
 	// CORS remains outermost so preflight exits before rate limiting or auth.
 	wrappedAdminListAuditLogs := corsMW(rateLimitMW(authMW(operation("goauth.app.audit.read")(http.HandlerFunc(h.AdminListAuditLogs)))))
@@ -131,6 +140,35 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 			Entry{routes.SetAppUserRole, write(h.SetAppUserRole, "goauth.app.roles.assign")},
 		)
 	}
+	if features.OrgPermissions {
+		entries = append(entries, Entry{routes.OrgAccess, corsMW(rateLimitMW(authMW(http.HandlerFunc(h.OrgAccess))))})
+	}
+	if features.OrgPermissionManagement {
+		entries = append(entries, Entry{routes.InitializeOrgPermissions, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.InitializeOrgPermissions)))))))})
+
+		read := func(fn http.HandlerFunc, key string) http.Handler {
+			return corsMW(rateLimitMW(authMW(orgMemberMW(orgOperation(key, orgMemberMW)(fn)))))
+		}
+		write := func(fn http.HandlerFunc, key string) http.Handler {
+			return corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOperation(key, orgMemberMW)(fn)))))))
+		}
+		entries = append(entries,
+			Entry{routes.OrgLibraryPermissions, corsMW(rateLimitMW(authMW(orgMemberMW(http.HandlerFunc(h.OrgLibraryPermissions)))))},
+			Entry{routes.UpdateOrgLibraryPermissions, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.UpdateOrgLibraryPermissions)))))))},
+			Entry{routes.ListOrgPermissions, read(h.ListOrgPermissions, "goauth.org.permissions.read")},
+			Entry{routes.CreateOrgPermission, write(h.CreateOrgPermission, "goauth.org.permissions.create")},
+			Entry{routes.UpdateOrgPermission, write(h.UpdateOrgPermission, "goauth.org.permissions.update")},
+			Entry{routes.DeleteOrgPermission, write(h.DeleteOrgPermission, "goauth.org.permissions.delete")},
+			Entry{routes.ListOrgRoles, read(h.ListOrgRoles, "goauth.org.roles.read")},
+			Entry{routes.CreateOrgRole, write(h.CreateOrgRole, "goauth.org.roles.create")},
+			Entry{routes.UpdateOrgRole, write(h.UpdateOrgRole, "goauth.org.roles.update")},
+			Entry{routes.SetOrgRolePermissions, write(h.SetOrgRolePermissions, "goauth.org.roles.update")},
+			Entry{routes.DeleteOrgRole, write(h.DeleteOrgRole, "goauth.org.roles.delete")},
+			Entry{routes.GetOrgMemberRole, read(h.GetOrgMemberRole, "goauth.org.roles.read")},
+			Entry{routes.GetOrgMemberAccess, read(h.GetOrgMemberAccess, "goauth.org.roles.read")},
+			Entry{routes.SetOrgMemberRole, write(h.SetOrgMemberRole, "goauth.org.roles.assign")},
+		)
+	}
 	if features.EmailRegistration {
 		entries = append(entries,
 			Entry{routes.Register, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.Register)))))},
@@ -175,12 +213,12 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 			Entry{routes.ListUserOrgs, corsMW(authMW(http.HandlerFunc(h.ListUserOrgs)))},
 			Entry{routes.CountUserOrgs, corsMW(authMW(http.HandlerFunc(h.CountUserOrgs)))},
 			Entry{routes.GetOrg, corsMW(rateLimitMW(authMW(orgMemberMW(http.HandlerFunc(h.GetOrg)))))},
-			Entry{routes.UpdateOrg, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateOrg))))))))},
-			Entry{routes.DeleteOrg, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOwnerMW(http.HandlerFunc(h.DeleteOrg))))))))},
+			Entry{routes.UpdateOrg, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOperation("goauth.org.organization.update", orgAdminMW)(http.HandlerFunc(h.UpdateOrg))))))))},
+			Entry{routes.DeleteOrg, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOperation("goauth.org.organization.delete", orgOwnerMW)(http.HandlerFunc(h.DeleteOrg))))))))},
 			Entry{routes.ListOrgMembers, corsMW(rateLimitMW(authMW(orgMemberMW(http.HandlerFunc(h.ListOrgMembers)))))},
 			Entry{routes.CountOrgMembers, corsMW(authMW(orgMemberMW(http.HandlerFunc(h.CountOrgMembers))))},
-			Entry{routes.RemoveOrgMember, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.RemoveMember))))))))},
-			Entry{routes.UpdateOrgMemberRole, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.UpdateMemberRole))))))))},
+			Entry{routes.RemoveOrgMember, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOperation("goauth.org.members.remove", orgAdminMW)(http.HandlerFunc(h.RemoveMember))))))))},
+			Entry{routes.UpdateOrgMemberRole, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOperation("goauth.org.roles.assign", orgAdminMW)(http.HandlerFunc(h.UpdateMemberRole))))))))},
 			Entry{routes.AdminListOrgs, wrappedAdminListOrgs},
 			Entry{routes.AdminCountOrgs, wrappedAdminListOrgs},
 			Entry{routes.AdminGetOrg, corsMW(rateLimitMW(authMW(adminMW(http.HandlerFunc(h.AdminGetOrg)))))},
@@ -195,12 +233,12 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 			Entry{routes.LeaveOrg, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(http.HandlerFunc(h.LeaveOrg)))))))},
 			Entry{routes.SetActiveOrg, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.SetActiveOrg))))))},
 			Entry{routes.ClearActiveOrg, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ClearActiveOrg))))))},
-			Entry{routes.CreateOrgInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CreateOrgInvite))))))))},
+			Entry{routes.CreateOrgInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOperation("goauth.org.invites.create", orgAdminMW)(http.HandlerFunc(h.CreateOrgInvite))))))))},
 			Entry{routes.AcceptOrgInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.AcceptOrgInvite))))))},
-			Entry{routes.ListOrgInvites, corsMW(rateLimitMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ListOrgInvites))))))},
-			Entry{routes.CountOrgInvites, corsMW(rateLimitMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.CountOrgInvites))))))},
-			Entry{routes.ResendOrgInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.ResendOrgInvite))))))))},
-			Entry{routes.DeleteOrgInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgAdminMW(http.HandlerFunc(h.DeleteOrgInvite))))))))},
+			Entry{routes.ListOrgInvites, corsMW(rateLimitMW(authMW(orgMemberMW(orgOperation("goauth.org.invites.read", orgAdminMW)(http.HandlerFunc(h.ListOrgInvites))))))},
+			Entry{routes.CountOrgInvites, corsMW(rateLimitMW(authMW(orgMemberMW(orgOperation("goauth.org.invites.read", orgAdminMW)(http.HandlerFunc(h.CountOrgInvites))))))},
+			Entry{routes.ResendOrgInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOperation("goauth.org.invites.resend", orgAdminMW)(http.HandlerFunc(h.ResendOrgInvite))))))))},
+			Entry{routes.DeleteOrgInvite, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(orgMemberMW(orgOperation("goauth.org.invites.delete", orgAdminMW)(http.HandlerFunc(h.DeleteOrgInvite))))))))},
 		)
 	}
 

@@ -1,0 +1,231 @@
+---
+title: "Org roles and permissions"
+description: "Custom roles, business permissions and delegated library operations within each organization."
+icon: "KeyRound"
+---
+
+# Org roles and permissions
+
+Organization authorization is optional and independent of app permissions. Each
+membership has one effective role; the same user can have different roles in
+different organizations. Custom roles bundle explicit permission keys. There
+are no per-user overrides, wildcard grants or role inheritance.
+
+## Enable and initialize
+
+Add both options to your existing `NewConfig` setup:
+
+```go
+goauth.WithOrganizations(goauth.OrganizationConfig{Enable: true}),
+goauth.WithOrgPermissions(goauth.OrgPermissionsConfig{
+    Enable:               true,
+    EnableManagementHTTP: true,
+}),
+```
+
+Both permission flags default to false. `Enable` requires organizations;
+`EnableManagementHTTP` requires `Enable`. Disabled capabilities are nil in
+`auth.Services()`. Calling org permission middleware while disabled fails closed.
+
+Run the matching CLI's `migrate` command before starting auth traffic. Catalog
+revision 2, `000002_v0.5.0_001.sql`, adds org authorization tables on PostgreSQL,
+MySQL and SQLite. It preserves existing memberships, invitations, credentials
+and app-role assignments. Migration execution creates no role or grant records.
+
+With org permissions enabled, `CreateOrg` creates its protected roles and
+authorization state in the organization-creation transaction. For each existing
+organization, authenticate an owner and initialize it before serving ordinary
+permission-protected operations:
+
+```go
+actor := api.OrgPermissionActor{
+    OrgID: orgID, UserID: authenticatedUser.ID, SessionID: authenticatedSession.ID,
+}
+err := auth.InitializeOrgPermissions(ctx, api.InitializeOrgPermissionsInput{
+    Actor: actor,
+})
+```
+
+Management HTTP also offers `POST /auth/orgs/{orgID}/authorization/initialize`.
+Only a current owner can initialize; repeating it returns
+`org_permissions_already_initialized`. Before initialization, permission-protected
+org operations return `org_permissions_not_initialized`. Startup never initializes
+organizations. Existing owner/admin/member classifications remain intact.
+
+## Built-in roles and permission definitions
+
+The protected `owner`, `admin` and `member` roles cannot be renamed, disabled,
+deleted or given a different grant set. Their policy comes from code:
+
+- Owner has every supported library action and every enabled business permission
+  in its organization, including future supported actions. Unknown library keys
+  and absent/disabled business definitions do not authorize access.
+- Admin can read/update the organization, read/add/remove non-owner members,
+  assign member/admin roles, and create/read/resend/delete invitations. It has no
+  automatic business-permission access or permission/role-definition management.
+- Member can read the organization and its members. Leaving an organization is
+  available independently of custom grants, subject to last-owner protection.
+
+`LibraryPermissionCatalog()` lists supported `goauth.org.*` actions without
+installing definitions. An owner installs the selected actions that custom roles
+may receive:
+
+```go
+_, err := auth.Services().OrgPermissions.UpdateLibraryPermissions(ctx,
+    api.UpdateOrgLibraryPermissionsInput{
+        Actor: actor,
+        Create: []string{"goauth.org.invites.create", "goauth.org.roles.assign"},
+    })
+```
+
+Installation grants nobody access by itself. Built-in policies remain available
+without installed definitions. Only an owner can install/remove library keys;
+that authority is not delegable. Batch changes accept 1–100 unique known keys
+across `Create` and `Delete`. Removal deletes custom grants and advances affected
+role revisions. Reinstalling a definition does not restore those grants.
+
+## Custom permissions, roles and assignments
+
+Business keys use `org.<resource>.<action>`, for example `org.invoices.read`.
+Keys are exact, lowercase ASCII identifiers, at most 160 bytes; segments start
+with a letter and contain letters, digits or underscores. Additional dotted
+segments are allowed. `goauth.org.*` is reserved for library definitions.
+
+```go
+permissions := auth.Services().OrgPermissions
+_, err := permissions.CreatePermission(ctx, api.CreateOrgPermissionInput{
+    Actor: actor, Key: "org.invoices.read", Name: "Read invoices",
+})
+if err != nil {
+    return err
+}
+role, err := permissions.CreateRole(ctx, api.CreateOrgRoleInput{
+    Actor: actor, Slug: "accountant", Name: "Accountant",
+    PermissionKeys: []string{"org.invoices.read"},
+})
+if err != nil {
+    return err
+}
+assignment, err := permissions.GetMemberRole(ctx, api.GetOrgMemberRoleInput{
+    Actor: actor, UserID: targetUserID,
+})
+if err != nil {
+    return err
+}
+_, err = permissions.SetMemberRole(ctx, api.SetOrgMemberRoleInput{
+    Actor: actor, UserID: targetUserID, RoleID: role.ID,
+    ExpectedRoleRevision: role.Revision,
+    ExpectedAssignmentRevision: assignment.AssignmentRevision,
+})
+```
+
+Business definitions and role slugs are unique within an organization. Separate
+organizations can use the same keys/slugs. Authorization IDs use lowercase,
+hyphenated UUIDs as returned by the API. Role slugs start with a letter and allow
+lowercase letters, digits and hyphens, up to 80 characters. Owner/admin/member
+slugs are reserved. Each custom role can contain at most 256 distinct installed,
+enabled permission keys. A custom role receives no implicit member grants.
+
+Definition and role changes require their observed `ExpectedRevision`.
+Assignments require both the target role's revision and the membership's current
+assignment revision. A legacy built-in assignment initially has revision zero.
+`GetMemberRole` can inspect a banned member or a disabled assigned role when
+the caller holds `goauth.org.roles.read`, so its revision remains available for
+reassignment. The target's status does not grant the caller access.
+Authorized effective-access inspection also returns its role and revisions;
+disabled roles or banned targets have `permissionKeys: []` and `isFullAccess: false`.
+The role's own `permissionKeys` still describes its configured grants. An
+ineligible caller remains denied, including on self-access requests.
+Stale writes return `org_authorization_conflict`; refresh before retrying.
+`SetRolePermissions` replaces the complete grant set; an empty slice clears it.
+Assigned roles, including roles referenced by pending invitations, cannot be
+deleted. Referenced business definitions cannot be deleted until grants are removed.
+Business-definition deletion also requires the non-owner to hold the target key.
+Because holding a business key requires a role grant, the reference guard means
+unused business definitions are deletable by owners in the current grant model.
+
+A non-owner needs the operation's management permission and may manage/assign
+only grants it currently holds, considering both old and new grant sets. It
+cannot edit its own role, reassign itself, or grant/revoke ownership. The fixed
+role-update API observes the same delegation limits; setting `role: "member"`
+also resets an existing custom assignment. Last-owner guards, org limits and
+authentication/session checks still apply to owners. An app administrator has
+no automatic membership access; existing platform oversight remains a separate
+authorized and audited path.
+
+Disabling org permissions preserves existing assignments. Fixed-role changes
+made while disabled still reset the affected assignment to the selected built-in
+role, including a same-classification reset. Re-enabling permissions therefore
+preserves intervening ownership changes without restoring an obsolete custom role.
+
+## Invitations
+
+`CreateOrgInviteInput` and `POST /auth/orgs/{orgID}/invites` accept either the
+fixed `role`, or `orgRoleId` with `expectedRoleRevision`, never both:
+
+```json
+{"email":"accountant@example.com","orgRoleId":"ROLE_UUID","expectedRoleRevision":1}
+```
+
+Choosing a role ID also requires `goauth.org.roles.assign`. The inviter must be
+able to delegate the proposed role. A supplied `orgRoleId` must be a lowercase,
+hyphenated UUID; malformed or noncanonical IDs return `invalid_input` before
+storage access. Acceptance rechecks the inviter's current
+membership/grants and the selected role's enabled state/revision. An edited role
+invalidates its pending invitations, including metadata changes: delete and
+recreate the invitation after reviewing the new role. Acceptance and resend
+return `409 org_invite_role_changed` with that recovery instruction when the
+saved role revision no longer matches or the role is disabled. Refreshing or
+retrying does not change the saved invitation revision. Failed acceptance rolls
+back the claim, membership insertion, role assignment and counters together.
+Resending rotates the token under the guard and delivers email after commit.
+For invitations created with org permissions enabled, the resender must hold
+`goauth.org.invites.resend`, and the original inviter must still be able to
+delegate the proposed role. An owner cannot override a lost delegation by
+resending: delete and recreate the invitation under a currently authorized
+inviter. Invitations created before this feature was enabled have no saved role
+link and do not undergo this additional resend check.
+Delivery failure returns `email_failed`; the committed invitation remains available
+for a subsequent authorized resend.
+
+`org_invite_roles` stores the proposed role ID and revision separately from the
+legacy invitation's fixed classification. It is removed with the invitation.
+
+## Enforce access in application code
+
+Use `CheckPermission` for a decision or `RequirePermission` for an error on
+denial. Supply authenticated actor/session IDs from trusted backend context.
+Required 2FA is checked against the current session. Frontend access flags never
+grant authority.
+
+For a route with `{orgID}`, pass the authorized tenant scope into the handler:
+
+```go
+mux.Handle("GET /orgs/{orgID}/invoices",
+    auth.RequireOrgPermissionScope("org.invoices.read",
+        func(w http.ResponseWriter, r *http.Request, scope goauth.OrgScope) {
+            // Include scope.OrgID in every application-owned resource query.
+            w.WriteHeader(http.StatusNoContent)
+        }))
+```
+
+`RequireActiveOrgPermissionScope` uses the authenticated session's active org ID
+and checks live membership/role/grants. Lower-level `RequireOrgPermission` and
+`RequireActiveOrgPermission` must run after `RequireAuth`. The old minimum-role
+middleware remains available for applications that intentionally use fixed roles;
+use permission middleware to authorize custom roles.
+
+`GET /auth/orgs/{orgID}/access` and `ListEffectivePermissions` provide the effective
+role, keys, full-access flag and revisions for UI rendering. Disabled roles deny
+permission checks. Business-definition disablement, grant removal and membership removal
+are reflected by subsequent backend permission checks. Applications must still
+scope their own SQL by the authorized org ID.
+
+Use `/access` or `ListEffectivePermissions` with the target omitted for self-inspection.
+`GetMemberRole` and the management member-role route always require
+`goauth.org.roles.read`, including when the target is the caller.
+Member and invitation lists load role IDs and revisions in their list query;
+their existing pagination still defaults to 20, caps positive limits at 100, and
+allows `limit=0` to return all matching rows.
+
+See the [route reference](../routes/org-authorization.mdx) for the full HTTP surface.

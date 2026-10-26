@@ -29,6 +29,7 @@ type Config struct {
 	registration   RegistrationConfig
 	organizations  OrganizationConfig
 	appPermissions AppPermissionsConfig
+	orgPermissions OrgPermissionsConfig
 	audit          AuditConfig
 	maintenance    MaintenanceConfig
 	email          *EmailConfig

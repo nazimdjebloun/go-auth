@@ -33,6 +33,29 @@ if authorization is uninitialized or that role is absent/disabled. There is no
 startup initialization or automatic permission seeding. See the
 [app permission guide](./guides/app-permissions.mdx) for bootstrap and delegation.
 
+## `WithOrgPermissions`: Optional
+
+```go
+goauth.WithOrgPermissions(goauth.OrgPermissionsConfig{
+    Enable:               true,
+    EnableManagementHTTP: true,
+})
+```
+
+Both flags default to false. `Enable` requires `OrganizationConfig.Enable`.
+`EnableManagementHTTP` mounts initialization, catalog, permission, role, grant and
+assignment endpoints and requires `Enable`. The Go capability and self-access
+route are available with `Enable` alone. App permissions are configured separately.
+Disabling enforcement preserves assignments; subsequent fixed-role changes still
+reset affected assignments to their selected built-in roles before re-enabling.
+
+Validation errors are `org_permissions: requires organizations` and
+`org_permissions: management HTTP requires Enable`. Apply migration revision 2
+before enabling; startup creates no authorization records. New organizations
+initialize protected roles in their creation transaction. Existing organizations
+require owner-authorized `InitializeOrgPermissions` before permission-protected
+operations. See the [org permission guide](./guides/org-permissions.mdx).
+
 ## `WithApp`: Required
 
 App identity, the database connection, and the deployment environment.

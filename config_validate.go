@@ -31,6 +31,7 @@ func (c *Config) validate() error {
 		c.validateRegistration,
 		c.validateOrganizations,
 		c.validateAppPermissions,
+		c.validateOrgPermissions,
 		c.validateMaintenance,
 		c.validateRateLimit,
 		c.validateProviders,

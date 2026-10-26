@@ -505,7 +505,11 @@ func NewOrgEvent(typ EventType, actorID, orgID string, targetID *string) Event {
 	switch typ {
 	case EventOrgCreated, EventOrgDeleted, EventOrgMemberInvited, EventOrgMemberRemoved,
 		EventOrgMemberRoleChanged, EventAdminOrgDeleted, EventAdminOrgMemberAdded,
-		EventAdminOrgMemberRemoved, EventAdminOrgMemberRoleChanged, EventAdminOrgViewed:
+		EventAdminOrgMemberRemoved, EventAdminOrgMemberRoleChanged, EventAdminOrgViewed,
+		EventOrgAuthorizationInitialized, EventOrgPermissionCreated, EventOrgPermissionUpdated,
+		EventOrgPermissionDeleted, EventOrgRoleCreated, EventOrgRoleUpdated,
+		EventOrgRoleGrantsChanged, EventOrgRoleDeleted, EventOrgLibraryPermissionsChanged,
+		EventOrgInviteCreated, EventOrgInviteResent, EventOrgInviteDeleted, EventOrgInviteAccepted:
 	default:
 		return Event{
 			ID:        generateID(),

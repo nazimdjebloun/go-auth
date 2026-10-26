@@ -12,11 +12,20 @@ migrations. Both may use the same logical database and different connection
 pools. `New` never migrates. The Go API supports explicit deployment execution
 without constructing `Auth`.
 
-The initial catalog contains baseline `000001_v0.4.0_001.sql` for PostgreSQL,
-MySQL and SQLite, representing the complete current canonical schema. There
-are no earlier upgrade steps in this catalog. A database from an older release
-must match this supported schema before adoption; its installed Go version
-does not identify its database layout.
+The catalog begins with baseline `000001_v0.4.0_001.sql` for PostgreSQL,
+MySQL and SQLite. Revision 2, `000002_v0.5.0_001.sql`, adds organization-local
+permission definitions, roles, grants, membership assignments, invitation role
+snapshots and revision state. It is additive: existing credentials, memberships,
+invitations and application roles are preserved. Existing organizations are not
+automatically initialized for granular permissions. Their owners initialize the
+feature explicitly after deployment; new organizations initialize at creation
+when the feature is enabled.
+
+Baseline adoption still requires the complete revision-1 schema, followed by
+`migrate` to execute pending upgrades. A database from an older release must
+match that supported baseline before adoption; its installed Go version does
+not identify its database layout. Published revision-1 SQL and checksums are
+unchanged.
 
 The published `v0.3.0` SQL at commit
 `c289be372e62f84cabe3f3ee74eea1a67ed01db2` has the same schema checksums as
@@ -40,6 +49,7 @@ goauth/
   migrations/
     catalog.json
     000001_v0.4.0_001.sql
+    000002_v0.5.0_001.sql
 ```
 
 `--out` is a directory and defaults to `goauth`. `auth.schema.sql` is the desired

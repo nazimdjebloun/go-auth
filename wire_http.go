@@ -41,6 +41,7 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 
 	h := handler.NewWithLogger(handler.Deps{
 		AppPermissions: svc.AppPermissions,
+		OrgPermissions: svc.OrgPermissions,
 		Auth:           svc.Auth,
 		Password:       svc.Password,
 		Session:        sessSvc,
@@ -101,13 +102,17 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 	orgAdminMW := middleware.RequireOrgRole(domain.OrgRoleAdmin)
 	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 	routes := httproutes.Build(httproutes.Features{
-		AppPermissions:          cfg.appPermissions.Enable,
+		AppPermissions: cfg.appPermissions.Enable,
+		OrgPermissions: cfg.orgPermissions.Enable, OrgPermissionManagement: cfg.orgPermissions.EnableManagementHTTP,
 		AppPermissionManagement: cfg.appPermissions.EnableManagementHTTP,
 		EmailRegistration:       cfg.registration.EnableEmailPassword,
 		Invite:                  cfg.registration.EnableInvite,
 		OAuth:                   cfg.registration.EnableOAuth && oauthSvc != nil,
 		Organizations:           orgSvc != nil,
 	}, h, oauthHandlers, httproutes.Middleware{
+		OrgOperation: func(key string) func(http.Handler) http.Handler {
+			return middleware.RequireOrgPermission(svc.OrgPermissions, key)
+		},
 		AppOperation: func(key string) func(http.Handler) http.Handler {
 			if svc.AppPermissions != nil {
 				return middleware.RequireAppPermission(svc.AppPermissions, key)

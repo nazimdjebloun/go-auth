@@ -8,6 +8,20 @@ package httperr
 import "net/http"
 
 var byCode = map[string]int{
+	"org_permissions_disabled":            http.StatusServiceUnavailable,
+	"org_permissions_not_initialized":     http.StatusServiceUnavailable,
+	"org_permissions_already_initialized": http.StatusConflict,
+	"org_permission_not_found":            http.StatusNotFound,
+	"org_permission_exists":               http.StatusConflict,
+	"org_permission_in_use":               http.StatusConflict,
+	"protected_org_permission":            http.StatusForbidden,
+	"org_role_not_found":                  http.StatusNotFound,
+	"org_role_exists":                     http.StatusConflict,
+	"org_role_in_use":                     http.StatusConflict,
+	"protected_org_role":                  http.StatusForbidden,
+	"org_authorization_conflict":          http.StatusConflict,
+	"org_invite_role_changed":             http.StatusConflict,
+
 	"internal_error":                      http.StatusInternalServerError,
 	"app_permissions_disabled":            http.StatusServiceUnavailable,
 	"app_permissions_not_initialized":     http.StatusServiceUnavailable,
