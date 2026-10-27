@@ -154,7 +154,8 @@ func orgRoleMatchesMembership(role *domain.OrgPermissionRole, member *domain.Org
 
 // resetBuiltinAssignment prevents an old custom assignment from surviving a
 // change through the fixed-role API, including a same-classification reset.
-func (s *OrgService) resetBuiltinAssignment(ctx context.Context, orgID, userID string, base domain.OrgRole) (map[string]any, error) {
+// Real changes to implicit built-in roles also establish an assignment revision.
+func (s *OrgService) resetBuiltinAssignment(ctx context.Context, orgID, userID string, oldBase, base domain.OrgRole) (map[string]any, error) {
 	if s.roleAssignments == nil || ctx.Value(orgAssigningContextKey{}) != nil {
 		return nil, nil
 	}
@@ -162,7 +163,7 @@ func (s *OrgService) resetBuiltinAssignment(ctx context.Context, orgID, userID s
 	if err != nil {
 		return nil, err
 	}
-	if old == nil {
+	if old == nil && oldBase == base {
 		return nil, nil
 	}
 	role, err := s.roleAssignments.RoleBySlug(ctx, orgID, string(base))
@@ -170,7 +171,21 @@ func (s *OrgService) resetBuiltinAssignment(ctx context.Context, orgID, userID s
 		return nil, err
 	}
 	if role == nil {
+		if old == nil {
+			// Fixed-role operations also serve orgs that have never initialized
+			// permissions, including when the optional feature is disabled.
+			return nil, nil
+		}
 		return nil, domain.ErrOrgRoleNotFound
+	}
+	if old == nil {
+		old, err = s.roleAssignments.RoleBySlug(ctx, orgID, string(oldBase))
+		if err != nil {
+			return nil, err
+		}
+		if old == nil {
+			return nil, domain.ErrOrgRoleNotFound
+		}
 	}
 	if old.ID == role.ID {
 		return nil, nil

@@ -659,7 +659,7 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 		}
 		if member.Role == newRole {
 			if s.roleAssignments != nil {
-				assignment, err = s.resetBuiltinAssignment(txCtx, orgID, userID, newRole)
+				assignment, err = s.resetBuiltinAssignment(txCtx, orgID, userID, member.Role, newRole)
 				if err != nil {
 					return err
 				}
@@ -721,7 +721,7 @@ func (s *OrgService) updateMemberRoleTx(ctx context.Context, orgID, userID strin
 			}
 		}
 
-		if assignment, err = s.resetBuiltinAssignment(txCtx, orgID, userID, newRole); err != nil {
+		if assignment, err = s.resetBuiltinAssignment(txCtx, orgID, userID, oldRole, newRole); err != nil {
 			return err
 		}
 

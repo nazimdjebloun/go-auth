@@ -129,6 +129,10 @@ enabled permission keys. A custom role receives no implicit member grants.
 Definition and role changes require their observed `ExpectedRevision`.
 Assignments require both the target role's revision and the membership's current
 assignment revision. A legacy built-in assignment initially has revision zero.
+In an initialized org, a fixed-role change establishes or advances that assignment
+revision, including changes made through platform oversight or while org
+permissions are disabled. Selecting the current built-in role is a no-op and
+preserves the revision; resetting a custom assignment advances it.
 `GetMemberRole` can inspect a banned member or a disabled assigned role when
 the caller holds `goauth.org.roles.read`, so its revision remains available for
 reassignment. The target's status does not grant the caller access.
