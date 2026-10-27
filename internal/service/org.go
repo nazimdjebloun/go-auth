@@ -366,6 +366,27 @@ func (s *OrgService) ListUserOrgs(ctx context.Context, input api.ListUserOrgsInp
 	if orgs == nil {
 		orgs = []domain.Organization{}
 	}
+	if s.orgPermissions != nil {
+		// The listing answers "which orgs am I a member of", so membership
+		// alone justifies id/name/slug. Organization-owned fields require the
+		// target org's goauth.org.organization.read, checked per org because
+		// roles differ per membership.
+		for i := range orgs {
+			err := s.orgPermissions.require(ctx, orgActor(orgs[i].ID, input.UserID, input.ActorSessionID), "goauth.org.organization.read")
+			switch {
+			case err == nil:
+			case errors.Is(err, domain.ErrOrgForbidden), errors.Is(err, domain.ErrOrgPermissionsNotInitialized):
+				// Fail closed on the org-owned fields only: a banned actor,
+				// a missing grant or an org that has not initialized
+				// permissions hides metadata/createdBy but must not break
+				// the membership list the caller is already entitled to.
+				orgs[i].Metadata = nil
+				orgs[i].CreatedBy = nil
+			default:
+				return nil, err
+			}
+		}
+	}
 	return &api.ListUserOrgsResult{Orgs: orgs, Limit: limit, Offset: input.Offset}, nil
 }
 

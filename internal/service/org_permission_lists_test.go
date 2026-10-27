@@ -230,3 +230,95 @@ func TestOrgPermissionsSelfInspectionAndResendAuthority(t *testing.T) {
 		t.Fatalf("replacement invitation could not be resent: %v", err)
 	}
 }
+
+// ListUserOrgs keeps every membership listed, but org-owned fields require
+// each target org's organization.read — per org, because roles differ per
+// membership and an uninitialized org can hold no grant at all.
+func TestOrgPermissionsListUserOrgsRedactsWithoutOrgRead(t *testing.T) {
+	f := newOrgPermissionFixture(t)
+	builtin := f.member(t, domain.OrgRoleMember)
+	restricted := f.member(t, domain.OrgRoleMember)
+	role := f.role(t, "restricted")
+	f.assign(t, restricted, role)
+
+	// An org that never initialized org permissions also lacks the grant,
+	// even for what would otherwise be an owner-level membership fact.
+	now := time.Now().UTC()
+	uninit := &domain.Organization{ID: uuid.NewString(), Name: "Uninitialized", Slug: uuid.NewString(), OwnerCount: 1, MemberCount: 1, CreatedAt: now, UpdatedAt: now, CreatedBy: &f.owner.UserID}
+	if err := f.org.orgs.Create(t.Context(), uninit); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.org.orgs.AddMember(t.Context(), &domain.OrgMember{OrgID: uninit.ID, UserID: f.owner.UserID, Role: domain.OrgRoleOwner, JoinedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.org.orgs.AddMember(t.Context(), &domain.OrgMember{OrgID: uninit.ID, UserID: restricted.UserID, Role: domain.OrgRoleMember, JoinedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.org.orgs.AddMember(t.Context(), &domain.OrgMember{OrgID: uninit.ID, UserID: builtin.UserID, Role: domain.OrgRoleMember, JoinedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := f.org.ListUserOrgs(t.Context(), api.ListUserOrgsInput{UserID: restricted.UserID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := map[string]domain.Organization{}
+	for _, org := range result.Orgs {
+		rows[org.ID] = org
+	}
+	if len(rows) != 2 {
+		t.Fatalf("expected both memberships listed, got %+v", result.Orgs)
+	}
+	for _, orgID := range []string{f.owner.OrgID, uninit.ID} {
+		if rows[orgID].Metadata != nil || rows[orgID].CreatedBy != nil {
+			t.Fatalf("org %s leaked org-owned fields: %+v", orgID, rows[orgID])
+		}
+		if rows[orgID].Name == "" || rows[orgID].Slug == "" {
+			t.Fatalf("org %s lost membership-visible fields: %+v", orgID, rows[orgID])
+		}
+	}
+
+	// Granting organization.read on the initialized org restores its row.
+	f.install(t, "goauth.org.organization.read")
+	manager := f.role(t, "reader", "goauth.org.organization.read")
+	f.assign(t, restricted, manager)
+	result, err = f.org.ListUserOrgs(t.Context(), api.ListUserOrgsInput{UserID: restricted.UserID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, org := range result.Orgs {
+		if org.ID == uninit.ID {
+			if org.Metadata != nil || org.CreatedBy != nil {
+				t.Fatalf("uninitialized org leaked org-owned fields: %+v", org)
+			}
+			continue
+		}
+		if org.ID != f.owner.OrgID {
+			t.Fatalf("unexpected org in listing: %+v", org)
+		}
+		if org.Metadata == nil || org.CreatedBy == nil {
+			t.Fatalf("organization.read grant did not restore the row: %+v", org)
+		}
+	}
+
+	// A fixed role's preset always holds organization.read — but only in
+	// initialized orgs; an uninitialized org still has no role to grant it.
+	result, err = f.org.ListUserOrgs(t.Context(), api.ListUserOrgsInput{UserID: builtin.UserID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, org := range result.Orgs {
+		if org.ID == uninit.ID {
+			if org.Metadata != nil || org.CreatedBy != nil {
+				t.Fatalf("uninitialized org leaked org-owned fields for a fixed role: %+v", org)
+			}
+			continue
+		}
+		if org.ID != f.owner.OrgID {
+			t.Fatalf("unexpected org in listing: %+v", org)
+		}
+		if org.Metadata == nil || org.CreatedBy == nil {
+			t.Fatalf("fixed-role row was redacted: %+v", org)
+		}
+	}
+}

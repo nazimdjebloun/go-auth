@@ -57,6 +57,8 @@ GET /auth/orgs
 
 Lists the caller's orgs. `Auth:` Session.
 
+With org permissions enabled, every returned membership stays listed, but rows from orgs where the caller does not hold `goauth.org.organization.read` omit the org-owned `metadata` and `createdBy` fields — custom roles and orgs that have not initialized org permissions both hide them. Fixed roles always hold the grant, so their rows are complete.
+
 **Query:**
 
 | Param | Type | Default | Required | Notes |

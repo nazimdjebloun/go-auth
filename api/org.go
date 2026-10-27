@@ -223,6 +223,7 @@ type ListOrgInvitesResult struct {
 // ListUserOrgsInput contains filters for a user's organizations.
 type ListUserOrgsInput struct {
 	UserID         string
+	ActorSessionID string `json:"-"` // honored when org permissions are enabled
 	Search         *string
 	Role           *domain.OrgRole
 	OrderBy        UserOrgSortField

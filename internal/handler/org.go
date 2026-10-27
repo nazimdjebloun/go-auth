@@ -152,7 +152,7 @@ func (h *Handler) ListUserOrgs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.services.Org.ListUserOrgs(r.Context(), api.ListUserOrgsInput{
-		UserID: user.ID, Offset: offset, Limit: limit, Search: search, Role: role,
+		UserID: user.ID, ActorSessionID: actorSessionID(r), Offset: offset, Limit: limit, Search: search, Role: role,
 		OrderBy: orderBy, OrderDirection: orderDirection,
 	})
 	if err != nil {

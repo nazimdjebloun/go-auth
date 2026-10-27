@@ -140,7 +140,12 @@ Authorized effective-access inspection also returns its role and revisions;
 disabled roles or banned targets have `permissionKeys: []` and `isFullAccess: false`.
 The role's own `permissionKeys` still describes its configured grants. An
 ineligible caller remains denied, including on self-access requests.
-Stale writes return `org_authorization_conflict`; refresh before retrying.
+Stale role/definition/assignment writes return
+`org_authorization_conflict`; refresh and retry against the fresh revisions.
+Invitation conflicts are different: the invitation freezes the role revision it
+was created with, so a stale invitation returns `409 org_invite_role_changed`
+and can only be resolved by deleting and recreating it — refreshing cannot make
+the saved revision match again.
 `SetRolePermissions` replaces the complete grant set; an empty slice clears it.
 Assigned roles, including roles referenced by pending invitations, cannot be
 deleted. Referenced business definitions cannot be deleted until grants are removed.
@@ -230,6 +235,11 @@ Use `/access` or `ListEffectivePermissions` with the target omitted for self-ins
 `goauth.org.roles.read`, including when the target is the caller.
 Member and invitation lists load role IDs and revisions in their list query;
 their existing pagination still defaults to 20, caps positive limits at 100, and
-allows `limit=0` to return all matching rows.
+allows `limit=0` to return all matching rows. The self org list (`GET /auth/orgs`)
+keeps every membership listed without a grant, but strips the org-owned
+`metadata` and `createdBy` fields from rows in orgs where the caller does not
+hold `goauth.org.organization.read`; orgs that have not initialized org
+permissions are hidden the same way. The count route exposes no org-owned
+fields.
 
 See the [route reference](../routes/org-authorization.mdx) for the full HTTP surface.

@@ -88,6 +88,14 @@ func TestOrgPermissionsHTTPInspectIneligibleTargetRole(t *testing.T) {
 		if result.Role.ID != f.role.ID || result.Role.IsEnabled || result.AssignmentRevision != 1 {
 			t.Fatalf("banned=%v: unexpected target assignment: %+v", banned, result)
 		}
+		w = f.request(t, "GET", base+"/authorization/members/"+f.memberID+"/access", "", f.token, 200)
+		var access api.OrgAccess
+		if err := json.Unmarshal(w.Body.Bytes(), &access); err != nil {
+			t.Fatal(err)
+		}
+		if access.Role.ID != f.role.ID || access.Role.IsEnabled || access.IsFullAccess || len(access.PermissionKeys) != 0 || access.AssignmentRevision != 1 {
+			t.Fatalf("banned=%v: unexpected target access: %+v", banned, access)
+		}
 	}
 	f.request(t, "GET", base+"/authorization/members/"+uuid.NewString()+"/role", "", f.token, 404)
 	other, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{
