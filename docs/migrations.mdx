@@ -21,6 +21,14 @@ automatically initialized for granular permissions. Their owners initialize the
 feature explicitly after deployment; new organizations initialize at creation
 when the feature is enabled.
 
+Revision 2 is required when upgrading to v0.5.0 even if org permissions remain
+disabled. With organizations enabled, organization deletion cleans up role
+references and fixed-role changes reconcile assignments through the new tables.
+The feature flag does not make revision 1 compatible. With startup schema
+checking disabled, an unmigrated deployment can start and then fail these
+operations with database errors. Apply and verify the migration before auth
+traffic resumes; see the [v0.5.0 rollout notes](./changelog/v0.5.0.mdx).
+
 Baseline adoption still requires the complete revision-1 schema, followed by
 `migrate` to execute pending upgrades. A database from an older release must
 match that supported baseline before adoption; its installed Go version does

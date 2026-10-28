@@ -31,6 +31,9 @@ Run the matching CLI's `migrate` command before starting auth traffic. Catalog
 revision 2, `000002_v0.5.0_001.sql`, adds org authorization tables on PostgreSQL,
 MySQL and SQLite. It preserves existing memberships, invitations, credentials
 and app-role assignments. Migration execution creates no role or grant records.
+This migration is required when upgrading the library even if org permissions
+stay disabled: organization deletion and fixed-role assignment reconciliation
+also use its tables.
 
 With org permissions enabled, `CreateOrg` creates its protected roles and
 authorization state in the organization-creation transaction. For each existing
@@ -51,6 +54,30 @@ Only a current owner can initialize; repeating it returns
 `org_permissions_already_initialized`. Before initialization, permission-protected
 org operations return `org_permissions_not_initialized`. Startup never initializes
 organizations. Existing owner/admin/member classifications remain intact.
+
+### Activating an existing deployment
+
+1. Stop auth traffic and auth-writing workers, apply revision 2 with the matching
+   CLI, and run `migrate verify`. The upgraded library can first run with org
+   permissions disabled while existing fixed-role behavior remains available.
+2. Coordinate initialization with each organization's current owner. During
+   activation, enable org permissions but keep ordinary org detail, member and
+   invitation traffic in maintenance. Authentication and owner initialization
+   must remain reachable. Enable management HTTP if owners will use the
+   initialization endpoint; a trusted backend can instead call
+   `InitializeOrgPermissions` with the authenticated owner's identity/session.
+3. Initialize each existing org as its owner, satisfying the usual account and
+   session assurance requirements. An app administrator has no initialization
+   override, and there is no bulk initialization or org-initialization CLI.
+4. Check each initialized org's `/access` response as its owner before restoring
+   its normal org traffic. New orgs initialize automatically while enabled.
+
+Before initialization, detail/member/invitation operations protected by org
+permissions return `503 org_permissions_not_initialized`. The self org list
+still lists memberships but redacts `metadata` and `createdBy` for uninitialized
+orgs. Enabling the flag alone therefore interrupts existing org screens. Keep
+the feature disabled until a controlled owner-initialization rollout is possible.
+The schema migration remains mandatory in either case.
 
 ## Built-in roles and permission definitions
 
@@ -166,6 +193,24 @@ Disabling org permissions preserves existing assignments. Fixed-role changes
 made while disabled still reset the affected assignment to the selected built-in
 role, including a same-classification reset. Re-enabling permissions therefore
 preserves intervening ownership changes without restoring an obsolete custom role.
+
+### Revision semantics
+
+Role, permission and assignment revisions protect their respective writes from
+stale callers. The top-level `revision` in `OrgAccess` is a separate, informational
+authorization management revision. It starts at 1 on initialization and advances
+after successful guarded permission/role/grant/assignment operations, self-service
+org updates, member additions, removal of another member, fixed-role updates,
+and invitation creation/deletion/resend. Guarded no-op writes may advance it too.
+Library catalog batches advance it only when installed definitions change.
+Deleting an org removes its revision state.
+
+It does not advance for self-leave, invitation acceptance, platform-admin member
+overrides, fixed-role writes while org permissions are disabled, or account/session
+changes such as bans and assurance removal. It is not a complete membership or
+effective-access change cursor. Do not cache access decisions or skip refreshing
+membership/access views solely because this value is unchanged. Backend checks
+always evaluate live state.
 
 ## Invitations
 

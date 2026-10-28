@@ -74,6 +74,11 @@ Invitation creation/resend commit before email delivery.
 Existing org services perform exact action checks before their established
 counter/last-owner helpers. HTTP middleware performs corresponding prechecks;
 direct Go calls retain enforcement. No permission snapshot is stored in a session.
+The self org list checks `organization.read` separately for every returned org
+before exposing its metadata and creator. These live checks can read the actor,
+membership, role, session and relevant definitions/grants per row; query cost
+therefore grows with the number of listed orgs. Paginate large membership lists
+and avoid `limit=0` on that hot path. There is no batched permission evaluation.
 See [org permissions](./guides/org-permissions.mdx) and its
 [HTTP reference](./routes/org-authorization.mdx). The fixed-role access model
 below describes the default mode; opt-in custom roles use explicit operation grants.

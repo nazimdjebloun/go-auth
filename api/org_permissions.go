@@ -121,7 +121,9 @@ type OrgAccess struct {
 	IsFullAccess       bool                     `json:"isFullAccess"`
 	PermissionKeys     []string                 `json:"permissionKeys"`
 	AssignmentRevision uint64                   `json:"assignmentRevision"`
-	Revision           uint64                   `json:"revision"`
+	// Revision describes guarded authorization management, not every membership,
+	// account or session change. It must not be used as a cursor for cached access.
+	Revision uint64 `json:"revision"`
 }
 
 // UpdateOrgLibraryPermissionsInput installs/removes fixed definitions in one batch.

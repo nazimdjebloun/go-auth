@@ -326,10 +326,12 @@ saved revisions: `org_invite_role_changed` requires review and recreation rather
 than silently adopting changed grants.
 
 Fixed-role changes reconcile persisted assignments even while org permission
-enforcement is disabled, using the shared account-mutation guard. When audit is
-enabled, org authorization audit events identify the actor and organization and
-mark successful changes with `success: true`. They use the configured durable
-audit pipeline.
+enforcement is disabled, using the shared account-mutation guard. Fixed-role
+removals acquire that guard before membership locks too, preserving the same
+user-before-membership order as role changes and avoiding removal/demotion
+deadlocks. When audit is enabled, org authorization audit events identify the
+actor and organization and mark successful changes with `success: true`. They
+use the configured durable audit pipeline.
 
 Use `RequireOrgPermissionScope` or `RequireActiveOrgPermissionScope` for custom
 business routes, and constrain every application-owned query by `scope.OrgID`.

@@ -619,6 +619,15 @@ func (s *OrgService) RemoveMember(ctx context.Context, input api.RemoveMemberInp
 	if s.orgPermissions != nil && !orgOperationAuthorized(ctx, input.OrgID) && input.ActorID != input.UserID {
 		return runOrgMutationVoid(ctx, s.orgPermissions, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), "goauth.org.members.remove", func(ctx context.Context) error { return s.RemoveMember(ctx, input) })
 	}
+	managementOrgID, hasManagementScope := ctx.Value(orgManagementContextKey{}).(string)
+	if s.roleAssignments != nil && (!hasManagementScope || managementOrgID != input.OrgID) {
+		// Fixed-role updates lock users before memberships even while granular
+		// authorization is disabled. Removal must use the same order before
+		// changing the user's owner count, or the two operations can deadlock.
+		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
+			return s.RemoveMember(context.WithValue(ctx, orgManagementContextKey{}, input.OrgID), input)
+		})
+	}
 
 	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		actor, target, err := s.lockActorAndTarget(txCtx, input.OrgID, input.ActorID, input.UserID)

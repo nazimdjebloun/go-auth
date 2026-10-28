@@ -62,7 +62,10 @@ and require organizations. New orgs initialize protected owner/admin/member role
 atomically; an existing org must be initialized by its owner. Custom roles combine
 installed library actions and org-local business permissions. Use
 `RequireOrgPermissionScope` or `RequireActiveOrgPermissionScope` for application
-routes. Apply migration revision 2 before enabling the feature; app roles and
+routes. Apply migration revision 2 when upgrading the library, even if org
+permissions remain disabled: fixed-role operations also use the new tables.
+Existing deployments need a controlled activation with owner initialization for
+each org before normal permission-protected org traffic resumes. App roles and
 permissions remain independent. See the [org permission guide](docs/guides/org-permissions.mdx).
 Use the self `/access` endpoint to inspect current permissions; role-management
 reads require `goauth.org.roles.read` and allow authorized inspection of banned

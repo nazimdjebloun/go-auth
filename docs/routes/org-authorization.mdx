@@ -46,6 +46,12 @@ Authorized target-access reads return that metadata with an empty effective
 `permissionKeys` array and `isFullAccess: false` for disabled roles or banned
 members. The requesting caller must still pass authentication and authorization.
 
+The top-level access `revision` tracks guarded authorization management, not all
+membership or account/session changes. Self-leave, invitation acceptance and
+platform-admin member overrides do not advance it. It must not be used as an
+access-cache or complete change cursor; see the
+[revision contract](../guides/org-permissions.mdx#revision-semantics).
+
 Business-definition deletion enforces the same held-key delegation bound as
 updates, and still rejects referenced definitions. In the current grant model,
 owners can delete unused business definitions; non-owners cannot bypass either check.

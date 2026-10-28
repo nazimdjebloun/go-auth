@@ -1,0 +1,88 @@
+---
+title: "v0.5.0"
+description: "Organization-local roles and permissions, mandatory schema revision 2, and the owner-initialization rollout."
+date: "2026-10-29"
+---
+
+Organization permissions add one role per membership, custom business permission
+keys, delegated library actions, management APIs and live permission middleware.
+The feature is opt-in and independent of app permissions. Protected owner,
+admin and member identities retain their fixed policies; custom roles receive
+only their explicit grants.
+
+## Required schema upgrade, including when the feature is disabled
+
+**Apply revision 2 before running the upgraded library, even if org permissions
+remain disabled.** `000002_v0.5.0_001.sql` adds the org authorization tables on
+PostgreSQL, MySQL and SQLite. With organizations enabled, organization deletion
+always clears the new member/invitation role references, and fixed-role updates
+reconcile assignments through the new tables. Skipping migration can therefore
+produce server errors on existing organization operations; the feature flag does
+not protect an unmigrated installation.
+
+Stop auth traffic and auth-writing workers, then use the CLI matching the
+application's pinned dependency:
+
+```bash
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
+  --driver postgres --dsn "$DATABASE_URL"
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate verify \
+  --driver postgres --dsn "$DATABASE_URL"
+```
+
+Choose the application's actual dialect. Existing untracked installations must
+first follow the supported baseline-adoption procedure. The additive migration
+preserves existing credentials, memberships, invitations and app-role assignments.
+It creates no org role/grant records and initializes no existing organizations.
+`New` never migrates. `DatabaseConfig.CheckSchema: true` rejects an older schema
+at startup; it does not perform the upgrade. See [Migrations](../migrations.mdx).
+
+## Existing organizations require a controlled activation
+
+The upgraded library can first run with org permissions disabled after the
+mandatory schema migration. Enabling the feature changes existing org access
+immediately: until an owner initializes an org, its permission-protected detail,
+member and invitation operations return `503 org_permissions_not_initialized`.
+The self org list still returns memberships but redacts `metadata` and
+`createdBy` for uninitialized orgs.
+
+For activation:
+
+1. Coordinate with a current owner of every existing org before enabling the
+   feature for normal traffic.
+2. Enable org permissions in a maintenance window that keeps authentication and
+   owner initialization available while ordinary org screens remain gated.
+3. Authenticate each owner with the required session assurance, then call
+   `Auth.InitializeOrgPermissions` or, with management HTTP enabled,
+   `POST /auth/orgs/{orgID}/authorization/initialize` for that owner's org.
+4. Check `/auth/orgs/{orgID}/access` as the owner before restoring normal org
+   traffic. New orgs initialize atomically at creation while enabled.
+
+Initialization requires the current owner's membership. App/platform-admin
+authority alone cannot initialize an org, and there is no bulk or CLI org
+initialization path. Keep the feature disabled until this rollout can be
+coordinated. See the [activation guide](../guides/org-permissions.mdx#activating-an-existing-deployment).
+
+## Authorization and client contracts
+
+- Role, definition and assignment writes require the current expected revisions.
+  Owners retain full enabled access without bypassing last-owner or assurance
+  checks. Non-owners cannot delegate grants they do not hold or grant ownership.
+- Fixed-role changes reconcile persisted assignments even while granular
+  authorization is disabled, including a same-classification custom-role reset.
+  Fixed-role removal and role updates acquire the account guard before membership
+  locks while disabled too, avoiding a remove-versus-demote deadlock.
+- Invitations freeze the proposed role revision and recheck the original
+  inviter's authority. A changed/disabled role requires deleting and recreating
+  the invitation; resending cannot repair the saved revision.
+- `OrgAccess.revision` is informational, not a complete access/membership change
+  cursor. Self-leave, invitation acceptance, platform-admin membership changes
+  and account/session changes do not advance it. Use live permission checks and
+  refresh access views independently of that value. See
+  [revision semantics](../guides/org-permissions.mdx#revision-semantics).
+- Org-list redaction evaluates permission access separately per organization.
+  This adds per-org queries; use pagination for large membership lists.
+
+See the [org permission guide](../guides/org-permissions.mdx) and
+[HTTP route reference](../routes/org-authorization.mdx) for configuration,
+delegation, management and application-route integration.

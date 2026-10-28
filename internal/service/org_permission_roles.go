@@ -150,9 +150,6 @@ func (s *OrgPermissionsService) UpdateRole(ctx context.Context, input api.Update
 		if input.IsEnabled != nil {
 			role.IsEnabled = *input.IsEnabled
 		}
-		if !role.IsEnabled && role.SystemKey != nil {
-			return domain.ErrOrgRoleInUse
-		}
 		if err := validateOrgMetadata(role.Name, role.Description); err != nil {
 			return err
 		}
@@ -225,9 +222,6 @@ func (s *OrgPermissionsService) DeleteRole(ctx context.Context, input api.Delete
 		if err := s.delegation(ctx, input.Actor, role.ID, keys); err != nil {
 			return err
 		}
-		if role.SystemKey != nil {
-			return domain.ErrOrgRoleInUse
-		}
 		n, err := s.roles.RoleUserCount(ctx, input.Actor.OrgID, role.ID)
 		if err != nil {
 			return err
@@ -242,7 +236,7 @@ func (s *OrgPermissionsService) DeleteRole(ctx context.Context, input api.Delete
 	})
 }
 
-// ListRoles lists explicit grants; built-in admin's full access is separate policy.
+// ListRoles lists explicit grants and the built-in policy presets.
 func (s *OrgPermissionsService) ListRoles(ctx context.Context, input api.ListOrgRolesInput) ([]domain.OrgPermissionRole, error) {
 	if err := s.require(ctx, input.Actor, "goauth.org.roles.read"); err != nil {
 		return nil, err
