@@ -147,6 +147,8 @@ type Event struct {
 	CreatedAt     time.Time             `json:"createdAt"`
 }
 
+// EventOrgAuthorizationInitialized and the following events track organization
+// authorization changes independently of application permissions.
 const (
 	EventOrgAuthorizationInitialized  EventType = "org.authorization.initialized"
 	EventOrgPermissionCreated         EventType = "org.permission.created"
@@ -159,6 +161,8 @@ const (
 	EventOrgLibraryPermissionsChanged EventType = "org.library_permissions.changed"
 )
 
+// EventOrgInviteCreated and the following events track the organization
+// invitation lifecycle.
 const (
 	EventOrgInviteCreated  EventType = "org.invite.created"
 	EventOrgInviteResent   EventType = "org.invite.resent"

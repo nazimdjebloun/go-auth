@@ -65,6 +65,10 @@ func authorCheckoutCatalog(t *testing.T, baselineOnly bool) *authorFixture {
 			t.Fatal(err)
 		}
 		write(filepath.Join("internal/migrations", dialect, "catalog.json"), manifest)
+		desired, err := schema.For(dialect)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, step := range catalog.Migrations {
 			write(filepath.Join("internal/migrations", dialect, step.File), []byte(step.SQL))
 			// #nosec G304 -- Both dialect and snapshot filename come from the validated embedded catalog.
@@ -73,17 +77,9 @@ func authorCheckoutCatalog(t *testing.T, baselineOnly bool) *authorFixture {
 				t.Fatal(err)
 			}
 			write(filepath.Join("internal/migrations", dialect, step.Schema), snapshot)
-		}
-		desired, err := schema.For(dialect)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if baselineOnly {
-			snapshot, err := os.ReadFile(filepath.Join("../migrations", dialect, catalog.Migrations[0].Schema))
-			if err != nil {
-				t.Fatal(err)
+			if baselineOnly {
+				desired = string(snapshot)
 			}
-			desired = string(snapshot)
 		}
 		write(filepath.Join("internal/schema", dialect+".sql"), []byte(strings.ReplaceAll(desired, "\r\n", "\n")))
 	}

@@ -66,9 +66,10 @@ func TestOrgPermissionsMemberListRoleEnrichment(t *testing.T) {
 	wantRoleIDs := make(map[string]string)
 	for _, actor := range []api.OrgPermissionActor{f.owner, admin, member} {
 		base := domain.OrgRoleMember
-		if actor == f.owner {
+		switch actor {
+		case f.owner:
 			base = domain.OrgRoleOwner
-		} else if actor == admin {
+		case admin:
 			base = domain.OrgRoleAdmin
 		}
 		builtin, err := f.repo.RoleBySlug(t.Context(), f.owner.OrgID, string(base))

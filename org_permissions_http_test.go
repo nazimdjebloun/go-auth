@@ -55,7 +55,7 @@ func TestOrgPermissionsHTTPManagementAndLiveAccess(t *testing.T) {
 	if strings.Contains(w.Body.String(), "assignment_revision") {
 		t.Fatal("snake_case leaked into public JSON")
 	}
-	f.mux.Handle("GET /projects/{orgID}", f.a.RequireOrgPermissionScope("org.projects.read", func(w http.ResponseWriter, r *http.Request, scope OrgScope) {
+	f.mux.Handle("GET /projects/{orgID}", f.a.RequireOrgPermissionScope("org.projects.read", func(w http.ResponseWriter, _ *http.Request, scope OrgScope) {
 		if scope.OrgID != org.ID {
 			t.Error("wrong tenant scope")
 		}
@@ -70,7 +70,7 @@ func TestOrgPermissionsHTTPManagementAndLiveAccess(t *testing.T) {
 	if err = f.a.Services().Org.SetActiveOrg(t.Context(), api.SetActiveOrgInput{SessionID: reg.Session.ID, UserID: reg.User.ID, OrgID: org.ID}); err != nil {
 		t.Fatal(err)
 	}
-	f.mux.Handle("GET /active-projects", f.a.RequireActiveOrgPermissionScope("org.projects.read", func(w http.ResponseWriter, r *http.Request, scope OrgScope) {
+	f.mux.Handle("GET /active-projects", f.a.RequireActiveOrgPermissionScope("org.projects.read", func(w http.ResponseWriter, _ *http.Request, scope OrgScope) {
 		if scope.OrgID != org.ID {
 			t.Error("wrong active tenant")
 		}
@@ -101,7 +101,7 @@ func TestOrgPermissionsOptionalManagementAndDisabledMiddleware(t *testing.T) {
 	}
 	f.request(t, "GET", "/auth/orgs/"+org.ID+"/access", "", f.token, 200)
 	f.request(t, "GET", "/auth/orgs/"+org.ID+"/authorization/roles", "", f.token, 404)
-	var disabled *Auth = &Auth{}
+	disabled := &Auth{}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/", nil)
 	r = r.WithContext(middleware.ContextWithUser(r.Context(), &domain.User{ID: uuid.NewString()}))

@@ -130,6 +130,8 @@ var (
 	ErrTwoFactorPasswordRequired = NewError("two_factor_password_required", "Password is required to change two-factor settings")
 )
 
+// ErrOrgPermissionsDisabled and the following errors describe organization-local
+// authorization failures separately from application permission failures.
 var (
 	ErrOrgPermissionsDisabled       = NewError("org_permissions_disabled", "Organization permissions are disabled")
 	ErrOrgPermissionsNotInitialized = NewError("org_permissions_not_initialized", "Initialize organization permissions first")
