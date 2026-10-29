@@ -10,6 +10,7 @@
     "oauth",
     "admin",
     "app-permissions",
+    "org-permissions",
     "auth-provider",
     "middleware"
   ]

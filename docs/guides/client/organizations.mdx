@@ -8,6 +8,12 @@ icon: "Blocks"
 
 Wraps every endpoint from the [Organizations](../organizations.mdx) guide into `orgApi`, built on the [`apiRequest`](./index.mdx) helper. The [Organizations](../organizations.mdx) guide remains the complete request/response/error reference.
 
+When org permissions are enabled, use the [org roles and permissions client](./org-permissions.mdx)
+alongside this guide for effective access, custom roles, member assignments, and
+role-linked invitations. The fixed `owner`/`admin`/`member` classification alone
+does not describe a custom role's grants. Its invitation wrapper also supports
+`orgRoleId` and `expectedRoleRevision`, which the fixed-role wrapper below omits.
+
 <Callout type="info" title="UI components">
   All UI examples on this page use [shadcn/ui](https://ui.shadcn.com) with the default base variant. Only layout and styling change between projects — the component API stays the same. Install with `npx shadcn@latest add button input card label alert dialog select table badge`.
 </Callout>

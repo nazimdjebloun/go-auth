@@ -1,0 +1,990 @@
+---
+title: "Org roles and permissions"
+description: "orgPermissionsApi — typed wrappers and React examples for organization access, custom roles, delegation, assignments, and invitations."
+icon: "KeyRound"
+---
+
+# Org roles and permissions client
+
+Build an organization-scoped permission UI with `orgPermissionsApi`, using the
+shared [fetch helper](./index.mdx). The [server guide](../org-permissions.mdx)
+explains the authorization model; the [route reference](../../routes/org-authorization.mdx)
+defines the HTTP contract. Use the [organizations client](./organizations.mdx)
+alongside this page for org creation, membership lists, active-org selection,
+and ordinary invitation operations.
+
+Each membership has one effective role. The same user can be a viewer in Alpha
+and a manager in Beta. App roles and app permissions do not confer org access.
+Custom roles have exact keys, with no wildcard grants, inheritance, or per-user
+overrides. A custom role receives no implicit member permissions.
+
+The task examples use `org.tasks.read`, `org.tasks.create`, `org.tasks.edit`,
+`org.tasks.complete`, and `org.tasks.delete`. These are application-defined keys;
+the task endpoints and database belong to your application.
+
+<Callout type="info" title="Example files">
+  Copy each named TypeScript block into its indicated file. Components use React,
+  local shadcn/ui Button and Input components, and native form controls. Place
+  the shared fetch helper in `lib/api/client.ts`, as in the other client guides.
+  The examples use the same-origin `/api` proxy convention; replace it with your
+  backend origin or mount prefix and retain cookies, CSRF, and allowed-origin
+  configuration from [Setup](./index.mdx) and [Deployment](../deployment.mdx).
+</Callout>
+
+## Enable and initialize
+
+Add these options to the server's existing `NewConfig` call:
+
+```go
+goauth.WithOrganizations(goauth.OrganizationConfig{Enable: true}),
+goauth.WithOrgPermissions(goauth.OrgPermissionsConfig{
+    Enable:               true,
+    EnableManagementHTTP: true,
+}),
+```
+
+Both org permission flags default to false. `Enable` requires organizations and
+mounts `GET /auth/orgs/{orgID}/access`. `EnableManagementHTTP` also mounts
+initialization and authorization management. A missing management route is not
+an empty result or proof that the caller lacks a grant.
+
+Apply the matching schema migrations before starting auth traffic. Follow the
+[activation workflow](../org-permissions.mdx#activating-an-existing-deployment)
+for existing deployments: enabling the feature makes ordinary org operations
+require initialization. New organizations initialize automatically when created
+with the feature enabled. Existing organizations need an authenticated current
+owner to initialize each one; startup does not do it. App administrators have
+no initialization override.
+
+Sign in through the [authentication client](./authentication.mdx) first. The
+backend derives the acting user and session from authentication; never put an
+actor ID or raw session token in a permission body. A target member's user ID
+belongs in the member route. If the current account/session requires 2FA,
+complete that login challenge before retrying `two_factor_required`.
+
+## Typed API wrapper
+
+IDs are the lowercase, hyphenated UUIDs returned by the server. Responses use
+camelCase. Keep definition, role, assignment, and access revisions separate.
+Management lists return envelopes; creates/updates return records; initialization
+and deletes return `204` with no body. Reads accept an optional cancellation signal.
+
+```ts
+// lib/api/org-permissions.ts
+import { apiRequest } from "./client";
+
+const API_BASE = "/api";
+const orgPath = (orgId: string) => `/auth/orgs/${encodeURIComponent(orgId)}`;
+const root = (orgId: string) => `${orgPath(orgId)}/authorization`;
+const id = encodeURIComponent;
+
+export interface OrgPermission {
+  id: string;
+  orgId: string;
+  key: string;
+  name: string;
+  description: string;
+  isEnabled: boolean;
+  isSystem: boolean;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrgRole {
+  id: string;
+  orgId: string;
+  slug: string;
+  name: string;
+  description: string;
+  isEnabled: boolean;
+  systemKey?: "owner" | "admin" | "member";
+  revision: number;
+  permissionKeys: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrgMemberRole {
+  role: OrgRole;
+  assignmentRevision: number;
+}
+
+export interface OrgAccess extends OrgMemberRole {
+  isFullAccess: boolean;
+  permissionKeys: string[];
+  revision: number;
+}
+
+export interface OrgLibraryPermission {
+  key: string;
+  name: string;
+  description: string;
+}
+
+export interface OrgInvite {
+  id: string;
+  orgId: string;
+  email: string;
+  role: "owner" | "admin" | "member";
+  orgRoleId?: string;
+  orgRoleRevision?: number;
+  rawCode?: string;
+  invitedBy: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+type Page = { limit?: number; offset?: number };
+type MetadataUpdate = {
+  expectedRevision: number;
+  name?: string;
+  description?: string;
+  isEnabled?: boolean;
+};
+
+function pageQuery({ limit = 20, offset = 0 }: Page = {}) {
+  return `?${new URLSearchParams({ limit: String(limit), offset: String(offset) })}`;
+}
+
+function call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  return apiRequest(API_BASE, method, path, body, { signal });
+}
+
+export const orgPermissionsApi = {
+  getAccess: (orgId: string, signal?: AbortSignal) =>
+    call<OrgAccess>("GET", `${orgPath(orgId)}/access`, undefined, signal),
+  initialize: (orgId: string) =>
+    call<void>("POST", `${root(orgId)}/initialize`),
+  getLibraryPermissions: (orgId: string, signal?: AbortSignal) =>
+    call<{ permissions: OrgLibraryPermission[] }>("GET", `${root(orgId)}/library-permissions`, undefined, signal),
+  updateLibraryPermissions: (orgId: string, input: { create: string[]; delete: string[] }) =>
+    call<{ created: string[]; deleted: string[]; unchanged: string[] }>("PATCH", `${root(orgId)}/library-permissions`, input),
+  listPermissions: (orgId: string, page: Page = {}, signal?: AbortSignal) =>
+    call<{ permissions: OrgPermission[] }>("GET", `${root(orgId)}/permissions${pageQuery(page)}`, undefined, signal),
+  createPermission: (orgId: string, input: { key: string; name: string; description?: string }) =>
+    call<OrgPermission>("POST", `${root(orgId)}/permissions`, input),
+  updatePermission: (orgId: string, permissionId: string, input: MetadataUpdate) =>
+    call<OrgPermission>("PATCH", `${root(orgId)}/permissions/${id(permissionId)}`, input),
+  deletePermission: (orgId: string, permissionId: string, expectedRevision: number) =>
+    call<void>("DELETE", `${root(orgId)}/permissions/${id(permissionId)}?expectedRevision=${expectedRevision}`),
+  listRoles: (orgId: string, page: Page = {}, signal?: AbortSignal) =>
+    call<{ roles: OrgRole[] }>("GET", `${root(orgId)}/roles${pageQuery(page)}`, undefined, signal),
+  createRole: (orgId: string, input: { slug: string; name: string; description?: string; permissionKeys?: string[] }) =>
+    call<OrgRole>("POST", `${root(orgId)}/roles`, input),
+  updateRole: (orgId: string, roleId: string, input: MetadataUpdate) =>
+    call<OrgRole>("PATCH", `${root(orgId)}/roles/${id(roleId)}`, input),
+  setRolePermissions: (orgId: string, roleId: string, input: { expectedRevision: number; permissionKeys: string[] }) =>
+    call<OrgRole>("PUT", `${root(orgId)}/roles/${id(roleId)}/permissions`, input),
+  deleteRole: (orgId: string, roleId: string, expectedRevision: number) =>
+    call<void>("DELETE", `${root(orgId)}/roles/${id(roleId)}?expectedRevision=${expectedRevision}`),
+  getMemberRole: (orgId: string, userId: string, signal?: AbortSignal) =>
+    call<OrgMemberRole>("GET", `${root(orgId)}/members/${id(userId)}/role`, undefined, signal),
+  getMemberAccess: (orgId: string, userId: string, signal?: AbortSignal) =>
+    call<OrgAccess>("GET", `${root(orgId)}/members/${id(userId)}/access`, undefined, signal),
+  setMemberRole: (orgId: string, userId: string, input: {
+    roleId: string;
+    expectedRoleRevision: number;
+    expectedAssignmentRevision: number;
+  }) => call<OrgMemberRole>("PUT", `${root(orgId)}/members/${id(userId)}/role`, input),
+  createRoleInvite: (orgId: string, input: { email: string; orgRoleId: string; expectedRoleRevision: number }) =>
+    call<OrgInvite>("POST", `${orgPath(orgId)}/invites`, input),
+};
+
+// Pickers need every definition, including grants outside the visible list page.
+export async function listAllOrgPermissions(orgId: string, signal: AbortSignal) {
+  const permissions: OrgPermission[] = [];
+  for (let offset = 0; ; offset += 100) {
+    const page = await orgPermissionsApi.listPermissions(orgId, { limit: 100, offset }, signal);
+    permissions.push(...page.permissions);
+    if (page.permissions.length < 100) return permissions;
+  }
+}
+```
+
+The TypeScript types describe server responses; they do not validate JSON at
+runtime. Permission/role lists default to 20, accept positive limits up to 100,
+and require a nonnegative offset. Here `limit: 0` selects the default, unlike
+the existing member/invitation list APIs where zero means all matching rows.
+Use pagination when selecting records; a first page is not the entire catalog.
+
+### Access needed by each action
+
+| Wrapper action | Required access |
+| --- | --- |
+| `getAccess` | Current eligible member; no role-management grant |
+| `initialize` | Current owner; works before initialization |
+| `getLibraryPermissions`, `updateLibraryPermissions` | Protected org owner; non-delegable |
+| `listPermissions` | `goauth.org.permissions.read` |
+| `createPermission` | `goauth.org.permissions.create` |
+| `updatePermission` | `goauth.org.permissions.update` plus delegation bounds |
+| `deletePermission` | `goauth.org.permissions.delete` plus delegation/reference guards |
+| `listRoles`, `getMemberRole` | `goauth.org.roles.read`, including self role lookup |
+| `getMemberAccess` | `goauth.org.roles.read` for another member |
+| `createRole` | `goauth.org.roles.create` plus delegation bounds |
+| `updateRole`, `setRolePermissions` | `goauth.org.roles.update` plus delegation bounds |
+| `deleteRole` | `goauth.org.roles.delete` plus delegation/reference guards |
+| `setMemberRole` | `goauth.org.roles.assign` plus delegation/ownership guards |
+| `createRoleInvite` | `goauth.org.invites.create` and `goauth.org.roles.assign`, plus delegation bounds |
+
+A form may need additional reads: a grant picker needs `permissions.read`, a
+role selector needs `roles.read`, and a member list needs `members.read` (all
+prefixed `goauth.org.`). A mutation grant alone does not authorize those reads.
+
+## Errors and shared UI helpers
+
+Handle the stable code from the shared wrapper's `{error,message}` envelope.
+`org_authorization_conflict` means reload, review, then submit with observed
+revisions; do not increment a revision locally or silently retry. A role-linked
+invitation has a frozen role revision: `org_invite_role_changed` requires an
+authorized inviter to delete and recreate it after reviewing the role.
+
+```ts
+// lib/org-permission-errors.ts
+export function orgPermissionErrorCode(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const value = error as { error?: unknown; code?: unknown };
+  if (typeof value.error === "string") return value.error;
+  return typeof value.code === "string" ? value.code : undefined;
+}
+
+const messages: Record<string, string> = {
+  org_forbidden: "Your current org access does not allow this change, or it exceeds your delegation rights.",
+  org_member_not_found: "This membership is unavailable. Refresh your organizations and members.",
+  org_permissions_not_initialized: "A current owner must initialize this organization's permissions.",
+  org_permissions_already_initialized: "Already initialized. Refresh access to continue.",
+  org_permissions_disabled: "Org permissions are unavailable on this server.",
+  org_authorization_conflict: "This record changed. Reload, review the current values, and submit again.",
+  org_invite_role_changed: "The invitation's role changed. Ask an authorized inviter to delete and recreate it.",
+  org_permission_exists: "That permission key already exists in this organization.",
+  org_permission_not_found: "The permission is missing or unavailable for granting.",
+  org_permission_in_use: "Remove this permission from role grants before deleting it.",
+  protected_org_permission: "Only an owner can provision library definitions through the catalog.",
+  org_role_exists: "That role slug already exists in this organization.",
+  org_role_not_found: "The role is missing or unavailable for assignment.",
+  org_role_in_use: "Reassign members and remove invitations referencing this role before deleting it.",
+  protected_org_role: "Built-in owner, admin, and member roles cannot be changed.",
+  cannot_remove_last_owner: "Keep at least one owner in this organization.",
+  unknown_library_permission: "Select a supported goauth.org key from the catalog.",
+  two_factor_required: "Sign in again and complete the required two-factor challenge.",
+  email_failed: "The invitation was saved but email delivery failed. Reload invitations before resending.",
+};
+
+export function orgPermissionErrorMessage(error: unknown): string {
+  const code = orgPermissionErrorCode(error);
+  if (code && messages[code]) return messages[code];
+  if (typeof error === "object" && error !== null && "message" in error &&
+      typeof error.message === "string") return error.message;
+  return "Could not complete the request. Check your connection, then reload before retrying a write.";
+}
+```
+
+Let the shared unauthorized handler clear authentication on `401` or
+`user_banned`. An ordinary `403` can be an org permission or assurance failure;
+refresh access instead of signing out indiscriminately. Display the shared
+wrapper's `retryAfter` on `429`. See [Error handling](../../error-handling.mdx)
+for validation and infrastructure failures. A disabled/unmounted capability may
+produce a route-level 404 instead of `org_permissions_disabled`.
+
+The following hook cancels old reads and ignores their late responses. Mutations
+run once per click sequence and keep errors visible; cancellation is not used
+to infer whether a mutation committed. Supply stable query functions with
+`useCallback`. Mount org-scoped components using the user/org key shown below.
+
+```tsx
+// components/org-permission-ui.tsx
+"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { OrgAccess } from "../lib/api/org-permissions";
+import { orgPermissionErrorMessage } from "../lib/org-permission-errors";
+
+export function hasOrgPermission(access: OrgAccess | undefined, key: string) {
+  return access?.permissionKeys.includes(key) ?? false;
+}
+
+export function OrgError({ error }: { error: unknown }) {
+  return error == null ? null : <p role="alert">{orgPermissionErrorMessage(error)}</p>;
+}
+
+export function useOrgQuery<T>(load: (signal: AbortSignal) => Promise<T>) {
+  const pending = useRef<AbortController | null>(null);
+  const [version, setVersion] = useState(0);
+  const [state, setState] = useState<{ data?: T; error?: unknown; loading: boolean }>({ loading: true });
+  useEffect(() => {
+    const controller = new AbortController();
+    pending.current = controller;
+    setState({ loading: true });
+    Promise.resolve().then(() => load(controller.signal)).then(
+      (data) => { if (!controller.signal.aborted) setState({ data, loading: false }); },
+      (error: unknown) => { if (!controller.signal.aborted) setState({ error, loading: false }); },
+    );
+    return () => controller.abort();
+  }, [load, version]);
+  const reload = useCallback(() => {
+    pending.current?.abort();
+    setState({ loading: true });
+    setVersion((value) => value + 1);
+  }, []);
+  return { ...state, reload };
+}
+
+export function useOrgAction(onChanged: () => void) {
+  const mounted = useRef(false);
+  const running = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>();
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  async function run(work: () => Promise<unknown>) {
+    if (running.current) return;
+    running.current = true;
+    setBusy(true);
+    setError(undefined);
+    try {
+      await work();
+      if (mounted.current) onChanged();
+    } catch (error: unknown) {
+      if (mounted.current) setError(error);
+    } finally {
+      running.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }
+  return { busy, error, run };
+}
+```
+
+Use the top-level effective `access.permissionKeys` for UI checks.
+`access.role.permissionKeys` describes the role's configured grants/preset,
+which can differ from effective access. Do not turn `isFullAccess` into a bypass
+for a missing business key: owners still need that business definition to exist
+and be enabled. Backend authorization always decides whether an action succeeds.
+
+## Switch organizations and read access
+
+Pass a membership-visible org list from `orgApi.listMine`, along with the
+authenticated user's ID. Key the entire workspace by both user and org so
+switching either clears grants, tasks, selections, and edit drafts immediately.
+Late responses from the previous org are cancelled/ignored. Pass `orgId`
+explicitly to requests; avoid a mutable global selected-org variable.
+
+```tsx
+// components/org-workspace.tsx
+"use client";
+import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { orgPermissionsApi } from "../lib/api/org-permissions";
+import { orgPermissionErrorCode } from "../lib/org-permission-errors";
+import { OrgError, useOrgAction, useOrgQuery } from "./org-permission-ui";
+import { OrgManagement } from "./org-management";
+import { OrgTasks } from "./org-tasks";
+
+type OrgChoice = { id: string; name: string };
+
+export function OrgWorkspace({ userId, orgs }: { userId: string; orgs: OrgChoice[] }) {
+  const [selected, setSelected] = useState("");
+  const orgId = orgs.some((org) => org.id === selected) ? selected : "";
+  return <section className="space-y-4">
+    <label>Organization
+      <select value={orgId} onChange={(event) => setSelected(event.target.value)}>
+        <option value="">Choose an organization</option>
+        {orgs.map((org) => <option key={org.id} value={org.id}>{org.name}</option>)}
+      </select>
+    </label>
+    {orgId && <OrgArea key={`${userId}:${orgId}`} orgId={orgId} />}
+  </section>;
+}
+
+function OrgArea({ orgId }: { orgId: string }) {
+  const load = useCallback((signal: AbortSignal) => orgPermissionsApi.getAccess(orgId, signal), [orgId]);
+  const query = useOrgQuery(load);
+  const initialize = useOrgAction(query.reload);
+  useEffect(() => {
+    const refresh = () => query.reload();
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [query.reload]);
+  return <section className="space-y-4">
+    <Button variant="outline" onClick={query.reload}>Refresh access and panels</Button>
+    {query.loading && <p>Loading organization access…</p>}
+    <OrgError error={query.error} />
+    <OrgError error={initialize.error} />
+    {orgPermissionErrorCode(query.error) === "org_permissions_not_initialized" &&
+      <div>
+        <p>A current owner must initialize this organization before normal org traffic resumes.</p>
+        <Button disabled={initialize.busy} onClick={() => initialize.run(() => orgPermissionsApi.initialize(orgId))}>
+          Initialize as current owner
+        </Button>
+      </div>}
+    {query.data && <>
+      <p>Role: {query.data.role.name} · Assignment revision: {query.data.assignmentRevision}</p>
+      <OrgTasks orgId={orgId} access={query.data} onChanged={query.reload} />
+      <OrgManagement orgId={orgId} access={query.data} onChanged={query.reload} />
+    </>}
+  </section>;
+}
+```
+
+The initialization button is a user-triggered owner action, not an automatic
+effect. Other members get a server denial. If initialization already happened,
+refresh access; do not treat the repeated-initialization error as a broken org.
+
+This example uses explicit org routes. It does not change the session's active
+org. If your backend uses active-org middleware, call `orgApi.setActive(orgId)`
+successfully before loading dependent resources, handle failure, and clear or
+serialize overlapping selections. An active-org preference does not grant access.
+
+Refresh access after mutations, focus, and denials; consider a refresh interval
+or application event subscription for changes by other operators. The example
+refreshes on focus and offers a manual button. The top-level access `revision`
+is informational, not an access-cache cursor: invitation acceptance, self-leave,
+and account/session changes can affect access without advancing it. Never skip
+refresh solely because this number is unchanged.
+
+## Owner library catalog
+
+The catalog lists supported `goauth.org.*` actions. Installation makes a key
+available for custom-role delegation; it grants no access by itself. Built-in
+role policies work without installed definitions. Only a protected owner may
+read or provision the catalog; this authority cannot be delegated.
+
+```tsx
+// components/org-library-catalog.tsx
+"use client";
+import { useCallback } from "react";
+import { Button } from "@/components/ui/button";
+import { orgPermissionsApi, type OrgPermission } from "../lib/api/org-permissions";
+import { OrgError, useOrgAction, useOrgQuery } from "./org-permission-ui";
+
+export function OrgLibraryCatalog({ orgId, permissions, onChanged }: {
+  orgId: string; permissions: OrgPermission[]; onChanged: () => void;
+}) {
+  const load = useCallback((signal: AbortSignal) => orgPermissionsApi.getLibraryPermissions(orgId, signal), [orgId]);
+  const query = useOrgQuery(load);
+  const action = useOrgAction(onChanged);
+  return <section className="space-y-3">
+    <h2>Library permissions</h2>
+    <OrgError error={query.error ?? action.error} />
+    {query.loading && <p>Loading catalog…</p>}
+    {query.data?.permissions.map((definition) => {
+      const installed = permissions.some((permission) => permission.key === definition.key);
+      return <div key={definition.key} className="flex flex-wrap items-center gap-2">
+        <code>{definition.key}</code><span>{definition.name}</span>
+        <Button variant="outline" disabled={action.busy} onClick={() => {
+          if (installed && !window.confirm("Remove this definition and its custom-role grants?")) return;
+          void action.run(() => orgPermissionsApi.updateLibraryPermissions(orgId, {
+            create: installed ? [] : [definition.key],
+            delete: installed ? [definition.key] : [],
+          }));
+        }}>{installed ? "Remove" : "Install"}</Button>
+      </div>;
+    })}
+  </section>;
+}
+```
+
+Batches accept 1–100 unique supported keys across `create` and `delete`, with
+no overlap. They are atomic and report `created`, `deleted`, and `unchanged`.
+For example, a deliberate mixed batch can install `goauth.org.roles.read` and
+remove `goauth.org.invites.create` in one request. Removal also deletes custom
+grants and advances affected role revisions; refresh roles, assignments,
+invitation selectors, and access afterward. Reinstallation does not restore
+removed grants. Do not provision library keys from a mount effect.
+
+## Business permission definitions
+
+Business keys use `org.<resource>.<action>`, such as `org.tasks.read`; they are
+unique within an org. `goauth.org.*` is reserved for the owner catalog. Creating
+a definition does not grant it to a custom role. The key cannot be renamed.
+
+```tsx
+// components/org-definitions.tsx
+"use client";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { orgPermissionsApi, type OrgAccess, type OrgPermission } from "../lib/api/org-permissions";
+import { hasOrgPermission, OrgError, useOrgAction } from "./org-permission-ui";
+
+export function OrgDefinitions({ orgId, permissions, access, onChanged }: {
+  orgId: string; permissions: OrgPermission[]; access: OrgAccess; onChanged: () => void;
+}) {
+  const [key, setKey] = useState("");
+  const [name, setName] = useState("");
+  const action = useOrgAction(onChanged);
+  return <section className="space-y-3">
+    <h2>Installed permissions</h2><OrgError error={action.error} />
+    <form className="flex flex-wrap gap-2" onSubmit={(event) => {
+      event.preventDefault();
+      void action.run(() => orgPermissionsApi.createPermission(orgId, { key, name }));
+    }}>
+      <Input aria-label="Permission key" placeholder="org.tasks.read" required value={key} onChange={(event) => setKey(event.target.value)} />
+      <Input aria-label="Permission name" placeholder="View tasks" required value={name} onChange={(event) => setName(event.target.value)} />
+      <Button type="submit" disabled={action.busy || !hasOrgPermission(access, "goauth.org.permissions.create")}>Create definition</Button>
+    </form>
+    {permissions.map((permission) => <div key={permission.id} className="flex flex-wrap items-center gap-2">
+      <code>{permission.key}</code><span>Revision {permission.revision} · {permission.isEnabled ? "enabled" : "disabled"}</span>
+      {!permission.isSystem && <>
+        <Button variant="outline" disabled={action.busy || !hasOrgPermission(access, "goauth.org.permissions.update")} onClick={() => {
+          const name = window.prompt("Permission name", permission.name);
+          if (name !== null) void action.run(() => orgPermissionsApi.updatePermission(orgId, permission.id, { expectedRevision: permission.revision, name }));
+        }}>Rename display name</Button>
+        <Button variant="outline" disabled={action.busy || !hasOrgPermission(access, "goauth.org.permissions.update")} onClick={() => action.run(() =>
+          orgPermissionsApi.updatePermission(orgId, permission.id, { expectedRevision: permission.revision, isEnabled: !permission.isEnabled }))}>
+          {permission.isEnabled ? "Disable" : "Enable"}
+        </Button>
+        <Button variant="destructive" disabled={action.busy || !hasOrgPermission(access, "goauth.org.permissions.delete")} onClick={() => {
+          if (window.confirm(`Delete ${permission.key}?`)) void action.run(() => orgPermissionsApi.deletePermission(orgId, permission.id, permission.revision));
+        }}>Delete definition</Button>
+      </>}
+    </div>)}
+  </section>;
+}
+```
+
+Updates can also set `description`; omitted fields remain unchanged. Disabling
+a definition removes it from subsequent effective-access checks. Deletion
+requires its observed revision and no referencing role grants. Non-owners
+also need to hold the target key to update/delete it; under the current grant
+model unused business definitions are therefore deletable by owners. The UI's
+operation-key checks do not replace these server guards.
+
+## Custom roles and grant editor
+
+List roles with their configured grants. Protected `owner`, `admin`, and `member`
+roles cannot be edited, disabled, deleted, or assigned different grants. Custom
+role slugs are immutable, unique per org, and cannot use those protected names.
+See the [server guide](../org-permissions.mdx#custom-permissions-roles-and-assignments)
+for key, slug, and metadata limits.
+
+```tsx
+// components/org-roles.tsx
+"use client";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { orgPermissionsApi, type OrgAccess, type OrgPermission, type OrgRole } from "../lib/api/org-permissions";
+import { hasOrgPermission, OrgError, useOrgAction } from "./org-permission-ui";
+
+export function OrgRoles({ orgId, roles, permissions, access, onChanged }: {
+  orgId: string; roles: OrgRole[]; permissions: OrgPermission[]; access: OrgAccess; onChanged: () => void;
+}) {
+  const [slug, setSlug] = useState("");
+  const action = useOrgAction(onChanged);
+  return <section className="space-y-3">
+    <h2>Roles</h2><OrgError error={action.error} />
+    <form className="flex gap-2" onSubmit={(event) => {
+      event.preventDefault();
+      void action.run(() => orgPermissionsApi.createRole(orgId, { slug, name: slug, permissionKeys: [] }));
+    }}>
+      <Input aria-label="New role slug" placeholder="task-viewer" required value={slug} onChange={(event) => setSlug(event.target.value)} />
+      <Button type="submit" disabled={action.busy || !hasOrgPermission(access, "goauth.org.roles.create")}>Create role</Button>
+    </form>
+    {roles.map((role) => <RoleEditor key={`${role.id}:${role.revision}`} {...{ orgId, role, permissions, access, onChanged }} />)}
+  </section>;
+}
+
+function RoleEditor({ orgId, role, permissions, access, onChanged }: {
+  orgId: string; role: OrgRole; permissions: OrgPermission[]; access: OrgAccess; onChanged: () => void;
+}) {
+  const [name, setName] = useState(role.name);
+  const [keys, setKeys] = useState(role.permissionKeys);
+  const action = useOrgAction(onChanged);
+  const self = role.id === access.role.id;
+  const editable = !role.systemKey && (access.isFullAccess || !self);
+  const update = editable && hasOrgPermission(access, "goauth.org.roles.update");
+  // Retain existing and draft keys even if definitions disappeared after a read.
+  const allKeys = Array.from(new Set([...role.permissionKeys, ...keys, ...permissions.map((permission) => permission.key)])).sort();
+  return <section className="space-y-2 rounded border p-3">
+    <h3>{role.name} · revision {role.revision} · {role.systemKey ? "protected" : role.isEnabled ? "enabled" : "disabled"}</h3>
+    <OrgError error={action.error} />
+    <fieldset disabled={action.busy || !update} className="space-y-2">
+      <Input aria-label={`Display name for ${role.slug}`} value={name} onChange={(event) => setName(event.target.value)} />
+      <Button onClick={() => action.run(() => orgPermissionsApi.updateRole(orgId, role.id, { expectedRevision: role.revision, name }))}>Save name</Button>
+      <Button variant="outline" onClick={() => action.run(() => orgPermissionsApi.updateRole(orgId, role.id, { expectedRevision: role.revision, isEnabled: !role.isEnabled }))}>
+        {role.isEnabled ? "Disable role" : "Enable role"}
+      </Button>
+      <div className="space-y-1">{allKeys.map((key) => {
+        const permission = permissions.find((permission) => permission.key === key);
+        const checked = keys.includes(key);
+        const canAdd = permission?.isEnabled && (access.isFullAccess || hasOrgPermission(access, key));
+        return <label key={key} className="block">
+          <input type="checkbox" checked={checked} disabled={!checked && !canAdd} onChange={(event) =>
+            setKeys(event.target.checked ? [...keys, key] : keys.filter((value) => value !== key))} />
+          {key}{!permission ? " (definition unavailable)" : !permission.isEnabled ? " (disabled)" : ""}
+        </label>;
+      })}</div>
+      <Button onClick={() => action.run(() => orgPermissionsApi.setRolePermissions(orgId, role.id, { expectedRevision: role.revision, permissionKeys: keys }))}>Replace grants</Button>
+      <Button variant="outline" onClick={() => {
+        if (window.confirm("Clear every grant from this custom role?")) void action.run(() => orgPermissionsApi.setRolePermissions(orgId, role.id, { expectedRevision: role.revision, permissionKeys: [] }));
+      }}>Clear grants</Button>
+    </fieldset>
+    <Button variant="destructive" disabled={action.busy || !editable || !hasOrgPermission(access, "goauth.org.roles.delete")} onClick={() => {
+      if (window.confirm(`Delete ${role.name}?`)) void action.run(() => orgPermissionsApi.deleteRole(orgId, role.id, role.revision));
+    }}>Delete role</Button>
+  </section>;
+}
+```
+
+`setRolePermissions` replaces the entire grant set; send `[]` to clear it.
+Omitting the array or sending `null` is invalid. It accepts at most 256 distinct
+installed, enabled keys. Review the complete old and proposed sets before saving.
+The container below loads all definition pages for its pickers; existing keys
+remain visible even when their definitions have become unavailable. An existing
+disabled key must be removed from a replacement request.
+
+Non-owners need the operation key and must hold every old and proposed grant.
+They cannot edit their own role, reassign themselves, or grant/revoke ownership.
+Removing a grant outside a delegate's current access may require an owner.
+The server enforces this even if a button is enabled. Roles referenced by members
+or invitations cannot be deleted. A role metadata change, enabled-state change,
+or grant replacement changes its revision and invalidates its role-linked
+pending invitations; warn operators before editing a role used by invitations.
+
+## Inspect a member and assign a role
+
+Use self `/access` for the caller. `getMemberRole` requires `roles.read` even for
+self, and is the recovery path for inspecting a disabled assigned role or a
+banned target. An authorized target-access read can return role/revision metadata
+with empty effective keys and `isFullAccess: false`. The requesting caller must
+still be eligible and authorized.
+
+```tsx
+// components/org-member-role.tsx
+"use client";
+import { useCallback, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { orgPermissionsApi, type OrgAccess, type OrgRole } from "../lib/api/org-permissions";
+import { hasOrgPermission, OrgError, useOrgAction, useOrgQuery } from "./org-permission-ui";
+
+export function OrgMemberRoleEditor({ orgId, userId, roles, access, onChanged }: {
+  orgId: string; userId: string; roles: OrgRole[]; access: OrgAccess; onChanged: () => void;
+}) {
+  const load = useCallback(async (signal: AbortSignal) => {
+    const [assignment, effective] = await Promise.all([
+      orgPermissionsApi.getMemberRole(orgId, userId, signal),
+      orgPermissionsApi.getMemberAccess(orgId, userId, signal),
+    ]);
+    return { assignment, effective };
+  }, [orgId, userId]);
+  const query = useOrgQuery(load);
+  const [roleId, setRoleId] = useState("");
+  const action = useOrgAction(() => { query.reload(); onChanged(); });
+  const selected = roles.find((role) => role.id === roleId);
+  return <section className="space-y-2">
+    <h3>Member {userId}</h3><OrgError error={query.error ?? action.error} />
+    <Button variant="outline" onClick={query.reload}>Reload assignment and access</Button>
+    {query.loading && <p>Loading member access…</p>}
+    {query.data && <>
+      <p>Assigned: {query.data.assignment.role.name} · revision {query.data.assignment.assignmentRevision}</p>
+      <p>Effective keys: {query.data.effective.permissionKeys.join(", ") || "none"}</p>
+      <select aria-label="New member role" value={roleId} disabled={action.busy} onChange={(event) => setRoleId(event.target.value)}>
+        <option value="">Choose a role from this page</option>
+        {roles.map((role) => <option key={role.id} value={role.id} disabled={!role.isEnabled}>{role.name}</option>)}
+      </select>
+      <Button disabled={action.busy || !selected?.isEnabled || !hasOrgPermission(access, "goauth.org.roles.assign")} onClick={() => {
+        if (!selected || !query.data) return;
+        const assignmentRevision = query.data.assignment.assignmentRevision;
+        void action.run(() => orgPermissionsApi.setMemberRole(orgId, userId, {
+          roleId: selected.id,
+          expectedRoleRevision: selected.revision,
+          expectedAssignmentRevision: assignmentRevision,
+        }));
+      }}>Assign selected role</Button>
+    </>}
+  </section>;
+}
+```
+
+Render this editor only with `roles.read`; pass `userId` from the org's member
+list, not an actor field. Mount it with a user/org/target key. The two reads are
+separate snapshots, so later writes can still conflict; the server checks both
+submitted revisions atomically. Refresh the role list as well as the assignment
+on conflict. A legacy built-in assignment can have revision zero; preserve it.
+
+Membership JSON retains fixed `role` plus `orgRoleId` and an optional
+`orgRoleAssignmentRevision`. The fixed classification is not the custom-role
+identity. The older `orgApi.updateMemberRole(..., "member")` resets an existing
+custom assignment to the protected member role; use `setMemberRole` for custom
+roles. Owner transitions remain subject to last-owner guards.
+
+## Role-linked invitations
+
+The creation form below accepts a selected role and its observed revision.
+Submit either fixed `role` through `orgApi.createInvite` or `orgRoleId` with
+`expectedRoleRevision` through this wrapper, never both. The role-ID form needs
+both `goauth.org.invites.create` and `goauth.org.roles.assign`.
+
+```tsx
+// components/org-role-invite.tsx
+"use client";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { orgPermissionsApi, type OrgAccess, type OrgRole } from "../lib/api/org-permissions";
+import { hasOrgPermission, OrgError, useOrgAction } from "./org-permission-ui";
+
+export function OrgRoleInvite({ orgId, roles, access, onChanged }: {
+  orgId: string; roles: OrgRole[]; access: OrgAccess; onChanged: () => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [roleId, setRoleId] = useState("");
+  const action = useOrgAction(onChanged);
+  const selected = roles.find((role) => role.id === roleId);
+  return <form className="space-y-2" onSubmit={(event) => {
+    event.preventDefault();
+    if (!selected) return;
+    void action.run(() => orgPermissionsApi.createRoleInvite(orgId, {
+      email, orgRoleId: selected.id, expectedRoleRevision: selected.revision,
+    }));
+  }}>
+    <h2>Invite with an org role</h2><OrgError error={action.error} />
+    <Input aria-label="Invite email" type="email" required value={email} onChange={(event) => setEmail(event.target.value)} />
+    <select aria-label="Invitation role" required value={roleId} onChange={(event) => setRoleId(event.target.value)}>
+      <option value="">Choose a role from this page</option>
+      {roles.map((role) => <option key={role.id} value={role.id} disabled={!role.isEnabled}>{role.name}</option>)}
+    </select>
+    <Button type="submit" disabled={action.busy || !selected?.isEnabled ||
+      !hasOrgPermission(access, "goauth.org.invites.create") || !hasOrgPermission(access, "goauth.org.roles.assign")}>Create invitation</Button>
+  </form>;
+}
+```
+
+The server needs a configured mailer. Creation can return a one-time `rawCode`;
+list responses omit it. The normal UI relies on email delivery and does not
+persist/log that credential. The QA lab's code display and discarded mailer are
+local testing conveniences, not production delivery examples. An `email_failed`
+response can follow a committed creation or resend: reload the invite list
+before deciding how to recover.
+
+Reuse the [organizations client's invitation components](./organizations.mdx#create-invite)
+for the remaining actions, with these enabled-mode rules:
+
+| Action | Client method and behavior |
+| --- | --- |
+| List | `orgApi.listInvites(orgId)` requires `goauth.org.invites.read`; role-linked rows expose `orgRoleId` and saved `orgRoleRevision`. |
+| Accept | `orgApi.acceptInvite(code)` runs as the signed-in recipient. After success reload memberships, then load access for the selected org. |
+| Resend | `orgApi.resendInvite(orgId, inviteId)` requires `goauth.org.invites.resend`; the original inviter must still be able to delegate the proposed role. |
+| Delete | `orgApi.deleteInvite(orgId, inviteId)` requires `goauth.org.invites.delete`. Review the current role before creating a replacement. |
+
+Acceptance rechecks the inviter's current membership/grants and the saved
+role's enabled state/revision. Acceptance or resend returns
+`org_invite_role_changed` when that role changed or was disabled. Refreshing,
+retrying, or resending cannot update the saved role revision: delete and recreate
+the invitation. Even an owner cannot resend past the original inviter's lost
+delegation authority; create a new invitation under a currently authorized
+inviter. Do not automatically delete/recreate invitations in an error handler.
+
+## Assemble the management panels
+
+The following container loads independent pages only when the caller has the
+corresponding read grant. Failed reads stay visible as errors. It lets you page
+through definitions and roles without treating `limit: 100` as a complete list.
+Mutation success calls `onChanged`, which the workspace uses to refresh access
+and remount panels with fresh records. Reloading discards local drafts.
+
+```tsx
+// components/org-management.tsx
+"use client";
+import { useCallback, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { listAllOrgPermissions, orgPermissionsApi, type OrgAccess, type OrgPermission, type OrgRole } from "../lib/api/org-permissions";
+import { hasOrgPermission, OrgError, useOrgQuery } from "./org-permission-ui";
+import { OrgDefinitions } from "./org-definitions";
+import { OrgLibraryCatalog } from "./org-library-catalog";
+import { OrgRoles } from "./org-roles";
+import { OrgRoleInvite } from "./org-role-invite";
+
+const PAGE_SIZE = 20;
+
+export function OrgManagement({ orgId, access, onChanged }: {
+  orgId: string; access: OrgAccess; onChanged: () => void;
+}) {
+  return <section className="space-y-6">
+    {hasOrgPermission(access, "goauth.org.permissions.read") &&
+      <DefinitionsPage {...{ orgId, access, onChanged }} />}
+    {hasOrgPermission(access, "goauth.org.roles.read") &&
+      <RolesPage {...{ orgId, access, onChanged }} />}
+  </section>;
+}
+
+function DefinitionsPage({ orgId, access, onChanged }: {
+  orgId: string; access: OrgAccess; onChanged: () => void;
+}) {
+  const [offset, setOffset] = useState(0);
+  const load = useCallback((signal: AbortSignal) => orgPermissionsApi.listPermissions(orgId, { limit: PAGE_SIZE, offset }, signal), [orgId, offset]);
+  const query = useOrgQuery(load);
+  return <section>
+    <OrgError error={query.error} />
+    <Button variant="outline" onClick={query.reload}>Reload definitions</Button>
+    {query.loading && <p>Loading definitions…</p>}
+    {query.data && <>
+      <OrgDefinitions {...{ orgId, access, onChanged }} permissions={query.data.permissions} />
+      <Pager {...{ offset, setOffset }} count={query.data.permissions.length} />
+    </>}
+    {access.isFullAccess && <OwnerCatalog orgId={orgId} onChanged={onChanged} />}
+  </section>;
+}
+
+function OwnerCatalog({ orgId, onChanged }: { orgId: string; onChanged: () => void }) {
+  const load = useCallback((signal: AbortSignal) => listAllOrgPermissions(orgId, signal), [orgId]);
+  const query = useOrgQuery(load);
+  return <section><OrgError error={query.error} />
+    {query.data && <OrgLibraryCatalog {...{ orgId, onChanged }} permissions={query.data} />}
+  </section>;
+}
+
+function RolesPage({ orgId, access, onChanged }: {
+  orgId: string; access: OrgAccess; onChanged: () => void;
+}) {
+  const [offset, setOffset] = useState(0);
+  const load = useCallback((signal: AbortSignal) => orgPermissionsApi.listRoles(orgId, { limit: PAGE_SIZE, offset }, signal), [orgId, offset]);
+  const loadPermissions = useCallback((signal: AbortSignal) => listAllOrgPermissions(orgId, signal), [orgId]);
+  const roles = useOrgQuery(load);
+  return <section>
+    <OrgError error={roles.error} />
+    <Button variant="outline" onClick={roles.reload}>Reload roles</Button>
+    {roles.loading && <p>Loading roles…</p>}
+    {roles.data && <>
+      {hasOrgPermission(access, "goauth.org.permissions.read") ?
+        <RoleGrants key={offset} {...{ orgId, access, onChanged }} roles={roles.data.roles} load={loadPermissions} /> :
+        <div><p>Role grant editing additionally needs permissions.read.</p>
+          <ul>{roles.data.roles.map((role) => <li key={role.id}>{role.name} · revision {role.revision}</li>)}</ul>
+        </div>}
+      <OrgRoleInvite {...{ orgId, access, onChanged }} roles={roles.data.roles} />
+      <Pager {...{ offset, setOffset }} count={roles.data.roles.length} />
+    </>}
+  </section>;
+}
+
+function RoleGrants({ orgId, access, roles, load, onChanged }: {
+  orgId: string; access: OrgAccess; roles: OrgRole[];
+  load: (signal: AbortSignal) => Promise<OrgPermission[]>; onChanged: () => void;
+}) {
+  const query = useOrgQuery(load);
+  return <section><OrgError error={query.error} />
+    {query.data && <OrgRoles {...{ orgId, access, roles, onChanged }} permissions={query.data} />}
+  </section>;
+}
+
+function Pager({ offset, setOffset, count }: { offset: number; setOffset: (offset: number) => void; count: number }) {
+  return <nav aria-label="List pages" className="flex gap-2">
+    <Button variant="outline" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Previous</Button>
+    <span>Offset {offset}</span>
+    <Button variant="outline" disabled={count < PAGE_SIZE} onClick={() => setOffset(offset + PAGE_SIZE)}>Next</Button>
+  </nav>;
+}
+```
+
+The definition list is paged, while the catalog and grant pickers fetch all
+definition pages. An offset page can change under concurrent edits; the API does
+not promise a snapshot across pages. Refresh before reviewing a destructive
+catalog change. For very large catalogs, use a paged picker that retains its
+complete draft key set across pages.
+
+Integrate `OrgMemberRoleEditor` in your existing member table, gated by
+`goauth.org.roles.read`. Pass the selected role page and reset the editor when
+that page or its records change; for example, key it by user/org/target and a
+parent reload counter. Refresh that table after assignment, removal, or invite
+acceptance. The [organizations client](./organizations.mdx) supplies member
+listing/removal and invitation lists, so this container does not duplicate them.
+
+## Permission-aware tasks and backend enforcement
+
+This small application-owned example reads the selected org's tasks and gates
+creation by an exact effective key. Use the other task keys for edit, completion,
+and delete controls in the same way. The response shape here matches the task
+lab; adapt it to your own application API.
+
+```tsx
+// components/org-tasks.tsx
+"use client";
+import { useCallback, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { apiRequest } from "../lib/api/client";
+import type { OrgAccess } from "../lib/api/org-permissions";
+import { hasOrgPermission, OrgError, useOrgAction, useOrgQuery } from "./org-permission-ui";
+
+type Task = { id: string; title: string; isCompleted: boolean };
+
+export function OrgTasks({ orgId, access, onChanged }: { orgId: string; access: OrgAccess; onChanged: () => void }) {
+  const [title, setTitle] = useState("");
+  const action = useOrgAction(onChanged);
+  return <section className="space-y-3">
+    <h2>Tasks</h2><OrgError error={action.error} />
+    {hasOrgPermission(access, "org.tasks.read") ? <TaskList orgId={orgId} /> : <p>You cannot view tasks in this organization.</p>}
+    <form className="flex gap-2" onSubmit={(event) => {
+      event.preventDefault();
+      void action.run(() => apiRequest("/api", "POST", `/orgs/${encodeURIComponent(orgId)}/tasks`, { title, description: "" }));
+    }}>
+      <Input aria-label="Task title" required value={title} onChange={(event) => setTitle(event.target.value)} />
+      <Button type="submit" disabled={action.busy || !hasOrgPermission(access, "org.tasks.create")}>Create task</Button>
+    </form>
+    <p>Available actions: {["read", "create", "edit", "complete", "delete"].filter((action) => hasOrgPermission(access, `org.tasks.${action}`)).join(", ") || "none"}</p>
+  </section>;
+}
+
+function TaskList({ orgId }: { orgId: string }) {
+  const load = useCallback((signal: AbortSignal): Promise<{ tasks: Task[] }> =>
+    apiRequest("/api", "GET", `/orgs/${encodeURIComponent(orgId)}/tasks`, undefined, { signal }), [orgId]);
+  const query = useOrgQuery(load);
+  return <section><OrgError error={query.error} />
+    <Button variant="outline" onClick={query.reload}>Reload tasks</Button>
+    {query.loading && <p>Loading tasks…</p>}
+    <ul>{query.data?.tasks.map((task) => <li key={task.id}>{task.title}{task.isCompleted ? " (complete)" : ""}</li>)}</ul>
+  </section>;
+}
+```
+
+The lab deliberately leaves action buttons available to test backend denials.
+Ordinary application controls should reflect effective access as above and
+still display any server denial after permissions change. After a denial, use
+the workspace refresh button to discard old access and reload dependent data.
+A network failure is not proof of rollback: reload before retrying a creation
+or other mutation, since the first request may have committed.
+
+Protect every application route server-side with the matching exact key, using
+`RequireOrgPermissionScope` for explicit org routes or
+`RequireActiveOrgPermissionScope` for session-active-org routes. Include the
+authorized `OrgScope.OrgID` in every resource query, including reads, updates,
+and deletes. A resource ID or selected-org value supplied by the browser is
+never sufficient tenant isolation. See [backend enforcement](../org-permissions.mdx#enforce-access-in-application-code).
+
+## Verify the Alpha/Beta workflow
+
+Use the working org-permissions QA app as a behavior example, with fresh test
+accounts and orgs rather than publishing its local credentials or copying its
+lab-only provisioning shortcuts:
+
+1. As each org's owner, create the same task definitions independently in Alpha
+   and Beta, then create custom roles and assign members.
+2. Give one account only `org.tasks.read` in Alpha and all five task keys in Beta.
+   Switch orgs and verify the role, action controls, and task list change together.
+3. Attempt a forbidden request directly against the backend. Verify denial in
+   Alpha and no access to Beta resources through an Alpha route.
+4. Disable a definition, remove a grant, disable a role, and remove a membership.
+   Refresh the UI and verify subsequent backend checks use the changed state.
+5. Submit a stale role or assignment revision and verify
+   `org_authorization_conflict`. Reload both relevant records, review, and resubmit.
+6. Create a role-linked invitation, change that role, then attempt acceptance
+   and resend. Verify `org_invite_role_changed`, then explicitly delete/recreate
+   the invitation through a currently authorized inviter.
+7. Switch orgs or sign out while a read is pending. Verify the previous response
+   cannot populate the new user's/org's UI. Verify an app administrator without
+   membership still has no ordinary org access.
+
+Refresh the affected definition/role pages, member assignments, invitation
+selectors, and effective access after management mutations. Key drafts by record
+ID/revision; reset org state on selection changes and all private state on logout.
+Keep grants out of local storage as an authorization source.
+
+## Next
+
+- [Setup](./index.mdx) — cookies, CSRF, cancellation, and error handling
+- [Organizations client](./organizations.mdx) — org CRUD, members, active org, and ordinary invites
+- [Org roles and permissions](../org-permissions.mdx) — activation, built-in policies, delegation, and backend enforcement
+- [Org authorization routes](../../routes/org-authorization.mdx) — full request and response contracts
+- [App roles and permissions client](./app-permissions.mdx) — independent application-wide authorization
