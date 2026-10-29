@@ -263,10 +263,15 @@ func (s *OrgService) AdminDeleteOrg(ctx context.Context, input api.AdminOrgActio
 // since both require the target to already be a member. Publishes
 // EventAdminOrgMemberAdded.
 func (s *OrgService) AdminAddMember(ctx context.Context, input api.AdminAddMemberInput) error {
-	if s.orgPermissions != nil && ctx.Value(orgManagementContextKey{}) == nil {
+	managementOrgID, hasManagementScope := ctx.Value(orgManagementContextKey{}).(string)
+	if s.roleAssignments != nil && (!hasManagementScope || managementOrgID != input.OrgID) {
+		// Non-owner adds update the organization before the insert checks its
+		// user foreign key. Take the users-first guard in fixed-role mode too.
 		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
-			if err := s.orgPermissions.state.LockOrg(ctx, input.OrgID); err != nil {
-				return err
+			if s.orgPermissions != nil {
+				if err := s.orgPermissions.state.LockOrg(ctx, input.OrgID); err != nil {
+					return err
+				}
 			}
 			return s.AdminAddMember(context.WithValue(ctx, orgManagementContextKey{}, input.OrgID), input)
 		})

@@ -71,6 +71,14 @@ same order when enabled. Database errors abort instead of being converted to a
 permission or not-found decision. Durable audit records join the mutation.
 Invitation creation/resend commit before email delivery.
 
+With the standard organization wiring, member adds (including platform-admin
+adds), fixed-role changes, and self-service removals also acquire the all-user
+guard when granular org permissions are disabled. Retained role assignments
+keep role changes on this guard. Adds must acquire it before membership or
+organization locks: owner-count updates write users, and non-owner membership
+inserts lock referenced users while checking foreign keys. These operations
+therefore serialize with other account-guarded writes in fixed-role mode too.
+
 Existing org services perform exact action checks before their established
 counter/last-owner helpers. HTTP middleware performs corresponding prechecks;
 direct Go calls retain enforcement. No permission snapshot is stored in a session.

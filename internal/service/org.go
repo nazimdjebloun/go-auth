@@ -490,6 +490,14 @@ func (s *OrgService) AddMember(ctx context.Context, input api.AddMemberInput) er
 	if !input.Role.IsValid() {
 		return domain.ErrInvalidOrgRole
 	}
+	managementOrgID, hasManagementScope := ctx.Value(orgManagementContextKey{}).(string)
+	if s.roleAssignments != nil && (!hasManagementScope || managementOrgID != input.OrgID) {
+		// Match role changes and removals before locking the actor membership.
+		// Non-owner inserts also lock users through their foreign-key checks.
+		return s.users.WithAdminGuard(ctx, func(ctx context.Context) error {
+			return s.AddMember(context.WithValue(ctx, orgManagementContextKey{}, input.OrgID), input)
+		})
+	}
 	return s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		if s.orgPermissions != nil {
 			if err := s.orgPermissions.authorizeFixedAssignment(txCtx, orgActor(input.OrgID, input.ActorID, input.ActorSessionID), input.UserID, input.Role); err != nil {
