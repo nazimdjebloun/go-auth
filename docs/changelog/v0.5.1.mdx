@@ -1,0 +1,143 @@
+---
+title: "v0.5.1"
+description: "Mandatory signed double-submit CSRF, unified browser configuration, and independent app/admin sessions on one backend."
+date: "2026-11-01"
+---
+
+Browser authentication now uses mandatory signed double-submit CSRF, JSON token
+bootstrap, and separate app/admin cookie contexts. An app and admin dashboard can
+call one backend directly without replacing each other's login in the same
+browser.
+
+**This patch release includes breaking pre-v1 Go configuration and HTTP client
+changes.** Update the backend and clients together using the migration steps
+below. Upgrading from v0.5.0 requires no new database migration; schema revision 2
+remains the target.
+
+## Mandatory browser protection
+
+- Built-in browser mutation routes and `Auth.RequireCSRF` require both allowed
+  Origin/Referer headers and a signed double-submit token. Missing both origin
+  headers is rejected. OAuth callbacks retain their protocol-specific,
+  browser-bound, single-use state checks.
+- `SecurityConfig.DisableCSRFToken`, `AllowMissingCSRFHeaders`, and `CSRFToken`
+  are removed, including application-level token overrides. There are no
+  replacement bypass options. HTTP 2FA challenge binding is mandatory too;
+  `TwoFactorConfig.DisableChallengeBinding` is removed.
+- `GET /auth/csrf-token` now returns `200 {"token":"..."}` with
+  `Cache-Control: no-store`. Clients send credentials, retain the JSON token in
+  memory, and echo it through `X-CSRF-Token` on mutations. The matching cookie is
+  HttpOnly; clients must stop reading it through `document.cookie`.
+- Tokens bind to an anonymous browser before login and the stable session ID
+  after login. Authentication and credential changes return replacements in the
+  `X-CSRF-Token` response header. Refresh preserves the session binding. CORS
+  exposes `X-CSRF-Token` and `Retry-After`.
+- Clients may bootstrap and retry once for the reserved pre-handler errors
+  `csrf_token_missing`, `csrf_token_mismatch`, and `csrf_token_invalid`. Other
+  failures must not cause arbitrary writes to be replayed.
+
+## Browser configuration
+
+`WithBrowser` owns the public API origin, exact frontend allow-list, and cookie
+delivery. Password and email-link policy remain in `WithSecurity`; session
+lifetimes remain in `WithSession`.
+
+```go
+goauth.WithBrowser(goauth.BrowserConfig{
+    APIURL: "https://api.example.com",
+    AllowedOrigins: []string{
+        "https://app.example.com",
+        "https://admin.example.com",
+    },
+    Cookies: goauth.CookieConfig{
+        Name:               "goauth_session",
+        RefreshName:        "goauth_refresh",
+        ChallengeName:      "_2fa_challenge",
+        AdminName:          "goauth_admin_session",
+        AdminRefreshName:   "goauth_admin_refresh",
+        AdminChallengeName: "_goauth_admin_2fa_challenge",
+        Domain:             "",
+        Path:               "/",
+        SameSite:           http.SameSiteLaxMode,
+        Secure:             goauth.SecureAlways(),
+    },
+})
+```
+
+Place this option inside `NewConfig`, alongside the application's other settings,
+and import `net/http`. Cookie fields may retain their defaults. Both contexts
+inherit the same transport and lifetime policy. CSRF, anonymous browser binding,
+and challenge binding cookies stay host-only at `/`.
+
+Plain HTTP development remains supported with `EnvironmentDev` and Lax cookies.
+Leaving Secure unset derives false for an HTTP API in development;
+`SecureNever()` is development-only. `SameSite=None` requires Secure even in
+development. Outside development, API and allowed frontend origins must use
+HTTPS. Cookie names, collisions, domains, paths, and prefix requirements are
+validated at startup.
+
+## Independent app and admin sessions
+
+Ordinary requests use the app context. Admin clients send
+`X-GoAuth-Session: admin` on every request, including CSRF bootstrap, login, 2FA,
+reads, refresh, and logout. The dedicated admin login route always selects admin;
+follow-up requests still need the header. Unsupported or repeated selector
+values return `400 invalid_session_context`, as does explicit `app` on admin
+login.
+
+| Cookie | App default | Admin default |
+|---|---|---|
+| Session | `goauth_session` | `goauth_admin_session` |
+| Refresh | `goauth_refresh` | `goauth_admin_refresh` |
+| 2FA challenge binding | `_2fa_challenge` | `_goauth_admin_2fa_challenge` |
+| CSRF | `_csrf` | `_goauth_admin_csrf` |
+
+The selector grants no permissions. Existing role, app-permission, protected-admin,
+ban, and second-factor checks still apply, with no fallback to the other
+context's cookies. Credentials and CSRF bindings cannot be relabeled into the
+other context; 2FA verification, resend, and pending-challenge cleanup preserve
+separate app/admin lineages. OAuth state preserves its initiating context through
+provider callbacks.
+
+Normal login, refresh, and logout leave the other context's current session
+intact. Account session lists, explicit session revocation, password reset, and
+other account-wide operations retain their existing scope.
+
+For a panel at `admin.example.com` calling `api.example.com`, the updated Vite
+client uses `VITE_API_URL=https://api.example.com` and sends the selector
+automatically. Both frontends can call the API directly; no frontend reverse
+proxy or shared cookie domain is required. Sibling HTTPS subdomains work with
+host-only Lax cookies. Different sites require secure `SameSite=None` and remain
+subject to browser third-party-cookie restrictions.
+
+## Upgrade checklist
+
+1. Replace `WithCookie` with `WithBrowser`. Move `SecurityConfig.AllowedOrigins`
+   into `BrowserConfig.AllowedOrigins`, and move
+   `TwoFactorConfig.ChallengeCookieName` into `Cookies.ChallengeName`.
+2. Remove the deleted CSRF and challenge-binding bypass/override fields.
+3. Update clients for JSON bootstrap, credentials, rotation headers, and bounded
+   CSRF retries. Give app and admin clients separate in-memory token caches.
+4. Add the admin selector consistently and sign into the panel again. Existing
+   shared cookies are not reused as admin-context credentials; app cookie names
+   remain unchanged. Safe bootstrap replaces incompatible old CSRF tokens.
+5. Update custom transports for the cookie-helper signatures below. These now
+   return errors and issue or clear authentication cookies together with CSRF
+   rotation. Session issuance already rotates CSRF; do not rotate it separately.
+
+```go
+SetSessionCookies(w, r, sessionID, sessionToken, refreshToken) error
+ClearSessionCookies(w, r) error
+RotateCSRFToken(w, r) error
+```
+
+`api.OAuthCallbackResult.SessionID` supplies the stable ID for custom OAuth
+transports. Custom browser API routes need OPTIONS handlers with CORS outermost;
+`Auth.Mount` already registers preflight for its own routes.
+
+See the [integration migration](../guides/integration.mdx#browser-and-csrf-migration),
+[full configuration](../configuration.mdx#withbrowser-required-allowedorigins),
+[deployment guide](../guides/deployment.mdx), and
+[admin client wrapper](../admin-client-config.mdx). The documentation also adds
+the [organization permissions client guide](../guides/client/org-permissions.mdx)
+with typed wrappers and UI examples.

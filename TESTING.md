@@ -93,12 +93,18 @@ credential replacement, token claims, worker leases, and authorization changes.
 Database race tests use real transactions and independent pools; Go's race
 detector separately checks memory access.
 
-Every CI push/PR runs all three full backend suites and stress tests with count
-3 at both CPU settings. A manual run's stress input enables a larger repeat
+Every CI branch push/PR runs all three full backend suites and stress tests with
+count 3 at both CPU settings. A manual run's stress input enables a larger repeat
 count (25 by default); otherwise its stress count remains 3. Pushes to `main`
 fuzz each existing target for 5 seconds. Manual runs also fuzz, with a
 configurable budget of 15 seconds per target by default. There is no scheduled
 nightly workflow.
+
+Tag pushes do not start CI. Release metadata is checked against the newest
+changelog version on the branch commit. Tag the exact SHA whose CI passed;
+after publishing the tag, run `bash tools/check-published-release.sh v0.5.1`
+locally to verify installation and schema exports from the published module.
+
 Backend artifacts are retained for 14 days. An ordinary assertion failure is
 never retried into success.
 

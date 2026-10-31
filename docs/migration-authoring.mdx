@@ -250,10 +250,28 @@ database. Empty-schema replay cannot validate populated credential data; the
 actual-engine upgrade suites remain required.
 
 The CI `migration-catalog` job checks the PR base or previous push when it contains
-a catalog, every fetched migration-enabled release tag, and the declared library
-version on version-tag pushes. It also installs checksum-verified pinned Atlas
+a catalog, every fetched migration-enabled release tag, and all current catalog
+release labels against the newest version in `docs/changelog/meta.json`. Release
+validation therefore runs on the tested branch commit before a tag exists.
+It also installs checksum-verified pinned Atlas
 and replays all dialects. Before the first catalog exists on the base, CI checks
 the new catalog against `HEAD` and any available published catalogs.
+
+CI runs on branch pushes, pull requests, and manual dispatch; tag pushes do not
+start another run. Include release metadata and the changelog in the branch
+commit, push it, and wait for CI on that exact SHA. Create the annotated release
+tag at that successful SHA and push only the tag. If a later commit changes the
+release contents, wait for its own successful CI result before tagging it.
+
+Once the tag is published and resolvable by Go, check the published CLI locally:
+
+```sh
+bash tools/check-published-release.sh v0.5.1
+```
+
+This installs the released module outside the checkout with an isolated module
+cache and verifies schema exports for every dialect. It does not trigger CI,
+create tags, or publish a GitHub release.
 
 Check against the last published migration-enabled tag again before release;
 `HEAD` alone protects committed history in the current checkout. Review and

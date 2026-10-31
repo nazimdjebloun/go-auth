@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -80,11 +81,10 @@ jobs:
               base="$IMMUTABLE_BASE"
             fi
           fi
-          options=(check --published --base-ref "$base")
-          if [[ "$GITHUB_REF_TYPE" == tag && "$GITHUB_REF_NAME" == v* ]]; then
-            options+=(--release "$GITHUB_REF_NAME")
-          fi
-          go run ./tools/migrations "${options[@]}"
+          # Validate release intent before tagging: all catalogs must match the
+          # newest changelog entry in the commit being tested.
+          release="$(python3 -c 'import json; print(next(page for page in json.load(open("docs/changelog/meta.json"))["pages"] if page.startswith("v")))')"
+          go run ./tools/migrations check --published --base-ref "$base" --release "$release"
       - name: Install checksum-verified pinned Atlas
         run: |
           bash tools/migrations/install-atlas.sh "$RUNNER_TEMP/goauth-tools/atlas"
@@ -182,25 +182,8 @@ jobs:
       - run: go build ./cmd/goauth/...
       - run: go vet ./cmd/goauth/...
       - run: go test -count=1 -race -shuffle=on -timeout 5m ./cmd/goauth/...
-      # One merged module: a published root tag must install the CLI from
-      # outside any checkout. Gate on tag pushes: until the merged release
-      # exists, older published versions do not contain cmd/goauth.
-      - name: Install CLI from published release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          set -euo pipefail
-          cd "$(mktemp -d)"
-          export GOBIN="$PWD/bin"
-          GOWORK=off GOMODCACHE="$(mktemp -d)" go install "github.com/nazimdjebloun/go-auth/cmd/goauth@${GITHUB_REF_NAME}"
-          "$GOBIN/goauth" --help >/dev/null
-          "$GOBIN/goauth" generate --driver postgres --out goauth/postgres
-          "$GOBIN/goauth" generate --driver mysql --out goauth/mysql
-          "$GOBIN/goauth" generate --driver sqlite --out goauth/sqlite
-          for dialect in postgres mysql sqlite; do
-            test -f "goauth/$dialect/auth.schema.sql"
-            test -f "goauth/$dialect/reference.md"
-            test -f "goauth/$dialect/migrations/catalog.json"
-          done
+      # After publishing the tested SHA's tag, run tools/check-published-release.sh
+      # locally. Installing an unpublished version cannot be checked on this push.
 
   security:
     runs-on: ubuntu-latest
