@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/nazimdjebloun/go-auth/domain"
+
 	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
@@ -60,4 +62,36 @@ func NewWithLogger(s Deps, logger *slog.Logger, csrfTokenCfg *middleware.CSRFTok
 // ip is the address to record for r — see middleware.ClientIP.
 func (h *Handler) ip(r *http.Request) string {
 	return middleware.ClientIP(r, h.clientIP)
+}
+
+func (h *Handler) issueSessionCookies(w http.ResponseWriter, r *http.Request, session *domain.Session, token, refresh string) bool {
+	if session == nil {
+		h.writeError(w, domain.ErrInternal)
+		return false
+	}
+	if err := middleware.SetAuthenticationCookies(w, r, h.cookies, h.csrfTokenCfg, session.ID, token, refresh); err != nil {
+		h.log.Error("issue authentication cookies", "err", err)
+		h.writeError(w, domain.ErrInternal)
+		return false
+	}
+	return true
+}
+
+func (h *Handler) clearSessionCookies(w http.ResponseWriter, r *http.Request) bool {
+	if err := middleware.ClearAuthenticationCookies(w, r, h.cookies, h.csrfTokenCfg); err != nil {
+		h.log.Error("clear authentication cookies", "err", err)
+		h.writeError(w, domain.ErrInternal)
+		return false
+	}
+	return true
+}
+
+// rotateCSRF protects credential changes that retain the current session.
+func (h *Handler) rotateCSRF(w http.ResponseWriter, r *http.Request) bool {
+	if err := middleware.RotateCSRFToken(w, r, h.csrfTokenCfg); err != nil {
+		h.log.Error("rotate CSRF token", "err", err)
+		h.writeError(w, domain.ErrInternal)
+		return false
+	}
+	return true
 }

@@ -278,6 +278,10 @@ func TestEnable2FA_HappyPath_PersistsFlag(t *testing.T) {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
 	}
 
+	if res.Header.Get("X-CSRF-Token") == "" || res.Header.Get("Cache-Control") != "no-store" {
+		t.Fatal("credential change did not rotate CSRF protection")
+	}
+
 	stored, err := th.users.GetByID(context.Background(), user.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -301,6 +305,10 @@ func TestDisable2FA_HappyPath_PersistsFlag(t *testing.T) {
 	res := w.Result()
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.StatusCode)
+	}
+
+	if res.Header.Get("X-CSRF-Token") == "" || res.Header.Get("Cache-Control") != "no-store" {
+		t.Fatal("credential change did not rotate CSRF protection")
 	}
 
 	stored, err := th.users.GetByID(context.Background(), user.ID)

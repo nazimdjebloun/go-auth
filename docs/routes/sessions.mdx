@@ -8,6 +8,8 @@ icon: "Monitor"
 
 Token rotation and session management for the caller. Session management needs the session cookie; `POST /auth/refresh` needs the refresh cookie instead, and `GET /auth/csrf-token` is public. Sessions serialize camelCase; token hashes are never included:
 
+Send `X-GoAuth-Session: admin` consistently for the admin frontend, including bootstrap, reads, refresh, and logout. Omit it for the ordinary app. The API selects separate cookies and CSRF tokens, with no fallback between contexts. Refresh and logout leave the other context's current credential unchanged. Session listing and explicit session revocation still operate on the caller's account, including its sessions in either context.
+
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -128,17 +130,15 @@ Revokes every session except the current one. `Auth:` Session.
 
 GET /auth/csrf-token
 
-Reads the double-submit CSRF token. The middleware sets the `_csrf` cookie on safe requests; this route only decides whether the value is also echoed in the body. `Auth:` Public.
+Initializes or reads the browser/session-bound double-submit token. `Auth:` Public; send credentials so the server can bind to the current session or establish an anonymous browser binding.
 
-**Response `204 No Content`** (default): no body. Read the token from `document.cookie`.
-
-**Response `200 OK`** (only with `CSRFTokenConfig.ExposeCSRFTokenInBody`):
+**Response `200 OK`**, always:
 
 ```json
 { "token": "opaque-csrf-token" }
 ```
 
-with `Cache-Control: no-store`.
+The response has `Cache-Control: no-store`. `_csrf` is HttpOnly, host-only at `/`; use the JSON value, not `document.cookie`. Echo it in `X-CSRF-Token` on unsafe requests. Login/logout and credential changes return replacement tokens in the same response header. Ordinary bootstrap requests reuse a valid token. CORS exposes `X-CSRF-Token` and `Retry-After` to allowed origins.
 
 ## Next
 

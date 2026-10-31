@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 
 	"github.com/nazimdjebloun/go-auth/api"
 )
@@ -76,7 +77,9 @@ func TestPublicRecoveryHTTPReturnsWhileSMTPIsBlocked(t *testing.T) {
 		request.Header.Set("Origin", "http://localhost:8080")
 		request.Header.Set("Content-Type", "application/json")
 		request.Header.Set("X-CSRF-Token", csrfCookie.Value)
-		request.AddCookie(csrfCookie)
+		for _, cookie := range csrfResponse.Result().Cookies() {
+			request.AddCookie(cookie)
+		}
 		done := make(chan *httptest.ResponseRecorder, 1)
 		go func() {
 			recorder := httptest.NewRecorder()

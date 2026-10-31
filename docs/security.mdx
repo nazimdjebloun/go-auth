@@ -52,22 +52,33 @@ Use a numeric keypad for 2FA and a full keyboard for the other codes. The shorte
 
 Password-authenticated session and challenge issuance rechecks the verified hash, pepper version, and authentication requirements under a user-row lock. A concurrent password reset/change either revokes the newly issued session/challenge or causes the stale login to return `invalid_credentials`. 2FA token consumption, session creation, last-login update, and the verification audit event commit in one transaction under that same user lock. Delivery of a challenge email happens after the challenge transaction commits and cannot recreate a challenge deleted by a password replacement.
 
-Every session issues two opaque tokens, a session token and a refresh token, each 32 cryptographically random bytes (`crypto/rand`), hex-encoded. Only their SHA-256 hash is ever written to the database; the built-in HTTP handlers deliver raw tokens through `Set-Cookie`, while programmatic creation and rotation return them once to the caller for its own transport. A leaked database dump does not hand over live sessions.
+Every session issues two opaque tokens, a session token and a refresh token, each containing 32 cryptographically random bytes (`crypto/rand`), hex-encoded by the default generator. Admin credentials additionally carry a context prefix. Only the SHA-256 hash of the complete credential is written to the database; the built-in HTTP handlers deliver raw tokens through `Set-Cookie`, while programmatic creation and rotation return them once to the caller for its own transport. A leaked database dump does not hand over live sessions.
 
 Refresh tokens rotate on every use: presenting one invalidates it and issues a new one. A short **grace window** (default 5s) tolerates two requests racing to refresh the same token; a previous token presented after that window revokes the session as suspected replay. Sessions additionally support an idle timeout (default 7d), a refresh-token expiry (default 30d), and an optional absolute maximum lifetime from creation regardless of activity. Refresh cannot revive a session after its idle timeout or maximum lifetime, and access-token validation enforces the maximum lifetime even if the access-token expiry is later.
 
-Cookies default to `HttpOnly` (never exposed to JavaScript) and `Secure`. The `Secure` flag is tri-state: left unset it derives to `true` everywhere except a `http://` `BaseURL` in `EnvironmentDev`, so the same code is safe in production without extra configuration, and you have to opt out explicitly (`goauth.SecureNever()`) to weaken it. `SameSite` defaults to `Lax`.
+Cookies are `HttpOnly` (never exposed to JavaScript). The `Secure` flag is tri-state: left unset it derives to `true` everywhere except an HTTP public API origin in `EnvironmentDev`. `BrowserConfig.APIURL` supplies that origin, falling back to the origin of `AppConfig.BaseURL`. `goauth.SecureNever()` is allowed only in development; `SameSite=None` always requires Secure. `SameSite` defaults to `Lax`.
 
 ## CSRF
 
-Browser mutations protected by the route registry use two independent layers. OAuth callbacks, including POST callbacks, use their state cookie binding instead of these checks:
+Ordinary unsafe browser routes enforce both an exact origin allow-list and a signed double-submit token. Neither layer can be disabled. The origin comes from `Origin`, falling back to `Referer`; a mutation with neither is rejected. The effective API request origin itself is also accepted, honoring forwarded host/scheme only through configured trusted proxies. OAuth callbacks instead use their existing single-use, browser-bound OAuth state.
 
-1. **Origin/Referer checking** (`middleware.OriginCheck`) is always on. `Origin` (falling back to `Referer`) must match `AllowedOrigins` or the request itself. `Forwarded-*` headers are trusted only from IPs in the rate-limit `TrustedIPs` list. `AllowedOrigins` rejects `"*"`; every accepted origin must be listed explicitly.
-2. **Double-submit cookie token** (`middleware.CSRFToken`) is on by default. Its configuration is created automatically because `WithSecret` is mandatory. The token is `base64url(nonce).base64url(HMAC-SHA256(csrfKey, nonce))`, generated with `crypto/rand` and signed with a CSRF-specific key derived from `WithSecret`. Go-auth verifies it in constant time with `crypto/subtle.ConstantTimeCompare`. Clients echo it in `X-CSRF-Token` by default. Cross-origin JavaScript cannot read the cookie, so it cannot construct a matching request.
+The frontend calls `GET /auth/csrf-token` with credentials and receives `200 {"token":"..."}` and `Cache-Control: no-store`. The server sets a matching HttpOnly `_csrf` cookie, host-only at `/`. JavaScript keeps the JSON value in memory and echoes it in `X-CSRF-Token` on unsafe requests. It never reads `document.cookie` for CSRF.
 
-Configure `AllowedOrigins` with at least one explicit origin; `NewConfig` rejects an empty list. The token layer also covers requests without `Origin` or `Referer`, or deployments that do not fully trust those headers.
+Tokens contain a cryptographically random nonce and an HMAC-SHA256 signature under a CSRF-specific key derived from `WithSecret`. The signed input includes a purpose prefix, a length-delimited binding, and the nonce. Before login the binding is a signed, random HttpOnly browser cookie; after login it is the stable session ID. A token from another browser or session is rejected even when its cookie and header match. Refreshing raw session credentials preserves the session binding.
 
-Only the token layer can be disabled, through `SecurityConfig.DisableCSRFToken`. It is for CLI or server-to-server deployments with no browser clients. Disabling it logs a startup warning. Combining it with `AllowMissingCSRFHeaders: true` is rejected because a cross-site request could otherwise pass with neither a trusted origin nor a token.
+Authentication and credential changes (including OAuth linking/unlinking and 2FA settings) rotate the token and return its replacement through `X-CSRF-Token`, exposed by CORS. Password reset re-resolves the remaining browser/session identity after revocation. Safe requests repair missing, invalid, or stale tokens. Clients may bootstrap and retry once only for `csrf_token_missing`, `csrf_token_mismatch`, or `csrf_token_invalid`, which are middleware rejections before handler execution; do not blindly retry writes on other errors.
+
+`Auth.RequireCSRF` applies both checks to custom routes. Direct service calls do not process HTTP requests: custom handlers must use this middleware and the request-aware cookie helpers. Missing middleware signing dependencies fail closed.
+
+JSON token delivery supports sibling subdomains without widening cookie domains. It does not expose session credentials or provide protection from XSS; allowed frontend code can access the CSRF token by design. See [OWASP's signed double-submit guidance](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#signed-double-submit-cookie-recommended) and [Deployment](./guides/deployment.mdx).
+
+### App and admin contexts
+
+`X-GoAuth-Session: admin` selects the independent admin cookie context; omission selects app. The header is a selector, never an authorization claim. Unknown or repeated values are rejected. Authentication never falls back to the other context's cookies. Both contexts use mandatory origin checks and signed double-submit; their CSRF signatures and anonymous browser bindings use separate purpose labels.
+
+Admin session and refresh credentials include a context label before their **complete** opaque value is hashed. Editing the label changes the hash and cannot convert an existing app credential into an admin credential. Refresh preserves the original context. App/admin 2FA challenges have separate pending-code lineages and binding cookies; verify, resend, and cleanup cannot consume the other context's challenge. Challenge IDs remain UUIDs. OAuth state carries its initiating context through a callback without a custom header; its full hash, browser-state cookie, expiry, and single-use checks still apply.
+
+Ordinary logout only revokes and clears the selected current session. Session listings and explicit revocation retain their account-wide behavior; password reset, account deletion, and revoke-all operations are not restricted to one context. Session isolation does not isolate account data or protect against compromised trusted frontend code. Both contexts inherit the same cookie transport policy.
 
 ## OAuth
 
@@ -132,7 +143,7 @@ An account waiting for email verification needs working email delivery before it
 
 Rate limiting is on by default. An in-memory store applies tighter limits to login, admin login, registration, password reset, and verification resend, with a looser default for other routes. Disabling it logs a startup warning; do so only when an edge component applies equivalent limits.
 
-Deployment topology determines the CSRF configuration. Same origin needs no additional configuration; sibling subdomains need a scoped CSRF cookie; different registrable domains need `SameSite=None` and `ExposeCSRFTokenInBody`. See [Deployment](./guides/deployment.mdx).
+All frontends use the same JSON CSRF bootstrap. Sibling subdomains can keep host-only Lax cookies; different sites require secure `SameSite=None` cookies and browser support for third-party cookies. See [Deployment](./guides/deployment.mdx).
 
 **The address recorded on a session or an audit event follows the same rules.** `middleware.ClientIP` reads `IPAddressHeader` only when the immediate peer is in `TrustedIPs`, takes the rightmost hop that is not itself a trusted proxy, and falls back to the connection address when the header is absent, untrusted, or unparseable. A client can never write its own audit trail. It differs from the rate-limit key in one way: IPv6 is not masked to a subnet, because this is a record of who connected rather than a bucket to group them into.
 
@@ -208,7 +219,7 @@ Admin bans commit the ban, session deletion, and audit record together; unbannin
 
 ## Secrets
 
-Startup validates the complete cloned configuration after resolving defaults and before deriving any key. A previously successful `NewConfig` call does not authorize later changes that weaken the root secret, disable both CSRF protections, or violate other configuration requirements.
+Startup validates the complete cloned configuration after resolving defaults and before deriving any key. A previously successful `NewConfig` call does not authorize later changes that weaken the root secret, violate browser transport or CSRF requirements, or violate other configuration requirements.
 
 `WithSecret` supplies the required application-wide root secret and must be at least 32 bytes (`NewConfig` rejects anything shorter, since HMAC-SHA256 wants a full-strength key). It is never used directly as key material: HKDF-SHA256 derives four independent subkeys with distinct purpose strings: CSRF signing, 2FA challenge binding, OAuth token encryption, and OTP pepper. A compromise of one derived purpose's key does not hand over the others. Nothing about the secret or its derived keys is logged or exposed via any endpoint.
 

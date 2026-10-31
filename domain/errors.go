@@ -30,6 +30,7 @@ func NewError(code string, msg string) *AuthError {
 
 // ErrInternal and the following values are reusable API errors.
 var (
+	ErrInvalidSessionContext        = NewError("invalid_session_context", "Invalid browser session context")
 	ErrInternal                     = NewError("internal_error", "Internal server error")
 	ErrAppPermissionsDisabled       = NewError("app_permissions_disabled", "Application permissions are disabled")
 	ErrAppPermissionsNotInitialized = NewError("app_permissions_not_initialized", "Initialize application permissions first")

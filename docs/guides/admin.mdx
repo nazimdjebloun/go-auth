@@ -22,6 +22,8 @@ One distinction that applies to every admin route: `user_not_found` (404) is ret
 
 For the full path/param reference see [Routes](../routes/admin.mdx#user-management). For viewing what admins (and everyone else) have done, see [Audit Logs](./audit-logs.mdx).
 
+The curl mutation examples use `jq` to read the mandatory CSRF bootstrap JSON. Keep the same cookie jar for bootstrap and the following request; the bootstrap is repeated after authentication changes.
+
 ## Configuration
 
 There's no `WithAdmin` flag — the existing administrative routes are always
@@ -70,7 +72,7 @@ If email/password aren't supplied and stdin is a TTY, both are prompted for; oth
 
 ## Frontend client setup
 
-The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](./client/index.mdx). The named-method wrapper for everything on this page lives on [Client → Admin](./client/admin.mdx).
+The **Client** examples below use the admin-specific `apiRequest(method, path, body)` [fetch wrapper](../admin-client-config.mdx#the-fetch-wrapper), which sends `X-GoAuth-Session: admin` on every request. Use it for bootstrap, login, 2FA, reads, refresh, and logout. The named-method wrapper for everything on this page lives on [Client → Admin](./client/admin.mdx).
 
 ## Admin login
 
@@ -102,7 +104,7 @@ Same request shape as [Login](./authentication.mdx#login), but only succeeds for
 }
 ```
 
-No session/refresh cookie is set on the challenge response — only the 2FA binding cookie. Complete the login with `POST /auth/2fa/verify` (`{challengeId, code}`) using the code emailed to the admin; that call is what actually sets `goauth_session`/`goauth_refresh`. See [Two-factor authentication](./authentication.mdx#two-factor-authentication) for the full request/response shape.
+No session/refresh cookie is set on the challenge response — only the 2FA binding cookie. Complete the login with `POST /auth/2fa/verify` (`{challengeId, code}`) using the code emailed to the admin; that call is what actually sets `goauth_admin_session`/`goauth_admin_refresh`. See [Two-factor authentication](./authentication.mdx#two-factor-authentication) for the full request/response shape.
 
 If `DisableAdminTwoFactor` is true and neither global nor per-user 2FA is required, login instead returns the ordinary login result with `user` and sets the session/refresh cookies immediately. Always branch on `requiresTwoFactor` rather than assuming a challenge.
 
@@ -120,21 +122,26 @@ If `DisableAdminTwoFactor` is true and neither global nor per-user 2FA is requir
 
 ```bash
 # 1. Password step — returns a challenge, not a session
-curl -X POST https://api.myapp.com/auth/admin/login \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X POST https://api.myapp.com/auth/admin/login \
+  -H "X-CSRF-Token: $CSRF" \
+  -b admin-cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -c admin-cookies.txt \
   -d '{"email":"root@myapp.com","password":"a very strong admin password 1"}'
 
 # 2. Second-factor step — this is what actually sets the session cookies
-curl -X POST https://api.myapp.com/auth/2fa/verify \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X POST https://api.myapp.com/auth/2fa/verify \
+  -H "X-CSRF-Token: $CSRF" \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt -c admin-cookies.txt \
   -d '{"challengeId":"c4a1...","code":"482913"}'
 ```
 
-Use a separate cookie jar from your regular user session while testing — the verify response sets the same cookie names (`goauth_session`, `goauth_refresh`), so reusing a jar overwrites whichever session you had.
+App and admin cookies have different names, so one cookie jar can hold both sessions. These examples use `admin-cookies.txt` for convenience. The header selects the admin cookie and CSRF context; it does not grant authorization.
 
 ---
 
@@ -176,7 +183,7 @@ if result.RequiresTwoFactor {
 #### Client
 
 ```ts
-const result = await apiRequest(API_BASE, "POST", "/auth/admin/login", { email, password });
+const result = await apiRequest("POST", "/auth/admin/login", { email, password });
 if (result.requiresTwoFactor) {
   setChallengeId(result.challengeId); // show the code screen
 } else {
@@ -184,7 +191,7 @@ if (result.requiresTwoFactor) {
 }
 
 // In the code screen, after the admin enters the code:
-const verified = await apiRequest(API_BASE, "POST", "/auth/2fa/verify", {
+const verified = await apiRequest("POST", "/auth/2fa/verify", {
   challengeId,
   code,
 });
@@ -241,7 +248,7 @@ The list response carries no total — fetch it from [Count users](#count-users-
 #### curl
 
 ```bash
-curl "https://api.myapp.com/admin/users?limit=20&search=ada&role=user" \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/users?limit=20&search=ada&role=user" \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -265,7 +272,7 @@ result, err := auth.Services().Admin.ListUsers(ctx, api.AdminListUsersInput{
 #### Client
 
 ```ts
-const { users } = await apiRequest(API_BASE, "GET", "/admin/users?limit=20&search=ada");
+const { users } = await apiRequest("GET", "/admin/users?limit=20&search=ada");
 ```
 
 ---
@@ -281,7 +288,7 @@ The matching total for [List users](#list-users--get-adminusers), split into its
 #### curl
 
 ```bash
-curl "https://api.myapp.com/admin/users/count?role=user&isBanned=true" \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/users/count?role=user&isBanned=true" \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -299,7 +306,7 @@ n, err := auth.Services().Admin.CountUsers(ctx, api.AdminListUsersInput{
 #### Client
 
 ```ts
-const { count } = await apiRequest(API_BASE, "GET", "/admin/users/count?role=user");
+const { count } = await apiRequest("GET", "/admin/users/count?role=user");
 ```
 
 ---
@@ -330,7 +337,7 @@ Bundles the user record with their active session count, whether they can sign i
 #### curl
 
 ```bash
-curl https://api.myapp.com/admin/users/b3f1... \
+curl -H "X-GoAuth-Session: admin" https://api.myapp.com/admin/users/b3f1... \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -352,7 +359,7 @@ detail, err := auth.Services().Admin.GetUserDetail(ctx, api.GetUserDetailInput{
 #### Client
 
 ```ts
-const detail = await apiRequest(API_BASE, "GET", `/admin/users/${userId}`);
+const detail = await apiRequest("GET", `/admin/users/${userId}`);
 ```
 
 ---
@@ -387,7 +394,10 @@ Creates the user **pre-verified** — `isVerified: true` from the moment it's cr
 #### curl
 
 ```bash
-curl -X POST https://api.myapp.com/admin/users \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X POST https://api.myapp.com/admin/users \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt \
@@ -413,7 +423,7 @@ user, err := auth.Services().Admin.CreateUser(ctx, api.CreateUserInput{
 #### Client
 
 ```ts
-const user = await apiRequest(API_BASE, "POST", "/admin/users", {
+const user = await apiRequest("POST", "/admin/users", {
   email: "newadmin@myapp.com",
   password: "a very strong password 1",
   name: "New Admin",
@@ -444,7 +454,10 @@ const user = await apiRequest(API_BASE, "POST", "/admin/users", {
 #### curl
 
 ```bash
-curl -X PATCH https://api.myapp.com/admin/users/b3f1.../role \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X PATCH https://api.myapp.com/admin/users/b3f1.../role \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt \
@@ -468,7 +481,7 @@ err := auth.Services().Admin.UpdateUserRole(ctx, api.UpdateUserRoleInput{
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/role`, { role: "admin" });
+await apiRequest("PATCH", `/admin/users/${userId}/role`, { role: "admin" });
 ```
 
 ---
@@ -491,7 +504,10 @@ Banning revokes every one of that user's sessions immediately, in the same reque
 #### curl
 
 ```bash
-curl -X PATCH https://api.myapp.com/admin/users/b3f1.../ban \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X PATCH https://api.myapp.com/admin/users/b3f1.../ban \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -510,7 +526,7 @@ err  = auth.Services().Admin.UnbanUser(ctx, api.UnbanUserInput{UserID: userID, A
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/ban`);
+await apiRequest("PATCH", `/admin/users/${userId}/ban`);
 ```
 
 ---
@@ -531,7 +547,10 @@ Revokes all their sessions, then deletes the row. Irreversible.
 #### curl
 
 ```bash
-curl -X DELETE https://api.myapp.com/admin/users/b3f1... \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X DELETE https://api.myapp.com/admin/users/b3f1... \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -549,7 +568,7 @@ err := auth.Services().Admin.DeleteUser(ctx, api.DeleteUserInput{UserID: userID,
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "DELETE", `/admin/users/${userId}`);
+await apiRequest("DELETE", `/admin/users/${userId}`);
 ```
 
 ---
@@ -567,7 +586,7 @@ Query: `offset`, `limit` (default `20`, max `100`).
 #### curl
 
 ```bash
-curl "https://api.myapp.com/admin/users/b3f1.../sessions?limit=20" \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/users/b3f1.../sessions?limit=20" \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -589,7 +608,7 @@ sessions, total, err := auth.Services().Admin.ListUserSessions(ctx, api.AdminLis
 #### Client
 
 ```ts
-const { sessions, total } = await apiRequest(API_BASE, "GET", `/admin/users/${userId}/sessions`);
+const { sessions, total } = await apiRequest("GET", `/admin/users/${userId}/sessions`);
 ```
 
 ---
@@ -606,11 +625,17 @@ const { sessions, total } = await apiRequest(API_BASE, "GET", `/admin/users/${us
 #### curl
 
 ```bash
-curl -X DELETE https://api.myapp.com/admin/users/b3f1.../sessions/9e2c... \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X DELETE https://api.myapp.com/admin/users/b3f1.../sessions/9e2c... \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 
-curl -X DELETE https://api.myapp.com/admin/users/b3f1.../sessions \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X DELETE https://api.myapp.com/admin/users/b3f1.../sessions \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -633,8 +658,8 @@ err  = auth.Services().Admin.RevokeUserSessions(ctx, api.RevokeUserSessionsInput
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions/${sessionId}`);
-await apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions`);
+await apiRequest("DELETE", `/admin/users/${userId}/sessions/${sessionId}`);
+await apiRequest("DELETE", `/admin/users/${userId}/sessions`);
 ```
 
 ---
@@ -650,7 +675,7 @@ Query (all optional): `offset`, `limit` (default `20`, max `100`); `userId`, `ip
 #### curl
 
 ```bash
-curl "https://api.myapp.com/admin/sessions?ip=203.0.113.9" \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/sessions?ip=203.0.113.9" \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -673,7 +698,7 @@ result, err := auth.Services().Admin.ListSessions(ctx, api.AdminListSessionsInpu
 #### Client
 
 ```ts
-const { sessions } = await apiRequest(API_BASE, "GET", "/admin/sessions?ip=203.0.113.9");
+const { sessions } = await apiRequest("GET", "/admin/sessions?ip=203.0.113.9");
 ```
 
 ---
@@ -691,7 +716,7 @@ n, err := auth.Services().Admin.CountSessions(ctx, api.AdminListSessionsInput{
 ```
 
 ```ts
-const { count } = await apiRequest(API_BASE, "GET", "/admin/sessions/count?ip=203.0.113.9");
+const { count } = await apiRequest("GET", "/admin/sessions/count?ip=203.0.113.9");
 ```
 
 ---
@@ -709,9 +734,11 @@ Body: `{ "userIds": ["id1", "id2", ...] }` — 1 to 100 IDs.
 #### curl
 
 ```bash
-curl -X POST https://api.myapp.com/admin/users/bulk/ban \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X POST https://api.myapp.com/admin/users/bulk/ban \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" -H "Content-Type: application/json" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
+  -H "X-CSRF-Token: $CSRF" \
   -b admin-cookies.txt \
   -d '{"userIds": ["b3f1...", "9e2c..."]}'
 ```
@@ -735,7 +762,7 @@ The same shape applies to `BulkUnbanUsers`, `BulkDeleteUsers`, and `BulkRevokeUs
 #### Client
 
 ```ts
-const result = await apiRequest(API_BASE, "POST", "/admin/users/bulk/ban", {
+const result = await apiRequest("POST", "/admin/users/bulk/ban", {
   userIds: ["b3f1...", "9e2c..."],
 });
 ```
@@ -772,7 +799,7 @@ Each field is its own `COUNT(*)` — six exact counts, no estimates. `neverLogge
 #### curl
 
 ```bash
-curl https://api.myapp.com/admin/stats -H "Origin: https://myapp.com" -b admin-cookies.txt
+curl -H "X-GoAuth-Session: admin" https://api.myapp.com/admin/stats -H "Origin: https://myapp.com" -b admin-cookies.txt
 ```
 
 ---
@@ -791,7 +818,7 @@ stats, err := auth.Services().Admin.GetStats(ctx, api.GetAdminStatsInput{
 #### Client
 
 ```ts
-const stats = await apiRequest(API_BASE, "GET", "/admin/stats");
+const stats = await apiRequest("GET", "/admin/stats");
 ```
 
 ### Registration trend — `GET /admin/stats/registrations`
@@ -812,7 +839,7 @@ const stats = await apiRequest(API_BASE, "GET", "/admin/stats");
 #### curl
 
 ```bash
-curl "https://api.myapp.com/admin/stats/registrations?from=2026-07-01T00:00:00Z&to=2026-08-01T00:00:00Z" \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/stats/registrations?from=2026-07-01T00:00:00Z&to=2026-08-01T00:00:00Z" \
   -H "Origin: https://myapp.com" -b admin-cookies.txt
 ```
 
@@ -832,7 +859,7 @@ counts, err := auth.Services().Admin.GetRegistrationTrend(ctx, api.StatsRangeInp
 
 ```ts
 const { registrations } = await apiRequest(
-  API_BASE, "GET", `/admin/stats/registrations?from=${from}&to=${to}`
+  "GET", `/admin/stats/registrations?from=${from}&to=${to}`
 );
 ```
 
@@ -852,11 +879,11 @@ Counts `login.success` audit events only — email/password logins. OAuth (`oaut
 
 ```bash
 # Global
-curl "https://api.myapp.com/admin/stats/logins?from=2026-07-01T00:00:00Z&to=2026-08-01T00:00:00Z" \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/stats/logins?from=2026-07-01T00:00:00Z&to=2026-08-01T00:00:00Z" \
   -H "Origin: https://myapp.com" -b admin-cookies.txt
 
 # One user
-curl "https://api.myapp.com/admin/stats/logins?from=2026-07-01T00:00:00Z&to=2026-08-01T00:00:00Z&userId=b3f1..." \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/stats/logins?from=2026-07-01T00:00:00Z&to=2026-08-01T00:00:00Z&userId=b3f1..." \
   -H "Origin: https://myapp.com" -b admin-cookies.txt
 ```
 
@@ -881,7 +908,7 @@ counts, err = auth.Services().Admin.GetLoginActivity(ctx, api.LoginActivityInput
 
 ```ts
 const { logins } = await apiRequest(
-  API_BASE, "GET", `/admin/stats/logins?from=${from}&to=${to}&userId=${userId}`
+  "GET", `/admin/stats/logins?from=${from}&to=${to}&userId=${userId}`
 );
 ```
 
@@ -904,7 +931,7 @@ Query (all optional): `search` (matches name or slug), `createdAfter`, `createdB
 #### curl
 
 ```bash
-curl "https://api.myapp.com/admin/orgs?search=acme" \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/orgs?search=acme" \
   -H "Origin: https://myapp.com" -b admin-cookies.txt
 ```
 
@@ -925,7 +952,7 @@ result, err := auth.Services().Org.AdminListOrgs(ctx, api.AdminListOrgsInput{
 #### Client
 
 ```ts
-const { orgs } = await apiRequest(API_BASE, "GET", "/admin/orgs?search=acme");
+const { orgs } = await apiRequest("GET", "/admin/orgs?search=acme");
 ```
 
 ---
@@ -943,7 +970,7 @@ n, err := auth.Services().Org.CountOrgs(ctx, api.AdminListOrgsInput{
 ```
 
 ```ts
-const { count } = await apiRequest(API_BASE, "GET", "/admin/orgs/count?search=acme");
+const { count } = await apiRequest("GET", "/admin/orgs/count?search=acme");
 ```
 
 ---
@@ -955,7 +982,7 @@ Returns the org regardless of the caller's own membership in it. Publishes `admi
 #### curl
 
 ```bash
-curl https://api.myapp.com/admin/orgs/org-123 \
+curl -H "X-GoAuth-Session: admin" https://api.myapp.com/admin/orgs/org-123 \
   -H "Origin: https://myapp.com" -b admin-cookies.txt
 ```
 
@@ -974,7 +1001,7 @@ org, err := auth.Services().Org.AdminGetOrg(ctx, api.AdminGetOrgInput{
 #### Client
 
 ```ts
-const org = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123");
+const org = await apiRequest("GET", "/admin/orgs/org-123");
 ```
 
 ---
@@ -986,7 +1013,7 @@ Same query params as the self-service `GET /auth/orgs/{orgID}/members` (see [Org
 #### curl
 
 ```bash
-curl https://api.myapp.com/admin/orgs/org-123/members \
+curl -H "X-GoAuth-Session: admin" https://api.myapp.com/admin/orgs/org-123/members \
   -H "Origin: https://myapp.com" -b admin-cookies.txt
 ```
 
@@ -1005,7 +1032,7 @@ result, err := auth.Services().Org.AdminListOrgMembers(ctx, api.AdminListOrgMemb
 #### Client
 
 ```ts
-const { members } = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123/members");
+const { members } = await apiRequest("GET", "/admin/orgs/org-123/members");
 ```
 
 ---
@@ -1023,7 +1050,7 @@ n, err := auth.Services().Org.AdminCountOrgMembers(ctx, api.AdminListOrgMembersI
 ```
 
 ```ts
-const { count } = await apiRequest(API_BASE, "GET", "/admin/orgs/org-123/members/count");
+const { count } = await apiRequest("GET", "/admin/orgs/org-123/members/count");
 ```
 
 ---
@@ -1043,7 +1070,7 @@ Every org `{id}` belongs to, filterable by the membership role. The self-service
 #### curl
 
 ```bash
-curl "https://api.myapp.com/admin/users/user-123/orgs?role=owner&orderBy=member_count&orderDirection=desc" \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/users/user-123/orgs?role=owner&orderBy=member_count&orderDirection=desc" \
   -H "Origin: https://myapp.com" -b admin-cookies.txt
 ```
 
@@ -1066,7 +1093,7 @@ result, err := auth.Services().Org.AdminListUserOrgs(ctx, api.AdminListUserOrgsI
 #### Client
 
 ```ts
-const { orgs } = await apiRequest(API_BASE, "GET", "/admin/users/user-123/orgs?role=owner");
+const { orgs } = await apiRequest("GET", "/admin/users/user-123/orgs?role=owner");
 ```
 
 ---
@@ -1084,7 +1111,7 @@ n, err := auth.Services().Org.AdminCountUserOrgs(ctx, api.AdminListUserOrgsInput
 ```
 
 ```ts
-const { count } = await apiRequest(API_BASE, "GET", "/admin/users/user-123/orgs/count");
+const { count } = await apiRequest("GET", "/admin/users/user-123/orgs/count");
 ```
 
 ---
@@ -1098,9 +1125,11 @@ Force-adds a user to an org regardless of the caller's own membership. This is t
 #### curl
 
 ```bash
-curl -X POST https://api.myapp.com/admin/orgs/org-123/members \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X POST https://api.myapp.com/admin/orgs/org-123/members \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" -H "Content-Type: application/json" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
+  -H "X-CSRF-Token: $CSRF" \
   -b admin-cookies.txt \
   -d '{"userId": "b3f1...", "role": "owner"}'
 ```
@@ -1120,7 +1149,7 @@ err := auth.Services().Org.AdminAddMember(ctx, api.AdminAddMemberInput{
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "POST", "/admin/orgs/org-123/members", {
+await apiRequest("POST", "/admin/orgs/org-123/members", {
   userId: "b3f1...",
   role: "owner",
 });
@@ -1135,8 +1164,10 @@ Force-deletes the org regardless of the caller's own membership. Publishes `admi
 #### curl
 
 ```bash
-curl -X DELETE https://api.myapp.com/admin/orgs/org-123 \
-  -H "Origin: https://myapp.com" -H "X-CSRF-Token: $CSRF_TOKEN" \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X DELETE https://api.myapp.com/admin/orgs/org-123 \
+  -c admin-cookies.txt \
+  -H "Origin: https://myapp.com" -H "X-CSRF-Token: $CSRF" \
   -b admin-cookies.txt
 ```
 
@@ -1155,7 +1186,7 @@ err := auth.Services().Org.AdminDeleteOrg(ctx, api.AdminOrgActionInput{
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "DELETE", "/admin/orgs/org-123");
+await apiRequest("DELETE", "/admin/orgs/org-123");
 ```
 
 ---
@@ -1169,13 +1200,17 @@ Force-remove or force-change a role, regardless of the caller's own membership. 
 #### curl
 
 ```bash
-curl -X DELETE https://api.myapp.com/admin/orgs/org-123/members/b3f1... \
-  -H "Origin: https://myapp.com" -H "X-CSRF-Token: $CSRF_TOKEN" \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X DELETE https://api.myapp.com/admin/orgs/org-123/members/b3f1... \
+  -c admin-cookies.txt \
+  -H "Origin: https://myapp.com" -H "X-CSRF-Token: $CSRF" \
   -b admin-cookies.txt
 
-curl -X PATCH https://api.myapp.com/admin/orgs/org-123/members/b3f1.../role \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X PATCH https://api.myapp.com/admin/orgs/org-123/members/b3f1.../role \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" -H "Content-Type: application/json" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
+  -H "X-CSRF-Token: $CSRF" \
   -b admin-cookies.txt \
   -d '{"role": "owner"}'
 ```
@@ -1199,8 +1234,8 @@ err = auth.Services().Org.AdminUpdateMemberRole(ctx, api.AdminUpdateMemberRoleIn
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "DELETE", "/admin/orgs/org-123/members/b3f1...");
-await apiRequest(API_BASE, "PATCH", "/admin/orgs/org-123/members/b3f1.../role", { role: "owner" });
+await apiRequest("DELETE", "/admin/orgs/org-123/members/b3f1...");
+await apiRequest("PATCH", "/admin/orgs/org-123/members/b3f1.../role", { role: "owner" });
 ```
 
 ---
@@ -1243,7 +1278,10 @@ The raw invite code is emailed directly to `email` — it's never included in th
 #### curl
 
 ```bash
-curl -X POST https://api.myapp.com/admin/invites \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X POST https://api.myapp.com/admin/invites \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt \
@@ -1266,7 +1304,7 @@ invite, err := auth.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{
 #### Client
 
 ```ts
-const invite = await apiRequest(API_BASE, "POST", "/admin/invites", { email: "ada@example.com" });
+const invite = await apiRequest("POST", "/admin/invites", { email: "ada@example.com" });
 ```
 
 ---
@@ -1280,7 +1318,7 @@ const invite = await apiRequest(API_BASE, "POST", "/admin/invites", { email: "ad
 #### curl
 
 ```bash
-curl "https://api.myapp.com/admin/invites?status=pending&limit=20" \
+curl -H "X-GoAuth-Session: admin" "https://api.myapp.com/admin/invites?status=pending&limit=20" \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -1302,7 +1340,7 @@ invites, err := auth.Services().Invite.ListInvites(ctx, api.ListInvitesInput{
 #### Client
 
 ```ts
-const { invites } = await apiRequest(API_BASE, "GET", "/admin/invites?status=pending");
+const { invites } = await apiRequest("GET", "/admin/invites?status=pending");
 ```
 
 ---
@@ -1318,7 +1356,7 @@ n, err := auth.Services().Invite.CountInvites(ctx, api.ListInvitesInput{ActorID:
 ```
 
 ```ts
-const { count } = await apiRequest(API_BASE, "GET", "/admin/invites/count?status=pending");
+const { count } = await apiRequest("GET", "/admin/invites/count?status=pending");
 ```
 
 ---
@@ -1332,7 +1370,10 @@ Soft-cancels it — sets `status: "revoked"`. The row still exists, so it still 
 #### curl
 
 ```bash
-curl -X DELETE https://api.myapp.com/admin/invites/9e2c... \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X DELETE https://api.myapp.com/admin/invites/9e2c... \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -1350,7 +1391,7 @@ err := auth.Services().Invite.RevokeInvite(ctx, api.RevokeInviteInput{InviteID: 
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}`);
+await apiRequest("DELETE", `/admin/invites/${inviteId}`);
 ```
 
 ---
@@ -1373,7 +1414,10 @@ Generates a **new** code and pushes `expiresAt` out by another `InviteTTL` — t
 #### curl
 
 ```bash
-curl -X POST https://api.myapp.com/admin/invites/9e2c.../resend \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X POST https://api.myapp.com/admin/invites/9e2c.../resend \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -1391,7 +1435,7 @@ err := auth.Services().Invite.ResendInviteEmail(ctx, api.ResendInviteEmailInput{
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "POST", `/admin/invites/${inviteId}/resend`);
+await apiRequest("POST", `/admin/invites/${inviteId}/resend`);
 ```
 
 ---
@@ -1405,7 +1449,10 @@ Unlike revoke, this removes the row entirely — no trace left in [List invites]
 #### curl
 
 ```bash
-curl -X DELETE https://api.myapp.com/admin/invites/9e2c.../hard \
+CSRF=$(curl -fsS -H "X-GoAuth-Session: admin" https://api.myapp.com/auth/csrf-token -b admin-cookies.txt -c admin-cookies.txt | jq -r .token)
+curl -H "X-GoAuth-Session: admin" -X DELETE https://api.myapp.com/admin/invites/9e2c.../hard \
+  -H "X-CSRF-Token: $CSRF" \
+  -c admin-cookies.txt \
   -H "Origin: https://myapp.com" \
   -b admin-cookies.txt
 ```
@@ -1423,7 +1470,7 @@ err := auth.Services().Invite.HardDeleteInvite(ctx, api.HardDeleteInviteInput{In
 #### Client
 
 ```ts
-await apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}/hard`);
+await apiRequest("DELETE", `/admin/invites/${inviteId}/hard`);
 ```
 
 ---

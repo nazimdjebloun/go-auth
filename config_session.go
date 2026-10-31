@@ -2,25 +2,8 @@ package goauth
 
 import (
 	"errors"
-	"net/http"
-	"net/url"
 	"time"
 )
-
-// CookieConfig configures the session and refresh cookies. Zero-valued fields
-// keep their defaults — see applyDefaults.
-type CookieConfig struct {
-	Name        string // session cookie name (default "goauth_session")
-	RefreshName string // refresh cookie name (default "goauth_refresh")
-	Domain      string
-	Path        string // default "/"
-	SameSite    http.SameSite
-
-	// Secure is tri-state. nil (the default) derives it from BaseURL and
-	// Environment: true unless the app is on http:// in a dev environment.
-	// Set it explicitly with SecureAlways/SecureNever to override that.
-	Secure *bool
-}
 
 // SessionConfig groups session lifetime settings.
 type SessionConfig struct {
@@ -40,14 +23,6 @@ type SessionConfig struct {
 	// turning the grace window off.
 	GraceWindow   *time.Duration // grace period for reusing old refresh token (default 5s)
 	TouchDebounce *time.Duration // minimum interval between last_active_at updates (default 5m)
-}
-
-// WithCookie sets the cookie configuration. Fields left at their zero value
-// keep their defaults — see applyDefaults.
-func WithCookie(cfg CookieConfig) Option {
-	return func(c *Config) {
-		c.cookie = cfg
-	}
 }
 
 // WithSession groups session lifetime settings.
@@ -93,13 +68,6 @@ func (c *Config) validateSession() []error {
 	}
 	return errs
 }
-func (c *Config) validateCookie() []error {
-	var errs []error
-	if c.cookie.Name == "" {
-		errs = append(errs, errors.New("cookie name cannot be empty"))
-	}
-	return errs
-}
 
 // Duration returns a pointer to d, for SessionConfig.GraceWindow and
 // SessionConfig.TouchDebounce — Go can't take the address of a duration
@@ -109,14 +77,6 @@ func (c *Config) validateCookie() []error {
 // the default, or set it with goauth.Duration(0) to turn the feature off,
 // goauth.Duration(10*time.Second) for a custom value, and so on.
 func Duration(d time.Duration) *time.Duration { return &d }
-
-// SecureAlways and SecureNever are readable spellings for CookieConfig.Secure.
-// SecureNever is for local development over http:// only — browsers will send
-// the cookie over plaintext connections.
-func SecureAlways() *bool { return boolPtr(true) }
-
-// SecureNever disables secure cookies for local HTTP development.
-func SecureNever() *bool { return boolPtr(false) }
 
 func (c *Config) applySessionDefaults() {
 	if c.session.TTL == 0 {
@@ -145,36 +105,4 @@ func (c *Config) applySessionDefaults() {
 	if c.session.TokenTTL == 0 {
 		c.session.TokenTTL = 1 * time.Hour
 	}
-}
-
-func (c *Config) applyCookieDefaults() {
-	if c.cookie.Name == "" {
-		c.cookie.Name = "goauth_session"
-	}
-	if c.cookie.RefreshName == "" {
-		c.cookie.RefreshName = "goauth_refresh"
-	}
-	if c.cookie.Path == "" {
-		c.cookie.Path = "/"
-	}
-	if c.cookie.SameSite == 0 {
-		c.cookie.SameSite = http.SameSiteLaxMode
-	}
-	c.resolved.cookieSecure = c.resolveCookieSecure()
-}
-
-// resolveCookieSecure honours an explicit CookieConfig.Secure and otherwise
-// derives it: secure unless the app is served over http:// in development.
-func (c *Config) resolveCookieSecure() bool {
-	if c.cookie.Secure != nil {
-		return *c.cookie.Secure
-	}
-	if c.app.Environment.normalize() != EnvironmentDev {
-		return true
-	}
-	parsed, err := url.Parse(c.app.BaseURL)
-	if err != nil {
-		return true
-	}
-	return parsed.Scheme != "http"
 }

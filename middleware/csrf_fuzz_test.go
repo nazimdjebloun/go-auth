@@ -1,8 +1,6 @@
 package middleware
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
 	"encoding/base64"
 	"strings"
 	"testing"
@@ -27,10 +25,7 @@ func FuzzVerifyCSRFTokenRoundTrip(f *testing.F) {
 			return
 		}
 		nonceEnc := base64.RawURLEncoding.EncodeToString(nonce)
-		mac := hmac.New(sha256.New, secret)
-		mac.Write([]byte(nonceEnc))
-		sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-		token := nonceEnc + "." + sig
+		token := nonceEnc + "." + csrfSignature(secret, "", nonceEnc)
 
 		if len(nonce) == 0 {
 			if verifyCSRFToken(token, secret) {

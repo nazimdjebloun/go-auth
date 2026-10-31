@@ -235,7 +235,7 @@ func newOAuthTestHarness(t testing.TB) *oauthTestHarness {
 		oauthCfg,
 	)
 
-	oauthHandlers := NewOAuthHandlers(oauthSvc, "http://localhost:3000", nil, middleware.ClientIPConfig{}, middleware.DefaultCookieSettings(), nil)
+	oauthHandlers := NewOAuthHandlers(oauthSvc, "http://localhost:3000", &middleware.CSRFTokenConfig{Secret: []byte("oauth-handler-test-csrf-000000000000")}, middleware.ClientIPConfig{}, middleware.DefaultCookieSettings(), nil)
 
 	stateRaw := "test-state-token-value"
 	stateHash := sha256.Sum256([]byte(stateRaw))
@@ -444,11 +444,11 @@ func TestOAuthCallback_GETandPOST_SameBehavior(t *testing.T) {
 		t.Errorf("cookie count mismatch: GET=%d POST=%d", len(getCookies), len(postCookies))
 	}
 
-	if len(getCookies) != 3 {
-		t.Errorf("expected 3 cookies (state clear, session, refresh), got %d (GET)", len(getCookies))
+	if len(getCookies) != 4 {
+		t.Errorf("expected 4 cookies (state clear, CSRF, session, refresh), got %d (GET)", len(getCookies))
 	}
-	if len(postCookies) != 3 {
-		t.Errorf("expected 3 cookies (state clear, session, refresh), got %d (POST)", len(postCookies))
+	if len(postCookies) != 4 {
+		t.Errorf("expected 4 cookies (state clear, CSRF, session, refresh), got %d (POST)", len(postCookies))
 	}
 }
 
@@ -591,7 +591,7 @@ func TestOAuthCallback_InvalidProvider(t *testing.T) {
 }
 
 func TestOAuthCallback_Disabled(t *testing.T) {
-	h := NewOAuthHandlers(nil, "http://localhost:3000", nil, middleware.ClientIPConfig{}, middleware.DefaultCookieSettings(), nil)
+	h := NewOAuthHandlers(nil, "http://localhost:3000", &middleware.CSRFTokenConfig{Secret: []byte("oauth-handler-test-csrf-000000000000")}, middleware.ClientIPConfig{}, middleware.DefaultCookieSettings(), nil)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/oauth/test/callback?code=abc&state=xyz", nil)
 	req.SetPathValue("provider", "test")
@@ -826,6 +826,9 @@ func TestOAuthCallback_Link_DoesNotTouchSessionCookies(t *testing.T) {
 		t.Errorf("expected redirect to %s, got %s", th.baseURL+"/auth/callback", loc)
 	}
 
+	if res.Header.Get("X-CSRF-Token") == "" {
+		t.Fatal("link did not rotate CSRF protection")
+	}
 	for _, c := range res.Cookies() {
 		if c.Name == "goauth_session" || c.Name == "goauth_refresh" {
 			t.Errorf("link callback must not set %s cookie, got value %q", c.Name, c.Value)
@@ -836,5 +839,26 @@ func TestOAuthCallback_Link_DoesNotTouchSessionCookies(t *testing.T) {
 func mustDecodeJSON(body io.Reader, v any) {
 	if err := json.NewDecoder(body).Decode(v); err != nil {
 		panic(err)
+	}
+}
+
+func TestOAuthUnlink_RotatesCSRFWithoutReplacingSession(t *testing.T) {
+	th := newOAuthTestHarness(t)
+	hash := "existing-password-hash"
+	user := &domain.User{ID: "unlink-user", Email: "unlink@example.com", PasswordHash: &hash}
+	checkTestErrors(t).noError(th.userRepo.Create(context.Background(), user))
+	checkTestErrors(t).noError(th.providerRepo.Create(context.Background(), &domain.ProviderAccount{ID: "unlink-provider", UserID: user.ID, Provider: "test", ProviderUserID: "remote-user"}))
+	request := httptest.NewRequest("POST", "/auth/oauth/test/unlink", nil)
+	request.SetPathValue("provider", "test")
+	request = request.WithContext(middleware.ContextWithUser(request.Context(), user))
+	response := httptest.NewRecorder()
+	th.oauthHandlers.Unlink(response, request)
+	if response.Code != 200 || response.Header().Get("X-CSRF-Token") == "" {
+		t.Fatalf("unlink status=%d body=%s", response.Code, response.Body.String())
+	}
+	for _, cookie := range response.Result().Cookies() {
+		if cookie.Name == "goauth_session" || cookie.Name == "goauth_refresh" {
+			t.Fatal("unlink replaced session credentials")
+		}
 	}
 }

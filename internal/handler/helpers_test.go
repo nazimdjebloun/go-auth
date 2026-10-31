@@ -12,6 +12,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
+
+	"github.com/nazimdjebloun/go-auth/middleware"
+
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
@@ -1742,6 +1746,7 @@ func newTestHarness() *testHarness {
 		TwoFactor: twoFactorSvc,
 		AuditLog:  auditLogs,
 	})
+	h.csrfTokenCfg = &middleware.CSRFTokenConfig{Secret: []byte("handler-test-csrf-key-000000000000000")}
 	return &testHarness{handler: h, users: users, sessions: sessions, tokens: tokens, mailer: mailer, orgs: orgs, orgInvites: orgInvites, providers: providers, auditLogs: auditLogs, twoFactor: twoFactorSvc}
 }
 
@@ -1764,4 +1769,28 @@ func (m *mockOrgRepo) Count(ctx context.Context, filter port.OrgFilter) (int, er
 	f.Limit, f.Offset = 0, 0
 	items, err := m.List(ctx, f)
 	return len(items), err
+}
+
+func (m *mockTokenRepo) GetLastTwoFactor(_ context.Context, userID string, admin bool) (*domain.VerificationToken, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var last *domain.VerificationToken
+	for _, t := range m.tokens {
+		if t.UserID != nil && *t.UserID == userID && t.Type == domain.TokenTwoFactor && (sessioncontext.Of(t.TokenHash) == sessioncontext.Admin) == admin {
+			if last == nil || t.CreatedAt.After(last.CreatedAt) {
+				last = t
+			}
+		}
+	}
+	return last, nil
+}
+func (m *mockTokenRepo) DeleteUnusedTwoFactor(_ context.Context, userID string, admin bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, t := range m.tokens {
+		if t.UserID != nil && *t.UserID == userID && t.Type == domain.TokenTwoFactor && t.UsedAt == nil && (sessioncontext.Of(t.TokenHash) == sessioncontext.Admin) == admin {
+			delete(m.tokens, key)
+		}
+	}
+	return nil
 }

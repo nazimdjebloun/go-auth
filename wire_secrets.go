@@ -2,7 +2,6 @@ package goauth
 
 import (
 	"fmt"
-	"net/http"
 
 	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/hasher/registry"
@@ -68,64 +67,11 @@ func buildPasswordHasher(cfg *Config) (*service.PasswordHasher, map[uint32][]byt
 	return passwordHasher, passwordPepperKeys, nil
 }
 
-// applyCSRFTokenDefaults resolves the CSRF double-submit layer against the
-// rest of the config: it is on unless explicitly disabled, inherits the
-// session cookie's scope, and warns about the SameSite/ExposeCSRFTokenInBody
-// pairing. Mutates cfg.security.CSRFToken in place; nil there means the layer is off.
+// applyCSRFTokenDefaults builds the mandatory browser protection settings.
 func applyCSRFTokenDefaults(cfg *Config, keys keyring.Keys) {
-	// The double-submit token layer is on unless explicitly disabled. A nil
-	// CSRFToken means "build one with defaults", not "off" — middleware.CSRFToken
-	// treats a nil config as a pass-through, so disabling is expressed by
-	// leaving csrfToken nil here.
-	if cfg.security.DisableCSRFToken {
-		cfg.security.CSRFToken = nil
-		if cfg.logger != nil {
-			cfg.logger.Warn("goauth: CSRF double-submit token disabled",
-				"note", "origin/referer checking still applies",
-				"fix", "re-enable by removing SecurityConfig.DisableCSRFToken")
-		}
-	} else if cfg.security.CSRFToken == nil {
-		cfg.security.CSRFToken = &middleware.CSRFTokenConfig{
-			CookieName: "_csrf",
-			HeaderName: "X-CSRF-Token",
-			CookiePath: "/",
-		}
-	}
-	if cfg.security.CSRFToken != nil {
-		cfg.security.CSRFToken.CookieSecure = cfg.resolved.cookieSecure
-		cfg.security.CSRFToken.Secret = keys.CSRF
-		cfg.security.CSRFToken.Logger = cfg.logger
-		// Default the token cookie's scope to the session cookie's. A
-		// deployment that widened the session cookie to ".example.com" so a
-		// sibling subdomain could hold a session almost certainly needs the
-		// CSRF token readable there too — and a session that works while
-		// every mutation 403s is the worst of the two failure modes, because
-		// it looks like a permissions bug rather than a cookie-scope one.
-		// An explicit CookieDomain still wins.
-		if cfg.security.CSRFToken.CookieDomain == "" {
-			cfg.security.CSRFToken.CookieDomain = cfg.cookie.Domain
-		}
+	cfg.csrf = &middleware.CSRFTokenConfig{
 
-		// SameSite=None and ExposeCSRFTokenInBody are the same decision seen from
-		// two sides: one lets the cookie be *sent* cross-site, the other lets
-		// the frontend *read* the token it has to echo back. A browser
-		// frontend needs both or neither, and setting one alone produces a
-		// deployment that half-works in a way that reads as a bug in this
-		// library rather than a config mismatch — reads fine, every write
-		// 403s, or nothing authenticates at all.
-		//
-		// A warning, not a rejection: a native or mobile client keeps its own
-		// cookie jar and is not subject to SameSite, so either setting on its
-		// own is legitimate there.
-		if cfg.logger != nil {
-			crossSiteCookie := cfg.cookie.SameSite == http.SameSiteNoneMode
-			switch {
-			case crossSiteCookie && !cfg.security.CSRFToken.ExposeCSRFTokenInBody:
-				cfg.logger.Warn("goauth: cookie SameSite=None without CSRFTokenConfig.ExposeCSRFTokenInBody — a cross-site browser frontend receives the session cookie but cannot read the CSRF token, so every state-changing request will 403")
-			case !crossSiteCookie && cfg.security.CSRFToken.ExposeCSRFTokenInBody:
-				cfg.logger.Warn("goauth: CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None — a cross-site browser frontend can read the CSRF token but is never sent the session cookie, so every request arrives unauthenticated",
-					"same_site", cfg.cookie.SameSite)
-			}
-		}
+		CookieSecure: cfg.resolved.cookieSecure, CookieSameSite: cfg.browser.Cookies.SameSite,
+		Secret: keys.CSRF, Logger: cfg.logger,
 	}
 }

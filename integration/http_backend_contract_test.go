@@ -51,7 +51,9 @@ func TestHTTPBackendSecurityContract(t *testing.T) {
 			r.Header.Set("Content-Type", "application/json")
 			r.Header.Set("Origin", tc.origin)
 			if tc.csrf {
-				r.AddCookie(csrf)
+				for _, cookie := range csrfResponse.Result().Cookies() {
+					r.AddCookie(cookie)
+				}
 				r.Header.Set("X-CSRF-Token", csrf.Value)
 			}
 			w := httptest.NewRecorder()

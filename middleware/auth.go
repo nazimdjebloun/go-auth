@@ -8,6 +8,7 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
 )
 
 type ctxKey string
@@ -59,8 +60,8 @@ func AuthMiddleware(sessionSvc SessionAuthenticator, cookies CookieSettings, use
 		logger = slog.Default()
 	}
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			session, user, rawToken := resolveSession(w, r, sessionSvc, cookies, userRepo, logger)
+		return BrowserSession(logger, false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			session, user, rawToken := resolveSession(w, r, sessionSvc, cookies.ForRequest(r), userRepo, logger)
 			if session == nil || user == nil {
 				return
 			}
@@ -75,7 +76,7 @@ func AuthMiddleware(sessionSvc SessionAuthenticator, cookies CookieSettings, use
 			ctx := context.WithValue(r.Context(), ctxSession, session)
 			ctx = context.WithValue(ctx, ctxUser, user)
 			next.ServeHTTP(w, r.WithContext(ctx))
-		})
+		}))
 	}
 }
 
@@ -86,6 +87,9 @@ func AuthMiddleware(sessionSvc SessionAuthenticator, cookies CookieSettings, use
 // otherwise-valid session (banned or deleted user) at Warn.
 func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc SessionAuthenticator, cookies CookieSettings, userRepo UserLookup, logger *slog.Logger) (*domain.Session, *domain.User, string) {
 	cookie, err := r.Cookie(cookies.Name)
+	if err == nil && !sessioncontext.Matches(r.Context(), cookie.Value) {
+		err = http.ErrNoCookie
+	}
 	if err != nil {
 		// Debug: fires on every unauthenticated request, deliberately below default log level to avoid flooding — raise handler level to Debug to see these.
 		logRejectedRequest(r, logger, slog.LevelDebug, "auth rejected", "missing session cookie")
@@ -100,7 +104,13 @@ func resolveSession(w http.ResponseWriter, r *http.Request, sessionSvc SessionAu
 	// so a separate lookup would be a second round trip whose WHERE clause the
 	// first already determined. The refresh branch below still needs its own
 	// user lookup — RefreshSession returns only a session.
-	session, user, err := sessionSvc.ValidateWithUser(r.Context(), cookie.Value)
+	var session *domain.Session
+	var user *domain.User
+	if snapshot, ok := r.Context().Value(sessionSnapshotKey{}).(sessionSnapshot); ok && snapshot.token == cookie.Value {
+		session, user, err = snapshot.session, snapshot.user, snapshot.err
+	} else {
+		session, user, err = sessionSvc.ValidateWithUser(r.Context(), cookie.Value)
+	}
 	if err != nil {
 		if !errors.Is(err, domain.ErrSessionExpired) {
 			if !isSessionRejection(err) {

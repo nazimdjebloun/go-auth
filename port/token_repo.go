@@ -2,8 +2,9 @@ package port
 
 import (
 	"context"
-	"github.com/nazimdjebloun/go-auth/domain"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/domain"
 )
 
 // ConsumeTokenInput identifies one exact, still-valid token row. Repositories
@@ -23,6 +24,9 @@ type TokenRepository interface {
 	GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error)
 	GetByID(ctx context.Context, id string) (*domain.VerificationToken, error)
 	GetLastByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error)
+	// GetLastTwoFactor and DeleteUnusedTwoFactor isolate pending login challenges.
+	GetLastTwoFactor(ctx context.Context, userID string, admin bool) (*domain.VerificationToken, error)
+	DeleteUnusedTwoFactor(ctx context.Context, userID string, admin bool) error
 	HasValidByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (bool, error)
 	MarkUsed(ctx context.Context, id string) error
 	// MarkUsedIfUnused atomically claims an unused token. It returns false

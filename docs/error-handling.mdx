@@ -19,6 +19,8 @@ The built-in HTTP handlers and middleware return errors as JSON with the same sh
 
 This page covers **runtime** errors from mounted HTTP handlers. For configuration errors returned by `NewConfig` before the server starts, see [Configuration](./configuration.mdx).
 
+`invalid_session_context` (400) means `X-GoAuth-Session` has an unsupported or repeated value, or explicitly selects `app` on the dedicated admin login route. Omit the header for ordinary app requests; use `admin` consistently for panel requests.
+
 ## App authorization
 
 | Code | HTTP status | Meaning |
@@ -263,12 +265,12 @@ These failures use the normal JSON envelope. CSRF checks still reject the same r
 
 | Code | Status | Cause |
 |---|---|---|
-| `csrf_headers_missing` | 403 | Neither Origin nor Referer was sent, and `AllowMissingCSRFHeaders` is false. |
+| `csrf_headers_missing` | 403 | Neither an allowed Origin nor a Referer was sent; both cannot be missing. |
 | `csrf_origin_denied` | 403 | The request's Origin or Referer is not allowed. |
 | `csrf_token_missing` | 403 | The double-submit cookie or header is missing. |
-| `csrf_token_invalid` | 403 | The cookie's token signature is invalid. |
+| `csrf_token_invalid` | 403 | The signature or browser/session binding is invalid. |
 | `csrf_token_mismatch` | 403 | The header does not match the signed cookie. |
-| `internal_error` | 500 | The CSRF signing key is missing or token generation failed. |
+| `internal_error` | 500 | CSRF identity lookup, signing configuration, or token generation failed. |
 | `rate_limit_exceeded` | 429 | The rate limit was exceeded. |
 | `rate_limit_error` | 429 | The rate-limit store failed; the middleware fails closed. |
 

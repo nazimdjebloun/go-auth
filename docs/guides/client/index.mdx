@@ -8,81 +8,128 @@ icon: "Plug"
 
 Every **Client** section across the guides — and every named method on the wrapped clients in this folder (`authApi`, and whatever gets added alongside future guides) — is built on one small `fetch` wrapper. It's defined once here rather than repeated in every guide.
 
-It has to do two things a plain `fetch` call doesn't: send cookies on every request, and attach the CSRF header on every state-changing request. Both are mandatory — the double-submit token layer is on by default, so a `POST` without the header is a `403` before it reaches a handler.
+It has to do two things a plain `fetch` call doesn't: send cookies on every request, and attach the CSRF header on every state-changing request. Both are mandatory — the double-submit token layer is mandatory, so a `POST` without the header is a `403` before it reaches a handler.
 
 ```ts
-function getCookie(name: string): string | null {
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));
-  return match ? decodeURIComponent(match[1]) : null;
+export interface ApiError {
+  error: string
+  status?: number
+  message?: string
+  retryAfter?: number
 }
 
-async function getCSRFToken(baseUrl: string): Promise<string | null> {
-  const cookieToken = getCookie("_csrf");
-  if (cookieToken) return cookieToken;
-
-  const res = await fetch(`${baseUrl}/auth/csrf-token`, {
-    method: "GET",
-    credentials: "include",
-  });
-  if (!res.ok) throw new Error("Could not initialize CSRF protection");
-
-  // Same-origin and sibling-subdomain deployments receive 204 and can read
-  // the cookie. Different registrable domains receive { token } instead.
-  if (res.status === 204) return getCookie("_csrf");
-  const payload: { token?: unknown } = await res.json();
-  return typeof payload.token === "string" ? payload.token : null;
+const csrfStates = new Map<string, { token: string | null; request: Promise<string> | null }>()
+function stateFor(baseUrl: string) {
+  let state = csrfStates.get(baseUrl)
+  if (!state) { state = { token: null, request: null }; csrfStates.set(baseUrl, state) }
+  return state
 }
 
-let onUnauthorized: (() => void) | null = null;
-
-// Called from the Provider guide: lets the rest of the app react the moment
-// any request comes back 401 or banned, instead of only the one call that hit it.
-export function setUnauthorizedHandler(handler: () => void) {
-  onUnauthorized = handler;
+async function getCSRFToken(baseUrl: string, force = false): Promise<string> {
+  const state = stateFor(baseUrl)
+  if (force) state.token = null
+  if (state.token) return state.token
+  state.request ??= (async () => {
+    const res = await fetch(`${baseUrl}/auth/csrf-token`, {
+      credentials: "include",
+      cache: "no-store",
+    })
+    if (!res.ok) throw new Error("Could not initialize CSRF protection")
+    const payload: { token?: unknown } = await res.json()
+    if (typeof payload.token !== "string" || !payload.token) {
+      throw new Error("CSRF bootstrap returned no token")
+    }
+    state.token = payload.token
+    return state.token
+  })().finally(() => { state.request = null })
+  return state.request
 }
 
-export async function apiRequest(
+const csrfErrors = new Set([
+  "csrf_token_missing", "csrf_token_invalid", "csrf_token_mismatch",
+])
+
+let onUnauthorized: (() => void) | null = null
+
+/** Lets the rest of the app react the moment any request comes back with a
+ * dead session, instead of only the one call that hit it. Wired up in
+ * AuthProvider. */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  onUnauthorized = handler
+}
+
+/** Best-effort human message from anything thrown by `apiRequest` or `fetch`. */
+export function errorMessage(
+  err: unknown,
+  fallback = "Something went wrong"
+): string {
+  if (typeof err === "string" && err) return err
+  if (err && typeof err === "object") {
+    const e = err as { message?: unknown; error?: unknown }
+    if (typeof e.message === "string" && e.message) return e.message
+    if (typeof e.error === "string" && e.error) return e.error
+  }
+  return fallback
+}
+
+export async function apiRequest<T = unknown>(
   baseUrl: string,
   method: string,
   path: string,
   body?: unknown,
-  options: { signal?: AbortSignal } = {},
-) {
-  const headers: Record<string, string> = {};
-  if (body !== undefined) headers["Content-Type"] = "application/json";
+  options: { signal?: AbortSignal } = {}
+): Promise<T> {
+  const state = stateFor(baseUrl)
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers["Content-Type"] = "application/json"
 
-  if (method !== "GET") {
-    const csrf = await getCSRFToken(baseUrl);
-    if (csrf) headers["X-CSRF-Token"] = csrf;
-  }
+  const write = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())
+  if (write) headers["X-CSRF-Token"] = await getCSRFToken(baseUrl)
 
-  const res = await fetch(`${baseUrl}${path}`, {
+  const send = () => fetch(`${baseUrl}${path}`, {
     method,
-    credentials: "include",                  // required — this is how the session cookie gets sent and stored
-    cache: "no-store",
-    signal: options.signal,
+    credentials: "include",
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+    signal: options.signal,
+    cache: "no-store",
+  })
+  let res = await send()
+  if (write && res.status === 403) {
+    const error = await res.clone().json().catch(() => ({})) as { error?: string }
+    // These reserved codes mean middleware rejected before executing the handler.
+    if (error.error && csrfErrors.has(error.error)) {
+      headers["X-CSRF-Token"] = await getCSRFToken(baseUrl, true)
+      res = await send()
+    }
+  }
+  const replacement = res.headers.get("X-CSRF-Token")
+  if (replacement) state.token = replacement
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    if (res.status === 401 || (res.status === 403 && err.error === "user_banned")) {
-      onUnauthorized?.();
+    const err: ApiError = await res
+      .json()
+      .catch(() => ({ error: res.statusText }))
+    err.status = res.status
+    if (
+      res.status === 401 ||
+      (res.status === 403 && (err.error === "user_banned" || err.error === "two_factor_required" || (path.startsWith("/admin/") && err.error === "forbidden")))
+    ) {
+      onUnauthorized?.()
     }
     if (res.status === 429) {
-      err.retryAfter = Number(res.headers.get("Retry-After")) || undefined;
+      err.retryAfter = Number(res.headers.get("Retry-After")) || undefined
     }
-    throw err;
+    throw err
   }
 
-  return res.status === 204 ? undefined : res.json();
+  return res.status === 204 ? (undefined as T) : res.json()
 }
 ```
 
-`credentials: "include"` makes the browser send and store the `HttpOnly` session and refresh cookies. `_csrf` and `X-CSRF-Token` are the defaults; both are configurable on `CSRFTokenConfig` (see [Configuration → WithSecurity](../../configuration.mdx#withsecurity-required-allowedorigins)). `getCSRFToken` reads the cookie for same-origin and sibling-subdomain deployments, and reads the `{ "token": "..." }` body for different registrable domains. In the latter topology it calls `/auth/csrf-token` before each mutation, so it also picks up rotations that JavaScript cannot observe through `document.cookie`.
+`credentials: "include"` sends and stores the HttpOnly cookies. The fixed `_csrf` cookie is echoed through the fixed `X-CSRF-Token` header using the JSON bootstrap value. Cache it in memory, update it from replacement response headers, and bootstrap once after a reserved CSRF rejection. There are no application-level CSRF overrides or opt-outs. The cache above is scoped by API base URL.
 
-Leaving `CSRFToken` `nil` server-side does **not** disable the layer; the server creates the default configuration. With `DisableCSRFToken: true`, `getCSRFToken` returns `null` and the wrapper sends no CSRF header.
+This wrapper selects the ordinary app context. The [admin wrapper](../../admin-client-config.mdx#the-fetch-wrapper) adds `X-GoAuth-Session: admin` to every request and keeps its own in-memory token. Do not share one token cache between app and admin contexts. Both frontends may call the same API URL directly; the API uses independent cookie sets.
 
 Use `setUnauthorizedHandler` to clear stale client state when any request finds that a session was revoked, banned, or expired. The [Provider](./auth-provider.mdx) wires it to clear the app-wide user state on `401` or `403 user_banned`.
 

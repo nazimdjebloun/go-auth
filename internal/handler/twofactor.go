@@ -33,10 +33,10 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.SetSessionCookie(w, h.cookies, result.SessionToken)
-	middleware.SetRefreshCookie(w, h.cookies, result.RefreshToken)
-	h.clearTwoFactorBindingCookie(w)
-	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
+	if !h.issueSessionCookies(w, r, result.Session, result.SessionToken, result.RefreshToken) {
+		return
+	}
+	h.clearTwoFactorBindingCookie(w, r)
 	h.writeJSON(w, http.StatusOK, map[string]any{"user": result.User, "session": result.Session})
 }
 
@@ -62,7 +62,7 @@ func (h *Handler) ResendTwoFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.setTwoFactorBindingCookie(w, result.BindingToken)
+	h.setTwoFactorBindingCookie(w, r, result.BindingToken)
 	h.writeJSON(w, http.StatusOK, map[string]any{
 		"codeSent":    result.Sent,
 		"expiresAt":   result.ExpiresAt,
@@ -103,6 +103,9 @@ func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	if !h.rotateCSRF(w, r) {
+		return
+	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Two-factor authentication enabled"})
 }
 
@@ -127,6 +130,9 @@ func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 		Password: body.Password,
 	}); err != nil {
 		h.writeError(w, err)
+		return
+	}
+	if !h.rotateCSRF(w, r) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Two-factor authentication disabled"})

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
+
 	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
@@ -106,6 +108,8 @@ func (s *SessionService) create(ctx context.Context, userID, ip, userAgent strin
 		return nil, fmt.Errorf("session create refresh: %w", err)
 	}
 
+	sessionToken = sessioncontext.Bind(sessioncontext.Current(ctx), sessionToken)
+	refreshToken = sessioncontext.Bind(sessioncontext.Current(ctx), refreshToken)
 	now := s.now().UTC()
 	session := &domain.Session{
 		ID:                  uuid.New().String(),
@@ -147,6 +151,10 @@ func (s *SessionService) create(ctx context.Context, userID, ip, userAgent strin
 
 // RefreshSession rotates a session using its refresh token.
 func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken string) (*api.SessionResult, error) {
+	if !sessioncontext.Matches(ctx, rawRefreshToken) {
+		return nil, domain.ErrInvalidRefreshToken
+	}
+	ctx = sessioncontext.With(ctx, sessioncontext.Of(rawRefreshToken))
 	hash := hashToken(rawRefreshToken)
 
 	newSessionToken, err := s.tokenGen.Generate()
@@ -159,6 +167,8 @@ func (s *SessionService) RefreshSession(ctx context.Context, rawRefreshToken str
 		return nil, fmt.Errorf("refresh gen refresh: %w", err)
 	}
 
+	newSessionToken = sessioncontext.Bind(sessioncontext.Current(ctx), newSessionToken)
+	newRefreshToken = sessioncontext.Bind(sessioncontext.Current(ctx), newRefreshToken)
 	now := s.now().UTC()
 	var session *domain.Session
 	var reused *port.ErrRefreshTokenReused
@@ -229,8 +239,17 @@ func (s *SessionService) checkSession(session *domain.Session) error {
 	return nil
 }
 
+// ValidateBrowserSnapshot applies liveness rules to the row already loaded by
+// CSRF binding. Authentication still checks the owning user's current state.
+func (s *SessionService) ValidateBrowserSnapshot(session *domain.Session) error {
+	return s.checkSession(session)
+}
+
 // Validate validates an access token and returns its session.
 func (s *SessionService) Validate(ctx context.Context, token string) (*domain.Session, error) {
+	if !sessioncontext.Matches(ctx, token) {
+		return nil, domain.ErrSessionNotFound
+	}
 	session, err := s.repo.GetByTokenHash(ctx, hashToken(token))
 	if err != nil {
 		return nil, fmt.Errorf("session validate: %w", err)
@@ -250,6 +269,9 @@ func (s *SessionService) Validate(ctx context.Context, token string) (*domain.Se
 // join is inner, so an orphaned session is indistinguishable from a missing
 // one, and both are authentication failures.
 func (s *SessionService) ValidateWithUser(ctx context.Context, token string) (*domain.Session, *domain.User, error) {
+	if !sessioncontext.Matches(ctx, token) {
+		return nil, nil, domain.ErrSessionNotFound
+	}
 	session, user, err := s.repo.GetByTokenHashWithUser(ctx, hashToken(token))
 	if err != nil {
 		return nil, nil, fmt.Errorf("session validate: %w", err)

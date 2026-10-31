@@ -320,7 +320,7 @@ func TestAppAuthorizationHTTPPolicyMatrix(t *testing.T) {
 				method, path, _ := strings.Cut(entry.Pattern, " ")
 				r := httptest.NewRequest(method, path, nil)
 				if token != "" {
-					r.Header.Set("Cookie", f.a.cfg.cookie.Name+"="+token)
+					r.Header.Set("Cookie", f.a.cfg.browser.Cookies.Name+"="+token)
 				}
 				w := httptest.NewRecorder()
 				entry.Handler.ServeHTTP(w, r)

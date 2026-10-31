@@ -21,7 +21,8 @@ func CORS(allowedOrigins []string) func(http.Handler) http.Handler {
 			if origin != "" && (allowAll || origins[origin]) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token, X-GoAuth-Session")
+				w.Header().Set("Access-Control-Expose-Headers", "X-CSRF-Token, Retry-After")
 				// The origin is echoed verbatim, so the response varies by the
 				// Origin header; without this, a shared cache could serve one
 				// origin's response to another.

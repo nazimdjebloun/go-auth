@@ -185,10 +185,9 @@ Every rate-limited response carries `X-RateLimit-Limit` and `X-RateLimit-Remaini
 #### curl
 
 ```bash
-# Use the default _csrf cookie name; adjust it if you renamed the cookie.
-curl -s -o /dev/null -c cookies.txt https://api.myapp.com/auth/csrf-token \
-  -H "Origin: https://myapp.com"
-csrf_token=$(awk '$6 == "_csrf" { token = $7 } END { print token }' cookies.txt)
+# Initialize the mandatory anonymous browser binding; requires jq.
+csrf_token=$(curl -fsS https://api.myapp.com/auth/csrf-token \
+  -b cookies.txt -c cookies.txt | jq -r .token)
 
 # Fire past a fresh 5/min login bucket and inspect the response headers.
 for i in $(seq 1 6); do
@@ -196,13 +195,13 @@ for i in $(seq 1 6); do
     -H "Content-Type: application/json" \
     -H "Origin: https://myapp.com" \
     -H "X-CSRF-Token: $csrf_token" \
-    -b cookies.txt \
+    -b cookies.txt -c cookies.txt \
     -d '{"email":"ada@example.com","password":"wrong"}' \
     | grep -E "HTTP|Retry-After|X-RateLimit"
 done
 ```
 
-With a fresh login bucket and an allowed origin, the first five responses come back `401 invalid_credentials`; the sixth is `429` with `Retry-After` and `X-RateLimit-Remaining: 0`. The cookie jar is read by curl and awk, which also handle Netscape cookie rows prefixed with `#HttpOnly_`; no browser JavaScript reads a session cookie.
+With a fresh login bucket and an allowed origin, the first five responses come back `401 invalid_credentials`; the sixth is `429` with `Retry-After` and `X-RateLimit-Remaining: 0`. curl maintains the HttpOnly cookies in its jar; the CSRF token comes from bootstrap JSON. No browser JavaScript reads authentication or CSRF cookies.
 
 ---
 

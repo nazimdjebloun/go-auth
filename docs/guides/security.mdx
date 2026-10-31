@@ -1,82 +1,45 @@
 ---
 title: "Security"
-description: "SecurityConfig — origin allow-list, CSRF, and password policy — plus every self-service account action: name, password, verification, and deletion."
+description: "Browser CSRF and SecurityConfig password policy — plus every self-service account action: name, password, verification, and deletion."
 icon: "ShieldCheck"
 ---
 
 # Security
 
-`SecurityConfig` is the one required-beyond-the-basics config block — it holds the origin allow-list, the CSRF double-submit cookie, and the password policy every new or changed password is checked against. This page covers that config, then every endpoint an authenticated user calls to manage their own account: changing their name or password, setting a password on an OAuth-only account, the public forgot/reset flow, re-sending email verification, and deleting the account.
+`BrowserConfig` holds browser origins and cookie delivery; `SecurityConfig` holds password and email-link policy. CSRF protection is mandatory. This page covers that config, then every endpoint an authenticated user calls to manage their own account: changing their name or password, setting a password on an OAuth-only account, the public forgot/reset flow, re-sending email verification, and deleting the account.
 
 For the initial registration verification step (not the resend covered here), see [Authentication → Verifying the email](./authentication.mdx#verifying-the-email). For why login timing is constant and how sessions are hashed, see [Security concepts](../security.mdx).
 
+The curl mutation examples use `jq` to read the mandatory CSRF bootstrap JSON. Keep the same cookie jar for bootstrap and the following request; the bootstrap is repeated after authentication changes.
+
 ## Configuration
+
+Browser origins and cookies live in [WithBrowser](../configuration.mdx#withbrowser-required-allowedorigins). CSRF double-submit, strict origin checking, and 2FA challenge binding are mandatory. Bootstrap with `GET /auth/csrf-token`, read the JSON token, and echo it in `X-CSRF-Token` with credentials. All cookies are HttpOnly; sibling subdomains do not need a shared cookie domain. See [Deployment](./deployment.mdx).
+
+`WithSecurity` retains password and email-link policy:
 
 ```go
 goauth.WithSecurity(goauth.SecurityConfig{
-    AllowedOrigins:          []string{"https://myapp.com"}, // required — at least one, never "*"
-    AllowMissingCSRFHeaders: false,                          // optional, default false
-    DisableCSRFToken:        false,                          // optional, default false — the token layer is ON
-    CSRFToken: &middleware.CSRFTokenConfig{ // optional — overrides only; a config is created for you
-        TokenLength:           32,                   // optional, default 32
-        CookieName:            "_csrf",              // optional, default "_csrf"
-        HeaderName:            "X-CSRF-Token",       // optional, default "X-CSRF-Token"
-        CookiePath:            "/",                  // optional, default "/"
-        CookieSameSite:        http.SameSiteLaxMode, // optional, default Lax
-        CookieDomain:          "",                   // optional, defaults to CookieConfig.Domain
-        ExposeCSRFTokenInBody: false,                // optional, default false; cross-domain frontends only
-        // CookieSecure and Secret are filled in automatically — do not set them.
-    },
-    PasswordPolicy: domain.PasswordPolicy{ // optional, default {MinLength: 8, RequireDigit: true}
-        MinLength:        12,
+    PasswordPolicy: domain.PasswordPolicy{
+        MinLength: 12,
         RequireUppercase: true,
-        RequireDigit:     true,
-        RequireSpecial:   false,
+        RequireDigit: true,
     },
-    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(), // optional, default derived from Environment
+    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(),
 })
 ```
 
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `AllowedOrigins` | `[]string` | Required | — | At least one entry. `"*"` is rejected outright — see [Authentication → Origin checking](./authentication.mdx#origin-checking) for what this actually protects against. |
-| `AllowMissingCSRFHeaders` | `bool` | Optional | `false` | Allow requests with no `Origin`/`Referer` header at all — needed for some native/mobile clients. |
-| `DisableCSRFToken` | `bool` | Optional | `false` — layer is on | Turns off the double-submit cookie layer entirely. Origin/Referer checking still applies and cannot be disabled. |
-| `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only** — leaving it `nil` does not disable anything. The double-submit token sits on top of origin checking, and unlike the origin header it *can't* be spoofed, since it requires a cookie value only the server issued. Its `CookieDomain` and `ExposeCSRFTokenInBody` fields are the ones you set when the frontend is not same-origin with the API — see [Deployment](./deployment.mdx). |
-| `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Checked on every path that sets a password: register, reset, set-password, and change-password below. |
-| `AllowHTTPURLs` | `*bool` | Optional | derived — `true` in `EnvironmentDev`, `false` otherwise | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
+Supplying a password policy replaces the default (`MinLength: 8, RequireDigit: true`). Repeat every requirement you need. Password length is measured in UTF-8 bytes and the maximum is 72 bytes. Violations return `400 weak_password`.
 
-<Callout type="info" title="The token has to be readable, not just set">
-  The double-submit check needs the browser to send the `_csrf` cookie and let JavaScript read it so the value can be echoed in `X-CSRF-Token`. Same-origin frontends need no additional configuration. A sibling subdomain needs `CSRFToken.CookieDomain`; a different registrable domain needs `CookieSameSite: None` and `ExposeCSRFTokenInBody` because no cookie scope reaches across two sites.
+Protect custom browser routes with the same two checks:
 
-  Get this wrong and the failure is distinctive: every read works and every write returns `403`. The [Deployment guide](./deployment.mdx) covers all three cases.
-</Callout>
+```go
+widgets := auth.CORS(auth.RequireCSRF(auth.RequireAuth(http.HandlerFunc(createWidget))))
+mux.Handle("POST /widgets", widgets)
+mux.Handle("OPTIONS /widgets", widgets) // direct browser writes need preflight
+```
 
-The double-submit token layer is **on in every deployment** — `New` creates a `CSRFTokenConfig` with the defaults shown whenever you leave the field `nil`, so passing the struct overrides those defaults rather than switching the layer on. Turn it off with `DisableCSRFToken: true`, which is meant for deployments with no browser clients at all. See [Configuration → `WithSecurity`](../configuration.mdx#withsecurity-required-allowedorigins) for the full treatment.
-
-<Callout type="info" title="Protecting your own routes with the same check">
-  `Auth.RequireCSRF` applies this exact double-submit verification — the real HMAC-signed token, not a naive cookie/header string compare — to a route you write and mount yourself:
-
-  ```go
-  mux.Handle("POST /widgets", auth.CORS(auth.RequireCSRF(auth.RequireAuth(http.HandlerFunc(createWidget)))))
-  ```
-
-  It's a no-op passthrough when `DisableCSRFToken: true`. The routes mounted by `Auth.Mount` already have this baked in — reach for `RequireCSRF` only for routes you register on the mux yourself.
-</Callout>
-
-**`PasswordPolicy`** (`domain.PasswordPolicy`) — `MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`. All fields are individually optional, but the struct as a whole replaces the default: setting `RequireUppercase: true` without repeating `MinLength`/`RequireDigit` means those two are no longer enforced. Every violation comes back as the same error code:
-
-| Code | Status | Cause |
-|---|---|---|
-| `weak_password` | 400 | Too short, too long (over 72 bytes — bcrypt's own limit, not a policy choice), or missing a required character class — the message names exactly what's missing, e.g. `Password must be at least 12 characters with an uppercase letter` |
-
-**Expected `WithSecurity` errors**
-
-- `allowed_origins must include at least one origin`
-- `allowed_origins must not contain "*" — this disables CSRF protection; list specific origins instead`
-- `security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set` — each is defensible alone, but together a cross-site request carrying neither an `Origin`/`Referer` header nor a token would pass, leaving no CSRF defense at all. Keep one of the two layers.
-
-`SessionConfig.TokenTTL` is validated with the session section — see [Sessions](./sessions.mdx): `session token_ttl must be positive`, only reachable if it was explicitly set negative.
+`Auth.Mount` already applies these checks to its browser mutation routes. There is no CSRF opt-out.
 
 ## Frontend client setup
 
@@ -110,7 +73,10 @@ Requires the current password even though the caller is already authenticated �
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/change-password \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt \
@@ -165,7 +131,10 @@ Auth required. Emails an 8-character code, valid for 10 minutes. Always returns 
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/set-password/request \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Origin: https://myapp.com" \
   -b cookies.txt
 ```
@@ -211,7 +180,11 @@ See [Client → Set password](./client/security.mdx#set-password-oauth-only-acco
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/set-password/confirm \
+  -H "X-CSRF-Token: $CSRF" \
+  -b cookies.txt \
+  -c cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -d '{"userId":"b3f1...","code":"ABCD1234","newPassword":"a new strong passphrase 2"}'
@@ -258,7 +231,11 @@ Valid addresses are durably queued before account lookup. A queue failure return
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/forgot-password \
+  -H "X-CSRF-Token: $CSRF" \
+  -b cookies.txt \
+  -c cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -d '{"email":"ada@example.com"}'
@@ -305,7 +282,11 @@ When the worker processes a new reset, it invalidates any earlier unused token f
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/reset-password \
+  -H "X-CSRF-Token: $CSRF" \
+  -b cookies.txt \
+  -c cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -d '{"code":"the-code-from-the-email","newPassword":"a new strong passphrase 2"}'
@@ -365,7 +346,10 @@ Branch on `codeSent`, not on the status code — it is the same flag `POST /auth
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/resend-verification \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Origin: https://myapp.com" \
   -b cookies.txt
 ```
@@ -402,7 +386,11 @@ Note this route deliberately omits the `codeSent` field the authenticated one re
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/verify-email/resend \
+  -H "X-CSRF-Token: $CSRF" \
+  -b cookies.txt \
+  -c cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -d '{"email":"ada@example.com"}'

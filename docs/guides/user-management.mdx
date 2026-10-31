@@ -10,6 +10,8 @@ Every self-service action an authenticated user can take: changing their name, t
 
 For password changes, reset, and verification resend, see [Security](./security.mdx). For register, login, and logout, see [Authentication](./authentication.mdx).
 
+The curl mutation examples use `jq` to read the mandatory CSRF bootstrap JSON. Keep the same cookie jar for bootstrap and the following request; the bootstrap is repeated after authentication changes.
+
 ## Frontend client setup
 
 The **Client** examples below call the same `apiRequest(baseUrl, method, path, body)` helper used throughout these guides — see [Client → Setup](./client/index.mdx). The named-method wrapper for everything on this page lives on [Client → User management](./client/user-management.mdx).
@@ -33,7 +35,10 @@ The **Client** examples below call the same `apiRequest(baseUrl, method, path, b
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X PUT https://api.myapp.com/auth/name \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt \
@@ -79,7 +84,10 @@ Both require the account's password, even for an OAuth-authenticated session —
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/2fa/enable \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt \
@@ -130,7 +138,10 @@ Two paths depending on whether the account has a password: immediate deletion wi
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X DELETE https://api.myapp.com/auth/account \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt \
@@ -182,11 +193,17 @@ Auth required for both. The request step emails an 8-character code (10-minute T
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/account/delete/request \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Origin: https://myapp.com" \
   -b cookies.txt
 
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/account/delete/confirm \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt \

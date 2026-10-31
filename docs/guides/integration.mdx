@@ -132,3 +132,21 @@ Stop accepting work and wait for HTTP requests and direct service callers to fin
 | Supplied mailer, audit sinks, and OAuth providers | Their lifecycle remains caller-owned; `Auth.Close` does not close them. |
 
 `Close` stops the recovery worker and maintenance before stopping audit work, then releases the owned stores and database. The audit stop receives a five-second timeout. There is no deadline for the whole `Close` call and it returns no error; custom dependencies must honor cancellation so workers can exit. A stop timeout is not a guarantee that external audit delivery finished: undelivered durable outbox records remain for later processing. If you use an asynchronous mailer, stop/drain that caller-owned mailer after `Auth.Close`.
+
+## Browser and CSRF migration
+
+This is a breaking pre-v1 browser API change. Replace `WithCookie(...)` with `WithBrowser(BrowserConfig{APIURL: ..., AllowedOrigins: ..., Cookies: ...})`; move the origins out of `SecurityConfig`. Keep password policy, email-link policy, and pepper timestamps in `WithSecurity`, and lifetimes in `WithSession`.
+
+Remove `DisableCSRFToken`, `AllowMissingCSRFHeaders`, `CSRFToken`, and their token overrides; there are no replacement bypasses. Remove `TwoFactorConfig.DisableChallengeBinding` and move `ChallengeCookieName` to `BrowserConfig.Cookies.ChallengeName`. Keep cookie domains empty for normal subdomain deployments.
+
+Update clients to read `200 {"token":"..."}` from `/auth/csrf-token`, send credentials and the token header, and consume `X-CSRF-Token` replacements. Do not read the HttpOnly CSRF cookie. Custom cookie helpers now require the request and return errors: `SetSessionCookies(w, r, sessionID, sessionToken, refreshToken)`, `ClearSessionCookies(w, r)`, and `RotateCSRFToken(w, r)`. Issuing authentication cookies includes CSRF rotation; do not issue it separately. `api.OAuthCallbackResult.SessionID` supplies the stable ID for custom OAuth transports.
+
+The low-level middleware dependency struct is not an application configuration API. The facade wires session identity resolution and validated snapshot reuse; custom HTTP routes should use `Auth.RequireCSRF` and `Auth.RequireAuth`. Identity lookup for CSRF does not authorize expired, revoked, banned, or otherwise invalid sessions.
+
+Custom admin HTTP transports must select admin consistently through the request header, including when calling request-aware cookie helpers with credentials returned by `AdminLogin`. A helper rejects credentials from a different context instead of writing them into the wrong cookie set. Pure Go service calls have no browser header; admin login returns admin credentials, 2FA verification restores the challenge's context, and refresh preserves the original credential context.
+
+For direct browser access to custom API routes, register each path's OPTIONS handler with CORS outermost, before authentication and rate limiting. A method-specific POST/PATCH/DELETE route alone does not handle preflight. `Auth.Mount` already registers OPTIONS for go-auth's own paths; consumers own preflight for their application paths.
+
+Update admin clients to send `X-GoAuth-Session: admin` on every request, including bootstrap and 2FA follow-ups. Admin login always issues the admin context's credential cookies. Old shared admin cookies are not reused as admin credentials; sign in again. App cookie names remain unchanged. Optional `Cookies.AdminName`, `AdminRefreshName`, and `AdminChallengeName` customize the independent admin names; transport policy remains common to both contexts. The bundled panel handles selection automatically, with `VITE_API_URL` pointing directly at the backend.
+
+Old CSRF tokens are incompatible and safe bootstrap requests replace them. No database schema migration is needed. Review HTTPS/HTTP development settings and direct API deployment using [Deployment](./deployment.mdx).

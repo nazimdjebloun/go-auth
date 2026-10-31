@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/api"
@@ -28,7 +29,7 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 			Database: goauth.DatabaseConfig{
 				DB:     db,
 				Driver: testAuthDriver(db),
-			},
+			}, Environment: goauth.EnvironmentDev,
 		}),
 		goauth.WithSession(goauth.SessionConfig{
 			TTL:             1 * time.Hour,
@@ -36,9 +37,9 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 			RefreshTokenTTL: 1 * time.Hour,
 			TokenTTL:        1 * time.Hour,
 		}),
-		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
-			AllowedOrigins: []string{"http://localhost:8080"},
+
+		goauth.WithBrowser(goauth.BrowserConfig{AllowedOrigins: []string{"http://localhost:8080"}, Cookies: goauth.CookieConfig{Name: "goauth_session"}}), goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs: goauth.AllowPlaintextEmailLinks(),
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
 			EnableEmailPassword: true,
@@ -48,7 +49,7 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 			InviteTTL:           1 * time.Hour,
 			VerificationCodeTTL: 1 * time.Hour,
 		}),
-		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 		goauth.WithOrganizations(goauth.OrganizationConfig{
@@ -1000,8 +1001,8 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 	meReq.AddCookie(sessionCookie)
 	meRec := httptest.NewRecorder()
 	mux.ServeHTTP(meRec, meReq)
-	if meRec.Code != http.StatusNoContent {
-		t.Fatalf("GET /auth/csrf-token: expected 204, got %d", meRec.Code)
+	if meRec.Code != http.StatusOK {
+		t.Fatalf("GET /auth/csrf-token: expected 200, got %d", meRec.Code)
 	}
 	var csrf string
 	for _, c := range meRec.Result().Cookies() {

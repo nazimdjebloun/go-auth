@@ -10,6 +10,10 @@ The initial sign-up/sign-in redirect flow (`GET /auth/oauth/{provider}` → prov
 
 Requires `RegistrationConfig.EnableOAuth: true` and at least one `WithProvider(...)` call — see [Authentication → Configuration](./authentication.mdx#configuration). All three routes below are otherwise unmounted (404).
 
+The curl mutation examples use `jq` to read the mandatory CSRF bootstrap JSON. Keep the same cookie jar for bootstrap and the following request; the bootstrap is repeated after authentication changes.
+
+OAuth defaults to the app context. To initiate an admin flow, send `X-GoAuth-Session: admin` on the initiation request. The verified state carries this context through the provider callback, which does not need the header. Subsequent API and 2FA requests still need the admin selector. Admin OAuth login requires an existing linked protected-admin identity; it cannot create a new admin account. The configured `AppConfig.BaseURL` remains the callback redirect destination. The bundled panel currently uses password/email-2FA login.
+
 ## Frontend client setup
 
 Admin sign-in through a linked provider stops for email 2FA by default. The
@@ -39,7 +43,10 @@ Auth required. Returns the provider's authorization URL, same shape as the login
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/oauth/github/link \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Origin: https://myapp.com" \
   -b cookies.txt
 ```
@@ -119,7 +126,10 @@ Unlink removes **all** identities for the selected provider. Two linked Google i
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/oauth/github/unlink \
+  -H "X-CSRF-Token: $CSRF" \
+  -c cookies.txt \
   -H "Origin: https://myapp.com" \
   -b cookies.txt
 ```

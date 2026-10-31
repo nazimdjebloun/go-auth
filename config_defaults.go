@@ -28,7 +28,7 @@ func (c *Config) applyDefaults() {
 	c.applySessionDefaults()
 	c.applyTwoFactorDefaults()
 	c.applySecurityDefaults()
-	c.applyCookieDefaults()
+	c.applyBrowserDefaults()
 	c.applyRateLimitDefaults()
 	c.applyEmailURLDefaults()
 }

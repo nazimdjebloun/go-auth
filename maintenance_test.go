@@ -218,11 +218,9 @@ func TestMaintenanceConfig_NegativeValuesRejected(t *testing.T) {
 			WithApp(AppConfig{
 				Name:     "TestApp",
 				BaseURL:  "http://localhost:3000",
-				Database: DatabaseConfig{Driver: DriverSQLite, URL: "file:x.db"},
+				Database: DatabaseConfig{Driver: DriverSQLite, URL: "file:x.db"}, Environment: EnvironmentDev,
 			}),
-			WithSecret(strings.Repeat("a", 32)),
-			WithSecurity(SecurityConfig{AllowedOrigins: []string{"http://localhost:3000"}}),
-			// Admin-login 2FA is on by default and needs a mailer; opt out so
+			WithSecret(strings.Repeat("a", 32)), WithBrowser(BrowserConfig{AllowedOrigins: []string{"http://localhost:3000"}}), // Admin-login 2FA is on by default and needs a mailer; opt out so
 			// these cases fail only on maintenance validation.
 			WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: true}),
 		}

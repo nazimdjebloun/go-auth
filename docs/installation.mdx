@@ -85,10 +85,10 @@ Pass option functions to `NewConfig(opts ...Option)`. The table maps each option
 |---|---|
 | `WithApp` | App name, base URL, database connection, deployment environment |
 | `WithSecret` | The root secret for CSRF, OAuth, 2FA, and OTP keys |
-| `WithSecurity` | Allowed origins, password policy, CSRF token |
+| `WithSecurity` | Password policy, email-link policy, pepper rotation timestamp |
 | `WithSession` | Session, refresh-token, and verification/reset-token lifetimes |
 | `WithTwoFactor` | Email two-factor settings |
-| `WithCookie` | Cookie name, domain, path, `SameSite`, `Secure` |
+| `WithBrowser` | Public API origin, exact allowed frontend origins, cookies and transport |
 | `WithRegistration` | Which signup methods are available |
 | `WithOrganizations` | Multi-tenant organizations |
 | `WithAppPermissions` | Opt-in application roles and delegated library permissions |

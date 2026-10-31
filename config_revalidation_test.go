@@ -14,10 +14,7 @@ func TestNewRejectsSecurityOptionsAppliedAfterValidation(t *testing.T) {
 	}{
 		{"empty root secret", WithSecret(""), "secret"},
 		{"short root secret", WithSecret("too short"), "secret"},
-		{"both CSRF protections disabled", WithSecurity(SecurityConfig{
-			AllowedOrigins:   []string{"http://localhost"},
-			DisableCSRFToken: true, AllowMissingCSRFHeaders: true,
-		}), "DisableCSRFToken and AllowMissingCSRFHeaders"},
+		{"wildcard browser origin", WithBrowser(BrowserConfig{AllowedOrigins: []string{"*"}}), "allowed_origins"},
 		{"negative session lifetime", WithSession(SessionConfig{TTL: -time.Second}), "session"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

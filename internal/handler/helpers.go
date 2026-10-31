@@ -45,29 +45,27 @@ func newBindingCookie(params bindingCookieParams) *http.Cookie {
 // so there's only one cookie-reach story to maintain, not two. No-op when
 // binding is disabled or the token is empty (Challenge/Resend return an
 // empty BindingToken in that case).
-func (h *Handler) setTwoFactorBindingCookie(w http.ResponseWriter, token string) {
+func (h *Handler) setTwoFactorBindingCookie(w http.ResponseWriter, r *http.Request, token string) {
 	if h.services.TwoFactor == nil || h.services.TwoFactor.BindingDisabled() || token == "" {
 		return
 	}
 	http.SetCookie(w, newBindingCookie(bindingCookieParams{
-		name:     h.services.TwoFactor.CookieName(),
+		name:     h.challengeCookieName(r),
 		value:    token,
-		domain:   h.cookies.Domain,
-		path:     h.cookies.Path,
+		path:     "/",
 		secure:   h.cookies.Secure,
 		sameSite: http.SameSite(h.cookies.SameSite),
 		maxAge:   int(h.services.TwoFactor.CookieTTL().Seconds()),
 	}))
 }
 
-func (h *Handler) clearTwoFactorBindingCookie(w http.ResponseWriter) {
+func (h *Handler) clearTwoFactorBindingCookie(w http.ResponseWriter, r *http.Request) {
 	if h.services.TwoFactor == nil {
 		return
 	}
 	http.SetCookie(w, newBindingCookie(bindingCookieParams{
-		name:     h.services.TwoFactor.CookieName(),
-		domain:   h.cookies.Domain,
-		path:     h.cookies.Path,
+		name:     h.challengeCookieName(r),
+		path:     "/",
 		secure:   h.cookies.Secure,
 		sameSite: http.SameSite(h.cookies.SameSite),
 		maxAge:   -1,
@@ -78,7 +76,7 @@ func (h *Handler) twoFactorBindingCookieValue(r *http.Request) string {
 	if h.services.TwoFactor == nil {
 		return ""
 	}
-	c, err := r.Cookie(h.services.TwoFactor.CookieName())
+	c, err := r.Cookie(h.challengeCookieName(r))
 	if err != nil {
 		return ""
 	}
@@ -90,8 +88,8 @@ func (h *Handler) twoFactorBindingCookieValue(r *http.Request) string {
 // no session/refresh cookie is set and CSRF is not rotated. The binding
 // cookie is the one exception — it is not a session credential on its own,
 // see TwoFactorService.
-func (h *Handler) writeTwoFactorChallenge(w http.ResponseWriter, status int, user *domain.User, codeSent bool, challengeID string, expiresAt time.Time, bindingToken string) {
-	h.setTwoFactorBindingCookie(w, bindingToken)
+func (h *Handler) writeTwoFactorChallenge(w http.ResponseWriter, r *http.Request, status int, user *domain.User, codeSent bool, challengeID string, expiresAt time.Time, bindingToken string) {
+	h.setTwoFactorBindingCookie(w, r, bindingToken)
 	message := "A two-factor code was already sent, check your email"
 	if codeSent {
 		message = "Two-factor code sent to your email"
@@ -194,4 +192,12 @@ func (h *OAuthHandlers) writeJSON(w http.ResponseWriter, status int, v any) {
 
 func (h *OAuthHandlers) writeError(w http.ResponseWriter, err error) {
 	writeErrorTo(h.log, w, err)
+}
+
+func (h *Handler) challengeCookieName(r *http.Request) string {
+	cookies := h.cookies.ForRequest(r)
+	if cookies.ChallengeName != "" {
+		return cookies.ChallengeName
+	}
+	return h.services.TwoFactor.CookieName()
 }

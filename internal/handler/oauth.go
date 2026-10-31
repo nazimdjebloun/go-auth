@@ -13,6 +13,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/service"
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -131,6 +132,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 	provider := r.PathValue("provider")
 	code := r.FormValue("code")
 	state := r.FormValue("state")
+	r = r.WithContext(sessioncontext.With(r.Context(), sessioncontext.Of(state)))
 
 	if code == "" || state == "" {
 		redirectURL := h.baseURL + "/auth/callback?error=invalid_request&provider=" + url.QueryEscape(provider)
@@ -144,7 +146,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		h.setOAuthStateCookie(w, state, -1)
 	}
 	sessionToken := ""
-	if sessionCookie, err := r.Cookie(h.cookies.Name); err == nil {
+	if sessionCookie, err := r.Cookie(h.cookies.ForRequest(r).Name); err == nil {
 		sessionToken = sessionCookie.Value
 	}
 
@@ -168,9 +170,10 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
-
 	if result.IsLink {
+		if !h.rotateCSRF(w, r) {
+			return
+		}
 		// The caller already had a valid session before starting the link
 		// flow — Callback issued no new one, so there's nothing to write.
 		// Must not fall through to writeCookieRedirect: an empty
@@ -191,8 +194,8 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		}
 		if !h.twoFactor.BindingDisabled() && result.BindingToken() != "" {
 			http.SetCookie(w, newBindingCookie(bindingCookieParams{
-				name: h.twoFactor.CookieName(), value: result.BindingToken(),
-				domain: h.cookies.Domain, path: h.cookies.Path, secure: h.cookies.Secure,
+				name: h.challengeCookieName(r), value: result.BindingToken(),
+				path: "/", secure: h.cookies.Secure,
 				sameSite: h.cookies.SameSite, maxAge: int(h.twoFactor.CookieTTL().Seconds()),
 			}))
 		}
@@ -206,15 +209,18 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	redirectURL := h.baseURL + "/auth/callback"
-	h.writeCookieRedirect(w, result.SessionToken, result.RefreshToken, redirectURL)
+	h.writeCookieRedirect(w, r, result.SessionID, result.SessionToken, result.RefreshToken, redirectURL)
 }
 
 // writeCookieRedirect returns a small HTML page that sets cookies via Set-Cookie headers
 // then redirects via JS. This is needed because Set-Cookie headers on cross-origin
 // 302 redirects are unreliable in some browsers.
-func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, sessionToken, refreshToken, redirectURL string) {
-	middleware.SetSessionCookie(w, h.cookies, sessionToken)
-	middleware.SetRefreshCookie(w, h.cookies, refreshToken)
+func (h *OAuthHandlers) writeCookieRedirect(w http.ResponseWriter, r *http.Request, sessionID, sessionToken, refreshToken, redirectURL string) {
+	if err := middleware.SetAuthenticationCookies(w, r, h.cookies, h.csrfTokenCfg, sessionID, sessionToken, refreshToken); err != nil {
+		h.log.Error("issue OAuth cookies", "err", err)
+		h.writeError(w, domain.ErrInternal)
+		return
+	}
 
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'")
@@ -250,6 +256,9 @@ func (h *OAuthHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 		Provider: provider,
 	}); err != nil {
 		h.writeError(w, err)
+		return
+	}
+	if !h.rotateCSRF(w, r) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Provider unlinked"})
@@ -293,4 +302,21 @@ func (h *OAuthHandlers) ListConnected(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.writeJSON(w, http.StatusOK, map[string]interface{}{"providers": safe})
+}
+
+func (h *OAuthHandlers) rotateCSRF(w http.ResponseWriter, r *http.Request) bool {
+	if err := middleware.RotateCSRFToken(w, r, h.csrfTokenCfg); err != nil {
+		h.log.Error("rotate OAuth CSRF token", "err", err)
+		h.writeError(w, domain.ErrInternal)
+		return false
+	}
+	return true
+}
+
+func (h *OAuthHandlers) challengeCookieName(r *http.Request) string {
+	cookies := h.cookies.ForRequest(r)
+	if cookies.ChallengeName != "" {
+		return cookies.ChallengeName
+	}
+	return h.twoFactor.CookieName()
 }

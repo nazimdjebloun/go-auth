@@ -39,6 +39,7 @@ type OAuthUnlinkInput struct {
 // zero — the caller already has a valid session from before the link
 // started and must not touch it (no new session is created or returned).
 type OAuthCallbackResult struct {
+	SessionID            string // stable identity for session-bound browser protection
 	SessionToken         string
 	RefreshToken         string
 	IsNewUser            bool

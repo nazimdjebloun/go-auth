@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/audit"
+	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
@@ -25,7 +26,8 @@ type Config struct {
 	session        SessionConfig
 	security       SecurityConfig
 	twoFactor      TwoFactorConfig
-	cookie         CookieConfig
+	browser        BrowserConfig
+	csrf           *middleware.CSRFTokenConfig
 	registration   RegistrationConfig
 	organizations  OrganizationConfig
 	appPermissions AppPermissionsConfig
@@ -60,10 +62,11 @@ type Config struct {
 // cookie Secure. A setting whose zero value can only mean "unset" is simply
 // defaulted in place and never appears here, which is why TTLs do not.
 type resolved struct {
+	apiURL        string        // resolved public API origin; preserves omitted intent across revalidation
 	graceWindow   time.Duration // from session.GraceWindow (nil = 5s)
 	touchDebounce time.Duration // from session.TouchDebounce (nil = 5m)
 	allowHTTPURLs bool          // from security.AllowHTTPURLs (nil = dev only)
-	cookieSecure  bool          // from cookie.Secure (nil = derived from BaseURL and Environment)
+	cookieSecure  bool          // from browser.Cookies.Secure (nil = derived from APIURL and Environment)
 
 	// validated is set only by NewConfig() after validate() succeeds. New()
 	// checks it, which is what stops a hand-built &Config{} — the fields are
@@ -111,7 +114,7 @@ func NewConfig(opts ...Option) (*Config, error) {
 // owns (DB handles, mailer, templates, providers, logger, rate-limit store).
 // Every value New() resolves defaults onto is copied, so reusing one *Config
 // for two New() calls cannot leak the first call's resolutions into the
-// second — notably CSRFToken (mutated in place by applyCSRFTokenDefaults),
+// second — notably browser slices/pointers and middleware dependencies,
 // rateLimit.Logger, and the driver/database opened flags.
 func (c *Config) clone() Config {
 	cfg := *c
@@ -120,12 +123,10 @@ func (c *Config) clone() Config {
 		cfg.app.Database.MaxIdleConns = &idle
 	}
 
-	if c.security.AllowedOrigins != nil {
-		cfg.security.AllowedOrigins = append([]string(nil), c.security.AllowedOrigins...)
-	}
-	if c.security.CSRFToken != nil {
-		tok := *c.security.CSRFToken
-		cfg.security.CSRFToken = &tok
+	cfg.browser.AllowedOrigins = append([]string(nil), c.browser.AllowedOrigins...)
+	if c.csrf != nil {
+		tok := *c.csrf
+		cfg.csrf = &tok
 	}
 	if c.security.AllowHTTPURLs != nil {
 		v := *c.security.AllowHTTPURLs
@@ -139,9 +140,9 @@ func (c *Config) clone() Config {
 		v := *c.session.TouchDebounce
 		cfg.session.TouchDebounce = &v
 	}
-	if c.cookie.Secure != nil {
-		v := *c.cookie.Secure
-		cfg.cookie.Secure = &v
+	if c.browser.Cookies.Secure != nil {
+		v := *c.browser.Cookies.Secure
+		cfg.browser.Cookies.Secure = &v
 	}
 	if c.email != nil {
 		e := *c.email

@@ -185,112 +185,88 @@ Never replace a secret in place under the same version. Add a new version instea
 - `password_pepper: key version 0 is reserved for unpeppered passwords`: use `CurrentVersion: 0`, not a key at index zero, to keep new writes unpeppered.
 - `database contains password pepper versions with no configured key`: startup found a stored version the configured keyring cannot verify.
 
-## `WithSecurity`: Required (`AllowedOrigins`)
+## `WithBrowser`: Required (`AllowedOrigins`)
 
-CSRF origin allow-list, password policy, the double-submit CSRF cookie, and the `http://` policy for email links.
+Configure the public API origin, exact frontend origins, and browser cookie delivery together. Session lifetimes stay in `WithSession`; password and email-link policy stay in `WithSecurity`.
+
+```go
+goauth.WithBrowser(goauth.BrowserConfig{
+    APIURL: "https://api.example.com",
+    AllowedOrigins: []string{
+        "https://app.example.com",
+        "https://admin.example.com",
+    },
+    Cookies: goauth.CookieConfig{
+        Name:               "goauth_session",
+        RefreshName:        "goauth_refresh",
+        ChallengeName:      "_2fa_challenge",
+        AdminName:          "goauth_admin_session",
+        AdminRefreshName:   "goauth_admin_refresh",
+        AdminChallengeName: "_goauth_admin_2fa_challenge",
+        Domain:             "", // host-only; recommended
+        Path:               "/",
+        SameSite:           http.SameSiteLaxMode,
+        Secure:             nil, // derive from APIURL and Environment
+    },
+})
+```
+
+Import `net/http` when setting `SameSite`. All cookie fields can be omitted.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `APIURL` | Origin of `AppConfig.BaseURL` | Public HTTP(S) API origin; set explicitly when the API has a different origin. No path, query, fragment, or credentials. |
+| `AllowedOrigins` | Required | Exact frontend origins, including scheme and port. At least one; no wildcards. Drives CORS and mutation origin checks. |
+| `Cookies.Name` | `goauth_session` | Session cookie name. |
+| `Cookies.RefreshName` | `goauth_refresh` | Refresh cookie name. |
+| `Cookies.ChallengeName` | `_2fa_challenge` | Mandatory 2FA browser binding cookie name. |
+| `Cookies.AdminName` | `goauth_admin_session` | Independent admin session cookie name. |
+| `Cookies.AdminRefreshName` | `goauth_admin_refresh` | Independent admin refresh cookie name. |
+| `Cookies.AdminChallengeName` | `_goauth_admin_2fa_challenge` | Independent admin 2FA browser binding cookie name. |
+| `Cookies.Domain` | Empty (host-only) | Session/refresh scope only. The browser must accept it for the API host; keep empty unless sharing those credentials deliberately. |
+| `Cookies.Path` | `/` | Must be `/` to cover the built-in `/auth` and `/admin` routes. |
+| `Cookies.SameSite` | Lax | Applies to session, refresh, challenge, CSRF, and anonymous browser binding cookies. |
+| `Cookies.Secure` | Derived | `nil`: false only for an HTTP API in `EnvironmentDev`; true otherwise. `SecureAlways()` forces true; `SecureNever()` is development-only. |
+
+All these cookies are HttpOnly. Both contexts inherit the same Domain, Path, SameSite, Secure, and session lifetime policy. CSRF cookies (`_csrf` and `_goauth_admin_csrf`), anonymous browser binding cookies, and challenge binding cookies are always host-only at `/`; they do not inherit `Cookies.Domain`. All six configurable names must be valid and distinct and must not collide with reserved CSRF/binding names. Cookie prefix requirements are validated.
+
+### Independent app and admin sessions
+
+Both frontends can call one API host directly in the same browser. Ordinary requests select the app context by default. The admin client sends `X-GoAuth-Session: admin` on **every** request, including CSRF bootstrap, login, 2FA, reads, refresh, and logout. The built-in admin login route always selects admin; follow-up requests still need the header. Explicit `app` is also accepted; unknown or multiple selector values return `400 invalid_session_context`, as does explicit `app` on admin login.
+
+The selector chooses a cookie and CSRF context; it grants no permissions. Role, protected-admin, permission, and 2FA checks still apply. There is no fallback to the other context's cookies. Ordinary login/logout/refresh only affect the selected context. Account-wide operations such as revoking all sessions and password reset retain their existing scope.
+
+Staging and production require HTTPS API/frontend origins and secure cookies. HTTP development remains supported with Lax cookies. `SameSite=None` requires secure cookies **including in development**; use local HTTPS for genuinely cross-site development. Allowing HTTP links in email is a separate `WithSecurity` setting.
+
+### Mandatory CSRF contract
+
+There is no switch to disable double-submit, origin checking, or 2FA browser binding, and no application-level CSRF token overrides. Ordinary unsafe built-in HTTP routes and `Auth.RequireCSRF` require both:
+
+1. An allowed `Origin`, or an allowed `Referer` when `Origin` is absent. The middleware also accepts the effective API request origin itself. Missing both is rejected.
+2. The selected context's signed CSRF cookie and matching `X-CSRF-Token` header, bound to this anonymous browser or stable authenticated session ID. App and admin tokens are not interchangeable.
+
+`GET /auth/csrf-token` always returns `200 {"token":"..."}` with `Cache-Control: no-store`. The frontend keeps that token in memory, sends credentials, and echoes it on mutations. Login, logout, password changes, OAuth linking/unlinking, and 2FA setting changes issue a replacement in the `X-CSRF-Token` response header, exposed through CORS. Ordinary requests and refresh do not rotate CSRF unnecessarily. OAuth callbacks retain their protocol-specific state binding, including POST callbacks.
+
+The JSON bootstrap works unchanged for proxied apps and sibling subdomains. Different sites additionally need `SameSite=None` and HTTPS, and remain subject to browser third-party-cookie restrictions. See [Deployment](./guides/deployment.mdx) and [Client setup](./guides/client/index.mdx).
+
+## `WithSecurity`: Optional
+
+Password policy, email-link transport policy, and the OTP pepper rotation timestamp remain separate from browser transport.
 
 ```go
 goauth.WithSecurity(goauth.SecurityConfig{
-    AllowedOrigins:          []string{"https://myapp.com"}, // required: at least one, never "*"
-    AllowMissingCSRFHeaders: false,                          // optional, default false
-    DisableCSRFToken:        false,                          // optional, default false (the token layer is ON)
-    CSRFToken: &middleware.CSRFTokenConfig{ // optional: overrides only; a config is created for you
-        TokenLength:           32,                   // optional, default 32
-        CookieName:            "_csrf",              // optional, default "_csrf"
-        HeaderName:            "X-CSRF-Token",       // optional, default "X-CSRF-Token"
-        CookiePath:            "/",                  // optional, default "/"
-        CookieSameSite:        http.SameSiteLaxMode, // optional, default Lax
-        CookieDomain:          "",                   // optional, defaults to CookieConfig.Domain
-        ExposeCSRFTokenInBody: false,                // optional, default false; see "Where is your frontend?"
-        // CookieSecure and Secret are filled in automatically. Do not set them.
-    },
-    PasswordPolicy: domain.PasswordPolicy{ // optional, default {MinLength: 8, RequireDigit: true}
+    PasswordPolicy: domain.PasswordPolicy{
         MinLength:        12,
         RequireUppercase: true,
         RequireDigit:     true,
         RequireSpecial:   false,
     },
-    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(),       // optional, default derived from Environment
+    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(),
+    PepperRotatedAt: time.Time{}, // use WithPepperRotatedAt for a secret rotation
 })
 ```
 
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `AllowedOrigins` | `[]string` | Required | none | At least one entry. `"*"` is rejected outright. |
-| `AllowMissingCSRFHeaders` | `bool` | Optional | `false` | Allow requests with no `Origin`/`Referer` header at all (needed for some native/mobile clients). |
-| `DisableCSRFToken` | `bool` | Optional | `false` (layer is on) | Turns off the double-submit cookie layer entirely. Origin/Referer checking still applies and cannot be disabled. |
-| `CSRFToken` | `*middleware.CSRFTokenConfig` | Optional | auto-created | **Overrides only.** Leaving it `nil` does not disable anything (see below). |
-| `PasswordPolicy` | `domain.PasswordPolicy` | Optional | `MinLength: 8, RequireDigit: true` | Setting any one field means you specify the whole policy (see note below). |
-| `AllowHTTPURLs` | `*bool` | Optional | derived (`true` in `EnvironmentDev`, `false` otherwise) | Governs `http://` links in rendered email templates only, not transport. Override with `goauth.AllowPlaintextEmailLinks()` or `goauth.RequireHTTPSEmailLinks()`. |
-| `PepperRotatedAt` | `time.Time` | Optional | zero (branch dormant) | Moment the current secret went live (UTC). Prefer the surgical `WithPepperRotatedAt` option over restating this struct at rotation time. Must be identical on all instances (see above). |
-
-`PasswordPolicy` fields (`MinLength int`, `RequireUppercase bool`, `RequireDigit bool`, `RequireSpecial bool`) are all individually optional, but the struct as a whole replaces the default. If you set `RequireUppercase: true` without repeating `RequireDigit`, the digit requirement is no longer applied. A zero `MinLength` still falls back to eight **bytes** inside `PasswordPolicy.Validate`; the minimum and the 72-byte maximum both use the UTF-8 byte length.
-
-`Validate` also rejects any password over **72 bytes**, regardless of `MinLength`. That is bcrypt's real input limit (measured in bytes, not characters, so a multi-byte passphrase hits it sooner than an all-ASCII one of the same length), and the check runs before hashing so a too-long password gets a clear `400 weak_password` instead of a generic `500`. Do not set `MinLength` above 72.
-
-The double-submit token layer is **on in every deployment**. `WithSecret` is
-mandatory at 32+ bytes, and `New` creates a `CSRFTokenConfig` with the defaults
-below whenever you leave the field `nil`: passing the struct overrides those
-defaults, it does not switch the layer on.
-
-To actually turn it off, set `DisableCSRFToken: true`. That is intended for
-deployments with no browser clients (a CLI or a server-to-server API), where
-CSRF is not in the threat model and the token round-trip buys nothing. Browser mutation routes protected by this layer require the client to `GET /auth/csrf-token`
-first and echo the cookie value back in the header. OAuth callbacks use their
-state cookie binding instead, including the POST callback.
-
-<Callout type="warn" title="One combination is rejected">
-  `DisableCSRFToken: true` together with `AllowMissingCSRFHeaders: true` is a
-  configuration error. Each is defensible alone, but together a cross-site
-  request carrying neither an `Origin`/`Referer` header nor a token would pass,
-  leaving no CSRF defense at all. Keep one of the two layers.
-</Callout>
-
-**Expected errors**
-
-- `allowed_origins must include at least one origin`: `AllowedOrigins` was left empty.
-- `allowed_origins must not contain "*" — this disables CSRF protection; list specific origins instead`: `AllowedOrigins` contained `"*"`.
-- `security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set — a cross-site request with no Origin/Referer and no token would pass; keep one of the two layers`: both CSRF layers were turned off at once (see callout above).
-
-**`CSRFToken` (`middleware.CSRFTokenConfig`):** every field is optional and takes the default shown when omitted.
-
-| Field | Default |
-|---|---|
-| `TokenLength` | 32 bytes |
-| `CookieName` | `_csrf` |
-| `HeaderName` | `X-CSRF-Token` |
-| `CookiePath` | `/` |
-| `CookieSameSite` | Lax |
-| `CookieDomain` | inherited from `CookieConfig.Domain` |
-| `ExposeCSRFTokenInBody` | `false` |
-| `CookieSecure` | derived from the resolved session cookie `Secure` value |
-| `Secret` | filled automatically from `WithSecret` |
-
-### Where is your frontend?
-
-The double-submit check needs the browser to **send** `_csrf` and let JavaScript **read** it so the value can be echoed in `X-CSRF-Token`. The deployment topology determines which configuration is required.
-
-| Topology | Sends? | Readable? | What to set |
-|---|---|---|---|
-| Same origin, the frontend proxies the API | yes | yes | no CSRF cookie overrides; still configure the frontend in `AllowedOrigins` |
-| Sibling subdomains, `app.example.com` and `api.example.com` | yes, they are the **same site** | not by default | `CookieDomain: ".example.com"` here, and leave `CookieConfig.Domain` alone |
-| Different registrable domains, `panel.acme.com` and `api.example.com` | only with `SameSite=None` | **never** | set both `CookieConfig.SameSite` and `CSRFTokenConfig.CookieSameSite` to `http.SameSiteNoneMode`, use secure cookies, and set `ExposeCSRFTokenInBody: true` |
-
-Two things that trip people up, both covered in full in the [Deployment guide](./guides/deployment.mdx):
-
-* **Subdomains are the same site, not a cross site deployment.** `SameSite` is computed from the registrable domain and ignores the subdomain and the port, so the default `Lax` cookie is sent normally there. Only *readability* is missing, and `CookieDomain` is what fixes it. A leading dot is optional: `net/http` strips it on write, RFC 6265 ignores it on read, and any `Domain` attribute covers subdomains.
-* **Only the CSRF cookie needs a `Domain`.** Widening `CookieConfig.Domain` as well shares your session across every subdomain, and is not required for a sibling subdomain frontend to authenticate. Do it only when you want one login to cover both.
-
-**`ExposeCSRFTokenInBody`** makes `GET /auth/csrf-token` answer `200 {"token": "..."}` (with `Cache-Control: no-store`) instead of a bare `204`. Turn it on only for the third row: across two registrable domains no cookie scope can make `_csrf` readable by the frontend, so the response body is the only channel left.
-
-It does not weaken the check. The cookie is still set and still compared server side, and reading that body requires the caller's origin to be in `AllowedOrigins` (the origin gate for browser mutations protected by the route registry; OAuth callbacks use state binding instead). The exposure that matters in a cross site deployment comes from `SameSite=None`, which removes the browser's own barrier against the cookie riding along on a cross site request. This flag accompanies that decision rather than causing it, and it stays off by default because most deployments read the cookie directly.
-
-**Startup warnings** (logged, not fatal; a native client keeps its own cookie jar and is not subject to `SameSite`, so either setting alone is legitimate there):
-
-- `cookie SameSite=None without CSRFTokenConfig.ExposeCSRFTokenInBody`: a cross-site browser frontend receives the session cookie but cannot read the CSRF token, so reads work and every write `403`s.
-- `CSRFTokenConfig.ExposeCSRFTokenInBody without cookie SameSite=None`: the reverse. The frontend can read the token but is never sent the session cookie, so everything arrives unauthenticated.
-
-- `cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()`: the pair yields *no* session rather than a weaker one, so this is caught in config instead of surfacing as "login succeeds but never sticks".
+The default password policy is `MinLength: 8, RequireDigit: true`. Supplying a policy replaces the struct, so repeat every requirement you want to retain. A zero minimum falls back to eight UTF-8 bytes in validation; the 72-byte maximum always applies. `AllowHTTPURLs` defaults to true in development and false elsewhere and governs rendered email links only. `PepperRotatedAt` defaults to zero; see [secret rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp).
 
 ## `WithPasswordHasher` / `WithBcryptCost`: Optional
 
@@ -330,15 +306,13 @@ The stored string identifies the verifier. `Hash` must return a salted, one-way 
 
 ## `WithTwoFactor`: Optional
 
-Email two-factor settings are separate from CSRF and password policy.
+Email two-factor settings are separate from browser transport and password policy. Challenge binding is mandatory; its cookie name lives at `BrowserConfig.Cookies.ChallengeName`.
 
 ```go
 goauth.WithTwoFactor(goauth.TwoFactorConfig{
     RequireEmail2FA:       false,             // optional, default false
     DefaultEnabled:         false,             // optional, default false
     CodeTTL:                5 * time.Minute,  // optional, default 5m
-    DisableChallengeBinding: false,            // optional, default false
-    ChallengeCookieName:    "_2fa_challenge", // optional, default "_2fa_challenge"
     DisableAdminTwoFactor:  false,             // optional, default false
 })
 ```
@@ -348,8 +322,6 @@ goauth.WithTwoFactor(goauth.TwoFactorConfig{
 | `RequireEmail2FA` | `bool` | `false` | Makes email 2FA mandatory for password login, registration, and invite registration. |
 | `DefaultEnabled` | `bool` | `false` | Seeds `User.TwoFactorEnabled` at registration; users may still opt out. |
 | `CodeTTL` | `time.Duration` | `5m` | Lifetime of a 2FA login code. |
-| `DisableChallengeBinding` | `bool` | `false` | Turns off the browser binding cookie for non-browser consumers. |
-| `ChallengeCookieName` | `string` | `_2fa_challenge` | Overrides the binding cookie name. |
 | `DisableAdminTwoFactor` | `bool` | `false` | Opts out of mandatory admin-account 2FA across password/OAuth login and admin HTTP access. Global/per-user requirements still apply. |
 
 With app permissions enabled, admin-account 2FA applies only to the protected
@@ -403,38 +375,7 @@ goauth.WithSession(goauth.SessionConfig{
 - `session max_lifetime must not be negative (0 = no limit)`
 - `session max_lifetime must not be less than session_ttl`: only checked when `MaxLifetime` is set above zero.
 
-## `WithCookie`: Optional
 
-```go
-goauth.WithCookie(goauth.CookieConfig{
-    Name:        "goauth_session",      // optional, default "goauth_session"
-    RefreshName: "goauth_refresh",      // optional, default "goauth_refresh"
-    Domain:      "",                    // optional, default "" (host-only cookie)
-    Path:        "/",                   // optional, default "/"
-    SameSite:    http.SameSiteLaxMode,  // optional, default Lax
-    Secure:      goauth.SecureAlways(), // optional, default derived from Environment/BaseURL
-})
-```
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `Name` | `string` | Optional | `goauth_session` | |
-| `RefreshName` | `string` | Optional | `goauth_refresh` | |
-| `Domain` | `string` | Optional | `""` (host-only cookie) | Widen it (`".example.com"`) only to share **one login** across subdomains. A frontend on a sibling subdomain does *not* need this to authenticate: the request goes to the API's own host either way. Scope only the CSRF cookie instead, with `CSRFTokenConfig.CookieDomain`. See [Deployment](./guides/deployment.mdx). |
-| `Path` | `string` | Optional | `/` | |
-| `SameSite` | `http.SameSite` | Optional | Lax | Keep `Lax` unless a browser frontend is on a different **registrable domain** from the API. Subdomains of one domain are the same site and work on `Lax`. `None` requires `Secure` (see the error below) and pairs with `CSRFTokenConfig.ExposeCSRFTokenInBody`. See [Deployment](./guides/deployment.mdx). |
-| `Secure` | `*bool` | Optional | derived (`true` unless `Environment` is dev **and** `BaseURL` is `http://`) | Tri-state: `nil` derives it, so the same code is correct in development and production. Override with `goauth.SecureAlways()` or `goauth.SecureNever()` (local `http://` development only). |
-
-**Expected errors**
-
-- `cookie name cannot be empty`: not reachable through `NewConfig` (defaults fill an empty `Name` before validation runs).
-- `cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()`: every current browser discards a `SameSite=None` cookie that is not also `Secure`, so the pairing produces *no* session rather than a weaker one, from the first request, with nothing in the server logs to explain it. This is checked against the **resolved** `Secure` value, so an `https://` `BaseURL` satisfies it without setting `Secure` explicitly.
-
-Every other field is defaulted before the config is checked and cannot fail validation.
-
-<Callout type="info" title="These settings depend on where your frontend is hosted">
-  `Domain` and `SameSite` are the two fields you touch when the frontend is not same-origin with the API, and they pair with `CSRFTokenConfig.CookieDomain` and `ExposeCSRFTokenInBody` above. The [Deployment guide](./guides/deployment.mdx) walks the three topologies and says which fields each one needs, along with what each costs.
-</Callout>
 
 ## `WithRegistration`: Optional, replaces wholesale
 

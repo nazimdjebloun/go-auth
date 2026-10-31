@@ -3,6 +3,8 @@ package goauth
 import (
 	"context"
 	"database/sql"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -38,9 +40,7 @@ func minimalOpts(extra ...Option) []Option {
 			BaseURL:  "https://example.com",
 			Database: DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 		}),
-		WithSecret("0123456789abcdef0123456789abcdef"),
-		WithSecurity(SecurityConfig{AllowedOrigins: []string{"https://example.com"}}),
-		WithMailer(noopMailer{}),
+		WithSecret("0123456789abcdef0123456789abcdef"), WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://example.com"}}), WithMailer(noopMailer{}),
 	}
 	return append(base, extra...)
 }
@@ -105,8 +105,8 @@ func TestDefaults_SecurityKeepsPasswordPolicy(t *testing.T) {
 }
 
 func TestDefaults_SecurityHonoursExplicitPasswordPolicy(t *testing.T) {
-	cfg, err := NewConfig(minimalOpts(WithSecurity(SecurityConfig{
-		AllowedOrigins: []string{"https://example.com"},
+	cfg, err := NewConfig(minimalOpts(WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://example.com"}}), WithSecurity(SecurityConfig{
+
 		PasswordPolicy: domain.PasswordPolicy{MinLength: 16},
 	}))...)
 	if err != nil {
@@ -246,18 +246,18 @@ func TestDefaults_OrganizationsInviteTTL(t *testing.T) {
 }
 
 func TestDefaults_CookieNamesAndPath(t *testing.T) {
-	cfg, err := NewConfig(minimalOpts(WithCookie(CookieConfig{Name: "app_session"}))...)
+	cfg, err := NewConfig(minimalOpts(WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://example.com"}, Cookies: CookieConfig{Name: "app_session"}}))...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.cookie.Name != "app_session" {
-		t.Errorf("cookie name = %q", cfg.cookie.Name)
+	if cfg.browser.Cookies.Name != "app_session" {
+		t.Errorf("cookie name = %q", cfg.browser.Cookies.Name)
 	}
-	if cfg.cookie.RefreshName != "goauth_refresh" {
-		t.Errorf("refresh cookie name = %q, want goauth_refresh", cfg.cookie.RefreshName)
+	if cfg.browser.Cookies.RefreshName != "goauth_refresh" {
+		t.Errorf("refresh cookie name = %q, want goauth_refresh", cfg.browser.Cookies.RefreshName)
 	}
-	if cfg.cookie.Path != "/" {
-		t.Errorf("cookie path = %q, want /", cfg.cookie.Path)
+	if cfg.browser.Cookies.Path != "/" {
+		t.Errorf("cookie path = %q, want /", cfg.browser.Cookies.Path)
 	}
 }
 
@@ -270,10 +270,10 @@ func TestCookieSecure_Resolution(t *testing.T) {
 		want bool
 	}{
 		{"prod https derives secure", EnvironmentProd, "https://example.com", nil, true},
-		{"prod http still secure", EnvironmentProd, "http://example.com", nil, true},
+
 		{"dev http derives insecure", EnvironmentDev, "http://localhost:8080", nil, false},
 		{"dev https derives secure", EnvironmentDev, "https://localhost:8080", nil, true},
-		{"explicit never is honoured", EnvironmentProd, "https://example.com", SecureNever(), false},
+		{"explicit never in dev", EnvironmentDev, "https://example.com", SecureNever(), false},
 		{"explicit always is honoured", EnvironmentDev, "http://localhost", SecureAlways(), true},
 	}
 	for _, tt := range tests {
@@ -285,10 +285,7 @@ func TestCookieSecure_Resolution(t *testing.T) {
 					Environment: tt.env,
 					Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 				}),
-				WithSecret("0123456789abcdef0123456789abcdef"),
-				WithSecurity(SecurityConfig{AllowedOrigins: []string{tt.url}}),
-				WithCookie(CookieConfig{Secure: tt.set}),
-				WithMailer(noopMailer{}),
+				WithSecret("0123456789abcdef0123456789abcdef"), WithBrowser(BrowserConfig{AllowedOrigins: []string{tt.url}, Cookies: CookieConfig{Secure: tt.set}}), WithMailer(noopMailer{}),
 			)
 			if err != nil {
 				t.Fatal(err)
@@ -331,8 +328,7 @@ func TestValidate_RejectsNegativeSessionDurations(t *testing.T) {
 			TokenTTL:        time.Hour,
 			MaxLifetime:     -time.Hour,
 		},
-		cookie:       CookieConfig{Name: "s"},
-		security:     SecurityConfig{AllowedOrigins: []string{"https://example.com"}},
+		browser:      BrowserConfig{Cookies: CookieConfig{Name: "s"}, AllowedOrigins: []string{"https://example.com"}},
 		secret:       "0123456789abcdef0123456789abcdef",
 		registration: RegistrationConfig{InviteTTL: time.Hour, VerificationCodeTTL: time.Hour},
 	}
@@ -375,10 +371,9 @@ func TestAllowHTTPURLs_Resolution(t *testing.T) {
 					Environment: tt.env,
 					Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 				}),
-				WithSecret("0123456789abcdef0123456789abcdef"),
-				WithSecurity(SecurityConfig{
-					AllowedOrigins: []string{"https://example.com"},
-					AllowHTTPURLs:  tt.set,
+				WithSecret("0123456789abcdef0123456789abcdef"), WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://example.com"}}), WithSecurity(SecurityConfig{
+
+					AllowHTTPURLs: tt.set,
 				}),
 				WithMailer(noopMailer{}),
 			)
@@ -400,9 +395,7 @@ func TestDefaults_DevImpliesAllowHTTPURLs(t *testing.T) {
 			Environment: EnvironmentDev,
 			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 		}),
-		WithSecret("0123456789abcdef0123456789abcdef"),
-		WithSecurity(SecurityConfig{AllowedOrigins: []string{"http://localhost:8080"}}),
-		WithMailer(noopMailer{}), // custom mailer, no EmailConfig anywhere
+		WithSecret("0123456789abcdef0123456789abcdef"), WithBrowser(BrowserConfig{AllowedOrigins: []string{"http://localhost:8080"}}), WithMailer(noopMailer{}), // custom mailer, no EmailConfig anywhere
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -420,9 +413,7 @@ func TestDefaults_NoMailerOK_WhenNoEmailFeatureNeedsOne(t *testing.T) {
 			Environment: EnvironmentProd,
 			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 		}),
-		WithSecret("0123456789abcdef0123456789abcdef"),
-		WithSecurity(SecurityConfig{AllowedOrigins: []string{"https://example.com"}}),
-		WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: true}),
+		WithSecret("0123456789abcdef0123456789abcdef"), WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://example.com"}}), WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: true}),
 		// No WithMailer/WithEmail, no RequireEmailVerification/EnableInvite/
 		// RequireEmail2FA/DefaultTwoFactorEnabled — an API-only deployment.
 	)
@@ -439,8 +430,7 @@ func TestDefaults_NoMailerFails_WhenAdminTwoFactorStillOn(t *testing.T) {
 			Environment: EnvironmentProd,
 			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 		}),
-		WithSecret("0123456789abcdef0123456789abcdef"),
-		WithSecurity(SecurityConfig{AllowedOrigins: []string{"https://example.com"}}),
+		WithSecret("0123456789abcdef0123456789abcdef"), WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://example.com"}}),
 		// DisableAdminTwoFactor left at its secure zero value (false).
 	)
 	if err == nil {
@@ -459,9 +449,7 @@ func TestDefaults_NoMailerFails_WhenEnableInviteOn(t *testing.T) {
 			Environment: EnvironmentProd,
 			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 		}),
-		WithSecret("0123456789abcdef0123456789abcdef"),
-		WithSecurity(SecurityConfig{AllowedOrigins: []string{"https://example.com"}}),
-		WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: true}),
+		WithSecret("0123456789abcdef0123456789abcdef"), WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://example.com"}}), WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: true}),
 		WithRegistration(RegistrationConfig{EnableEmailPassword: true, EnableInvite: true}),
 	)
 	if err == nil {
@@ -526,45 +514,70 @@ func TestWithAudit_DoesNotDuplicateSinksOnRepeat(t *testing.T) {
 	}
 }
 
-func TestCSRFToken_OnByDefault(t *testing.T) {
-	// The layer is on unless explicitly disabled: a nil CSRFToken means
-	// "build one with defaults", not "off".
+func TestCSRFToken_AlwaysEnabled(t *testing.T) {
+	// Every constructed instance has signed double-submit protection.
 	a := buildAuth(t, minimalOpts()...)
 	defer a.Close()
-	if a.cfg.security.CSRFToken == nil {
-		t.Fatal("double-submit token layer must be on by default")
+	if a.cfg.csrf == nil {
+		t.Fatal("double-submit token layer must always be present")
 	}
-	if a.cfg.security.CSRFToken.CookieName != "_csrf" || a.cfg.security.CSRFToken.HeaderName != "X-CSRF-Token" {
-		t.Errorf("unexpected auto-created config: %+v", a.cfg.security.CSRFToken)
-	}
-	if len(a.cfg.security.CSRFToken.Secret) == 0 {
+	if len(a.cfg.csrf.Secret) == 0 {
 		t.Error("signing secret was not derived into the token config")
 	}
 }
 
-func TestCSRFToken_Disable(t *testing.T) {
-	a := buildAuth(t, minimalOpts(WithSecurity(SecurityConfig{
-		AllowedOrigins:   []string{"https://example.com"},
-		DisableCSRFToken: true,
-	}))...)
+func TestCSRFToken_Mandatory(t *testing.T) {
+	a := buildAuth(t, minimalOpts()...)
 	defer a.Close()
-	if a.cfg.security.CSRFToken != nil {
-		t.Fatal("DisableCSRFToken must leave csrfToken nil so the middleware passes through")
+	req := httptest.NewRequest("POST", "https://example.com/auth/login", nil)
+	req.Header.Set("Origin", "https://example.com")
+	w := httptest.NewRecorder()
+	h, _ := a.Handler("POST /auth/login")
+	h.ServeHTTP(w, req)
+	if w.Code != 403 || !strings.Contains(w.Body.String(), "csrf_token_missing") {
+		t.Fatalf("missing token accepted: %d %s", w.Code, w.Body.String())
 	}
 }
 
-func TestCSRFToken_DisableWithMissingHeadersIsRejected(t *testing.T) {
-	// Each is a defensible trade on its own; together they remove every CSRF
-	// defense, so the combination is a configuration error.
-	_, err := NewConfig(minimalOpts(WithSecurity(SecurityConfig{
-		AllowedOrigins:          []string{"https://example.com"},
-		DisableCSRFToken:        true,
-		AllowMissingCSRFHeaders: true,
-	}))...)
-	if err == nil {
-		t.Fatal("expected the combination to be rejected")
+func TestRequireCSRF_EnforcesOriginAndBoundToken(t *testing.T) {
+	a := buildAuth(t, minimalOpts(WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://client.example"}}))...)
+	defer a.Close()
+	bootstrap, ok := a.Handler("GET /auth/csrf-token")
+	if !ok {
+		t.Fatal("bootstrap handler is missing")
 	}
-	if !strings.Contains(err.Error(), "DisableCSRFToken and AllowMissingCSRFHeaders") {
-		t.Errorf("error should name both fields, got: %v", err)
+	boot := httptest.NewRecorder()
+	bootstrap.ServeHTTP(boot, httptest.NewRequest("GET", "https://example.com/auth/csrf-token", nil))
+	token := boot.Header().Get("X-CSRF-Token")
+	if boot.Code != 200 || token == "" {
+		t.Fatal("bootstrap did not provide token")
+	}
+	for _, tc := range []struct {
+		name, origin, referer, token string
+		status                       int
+	}{
+		{"allowed", "https://client.example", "", token, 200},
+		{"referer fallback", "", "https://client.example/page", token, 200},
+		{"foreign origin", "https://attacker.example", "", token, 403},
+		{"origin takes precedence", "https://attacker.example", "https://client.example/page", token, 403},
+		{"missing headers", "", "", token, 403},
+		{"missing token", "https://client.example", "", "", 403},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ran := false
+			h := a.RequireCSRF(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { ran = true; w.WriteHeader(200) }))
+			req := httptest.NewRequest("POST", "https://example.com/custom", nil)
+			for _, c := range boot.Result().Cookies() {
+				req.AddCookie(c)
+			}
+			req.Header.Set("Origin", tc.origin)
+			req.Header.Set("Referer", tc.referer)
+			req.Header.Set("X-CSRF-Token", tc.token)
+			response := httptest.NewRecorder()
+			h.ServeHTTP(response, req)
+			if response.Code != tc.status || ran != (tc.status == 200) {
+				t.Fatalf("status=%d ran=%v body=%s", response.Code, ran, response.Body.String())
+			}
+		})
 	}
 }

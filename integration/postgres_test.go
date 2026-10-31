@@ -3,10 +3,11 @@ package integration_test
 import (
 	"context"
 	"database/sql"
-	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/api"
@@ -26,18 +27,18 @@ func newPostgresTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 			Database: goauth.DatabaseConfig{
 				DB:     db,
 				Driver: goauth.DriverPostgres,
-			},
+			}, Environment: goauth.EnvironmentDev,
 		}),
 		goauth.WithSession(goauth.SessionConfig{
 			TTL:      1 * time.Hour,
 			IdleTTL:  1 * time.Hour,
 			TokenTTL: 1 * time.Hour,
 		}),
-		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
-			AllowedOrigins: []string{"http://localhost:8080"},
+
+		goauth.WithBrowser(goauth.BrowserConfig{AllowedOrigins: []string{"http://localhost:8080"}, Cookies: goauth.CookieConfig{Name: "goauth_session"}}), goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs: goauth.AllowPlaintextEmailLinks(),
 		}),
-		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 	)

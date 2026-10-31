@@ -56,7 +56,9 @@ func (c *Config) validateApp() []error {
 	}
 	if c.app.BaseURL == "" {
 		errs = append(errs, errors.New("base_url is required"))
-	} else if parsedURL, err := url.Parse(c.app.BaseURL); err != nil || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+	} else if parsedURL, err := url.Parse(c.app.BaseURL); err != nil ||
+		(parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Hostname() == "" ||
+		parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
 		errs = append(errs, errors.New("base_url must be a valid HTTP or HTTPS URL"))
 	}
 	switch c.app.Environment.normalize() {

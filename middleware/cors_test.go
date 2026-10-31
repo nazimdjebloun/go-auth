@@ -65,3 +65,17 @@ func TestCORS_SpecificOriginsNoCrossLeak(t *testing.T) {
 		t.Error("expected Vary: Origin on b.example response")
 	}
 }
+
+func TestCORS_ExposesCSRFReplacementAndRetryHeaders(t *testing.T) {
+	allowed := corsResponse([]string{"https://panel.example"}, "https://panel.example")
+	if allowed.Header().Get("Access-Control-Expose-Headers") != "X-CSRF-Token, Retry-After" {
+		t.Fatal("browser cannot read token rotation or retry delay")
+	}
+	if allowed.Header().Get("Access-Control-Allow-Headers") != "Content-Type, Authorization, X-CSRF-Token, X-GoAuth-Session" {
+		t.Fatal("browser cannot send the session context selector")
+	}
+	foreign := corsResponse([]string{"https://panel.example"}, "https://attacker.example")
+	if foreign.Header().Get("Access-Control-Allow-Origin") != "" || foreign.Header().Get("Access-Control-Allow-Credentials") != "" {
+		t.Fatal("foreign frontend received credentialled CORS access")
+	}
+}

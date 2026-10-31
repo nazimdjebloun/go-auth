@@ -6,6 +6,8 @@ icon: "UserCog"
 
 # Admin client
 
+Use the [admin fetch wrapper](../../admin-client-config.mdx#the-fetch-wrapper), including for 2FA, refresh, and logout. It selects the independent admin context. Keep delegated operators who sign in through ordinary app login on the app client wrapper.
+
 `adminApi` covers common dashboard operations from the [Admin](../admin.mdx) and
 [Audit Logs](../audit-logs.mdx) guides. The examples below use disabled-mode
 fixed `admin`/`user` roles, which remain supported when app permissions are
@@ -22,87 +24,87 @@ wrappers and shadcn examples for every action, including role assignment and
 permission-aware controls for delegated operators.
 
 ```ts
-import { apiRequest } from "./client";
-
-const API_BASE = "https://api.myapp.com";
+// Use the admin-specific wrapper from Admin Client Integration.
+// It adds X-GoAuth-Session: admin to bootstrap and every API call.
+import { apiRequest } from "./http";
 
 export const adminApi = {
   login: (email: string, password: string) =>
-    apiRequest(API_BASE, "POST", "/auth/admin/login", { email, password }),
+    apiRequest("POST", "/auth/admin/login", { email, password }),
 
   listUsers: (params: Record<string, string | number> = {}) =>
-    apiRequest(API_BASE, "GET", `/admin/users?${new URLSearchParams(params as Record<string, string>)}`),
+    apiRequest("GET", `/admin/users?${new URLSearchParams(params as Record<string, string>)}`),
 
   // The list response has no `total`. Fetch the count separately, keyed on
   // the filter params only (drop offset/limit) so paging doesn't re-run it.
   countUsers: (params: Record<string, string | number> = {}) =>
-    apiRequest(API_BASE, "GET", `/admin/users/count?${new URLSearchParams(params as Record<string, string>)}`),
+    apiRequest("GET", `/admin/users/count?${new URLSearchParams(params as Record<string, string>)}`),
 
-  getUser: (userId: string) => apiRequest(API_BASE, "GET", `/admin/users/${userId}`),
+  getUser: (userId: string) => apiRequest("GET", `/admin/users/${userId}`),
 
   createUser: (input: { email: string; password: string; name: string; role?: "user" | "admin" }) =>
-    apiRequest(API_BASE, "POST", "/admin/users", input),
+    apiRequest("POST", "/admin/users", input),
 
   updateRole: (userId: string, role: "user" | "admin") =>
-    apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/role`, { role }),
+    apiRequest("PATCH", `/admin/users/${userId}/role`, { role }),
 
-  ban: (userId: string) => apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/ban`),
+  ban: (userId: string) => apiRequest("PATCH", `/admin/users/${userId}/ban`),
 
-  unban: (userId: string) => apiRequest(API_BASE, "PATCH", `/admin/users/${userId}/unban`),
+  unban: (userId: string) => apiRequest("PATCH", `/admin/users/${userId}/unban`),
 
-  deleteUser: (userId: string) => apiRequest(API_BASE, "DELETE", `/admin/users/${userId}`),
+  deleteUser: (userId: string) => apiRequest("DELETE", `/admin/users/${userId}`),
 
   listUserSessions: (userId: string, offset = 0, limit = 20) =>
-    apiRequest(API_BASE, "GET", `/admin/users/${userId}/sessions?offset=${offset}&limit=${limit}`),
+    apiRequest("GET", `/admin/users/${userId}/sessions?offset=${offset}&limit=${limit}`),
 
   revokeUserSession: (userId: string, sessionId: string) =>
-    apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions/${sessionId}`),
+    apiRequest("DELETE", `/admin/users/${userId}/sessions/${sessionId}`),
 
   revokeUserSessions: (userId: string) =>
-    apiRequest(API_BASE, "DELETE", `/admin/users/${userId}/sessions`),
+    apiRequest("DELETE", `/admin/users/${userId}/sessions`),
 
   // --- Stats and activity ---
 
-  getStats: () => apiRequest(API_BASE, "GET", "/admin/stats"),
+  getStats: () => apiRequest("GET", "/admin/stats"),
 
   getRegistrationTrend: (from: string, to: string) =>
-    apiRequest(API_BASE, "GET", `/admin/stats/registrations?from=${from}&to=${to}`),
+    apiRequest("GET", `/admin/stats/registrations?from=${from}&to=${to}`),
 
   getLoginActivity: (from: string, to: string, userId?: string) =>
     apiRequest(
-      API_BASE, "GET",
+      "GET",
       `/admin/stats/logins?from=${from}&to=${to}${userId ? `&userId=${userId}` : ""}`
     ),
 
   // --- Audit logs — requires WithAudit(AuditConfig{Enabled: true}) server-side ---
 
   listAuditLogs: (params: Record<string, string | number> = {}) =>
-    apiRequest(API_BASE, "GET", `/admin/audit-logs?${new URLSearchParams(params as Record<string, string>)}`),
+    apiRequest("GET", `/admin/audit-logs?${new URLSearchParams(params as Record<string, string>)}`),
 
   countAuditLogs: (params: Record<string, string | number> = {}) =>
-    apiRequest(API_BASE, "GET", `/admin/audit-logs/count?${new URLSearchParams(params as Record<string, string>)}`),
+    apiRequest("GET", `/admin/audit-logs/count?${new URLSearchParams(params as Record<string, string>)}`),
 
   listUserAuditLogs: (userId: string, params: Record<string, string | number> = {}) =>
-    apiRequest(API_BASE, "GET", `/admin/users/${userId}/audit-logs?${new URLSearchParams(params as Record<string, string>)}`),
+    apiRequest("GET", `/admin/users/${userId}/audit-logs?${new URLSearchParams(params as Record<string, string>)}`),
 
   countUserAuditLogs: (userId: string, params: Record<string, string | number> = {}) =>
-    apiRequest(API_BASE, "GET", `/admin/users/${userId}/audit-logs/count?${new URLSearchParams(params as Record<string, string>)}`),
+    apiRequest("GET", `/admin/users/${userId}/audit-logs/count?${new URLSearchParams(params as Record<string, string>)}`),
 
   // --- Platform invites — requires RegistrationConfig.EnableInvite ---
 
-  createInvite: (email: string) => apiRequest(API_BASE, "POST", "/admin/invites", { email }),
+  createInvite: (email: string) => apiRequest("POST", "/admin/invites", { email }),
 
   listInvites: (params: Record<string, string | number> = {}) =>
-    apiRequest(API_BASE, "GET", `/admin/invites?${new URLSearchParams(params as Record<string, string>)}`),
+    apiRequest("GET", `/admin/invites?${new URLSearchParams(params as Record<string, string>)}`),
 
   countInvites: (params: Record<string, string | number> = {}) =>
-    apiRequest(API_BASE, "GET", `/admin/invites/count?${new URLSearchParams(params as Record<string, string>)}`),
+    apiRequest("GET", `/admin/invites/count?${new URLSearchParams(params as Record<string, string>)}`),
 
-  revokeInvite: (inviteId: string) => apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}`),
+  revokeInvite: (inviteId: string) => apiRequest("DELETE", `/admin/invites/${inviteId}`),
 
-  resendInvite: (inviteId: string) => apiRequest(API_BASE, "POST", `/admin/invites/${inviteId}/resend`),
+  resendInvite: (inviteId: string) => apiRequest("POST", `/admin/invites/${inviteId}/resend`),
 
-  deleteInvite: (inviteId: string) => apiRequest(API_BASE, "DELETE", `/admin/invites/${inviteId}/hard`),
+  deleteInvite: (inviteId: string) => apiRequest("DELETE", `/admin/invites/${inviteId}/hard`),
 };
 ```
 
@@ -309,6 +311,6 @@ await adminApi.resendInvite(invite.id); // issues a fresh code, invalidates the 
 
 ## Next
 
-- [Setup](./index.mdx) — the `apiRequest` helper this is built on
+- [Admin wrapper](../../admin-client-config.mdx#the-fetch-wrapper) — the `apiRequest` helper this is built on
 - [Admin](../admin.mdx) — full request/response/error reference
 - [Audit Logs](../audit-logs.mdx) — event types and filter params

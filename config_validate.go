@@ -3,7 +3,6 @@ package goauth
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/nazimdjebloun/go-auth/mailer"
@@ -24,7 +23,7 @@ func (c *Config) validate() error {
 		c.validateApp,
 		c.validateDatabase,
 		c.validateSession,
-		c.validateCookie,
+		c.validateBrowser,
 		c.validateSecurity,
 		c.validateTwoFactor,
 		c.validateMailer,
@@ -53,24 +52,6 @@ func (c *Config) validate() error {
 // section's function.
 func (c *Config) validateCoherence() []error {
 	var errs []error
-
-	// Both CSRF layers off at once. Either alone is a supported posture; the
-	// pair means a cross-site request with no Origin/Referer and no token is
-	// accepted.
-	if c.security.DisableCSRFToken && c.security.AllowMissingCSRFHeaders {
-		errs = append(errs, errors.New(
-			"security: DisableCSRFToken and AllowMissingCSRFHeaders cannot both be set — "+
-				"a cross-site request with no Origin/Referer and no token would pass; keep one of the two layers"))
-	}
-
-	// SameSite=None without Secure is rejected outright by every current
-	// browser, so this pairing does not produce a weaker session — it
-	// produces no session at all, from the first request, with nothing in the
-	// server logs to explain why. Catching it here beats debugging it as
-	// "login succeeds but the user is never logged in".
-	if c.cookie.SameSite == http.SameSiteNoneMode && !c.resolved.cookieSecure {
-		errs = append(errs, errors.New("cookie: same_site=None requires a secure cookie - browsers reject SameSite=None without Secure; use an https:// BaseURL or goauth.SecureAlways()"))
-	}
 
 	// The log mailer writes codes and reset links to the application log
 	// instead of delivering them, which is a development convenience and a

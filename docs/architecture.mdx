@@ -110,6 +110,7 @@ below describes the default mode; opt-in custom roles use explicit operation gra
 | `internal/migrations` | Immutable embedded catalogs, standalone execution, database history, migration locks, baseline adoption, verification and artifact export. The root migration functions expose this independently of `Auth`. |
 | `internal/sqlstore` | The `port` repository interfaces implemented over `database/sql`. One `_repo.go` per aggregate, plus the `DB` wrapper described below. |
 | `internal/routes` | Canonical `"METHOD /path"` constants used by HTTP wiring and rate limit configuration. |
+| `internal/sessioncontext` | Internal app/admin credential context carried through services, refresh, 2FA, and OAuth. HTTP middleware validates the selector; it grants no permissions. |
 | `internal/httproutes` | The enabled route registry: pairs canonical patterns with handlers and each route's exact middleware chain. |
 | `internal` | Other unexported packages not part of the public API: `schema` (the embedded SQL statements + the statement splitter), `testutil` (hand-written fakes for the `port` interfaces), and low-level `crypto`/`keyring`/`otp` helpers. |
 

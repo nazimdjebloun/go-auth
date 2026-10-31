@@ -44,7 +44,9 @@ func registerForScopedRoute(t *testing.T, a *Auth, email string) *api.RegisterRe
 func addSessionCookies(t *testing.T, a *Auth, req *http.Request, result *api.RegisterResult) {
 	t.Helper()
 	rec := httptest.NewRecorder()
-	a.SetSessionCookies(rec, result.SessionToken, result.RefreshToken)
+	if err := a.SetSessionCookies(rec, req, result.Session.ID, result.SessionToken, result.RefreshToken); err != nil {
+		t.Fatal(err)
+	}
 	for _, cookie := range rec.Result().Cookies() {
 		req.AddCookie(cookie)
 	}

@@ -59,48 +59,31 @@ func (a *Auth) CORS(next http.Handler) http.Handler {
 	return a.corsMW(next)
 }
 
-// RequireCSRF applies the same double-submit CSRF verification the built-in
-// mutating routes use to a consumer route — checks the X-CSRF-Token header
-// against the signed _csrf cookie set by the priming GET request. A no-op
-// (passthrough) if the double-submit CSRF layer is disabled
-// (SecurityConfig.DisableCSRFToken). The routes mounted by Mount already have
-// this baked in — this is for your own routes only.
+// RequireCSRF applies mandatory signed double-submit and Origin/Referer
+// verification to application routes. Mount already applies both to mutations.
 func (a *Auth) RequireCSRF(next http.Handler) http.Handler {
-	return middleware.CSRFToken(a.cfg.security.CSRFToken)(next)
+	var trusted []string
+	if a.cfg.rateLimit != nil {
+		trusted = a.cfg.rateLimit.TrustedIPs
+	}
+	origin := middleware.OriginCheck(a.cfg.browser.AllowedOrigins, false, trusted, a.cfg.logger)
+	return middleware.BrowserSession(a.cfg.logger, false)(origin(middleware.CSRFToken(a.cfg.csrf)(next)))
 }
 
-// Session cookie accessors.
-
-// SetSessionCookies writes the session and refresh cookies for a newly
-// issued token pair, using the configured cookie settings. Pair it with a
-// custom handler that calls a.Services().Auth.Login (or Register) directly —
-// that call returns raw tokens with no cookies set; this is how you turn
-// them into the same cookies the built-in handlers issue. A non-empty
-// refreshToken is required to also write the refresh cookie; pass "" to
-// skip it (mirrors the built-in handlers' behavior when no refresh token
-// was issued).
-//
-// This does not rotate the CSRF token — call RotateCSRFToken separately if
-// your handler needs the same "session issued" ceremony the built-in login
-// handlers perform.
-func (a *Auth) SetSessionCookies(w http.ResponseWriter, sessionToken, refreshToken string) {
-	middleware.SetSessionCookie(w, a.cookies, sessionToken)
-	middleware.SetRefreshCookie(w, a.cookies, refreshToken)
+// SetSessionCookies issues session/refresh cookies and a session-bound CSRF
+// token together. Supply the stable ID returned alongside the raw credentials.
+func (a *Auth) SetSessionCookies(w http.ResponseWriter, r *http.Request, sessionID, sessionToken, refreshToken string) error {
+	return middleware.SetAuthenticationCookies(w, r, a.cookies, a.cfg.csrf, sessionID, sessionToken, refreshToken)
 }
 
-// ClearSessionCookies expires both the session and refresh cookies. Pair it
-// with a custom handler that revokes the session itself via
-// a.Services().Session.Revoke.
-func (a *Auth) ClearSessionCookies(w http.ResponseWriter) {
-	middleware.ClearSessionCookie(w, a.cookies)
-	middleware.ClearRefreshCookie(w, a.cookies)
+// ClearSessionCookies clears credentials and issues anonymous browser CSRF
+// protection. Revoke the session through the service before calling this.
+func (a *Auth) ClearSessionCookies(w http.ResponseWriter, r *http.Request) error {
+	return middleware.ClearAuthenticationCookies(w, r, a.cookies, a.cfg.csrf)
 }
 
-// RotateCSRFToken issues a fresh CSRF token cookie, using the configured
-// CSRF settings. A no-op if the double-submit CSRF layer is disabled
-// (SecurityConfig.DisableCSRFToken). Call this alongside SetSessionCookies
-// in a custom login handler to match the built-in handlers, which rotate
-// the CSRF token on every login/logout.
-func (a *Auth) RotateCSRFToken(w http.ResponseWriter) {
-	middleware.RotateCSRFToken(w, a.cfg.security.CSRFToken)
+// RotateCSRFToken replaces CSRF protection in the current request context.
+// Session issuance and clearing already perform their own rotation.
+func (a *Auth) RotateCSRFToken(w http.ResponseWriter, r *http.Request) error {
+	return middleware.RotateCSRFToken(w, r, a.cfg.csrf)
 }

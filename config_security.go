@@ -9,27 +9,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-// SecurityConfig groups CSRF, password, and email-link settings. Two-factor
-// options moved to TwoFactorConfig — they were six of this struct's thirteen
-// fields, and TOTP will add more.
+// SecurityConfig groups password, email-link, and OTP pepper rotation policy.
+// Browser transport belongs to BrowserConfig; two-factor policy to TwoFactorConfig.
 type SecurityConfig struct {
-	AllowedOrigins          []string                    // allowed origins for CSRF Origin/Referer check
-	AllowMissingCSRFHeaders bool                        // allow requests without Origin/Referer headers (default false)
-	CSRFToken               *middleware.CSRFTokenConfig // double-submit cookie CSRF (optional overrides; the layer is on by default)
-	PasswordPolicy          domain.PasswordPolicy       // password complexity (zero value = MinLength 8, RequireDigit)
-
-	// DisableCSRFToken turns off the double-submit cookie layer. Origin/Referer
-	// checking still applies and cannot be disabled. Intended for deployments
-	// with no browser clients — a CLI or a server-to-server API — where CSRF is
-	// not part of the threat model and the token round-trip is pure friction.
-	//
-	// The zero value keeps the layer on: this is spelled as "Disable" rather
-	// than "Enable" so that forgetting it is the secure outcome.
-	DisableCSRFToken bool
+	PasswordPolicy domain.PasswordPolicy // zero value = MinLength 8, RequireDigit
 
 	// AllowHTTPURLs permits http:// links in rendered emails. It governs
 	// template rendering, not transport, so it applies to every mailer.
@@ -72,8 +58,7 @@ type PasswordPepperConfig struct {
 	Keys           map[uint32]string
 }
 
-// TwoFactorConfig groups the email two-factor settings, split out of
-// SecurityConfig where they were six of thirteen fields.
+// TwoFactorConfig controls email two-factor policy and code lifetime.
 type TwoFactorConfig struct {
 	// RequireEmail2FA makes email two-factor mandatory for every password
 	// login. Enable/Disable both reject while it is on, so users cannot opt
@@ -88,21 +73,6 @@ type TwoFactorConfig struct {
 	// shorter than VerificationCodeTTL: a 6-digit code has ~20 fewer bits than
 	// the 8-char alphanumeric codes used elsewhere.
 	CodeTTL time.Duration
-
-	// DisableChallengeBinding turns off the challenge binding cookie, which
-	// otherwise ties a 2FA challenge to the browser that started it.
-	//
-	// As with DisableCSRFToken, the zero value keeps the protection on: this is
-	// spelled as "Disable" so that forgetting it is the secure outcome. Intended
-	// for the same consumers — a CLI or server-to-server API with no browser —
-	// where a mandatory cookie makes 2FA unusable. With it set, the challenge id
-	// alone identifies the challenge, so treat it as a secret and keep it out of
-	// logs.
-	DisableChallengeBinding bool
-
-	// ChallengeCookieName overrides the binding cookie name
-	// (default "_2fa_challenge").
-	ChallengeCookieName string
 
 	// DisableAdminTwoFactor turns off the unconditional email two-factor
 	// requirement for admin password/OAuth login and privileged HTTP access.
@@ -159,21 +129,13 @@ func WithBcryptCost(cost int) Option {
 	}
 }
 
-// WithSecurity groups CSRF, password, and email-link settings. A zero-valued
+// WithSecurity groups password and email-link settings. A zero-valued
 // PasswordPolicy keeps its default — see applyDefaults. Two-factor options are
 // separate: see WithTwoFactor.
 func WithSecurity(cfg SecurityConfig) Option {
 	return func(c *Config) {
 		c.security = cfg
-		// AllowedOrigins and CSRFToken are the two reference types in this
-		// section, so they are copied rather than aliased: the consumer keeps
-		// ownership of what they passed, and New() resolves defaults onto
-		// CSRFToken in place.
-		c.security.AllowedOrigins = append([]string(nil), cfg.AllowedOrigins...)
-		if cfg.CSRFToken != nil {
-			tok := *cfg.CSRFToken
-			c.security.CSRFToken = &tok
-		}
+
 	}
 }
 
@@ -216,14 +178,7 @@ func (c *Config) validateSecurity() []error {
 	} else if len(c.secret) < 32 {
 		errs = append(errs, errors.New("secret: signing secret must be at least 32 bytes for HMAC-SHA256"))
 	}
-	if len(c.security.AllowedOrigins) == 0 {
-		errs = append(errs, errors.New("allowed_origins must include at least one origin"))
-	}
-	for _, o := range c.security.AllowedOrigins {
-		if o == "*" {
-			errs = append(errs, errors.New("allowed_origins must not contain \"*\" — this disables CSRF protection; list specific origins instead"))
-		}
-	}
+
 	return errs
 }
 func (c *Config) validateTwoFactor() []error {
@@ -291,9 +246,6 @@ func RequireHTTPSEmailLinks() *bool { return boolPtr(false) }
 func (c *Config) applyTwoFactorDefaults() {
 	if c.twoFactor.CodeTTL == 0 {
 		c.twoFactor.CodeTTL = 5 * time.Minute
-	}
-	if c.twoFactor.ChallengeCookieName == "" {
-		c.twoFactor.ChallengeCookieName = "_2fa_challenge"
 	}
 }
 

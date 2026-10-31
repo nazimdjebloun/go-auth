@@ -15,6 +15,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/routes"
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/internal/testdb"
 )
@@ -51,8 +52,7 @@ func newAppHTTPFixture(t *testing.T, management, requireMFA bool, options ...Opt
 		WithSecret("0123456789abcdef0123456789abcdef"),
 		WithBcryptCost(4),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
-		WithRegistration(RegistrationConfig{EnableEmailPassword: true, AllowPublic: true, EnableInvite: true}),
-		WithSecurity(SecurityConfig{AllowedOrigins: []string{"http://localhost"}, DisableCSRFToken: true, AllowHTTPURLs: AllowPlaintextEmailLinks()}),
+		WithRegistration(RegistrationConfig{EnableEmailPassword: true, AllowPublic: true, EnableInvite: true}), WithBrowser(BrowserConfig{AllowedOrigins: []string{"http://localhost"}}), WithSecurity(SecurityConfig{AllowHTTPURLs: AllowPlaintextEmailLinks()}),
 		WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: !requireMFA}),
 		WithAppPermissions(AppPermissionsConfig{Enable: true, EnableManagementHTTP: management}),
 	}
@@ -80,10 +80,36 @@ func newAppHTTPFixture(t *testing.T, management, requireMFA bool, options ...Opt
 func (f appHTTPFixture) request(t *testing.T, method, path, body, token string, want int) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	adminContext := path == "/auth/admin/login" || sessioncontext.Of(token) == sessioncontext.Admin
+	if adminContext {
+		r.Header.Set("X-GoAuth-Session", "admin")
+	}
 	r.Header.Set("Origin", "http://localhost")
 	r.Header.Set("Content-Type", "application/json")
 	if token != "" {
-		r.Header.Set("Cookie", f.a.cfg.cookie.Name+"="+token)
+		name := f.a.cfg.browser.Cookies.Name
+		if adminContext {
+			name = f.a.cfg.browser.Cookies.AdminName
+		}
+		r.Header.Set("Cookie", name+"="+token)
+	}
+	if method != "GET" && method != "HEAD" && method != "OPTIONS" {
+		bootstrap := httptest.NewRequest("GET", "/auth/csrf-token", nil)
+		if adminContext {
+			bootstrap.Header.Set("X-GoAuth-Session", "admin")
+		}
+		for _, cookie := range r.Cookies() {
+			bootstrap.AddCookie(cookie)
+		}
+		bw := httptest.NewRecorder()
+		f.mux.ServeHTTP(bw, bootstrap)
+		if bw.Code != 200 {
+			t.Fatalf("CSRF bootstrap: %d %s", bw.Code, bw.Body.String())
+		}
+		for _, cookie := range bw.Result().Cookies() {
+			r.AddCookie(cookie)
+		}
+		r.Header.Set("X-CSRF-Token", bw.Header().Get("X-CSRF-Token"))
 	}
 	w := httptest.NewRecorder()
 	f.mux.ServeHTTP(w, r)

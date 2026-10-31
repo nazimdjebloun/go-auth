@@ -7,6 +7,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/handler"
 	"github.com/nazimdjebloun/go-auth/internal/httproutes"
+	routepatterns "github.com/nazimdjebloun/go-auth/internal/routes"
 	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
@@ -24,6 +25,12 @@ type httpWiring struct {
 func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 	svc := wired.services
 	cookies := wired.cookies
+	cfg.csrf.Sessions = wired.sessionRepo
+	cfg.csrf.SessionCookie = cookies.Name
+	cfg.csrf.RefreshCookie = cookies.RefreshName
+	cfg.csrf.AdminSessionCookie = cookies.AdminName
+	cfg.csrf.AdminRefreshCookie = cookies.AdminRefreshName
+	cfg.csrf.ValidateSession = svc.Session.ValidateBrowserSnapshot
 	sessSvc, oauthSvc, orgSvc := svc.Session, svc.OAuth, svc.Org
 	userRepo, orgRepo := wired.userRepo, wired.orgRepo
 	// One description of the deployment's proxy setup, shared by everything
@@ -53,10 +60,10 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 		OrgInvite:      svc.OrgInvite,
 		TwoFactor:      svc.TwoFactor,
 		AuditLog:       svc.AuditLog,
-	}, cfg.logger, cfg.security.CSRFToken, clientIPCfg, cookies)
+	}, cfg.logger, cfg.csrf, clientIPCfg, cookies)
 
 	// OAuth handlers (separate because they need baseURL for redirects).
-	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, cfg.app.BaseURL, cfg.security.CSRFToken, clientIPCfg, cookies, cfg.logger)
+	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, cfg.app.BaseURL, cfg.csrf, clientIPCfg, cookies, cfg.logger)
 	oauthHandlers.AttachTwoFactor(svc.TwoFactor)
 
 	authMW := middleware.AuthMiddleware(sessSvc, cookies, userRepo, cfg.logger)
@@ -81,9 +88,9 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 		}
 	}
 	rateLimitMW := middleware.RateLimit(cfg.rateLimit)
-	csrfMW := middleware.OriginCheck(cfg.security.AllowedOrigins, cfg.security.AllowMissingCSRFHeaders, trustedIPs, cfg.logger)
-	csrfTokenMW := middleware.CSRFToken(cfg.security.CSRFToken)
-	corsMW := middleware.CORS(cfg.security.AllowedOrigins)
+	csrfMW := middleware.OriginCheck(cfg.browser.AllowedOrigins, false, trustedIPs, cfg.logger)
+	csrfTokenMW := middleware.CSRFToken(cfg.csrf)
+	corsMW := middleware.CORS(cfg.browser.AllowedOrigins)
 
 	// Org authorization: orgMemberMW verifies the authenticated user is a
 	// member of the {orgID} path segment; orgAdminMW/orgOwnerMW additionally
@@ -123,6 +130,10 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 		CSRF: csrfMW, Auth: authMW, Admin: adminMW,
 		OrgMember: orgMemberMW, OrgAdmin: orgAdminMW, OrgOwner: orgOwnerMW,
 	})
+
+	for i := range routes {
+		routes[i].Handler = corsMW(middleware.BrowserSession(cfg.logger, routes[i].Pattern == routepatterns.AdminLogin)(routes[i].Handler))
+	}
 
 	return httpWiring{
 		authMW: authMW, adminMW: adminMW, rateLimitMW: rateLimitMW,

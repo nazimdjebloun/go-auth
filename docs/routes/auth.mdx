@@ -6,9 +6,11 @@ icon: "LogIn"
 
 # Authentication
 
-Identity and credential flows. `Auth` is either `Public` (no session needed) or `Session` (the session cookie is required; without it the route answers `401 {"error": ..., "message": ...}`). Cookie names below are the defaults (`goauth_session`, `goauth_refresh`); see `WithCookie` on [Configuration](../configuration.mdx). Tokens travel in cookies, never in bodies: on direct login and register the handler sets both cookies and omits token fields from JSON. User examples show the default disabled app-permissions mode; enabled mode omits `role` and returns app-role identity/assignment fields. All error responses use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx).
+Identity and credential flows. `Auth` is either `Public` (no session needed) or `Session` (the session cookie is required; without it the route answers `401 {"error": ..., "message": ...}`). Cookie names below are the defaults (`goauth_session`, `goauth_refresh`); see `WithBrowser` on [Configuration](../configuration.mdx). Session credentials travel in cookies, never in bodies: on direct login and register the handler sets both cookies and omits token fields from JSON. User examples show the default disabled app-permissions mode; enabled mode omits `role` and returns app-role identity/assignment fields. All error responses use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx).
 
 `POST /auth/register` is only mounted when `EnableEmailPassword` is true. Invite routes are only mounted when `EnableInvite` is true.
+
+Requests use the app context by default. The admin client sends `X-GoAuth-Session: admin` on every request, including CSRF bootstrap and 2FA verification. Admin login always selects admin; its default cookies are `goauth_admin_session`, `goauth_admin_refresh`, and `_goauth_admin_2fa_challenge`, with `_goauth_admin_csrf` for CSRF. Follow-up `/auth/me`, refresh, and logout requests need the selector too. Register and invite-register reject admin context; use the app registration flow to create an account. See [browser configuration](../configuration.mdx#independent-app-and-admin-sessions).
 
 User examples below show the default mode. With app permissions enabled, user
 objects omit the `role` field and include `appRoleId` and

@@ -115,7 +115,8 @@ func main() {
 			},
 		}),
 		goauth.WithSecret(os.Getenv("AUTH_SECRET")), // at least 32 bytes
-		goauth.WithSecurity(goauth.SecurityConfig{
+		goauth.WithBrowser(goauth.BrowserConfig{
+			APIURL: "http://localhost:8080",
 			AllowedOrigins: []string{"http://localhost:3000"},
 		}),
 	)
@@ -182,6 +183,10 @@ For production, configure SMTP with `WithEmail` or provide a custom
 admin-login 2FA is one such feature and is enabled by default. PostgreSQL support
 is built on pgx. SQLite and MySQL applications must blank-import their selected
 `database/sql` driver.
+
+Browser CSRF protection is mandatory: `GET /auth/csrf-token` returns JSON and sets an HttpOnly cookie; echo the token in `X-CSRF-Token` with credentials on mutations. Handle replacement response headers after authentication changes. See [browser configuration](docs/configuration.mdx#withbrowser-required-allowedorigins), [deployment](docs/guides/deployment.mdx), and [breaking API migration](docs/guides/integration.mdx#browser-and-csrf-migration).
+
+One API can serve an app and an admin dashboard with independent logins in the same browser. The app uses the default cookie context; the panel sends `X-GoAuth-Session: admin` on every request, selecting separate session, refresh, challenge, and CSRF cookies. Both frontends can call the API directly. The selector grants no permissions; normal authorization and 2FA checks still apply.
 
 ## Password security
 

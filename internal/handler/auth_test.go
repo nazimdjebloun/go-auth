@@ -457,8 +457,8 @@ func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
 		t.Fatalf("expected admin login to require two-factor, got %v", resp)
 	}
 	for _, c := range res.Cookies() {
-		if c.Name == "goauth_session" {
-			t.Fatal("must not set goauth_session before the second factor is verified")
+		if c.Name == "goauth_admin_session" {
+			t.Fatal("must not set goauth_admin_session before the second factor is verified")
 		}
 	}
 	user, ok := resp["user"].(map[string]any)
@@ -474,7 +474,7 @@ func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
 	}
 	var bindingCookie *http.Cookie
 	for _, c := range res.Cookies() {
-		if c.Name == "_2fa_challenge" {
+		if c.Name == "_goauth_admin_2fa_challenge" {
 			bindingCookie = c
 		}
 	}
@@ -486,6 +486,7 @@ func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
 	verifyBody := `{"challengeId":"` + challengeID + `","code":"` + code + `"}`
 	verifyReq := httptest.NewRequest(http.MethodPost, "/auth/2fa/verify", strings.NewReader(verifyBody))
 	verifyReq.Header.Set("Content-Type", "application/json")
+	verifyReq.Header.Set("X-GoAuth-Session", "admin")
 	verifyReq.AddCookie(bindingCookie)
 	verifyW := httptest.NewRecorder()
 	th.handler.VerifyTwoFactor(verifyW, verifyReq)
@@ -497,13 +498,13 @@ func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
 
 	var sessionCookie *http.Cookie
 	for _, c := range verifyRes.Cookies() {
-		if c.Name == "goauth_session" {
+		if c.Name == "goauth_admin_session" {
 			sessionCookie = c
 			break
 		}
 	}
 	if sessionCookie == nil {
-		t.Fatal("expected goauth_session cookie after completing admin two-factor verification")
+		t.Fatal("expected goauth_admin_session cookie after completing admin two-factor verification")
 	}
 	if sessionCookie.Value == "" {
 		t.Error("expected non-empty cookie value")
@@ -662,65 +663,27 @@ func TestGetMe_OmitsSessionWhenAbsent(t *testing.T) {
 	}
 }
 
-// GET /auth/csrf-token stays a bare 204 unless a deployment opts in. The token
-// is in the cookie; a client that can read it needs nothing in the body, and a
-// value not in a body cannot be cached or logged by an intermediary.
-func TestGetCSRFToken_204ByDefault(t *testing.T) {
+func TestGetCSRFToken_JSONAndNoStore(t *testing.T) {
 	th := newTestHarness()
-
-	req := httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil).
-		WithContext(middleware.ContextWithCSRFToken(context.Background(), "tok.sig"))
+	req := httptest.NewRequest("GET", "/auth/csrf-token", nil).WithContext(middleware.ContextWithCSRFToken(context.Background(), "tok.sig"))
 	w := httptest.NewRecorder()
 	th.handler.GetCSRFToken(w, req)
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d", w.Code)
+	if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("bootstrap: %d %v", w.Code, w.Header())
 	}
-	if body := w.Body.String(); strings.Contains(body, "tok.sig") {
-		t.Errorf("token leaked into the body without opting in: %s", body)
+	var payload map[string]string
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
 	}
-}
-
-// With ExposeCSRFTokenInBody the same route answers 200 {"token": ...} — the
-// opt-in for a frontend on a different registrable domain, which cannot read
-// the cookie however it is scoped.
-func TestGetCSRFToken_BodyWhenExposed(t *testing.T) {
-	th := newTestHarness()
-	th.handler.csrfTokenCfg = &middleware.CSRFTokenConfig{ExposeCSRFTokenInBody: true}
-
-	req := httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil).
-		WithContext(middleware.ContextWithCSRFToken(context.Background(), "tok.sig"))
-	w := httptest.NewRecorder()
-	th.handler.GetCSRFToken(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", w.Code)
-	}
-	var resp map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("decoding body: %v", err)
-	}
-	if resp["token"] != "tok.sig" {
-		t.Errorf("token = %q, want tok.sig", resp["token"])
-	}
-	// A 200 with a body is cacheable where a 204 was not, and a shared cache
-	// handing one visitor's token to the next would hand over a working one.
-	if cc := w.Header().Get("Cache-Control"); cc != "no-store" {
-		t.Errorf("Cache-Control = %q, want no-store", cc)
+	if payload["token"] != "tok.sig" {
+		t.Fatal("missing token")
 	}
 }
-
-// Opted in but the CSRF middleware isn't in front of this route: there is no
-// token to hand back, and inventing one would hand out a value the cookie
-// doesn't match.
-func TestGetCSRFToken_NoTokenInContext(t *testing.T) {
+func TestGetCSRFToken_MissingMiddlewareFailsClosed(t *testing.T) {
 	th := newTestHarness()
-	th.handler.csrfTokenCfg = &middleware.CSRFTokenConfig{ExposeCSRFTokenInBody: true}
-
 	w := httptest.NewRecorder()
-	th.handler.GetCSRFToken(w, httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil))
-
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("expected 204, got %d", w.Code)
+	th.handler.GetCSRFToken(w, httptest.NewRequest("GET", "/auth/csrf-token", nil))
+	if w.Code != 500 {
+		t.Fatalf("status=%d", w.Code)
 	}
 }

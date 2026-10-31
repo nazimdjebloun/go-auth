@@ -7,6 +7,7 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -29,6 +30,10 @@ func (h *Handler) GetInviteInfo(w http.ResponseWriter, r *http.Request) {
 
 // InviteRegister registers a user from an invitation.
 func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
+	if sessioncontext.Current(r.Context()) == sessioncontext.Admin {
+		h.writeError(w, domain.ErrInvalidSessionContext)
+		return
+	}
 	var body struct {
 		Code            string `json:"code"`
 		Name            string `json:"name"`
@@ -52,13 +57,13 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.RequiresTwoFactor {
-		h.writeTwoFactorChallenge(w, http.StatusCreated, result.User, result.CodeSent, result.TwoFactorChallenge, result.TwoFactorExpiresAt, result.BindingToken())
+		h.writeTwoFactorChallenge(w, r, http.StatusCreated, result.User, result.CodeSent, result.TwoFactorChallenge, result.TwoFactorExpiresAt, result.BindingToken())
 		return
 	}
 
-	middleware.SetSessionCookie(w, h.cookies, result.SessionToken)
-	middleware.SetRefreshCookie(w, h.cookies, result.RefreshToken)
-	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
+	if !h.issueSessionCookies(w, r, result.Session, result.SessionToken, result.RefreshToken) {
+		return
+	}
 	result.SessionToken = ""
 	result.RefreshToken = ""
 	h.writeJSON(w, http.StatusCreated, result)

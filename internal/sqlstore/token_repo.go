@@ -166,3 +166,24 @@ func (r *TokenRepository) UpdateForResend(ctx context.Context, id string, newHas
 	return affected(r.db.ExecContext(ctx, tokenUpdateForResendQuery,
 		newHash, newExpiresAt, newCreatedAt, id, maxRefreshesPerChallenge, maxAttemptsPerChallenge))
 }
+
+// GetLastTwoFactor returns the newest challenge in the selected browser context.
+func (r *TokenRepository) GetLastTwoFactor(ctx context.Context, userID string, admin bool) (*domain.VerificationToken, error) {
+	predicate := "token_hash NOT LIKE 'ga-admin.%'"
+	if admin {
+		predicate = "token_hash LIKE 'ga-admin.%'"
+	}
+	query := sqlText("SELECT " + tokenSelectColumns + " FROM verification_tokens WHERE user_id=$1 AND type=$2 AND " + predicate + " ORDER BY created_at DESC LIMIT 1")
+	return scanToken(r.db.QueryRowContext(ctx, query, userID, domain.TokenTwoFactor))
+}
+
+// DeleteUnusedTwoFactor leaves challenges in the other browser context untouched.
+func (r *TokenRepository) DeleteUnusedTwoFactor(ctx context.Context, userID string, admin bool) error {
+	predicate := "token_hash NOT LIKE 'ga-admin.%'"
+	if admin {
+		predicate = "token_hash LIKE 'ga-admin.%'"
+	}
+	query := sqlText("DELETE FROM verification_tokens WHERE user_id=$1 AND type=$2 AND used_at IS NULL AND " + predicate)
+	_, err := r.db.ExecContext(ctx, query, userID, domain.TokenTwoFactor)
+	return err
+}

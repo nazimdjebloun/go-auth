@@ -8,6 +8,8 @@ icon: "MonitorSmartphone"
 
 The self-service surface on top of the two-token session model: checking whether a request is authenticated, listing a user's own active sessions, and revoking them. For the token/cookie mechanics themselves (rotation, hashing, the grace window) see [Security concepts](../security.mdx) and the `sessions` table on [Schemas](../schemas.mdx#sessions). For an admin viewing or revoking *another* user's sessions, see [Admin](./admin.mdx#managing-a-users-sessions) — that's a different, role-gated surface and isn't covered here.
 
+The curl mutation examples use `jq` to read the mandatory CSRF bootstrap JSON. Keep the same cookie jar for bootstrap and the following request; the bootstrap is repeated after authentication changes.
+
 ## Configuration
 
 Two options govern everything on this page: `SessionConfig` sets the lifetimes that decide when the endpoints below actually have something to show, and `CookieConfig` sets the cookie names every curl example on this page reads and writes.
@@ -49,29 +51,9 @@ goauth.WithSession(goauth.SessionConfig{
 - `session max_lifetime must not be negative (0 = no limit)`
 - `session max_lifetime must not be less than session_ttl` — hint: only checked when `MaxLifetime` is set above zero.
 
-```go
-goauth.WithCookie(goauth.CookieConfig{
-    Name:        "goauth_session",     // optional, default "goauth_session"
-    RefreshName: "goauth_refresh",     // optional, default "goauth_refresh"
-    Domain:      "",                    // optional, default "" (host-only cookie)
-    Path:        "/",                   // optional, default "/"
-    SameSite:    http.SameSiteLaxMode,  // optional, default Lax
-    Secure:      goauth.SecureAlways(), // optional, default derived from Environment/BaseURL
-})
-```
+Cookie delivery lives under `WithBrowser(BrowserConfig{APIURL, AllowedOrigins, Cookies: CookieConfig{...}})`. Cookies default to host-only, path `/`, Lax, and names `goauth_session` / `goauth_refresh`. Secure derives from the public API origin and environment; HTTP development works, and insecure `SameSite=None` is rejected in every environment. See [full browser configuration](../configuration.mdx#withbrowser-required-allowedorigins) and [session lifetimes](../configuration.mdx#withsession-optional).
 
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `Name` | `string` | Optional | `goauth_session` | The cookie name every curl example on this page passes via `-b`/`-c`. Change it here and the examples change with it. |
-| `RefreshName` | `string` | Optional | `goauth_refresh` | The cookie `AuthMiddleware` reads for the transparent refresh. |
-| `Domain` | `string` | Optional | `""` — host-only cookie | |
-| `Path` | `string` | Optional | `/` | |
-| `SameSite` | `http.SameSite` | Optional | Lax | |
-| `Secure` | `*bool` | Optional | derived — `true` unless `Environment` is dev **and** `BaseURL` is `http://` | Tri-state: `nil` derives it correctly for dev and prod. Override with `goauth.SecureAlways()` or `goauth.SecureNever()` (local `http://` only). |
-
-Zero-valued cookie fields receive defaults before validation. Invalid combinations can still fail validation: `SameSite: http.SameSiteNoneMode` requires a secure cookie. Use an HTTPS `BaseURL` or `Secure: goauth.SecureAlways()`; browsers reject `SameSite=None` cookies without `Secure`.
-
-Full reference for both, including how they interact with everything else: [Configuration → WithSession](../configuration.mdx#withsession-optional) and [Configuration → WithCookie](../configuration.mdx#withcookie-optional).
+The admin context uses `goauth_admin_session` / `goauth_admin_refresh` and its own challenge and CSRF cookies. Send `X-GoAuth-Session: admin` consistently for admin requests, including bootstrap, refresh, and logout. Ordinary logout only affects the selected session. Account session lists and explicit revocation still include sessions from both contexts; the selector does not narrow account-wide security operations.
 
 ## Writing your own login handler
 
@@ -91,17 +73,26 @@ func myLoginHandler(a *goauth.Auth) http.HandlerFunc {
 			return
 		}
 
-		a.SetSessionCookies(w, result.SessionToken, result.RefreshToken)
-		a.RotateCSRFToken(w) // optional — matches the built-in handlers' behavior
+        if result.Session == nil {
+            // Render result.RequiresVerification / result.RequiresTwoFactor
+            // continuation here. Do not issue cookies before it succeeds.
+            return
+        }
+        if err := a.SetSessionCookies(w, r, result.Session.ID, result.SessionToken, result.RefreshToken); err != nil {
+            http.Error(w, "Could not issue authentication cookies", http.StatusInternalServerError)
+            return
+        }
 
 		// ... your own response shape
 	}
 }
 ```
 
-- `SetSessionCookies(w, sessionToken, refreshToken)` writes both cookies using the configured `CookieConfig`/`SessionConfig` settings. Pass `""` for `refreshToken` to skip the refresh cookie — the same guard the built-in handlers use.
-- `ClearSessionCookies(w)` expires both cookies — in a custom logout handler, call it only after `a.Services().Session.Revoke` succeeds. A revocation error means the server-side session may still be valid and must be returned to the client instead of presenting a false-success logout.
-- `RotateCSRFToken(w)` issues a fresh CSRF token cookie. It's a separate call, not bundled into `SetSessionCookies`, because CSRF rotation is also needed on flows that don't touch cookies at all (e.g. password change) — keeping them separate means one method does one thing. It's a no-op if `SecurityConfig.DisableCSRFToken` is set.
+- `SetSessionCookies(w, r, sessionID, sessionToken, refreshToken) error` atomically prepares session-bound CSRF protection before writing authentication cookies. Pass the stable ID from the service result, not a raw token as the ID. Handle the error before writing a success response.
+- `ClearSessionCookies(w, r) error` expires credentials and issues fresh anonymous CSRF protection. Call after successful server-side revocation, and handle errors.
+- `RotateCSRFToken(w, r) error` replaces CSRF protection for credential changes that keep the session. It is request-aware and cannot be disabled.
+
+Mount custom browser handlers through `a.CORS(a.RequireCSRF(...))`; service calls do not enforce HTTP origin or double-submit themselves. Handle verification/2FA challenges before issuing cookies, as the built-in handlers do.
 
 ## Frontend client setup
 
@@ -114,11 +105,14 @@ Every endpoint on this page needs the actual session cookie, and curl doesn't ma
 **1. `-b` and `-c` need to point at the same file, on every request — not just login.**
 
 ```bash
-# Log in and create the jar
+# Initialize an anonymous browser binding and token.
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -c cookies.txt | jq -r .token)
+# Log in, reading and updating that same jar.
 curl -X POST https://api.myapp.com/auth/login \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
-  -c cookies.txt \
+  -H "X-CSRF-Token: $CSRF" \
+  -b cookies.txt -c cookies.txt \
   -d '{"email":"ada@example.com","password":"..."}'
 
 # Every later request: read AND write the same file
@@ -129,7 +123,7 @@ curl https://api.myapp.com/auth/sessions -b cookies.txt -c cookies.txt
 
 **Backend failures are not expired credentials.** Session-validation or refresh backend failures return `500 internal_error`; the protected handler does not run. If rotation succeeds but the following user lookup fails, the response includes the new cookies even with the 500. Keep accepting `Set-Cookie` on error responses and do not clear credentials merely because the API returns a 500. A canceled connection may prevent the client from receiving either the response or its cookies.
 
-**2. The revoke endpoints also need the `Origin` header.** `DELETE /auth/sessions/{id}`, `POST /auth/sessions/revoke`, and `DELETE /auth/sessions` are state-changing, so they run through the same `OriginCheck` as register/login — see [Authentication → Origin checking](./authentication.mdx#origin-checking). The two list endpoints and `GET /auth/me` are `GET` requests and don't need it; `OriginCheck` only inspects `POST`/`PUT`/`PATCH`/`DELETE`.
+**2. Every mutation needs the allowed `Origin` and a matching CSRF header.** `DELETE /auth/sessions/{id}`, `POST /auth/sessions/revoke`, and `DELETE /auth/sessions` are state-changing, so they run through the same `OriginCheck` as register/login — see [Authentication → Origin checking](./authentication.mdx#origin-checking). The two list endpoints and `GET /auth/me` are `GET` requests and don't need it; `OriginCheck` only inspects `POST`/`PUT`/`PATCH`/`DELETE`.
 
 <Callout type="info" title="Is this secure?">
   Yes — curl isn't bypassing anything here, it's just making manual what a browser normally hides. The session cookie is the actual credential: it's a random token, stored server-side only as a SHA-256 hash (see [Schemas → sessions](../schemas.mdx#sessions)), never guessable from the session ID. Every revoke query is scoped with `WHERE user_id = ... AND id = ...`, so knowing or guessing another session's ID never lets you touch it — `RevokeSession` returns the same `404 session_not_found` whether the ID doesn't exist or just isn't yours. curl can do everything a browser can *because it has the same cookie*, not because any check was skipped.
@@ -263,7 +257,9 @@ This is what `AuthMiddleware` calls transparently when the session cookie has ex
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/refresh \
+  -H "X-CSRF-Token: $CSRF" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt -c cookies.txt
 ```
@@ -422,7 +418,9 @@ All three endpoints are user-scoped — every query includes `WHERE user_id = ..
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X DELETE https://api.myapp.com/auth/sessions/9e2c... \
+  -H "X-CSRF-Token: $CSRF" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt -c cookies.txt
 ```
@@ -471,7 +469,9 @@ Body: `{ "sessionIds": ["...", "..."] }` — 1 to 100 IDs. IDs that don't exist 
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/sessions/revoke \
+  -H "X-CSRF-Token: $CSRF" \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt -c cookies.txt \
@@ -517,7 +517,9 @@ There is no error response beyond the standard auth/internal ones — it always 
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X DELETE https://api.myapp.com/auth/sessions \
+  -H "X-CSRF-Token: $CSRF" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt -c cookies.txt
 ```

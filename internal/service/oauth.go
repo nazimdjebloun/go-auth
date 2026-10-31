@@ -19,6 +19,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/crypto"
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
@@ -129,7 +130,7 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*api.
 		return nil, err
 	}
 
-	stateRaw := generateStateToken()
+	stateRaw := sessioncontext.Bind(sessioncontext.Current(ctx), generateStateToken())
 	now := time.Now().UTC()
 
 	codeVerifier, verifierErr := generateCodeVerifier()
@@ -168,7 +169,7 @@ func (s *OAuthService) InitiateLink(ctx context.Context, input api.OAuthLinkInpu
 		return nil, domain.NewError("unauthorized", "Authentication required")
 	}
 
-	stateRaw := generateStateToken()
+	stateRaw := sessioncontext.Bind(sessioncontext.Current(ctx), generateStateToken())
 	now := time.Now().UTC()
 
 	codeVerifier, verifierErr := generateCodeVerifier()
@@ -215,6 +216,9 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 		return nil, domain.NewError("invalid_state", "Invalid or expired OAuth state")
 	}
 
+	// A verified state hash carries the context through provider callbacks,
+	// which cannot carry our browser request header.
+	ctx = sessioncontext.With(ctx, sessioncontext.Of(input.State))
 	if stateToken.UsedAt != nil {
 		return nil, domain.ErrOAuthStateUsed
 	}
@@ -304,6 +308,16 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 			return nil, domain.ErrUserBanned
 		}
 
+		if sessioncontext.Current(ctx) == sessioncontext.Admin {
+			protected, err := appProtectedIdentity(ctx, s.config.AppPermissions, user)
+			if err != nil {
+				return nil, err
+			}
+			if !protected {
+				return nil, domain.ErrInvalidCredentials
+			}
+		}
+
 		// Provider verification only proves ownership of the matching address.
 		if info.EmailVerified && info.Email == user.Email && !user.IsVerified {
 			now := time.Now().UTC()
@@ -366,9 +380,12 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 				return nil, err
 			}
 		}
-		return &api.OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken}, nil
+		return &api.OAuthCallbackResult{SessionID: sessResult.Session.ID, SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken}, nil
 	}
 
+	if sessioncontext.Current(ctx) == sessioncontext.Admin {
+		return nil, domain.ErrInvalidCredentials
+	}
 	if !s.config.EnableOAuth {
 		return nil, domain.ErrMethodDisabled
 	}
@@ -454,7 +471,7 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 		return nil, domain.ErrInternal
 	}
 
-	return &api.OAuthCallbackResult{SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken, IsNewUser: true}, nil
+	return &api.OAuthCallbackResult{SessionID: sessResult.Session.ID, SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken, IsNewUser: true}, nil
 }
 
 // Unlink removes a linked OAuth provider.

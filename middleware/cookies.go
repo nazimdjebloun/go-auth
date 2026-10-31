@@ -10,14 +10,18 @@ import (
 // session config: these helpers only ever read plain values, and a delivery-
 // layer package should not put a service type in its exported signatures.
 type CookieSettings struct {
-	Name        string // session cookie name
-	RefreshName string // refresh cookie name
-	Domain      string
-	Path        string
-	Secure      bool
-	SameSite    http.SameSite
-	TTL         time.Duration // session cookie MaxAge
-	RefreshTTL  time.Duration // refresh cookie MaxAge
+	Name               string // session cookie name
+	RefreshName        string // refresh cookie name
+	ChallengeName      string
+	AdminName          string
+	AdminRefreshName   string
+	AdminChallengeName string
+	Domain             string
+	Path               string
+	Secure             bool
+	SameSite           http.SameSite
+	TTL                time.Duration // session cookie MaxAge
+	RefreshTTL         time.Duration // refresh cookie MaxAge
 }
 
 type responseCookieParams struct {

@@ -123,7 +123,9 @@ func TestSetSessionCookies(t *testing.T) {
 	defer a.Close()
 
 	w := httptest.NewRecorder()
-	a.SetSessionCookies(w, "session-token-value", "refresh-token-value")
+	if err := a.SetSessionCookies(w, httptest.NewRequest("POST", "/", nil), "session-id", "session-token-value", "refresh-token-value"); err != nil {
+		t.Fatal(err)
+	}
 
 	cookies := w.Result().Cookies()
 	var session, refresh *http.Cookie
@@ -152,7 +154,9 @@ func TestSetSessionCookies(t *testing.T) {
 	}
 
 	w2 := httptest.NewRecorder()
-	a.SetSessionCookies(w2, "session-token-value", "")
+	if err := a.SetSessionCookies(w2, httptest.NewRequest("POST", "/", nil), "session-id", "session-token-value", ""); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range w2.Result().Cookies() {
 		if c.Name == "goauth_refresh" {
 			t.Fatal("empty refresh token must not produce a refresh cookie")

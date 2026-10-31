@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
+
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -258,4 +260,43 @@ func GetLastVerificationCode(mailer *MockMailer) string {
 	}
 
 	return text[codeStart:codeEnd]
+}
+
+// GetLastTwoFactor returns the latest challenge in a browser context.
+func (m *MockTokenRepo) GetLastTwoFactor(ctx context.Context, userID string, admin bool) (*domain.VerificationToken, error) {
+	tokenType := domain.TokenTwoFactor
+	scope := sessioncontext.App
+	if admin {
+		scope = sessioncontext.Admin
+	}
+	recordMockTx(ctx, m)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var last *domain.VerificationToken
+	for _, t := range m.tokens {
+		if t.UserID != nil && *t.UserID == userID && t.Type == tokenType && sessioncontext.Of(t.TokenHash) == scope {
+			if last == nil || t.CreatedAt.After(last.CreatedAt) {
+				last = t
+			}
+		}
+	}
+	return last, nil
+}
+
+// DeleteUnusedTwoFactor preserves the other context's pending challenges.
+func (m *MockTokenRepo) DeleteUnusedTwoFactor(ctx context.Context, userID string, admin bool) error {
+	tokenType := domain.TokenTwoFactor
+	scope := sessioncontext.App
+	if admin {
+		scope = sessioncontext.Admin
+	}
+	recordMockTx(ctx, m)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, t := range m.tokens {
+		if t.UserID != nil && *t.UserID == userID && t.Type == tokenType && sessioncontext.Of(t.TokenHash) == scope && t.UsedAt == nil {
+			delete(m.tokens, key)
+		}
+	}
+	return nil
 }

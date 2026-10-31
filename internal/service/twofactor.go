@@ -10,7 +10,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"strings"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
 
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
@@ -166,6 +169,7 @@ func (s *TwoFactorService) challengeWithPassword(ctx context.Context, expected *
 }
 
 func (s *TwoFactorService) challenge(ctx context.Context, userID string, expected *domain.User) (*api.ChallengeResult, error) {
+	ctx = sessioncontext.With(ctx, sessioncontext.Current(ctx))
 	var user *domain.User
 	var token *domain.VerificationToken
 	var result *api.ChallengeResult
@@ -186,11 +190,11 @@ func (s *TwoFactorService) challenge(ctx context.Context, userID string, expecte
 		if user.IsBanned {
 			return domain.ErrUserBanned
 		}
-		existing, err := s.tokens.GetLastByUserAndType(txCtx, userID, domain.TokenTwoFactor)
+		existing, err := s.tokens.GetLastTwoFactor(txCtx, userID, sessioncontext.Current(ctx) == sessioncontext.Admin)
 		if err != nil {
 			return err
 		}
-		if existing != nil && existing.UsedAt == nil &&
+		if existing != nil && sessioncontext.Of(existing.TokenHash) == sessioncontext.Current(ctx) && existing.UsedAt == nil &&
 			s.now().UTC().Before(existing.ExpiresAt) &&
 			existing.Attempts < maxAttemptsPerChallenge &&
 			existing.ResendCount < maxCodeRefreshesPerChallenge &&
@@ -201,7 +205,7 @@ func (s *TwoFactorService) challenge(ctx context.Context, userID string, expecte
 			}
 			return nil
 		}
-		if err := s.tokens.DeleteUnusedByUserAndType(txCtx, userID, domain.TokenTwoFactor); err != nil {
+		if err := s.tokens.DeleteUnusedTwoFactor(txCtx, userID, sessioncontext.Current(ctx) == sessioncontext.Admin); err != nil {
 			return err
 		}
 		token, raw, err = s.prepareIssue(txCtx, user)
@@ -253,7 +257,7 @@ func (s *TwoFactorService) prepareIssue(ctx context.Context, user *domain.User) 
 	now := s.now().UTC()
 	token := &domain.VerificationToken{
 		ID: generateID(), UserID: &user.ID, Email: user.Email,
-		TokenHash: hashOTP(raw, s.config.OTPPepper), Type: domain.TokenTwoFactor,
+		TokenHash: sessioncontext.Bind(sessioncontext.Current(ctx), hashOTP(raw, s.config.OTPPepper)), Type: domain.TokenTwoFactor,
 		ExpiresAt: now.Add(s.config.TwoFactorCodeTTL), CreatedAt: now,
 	}
 	if err := s.tokens.Create(ctx, token); err != nil {
@@ -335,6 +339,10 @@ func (s *TwoFactorService) Verify(ctx context.Context, input api.TwoFactorVerify
 	if token == nil || token.Type != domain.TokenTwoFactor || token.UserID == nil {
 		return nil, domain.ErrTwoFactorCodeInvalid
 	}
+	if !sessioncontext.Matches(ctx, token.TokenHash) {
+		return nil, domain.ErrTwoFactorCodeInvalid
+	}
+	ctx = sessioncontext.With(ctx, sessioncontext.Of(token.TokenHash))
 	snapshot := *token
 	token = &snapshot
 	if token.UsedAt != nil {
@@ -357,7 +365,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, input api.TwoFactorVerify
 	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
 		return nil, domain.ErrTwoFactorCodeExpired
 	}
-	if !verifyOTP(input.Code, token.TokenHash, s.config.OTPPepper) {
+	if !verifyOTP(input.Code, strings.TrimPrefix(token.TokenHash, "ga-admin."), s.config.OTPPepper) {
 		// A false return means the cap was already reached, by an earlier
 		// guess or a concurrent one. Either way the caller learns only
 		// "invalid" — the distinction is not theirs to see.
@@ -526,6 +534,11 @@ func (s *TwoFactorService) Resend(ctx context.Context, input api.TwoFactorResend
 		return nil, vague
 	}
 
+	if !sessioncontext.Matches(ctx, token.TokenHash) {
+		return nil, vague
+	}
+	ctx = sessioncontext.With(ctx, sessioncontext.Of(token.TokenHash))
+
 	user, err := s.users.GetByID(ctx, *token.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("resend: lookup: %w", err)
@@ -549,7 +562,7 @@ func (s *TwoFactorService) Resend(ctx context.Context, input api.TwoFactorResend
 	}
 
 	expiresAt := s.now().UTC().Add(s.config.TwoFactorCodeTTL)
-	ok, err := s.tokens.UpdateForResend(ctx, token.ID, hashOTP(raw, s.config.OTPPepper), expiresAt,
+	ok, err := s.tokens.UpdateForResend(ctx, token.ID, sessioncontext.Bind(sessioncontext.Current(ctx), hashOTP(raw, s.config.OTPPepper)), expiresAt,
 		s.now().UTC(), maxCodeRefreshesPerChallenge, maxAttemptsPerChallenge)
 	if err != nil {
 		s.log.Error("failed to refresh 2fa token", "err", err, "token_id", token.ID)
@@ -591,7 +604,7 @@ func (s *TwoFactorService) Resend(ctx context.Context, input api.TwoFactorResend
 // keepOtherSessions is spelled to make the zero value the safe one: an omitted
 // JSON bool decodes to false, so "revokeOtherSessions" documented as defaulting
 // to true would in fact default to false and silently skip revocation for every
-// client that didn't send it. Same reasoning as SecurityConfig.DisableCSRFToken.
+// client that didn't send it.
 func (s *TwoFactorService) Enable(ctx context.Context, input api.TwoFactorEnableInput) error {
 	user, aerr := s.authorizeChange(ctx, input.UserID, input.Password)
 	if aerr != nil {

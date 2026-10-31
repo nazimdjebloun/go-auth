@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/nazimdjebloun/go-auth/api"
+	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -42,7 +43,11 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
+	if err := middleware.RotateCSRFToken(w, r, h.csrfTokenCfg); err != nil {
+		h.log.Error("rotate CSRF token", "err", err)
+		h.writeError(w, domain.ErrInternal)
+		return
+	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Password reset successfully"})
 }
 
@@ -76,7 +81,11 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
+	if err := middleware.RotateCSRFToken(w, r, h.csrfTokenCfg); err != nil {
+		h.log.Error("rotate CSRF token", "err", err)
+		h.writeError(w, domain.ErrInternal)
+		return
+	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Password changed successfully"})
 }
 
@@ -114,7 +123,11 @@ func (h *Handler) SetPasswordConfirm(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
+	if err := middleware.RotateCSRFToken(w, r, h.csrfTokenCfg); err != nil {
+		h.log.Error("rotate CSRF token", "err", err)
+		h.writeError(w, domain.ErrInternal)
+		return
+	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Password set successfully"})
 }
 
@@ -140,9 +153,9 @@ func (h *Handler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
-	middleware.ClearSessionCookie(w, h.cookies)
-	middleware.ClearRefreshCookie(w, h.cookies)
-	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
+	if !h.clearSessionCookies(w, r) {
+		return
+	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }
 
@@ -186,8 +199,8 @@ func (h *Handler) ConfirmDeleteAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	middleware.ClearSessionCookie(w, h.cookies)
-	middleware.ClearRefreshCookie(w, h.cookies)
-	middleware.RotateCSRFToken(w, h.csrfTokenCfg)
+	if !h.clearSessionCookies(w, r) {
+		return
+	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Account deleted successfully"})
 }

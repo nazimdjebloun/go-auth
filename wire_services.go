@@ -119,13 +119,17 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		TwoFactorBindingKey:              keys.TwoFactor,
 		OTPPepper:                        keys.OTPPepper,
 		PepperRotatedAt:                  cfg.security.PepperRotatedAt,
-		DisableTwoFactorChallengeBinding: cfg.twoFactor.DisableChallengeBinding,
-		TwoFactorChallengeCookieName:     cfg.twoFactor.ChallengeCookieName,
+		DisableTwoFactorChallengeBinding: false,
+		TwoFactorChallengeCookieName:     cfg.browser.Cookies.ChallengeName,
 		DisableAdminTwoFactor:            cfg.twoFactor.DisableAdminTwoFactor,
 	}
 
 	sessionCfg := buildSessionConfig(cfg, auditPub)
 	cookies := cookiesFromSession(sessionCfg)
+	cookies.ChallengeName = cfg.browser.Cookies.ChallengeName
+	cookies.AdminName = cfg.browser.Cookies.AdminName
+	cookies.AdminRefreshName = cfg.browser.Cookies.AdminRefreshName
+	cookies.AdminChallengeName = cfg.browser.Cookies.AdminChallengeName
 
 	// Direct session API calls must get the same record-iff-commit guarantee
 	// as login: the session mutation and its audit record share one tx.
@@ -324,7 +328,7 @@ func startAuditService(cfg *Config, sqlDB *sqlstore.DB) (*audit.Service, service
 
 // buildSessionConfig maps the public SessionConfig/CookieConfig fields onto
 // the service layer's own shape. It reads cfg.resolved.cookieSecure, never
-// cfg.cookie.Secure — the former is the value applyDefaults resolved, the
+// cfg.browser.Cookies.Secure — the former is the value applyDefaults resolved, the
 // latter is unresolved consumer intent.
 func buildSessionConfig(cfg *Config, auditPub service.AuditPublisher) service.SessionConfig {
 	sessionCfg := service.DefaultSessionConfig()
@@ -334,12 +338,12 @@ func buildSessionConfig(cfg *Config, auditPub service.AuditPublisher) service.Se
 	sessionCfg.MaxLifetime = cfg.session.MaxLifetime
 	sessionCfg.GraceWindow = cfg.resolved.graceWindow
 	sessionCfg.TouchDebounce = cfg.resolved.touchDebounce
-	sessionCfg.CookieName = cfg.cookie.Name
-	sessionCfg.RefreshCookieName = cfg.cookie.RefreshName
-	sessionCfg.Domain = cfg.cookie.Domain
-	sessionCfg.Path = cfg.cookie.Path
+	sessionCfg.CookieName = cfg.browser.Cookies.Name
+	sessionCfg.RefreshCookieName = cfg.browser.Cookies.RefreshName
+	sessionCfg.Domain = cfg.browser.Cookies.Domain
+	sessionCfg.Path = cfg.browser.Cookies.Path
 	sessionCfg.Secure = cfg.resolved.cookieSecure
-	sessionCfg.SameSite = cfg.cookie.SameSite
+	sessionCfg.SameSite = cfg.browser.Cookies.SameSite
 	sessionCfg.Logger = cfg.logger
 	sessionCfg.Audit = auditPub
 	return sessionCfg

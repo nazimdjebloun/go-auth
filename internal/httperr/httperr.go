@@ -8,6 +8,7 @@ package httperr
 import "net/http"
 
 var byCode = map[string]int{
+	"invalid_session_context":             http.StatusBadRequest,
 	"org_permissions_disabled":            http.StatusServiceUnavailable,
 	"org_permissions_not_initialized":     http.StatusServiceUnavailable,
 	"org_permissions_already_initialized": http.StatusConflict,

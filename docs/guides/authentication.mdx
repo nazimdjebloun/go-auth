@@ -10,6 +10,10 @@ This page walks through the three entry points to a session — register, login,
 
 For the full path/param reference across every route (not just these three), see [Routes](../routes/). For the error envelope shape and codes shared across the whole API, see [Error Handling](../error-handling.mdx).
 
+The curl mutation examples use `jq` to read the mandatory CSRF bootstrap JSON. Keep the same cookie jar for bootstrap and the following request; the bootstrap is repeated after authentication changes.
+
+These examples use the default app context. For an admin dashboard, send `X-GoAuth-Session: admin` on every request, including bootstrap and 2FA follow-ups; use the [admin client wrapper](../admin-client-config.mdx). App and admin login/logout use independent cookie sets even on the same API host.
+
 ## Configuration
 
 Three flags on `RegistrationConfig` decide which of the flows below are reachable. Login itself is never gated by any of them — they only govern how an account gets created, not whether an existing one can sign in.
@@ -38,7 +42,7 @@ The **Client** examples below call a small `apiRequest(baseUrl, method, path, bo
 
 ## Origin checking
 
-Routes protected by `middleware.OriginCheck` check state-changing requests (`POST`/`PUT`/`PATCH`/`DELETE`) before they reach a handler. By default (`AllowMissingCSRFHeaders: false`), a request with **neither** an `Origin` nor a `Referer` header gets a JSON `403` with error code `csrf_headers_missing` — which is why every `curl` example on this page below sets `-H "Origin: https://myapp.com"`. Without it, they 403 against any real deployment.
+Routes protected by `middleware.OriginCheck` check state-changing requests (`POST`/`PUT`/`PATCH`/`DELETE`) before they reach a handler. A request with **neither** an `Origin` nor a `Referer` header gets a JSON `403` with error code `csrf_headers_missing` — which is why every `curl` example on this page below sets `-H "Origin: https://myapp.com"`. Without it, they 403 against any real deployment.
 
 <Callout type="warn" title="This is a plausibility check, not proof the request came from a browser">
   `Origin` is a browser signal, not a credential: a command-line client can send the same header. It protects a victim's browser from cross-site requests; it does not restrict direct API clients. CSRF tokens, rate limits, and application rules enforce the remaining controls.
@@ -136,7 +140,10 @@ Alongside this body, a binding cookie is set (`_2fa_challenge` by default) — s
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/register \
+  -H "X-CSRF-Token: $CSRF" \
+  -b cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -c cookies.txt \
@@ -233,7 +240,10 @@ Only relevant when `RequireEmailVerification: true`. Two ways in: a link with a 
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/verify-email \
+  -H "X-CSRF-Token: $CSRF" \
+  -b cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -c cookies.txt \
@@ -312,7 +322,10 @@ Two-step: look up the invite to pre-fill the form, then complete registration wi
 curl "https://api.myapp.com/auth/invite/info?token=THE_RAW_CODE"
 
 # 2. Complete registration
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/invite/register \
+  -H "X-CSRF-Token: $CSRF" \
+  -b cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -c cookies.txt \
@@ -416,7 +429,10 @@ Same shape and same binding cookie as the register case above — see [Two-facto
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/login \
+  -H "X-CSRF-Token: $CSRF" \
+  -b cookies.txt \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -c cookies.txt \
@@ -479,7 +495,7 @@ Turned on globally with `TwoFactorConfig.RequireEmail2FA` (mandatory for passwor
 
 ### Verifying the code — `POST /auth/2fa/verify`
 
-Completes any of the gated flows above — it doesn't need to know which one started the challenge. Body: `{ "challengeId": "...", "code": "..." }`. The binding cookie set alongside the gated response must be present on this request (unless `TwoFactorConfig.DisableChallengeBinding` is set); a missing or mismatched cookie is rejected the same way a wrong code is, without revealing which.
+Completes any of the gated flows above — it doesn't need to know which one started the challenge. Body: `{ "challengeId": "...", "code": "..." }`. The binding cookie set alongside the gated response must be present on this request; a missing or mismatched cookie is rejected the same way a wrong code is, without revealing which.
 
 ```json
 {
@@ -499,7 +515,9 @@ Session and refresh cookies are set here, not on the original gated response —
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/2fa/verify \
+  -H "X-CSRF-Token: $CSRF" \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt -c cookies.txt \
@@ -549,7 +567,9 @@ An unknown or binding-mismatched `challengeId` gets the same generic `200` as a 
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/2fa/resend \
+  -H "X-CSRF-Token: $CSRF" \
   -H "Content-Type: application/json" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt -c cookies.txt \
@@ -589,7 +609,9 @@ Takes no body and requires an authenticated session. It revokes that session ser
 #### curl
 
 ```bash
+CSRF=$(curl -fsS https://api.myapp.com/auth/csrf-token -b cookies.txt -c cookies.txt | jq -r .token)
 curl -X POST https://api.myapp.com/auth/logout \
+  -H "X-CSRF-Token: $CSRF" \
   -H "Origin: https://myapp.com" \
   -b cookies.txt -c cookies.txt
 ```

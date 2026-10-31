@@ -36,114 +36,137 @@ Keep the admin client separate from the user-facing client — they share the sa
 
 | Concern | User-facing app | Admin dashboard |
 |---------|-----------------|-----------------|
-| Origin | Same-origin (proxied) | Usually cross-origin |
-| CSRF cookie | Readable by default | Needs `CookieDomain` or body token |
+| Origin | Direct API or optional proxy | Direct API or optional proxy |
+| CSRF token | JSON bootstrap; HttpOnly cookie | Same JSON bootstrap; HttpOnly cookie |
 | Session | Any authenticated user | Must check `role === "admin"` |
+| Context | Default app context | `X-GoAuth-Session: admin` on every request |
 | Typical stack | Next.js + `rewrites` | Vite/React + `VITE_API_URL` |
 
 ## Server-side requirements
 
-Choose the topology that matches your frontend. Both examples require the
-usual app, database, mailer, and secret configuration.
-
-**Sibling subdomains** (`admin.myapp.com` and `api.myapp.com`) share a site.
-Keep the session cookie host-only and Lax; scope only the readable CSRF cookie:
+One backend can serve both the app and this panel on sibling subdomains:
 
 ```go
-goauth.WithSecurity(goauth.SecurityConfig{
-    AllowedOrigins: []string{"https://admin.myapp.com"},
-    CSRFToken: &middleware.CSRFTokenConfig{CookieDomain: ".myapp.com"},
+goauth.WithBrowser(goauth.BrowserConfig{
+    APIURL: "https://api.example.com",
+    AllowedOrigins: []string{"https://app.example.com", "https://admin.example.com"},
+    Cookies: goauth.CookieConfig{
+        Domain: "",
+        Path: "/",
+        SameSite: http.SameSiteLaxMode,
+        Secure: goauth.SecureAlways(),
+    },
 })
 ```
 
-**Different registrable domains** (`panel.acme.com` and `api.myapp.com`) need
-both cookies to permit cross-site requests. No cookie domain can make the API's
-CSRF cookie readable by the panel, so fetch the signed token from the body:
-
-```go
-cfg, err := goauth.NewConfig(
-    // ...required app, secret, and mailer options...
-    goauth.WithCookie(goauth.CookieConfig{
-        SameSite: http.SameSiteNoneMode,
-        Secure:   goauth.SecureAlways(),
-    }),
-    goauth.WithSecurity(goauth.SecurityConfig{
-        AllowedOrigins: []string{"https://panel.acme.com"},
-        CSRFToken: &middleware.CSRFTokenConfig{
-            CookieSameSite:        http.SameSiteNoneMode,
-            ExposeCSRFTokenInBody: true,
-        },
-    }),
-)
-```
-
-Place the option calls inside `NewConfig`; import `net/http` and
-`github.com/nazimdjebloun/go-auth/middleware`. The CSRF cookie inherits the
-resolved session-cookie Secure setting. Browser third-party-cookie policies can
-still block cross-site cookies; a same-origin proxy avoids that dependency.
-See [Deployment](./guides/deployment.mdx).
+Place this inside `NewConfig` and import `net/http`. Cookie names can retain their defaults. Both frontends use JSON bootstrap; no readable cookie or shared domain is required. The panel selects the independent admin context on every request. Both frontends can call the same API host directly without replacing each other's login. See [Deployment](./guides/deployment.mdx) for HTTP development and different-site HTTPS deployments.
 
 ## The fetch wrapper
 
 Same pattern as the user-facing client, but with cross-origin notes:
 
 ```ts
+// Set VITE_API_URL for direct API access, or leave it empty for a same-origin
+// proxy. Both use HttpOnly cookies and the same JSON CSRF bootstrap contract.
 const API_BASE = import.meta.env.VITE_API_URL ?? ""
 
-function getCookie(name: string): string | null {
-  if (typeof document === "undefined") return null
-  const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`))
-  return match ? decodeURIComponent(match[1]) : null
+export interface ApiError {
+  error: string
+  status?: number
+  message?: string
+  retryAfter?: number
 }
 
-async function getCSRFToken(): Promise<string | null> {
-  const cookieToken = getCookie("_csrf")
-  if (cookieToken) return cookieToken
+let csrfToken: string | null = null
+let csrfRequest: Promise<string> | null = null
 
-  const res = await fetch(`${API_BASE}/auth/csrf-token`, {
-    method: "GET",
-    credentials: "include",
-  })
-  if (!res.ok) throw new Error("Could not initialize CSRF protection")
-
-  // Same-origin: 204, read token from cookie
-  // Different registrable domain: 200 with { token } in body
-  if (res.status === 204) return getCookie("_csrf")
-  const payload: { token?: unknown } = await res.json()
-  return typeof payload.token === "string" ? payload.token : null
+async function getCSRFToken(force = false): Promise<string> {
+  if (force) csrfToken = null
+  if (csrfToken) return csrfToken
+  csrfRequest ??= (async () => {
+    const res = await fetch(`${API_BASE}/auth/csrf-token`, {
+      credentials: "include",
+      cache: "no-store",
+      headers: { "X-GoAuth-Session": "admin" },
+    })
+    if (!res.ok) throw new Error("Could not initialize CSRF protection")
+    const payload: { token?: unknown } = await res.json()
+    if (typeof payload.token !== "string" || !payload.token) {
+      throw new Error("CSRF bootstrap returned no token")
+    }
+    csrfToken = payload.token
+    return csrfToken
+  })().finally(() => { csrfRequest = null })
+  return csrfRequest
 }
+
+const csrfErrors = new Set([
+  "csrf_token_missing", "csrf_token_invalid", "csrf_token_mismatch",
+])
 
 let onUnauthorized: (() => void) | null = null
 
-export function setUnauthorizedHandler(handler: () => void) {
+/** Lets the rest of the app react the moment any request comes back with a
+ * dead session, instead of only the one call that hit it. Wired up in
+ * AuthProvider. */
+export function setUnauthorizedHandler(handler: (() => void) | null) {
   onUnauthorized = handler
 }
 
-export async function apiRequest<T>(
+/** Best-effort human message from anything thrown by `apiRequest` or `fetch`. */
+export function errorMessage(
+  err: unknown,
+  fallback = "Something went wrong"
+): string {
+  if (typeof err === "string" && err) return err
+  if (err && typeof err === "object") {
+    const e = err as { message?: unknown; error?: unknown }
+    if (typeof e.message === "string" && e.message) return e.message
+    if (typeof e.error === "string" && e.error) return e.error
+  }
+  return fallback
+}
+
+export async function apiRequest<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
   signal?: AbortSignal
 ): Promise<T> {
-  const headers: Record<string, string> = {}
+  const headers: Record<string, string> = { "X-GoAuth-Session": "admin" }
   if (body !== undefined) headers["Content-Type"] = "application/json"
 
-  if (method !== "GET") {
-    const csrf = await getCSRFToken()
-    if (csrf) headers["X-CSRF-Token"] = csrf
-  }
+  const write = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())
+  if (write) headers["X-CSRF-Token"] = await getCSRFToken()
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const send = () => fetch(`${API_BASE}${path}`, {
     method,
     credentials: "include",
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   })
+  let res = await send()
+  if (write && res.status === 403) {
+    const error = await res.clone().json().catch(() => ({})) as { error?: string }
+    // These reserved codes mean middleware rejected before executing the handler.
+    if (error.error && csrfErrors.has(error.error)) {
+      headers["X-CSRF-Token"] = await getCSRFToken(true)
+      res = await send()
+    }
+  }
+  const replacement = res.headers.get("X-CSRF-Token")
+  if (replacement) csrfToken = replacement
 
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }))
-    if (res.status === 401 || (res.status === 403 && err.error === "user_banned")) {
+    const err: ApiError = await res
+      .json()
+      .catch(() => ({ error: res.statusText }))
+    err.status = res.status
+    if (
+      res.status === 401 ||
+      (res.status === 403 && (err.error === "user_banned" || err.error === "two_factor_required" || (path.startsWith("/admin/") && err.error === "forbidden")))
+    ) {
       onUnauthorized?.()
     }
     if (res.status === 429) {
@@ -379,7 +402,7 @@ export function useAuth() {
 
 ### Why `requireAdmin`?
 
-When the admin panel and user app share a cookie (same host or widened `CookieDomain`), a regular user signed into the app arrives at the panel **already authenticated**. `POST /auth/admin/login` gates the login itself, but nothing gates a session minted elsewhere.
+The panel's selector keeps an app login from being mistaken for a panel login. An existing admin-context session can still lose access when its account role, grants, ban status, or session assurance changes. `requireAdmin` helps the UI return to sign-in when current access no longer permits the panel; the backend remains responsible for every authorization decision.
 
 With app permissions disabled, `/admin/*` checks the admin role and required session assurance server-side. The browser role check improves navigation only; it cannot authorize an operation. Enabled mode uses exact library permissions or protected-admin policy, rather than a fixed account role.
 
@@ -421,14 +444,7 @@ const verifyTwoFactor = useCallback(async (code: string) => {
 VITE_API_URL=https://api.myapp.com
 ```
 
-```ts
-// vite.config.ts
-export default defineConfig({
-  define: {
-    "import.meta.env.VITE_API_URL": JSON.stringify(process.env.VITE_API_URL),
-  },
-})
-```
+Vite exposes `VITE_` variables through `import.meta.env` automatically; no custom `define` entry is needed. Build the panel and deploy `dist/` to the admin subdomain, with SPA fallback to `index.html`.
 
 <Callout type="info" title="Build time, not runtime">
   `VITE_API_URL` is baked into the bundle at build time. A different API URL means a different build. For runtime configuration, use a small config endpoint or environment injection.

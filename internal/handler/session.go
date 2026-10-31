@@ -12,7 +12,7 @@ import (
 // RefreshToken rotates the current session tokens.
 // POST /auth/refresh
 func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
-	cookie, err := r.Cookie(h.cookies.RefreshName)
+	cookie, err := r.Cookie(h.cookies.ForRequest(r).RefreshName)
 	if err != nil || cookie.Value == "" {
 		h.writeError(w, domain.NewError("invalid_refresh", "No refresh token provided"))
 		return
@@ -20,14 +20,14 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	refreshResult, err := h.services.Session.RefreshSession(r.Context(), cookie.Value)
 	if err != nil {
-		middleware.ClearSessionCookie(w, h.cookies)
-		middleware.ClearRefreshCookie(w, h.cookies)
+		middleware.ClearSessionCookie(w, h.cookies.ForRequest(r))
+		middleware.ClearRefreshCookie(w, h.cookies.ForRequest(r))
 		h.writeError(w, err)
 		return
 	}
 
-	middleware.SetSessionCookie(w, h.cookies, refreshResult.SessionToken)
-	middleware.SetRefreshCookie(w, h.cookies, refreshResult.RefreshToken)
+	middleware.SetSessionCookie(w, h.cookies.ForRequest(r), refreshResult.SessionToken)
+	middleware.SetRefreshCookie(w, h.cookies.ForRequest(r), refreshResult.RefreshToken)
 	// The session goes out verbatim, like every other endpoint that returns
 	// one. The hand-built subset this replaces renamed lastActiveAt to
 	// lastActive and omitted activeOrgId/activeOrgRole, so a client that

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/internal/sessioncontext"
+
 	"github.com/google/uuid"
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/audit"
@@ -490,6 +492,9 @@ type rehashRegistry interface {
 
 // Login authenticates a user.
 func (s *AuthService) Login(ctx context.Context, input api.LoginInput) (*api.LoginResult, error) {
+	if sessioncontext.Current(ctx) == sessioncontext.Admin {
+		return s.AdminLogin(ctx, input)
+	}
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
 		if s.audit != nil {
@@ -559,6 +564,7 @@ func (s *AuthService) Login(ctx context.Context, input api.LoginInput) (*api.Log
 // Non-admin users are rejected with generic invalid_credentials so the
 // endpoint never reveals whether an account is an admin.
 func (s *AuthService) AdminLogin(ctx context.Context, input api.LoginInput) (*api.LoginResult, error) {
+	ctx = sessioncontext.With(ctx, sessioncontext.Admin)
 	user, requiresVerification, aerr := s.authenticate(ctx, input)
 	if aerr != nil {
 		if s.audit != nil {

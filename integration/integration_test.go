@@ -1,14 +1,12 @@
 package integration_test
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"github.com/nazimdjebloun/go-auth/internal/testdb"
-	"log/slog"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -17,11 +15,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
+
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/schema"
-	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	_ "modernc.org/sqlite"
 )
@@ -113,7 +112,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditCon
 			Database: goauth.DatabaseConfig{
 				DB:     db,
 				Driver: testAuthDriver(db),
-			},
+			}, Environment: goauth.EnvironmentDev,
 		}),
 		goauth.WithSession(goauth.SessionConfig{
 			TTL:             1 * time.Hour,
@@ -124,9 +123,9 @@ func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditCon
 			// tolerated for the default 5s — see TestRefreshToken_E2E.
 			GraceWindow: goauth.Duration(0),
 		}),
-		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
-			AllowedOrigins: []string{"http://localhost:8080"},
+
+		goauth.WithBrowser(goauth.BrowserConfig{AllowedOrigins: []string{"http://localhost:8080"}, Cookies: goauth.CookieConfig{Name: "goauth_session"}}), goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs: goauth.AllowPlaintextEmailLinks(),
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
 			EnableEmailPassword: true,
@@ -136,7 +135,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditCon
 			InviteTTL:           1 * time.Hour,
 			VerificationCodeTTL: 1 * time.Hour,
 		}),
-		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 		goauth.WithAudit(auditCfg),
@@ -167,9 +166,6 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorCo
 	if sec.AllowHTTPURLs == nil {
 		sec.AllowHTTPURLs = goauth.AllowPlaintextEmailLinks()
 	}
-	if len(sec.AllowedOrigins) == 0 {
-		sec.AllowedOrigins = []string{"http://localhost:8080"}
-	}
 
 	reg.EnableEmailPassword = true
 	reg.EnableOAuth = true
@@ -190,7 +186,7 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorCo
 			Database: goauth.DatabaseConfig{
 				DB:     db,
 				Driver: testAuthDriver(db),
-			},
+			}, Environment: goauth.EnvironmentDev,
 		}),
 		goauth.WithSession(goauth.SessionConfig{
 			TTL:             1 * time.Hour,
@@ -200,9 +196,10 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorCo
 			GraceWindow:     goauth.Duration(0),
 		}),
 		goauth.WithSecurity(sec),
+		goauth.WithBrowser(goauth.BrowserConfig{AllowedOrigins: []string{"http://localhost:8080"}, Cookies: goauth.CookieConfig{Name: "goauth_session"}}),
 		goauth.WithTwoFactor(twoFactor),
 		goauth.WithRegistration(reg),
-		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 		goauth.WithAudit(goauth.AuditConfig{Enabled: true}),
@@ -769,7 +766,7 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 			Database: goauth.DatabaseConfig{
 				DB:     db,
 				Driver: testAuthDriver(db),
-			},
+			}, Environment: goauth.EnvironmentDev,
 		}),
 		goauth.WithSession(goauth.SessionConfig{
 			TTL:             1 * time.Hour,
@@ -777,11 +774,11 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 			RefreshTokenTTL: 1 * time.Hour,
 			TokenTTL:        1 * time.Hour,
 		}),
-		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
-			AllowedOrigins: []string{"http://localhost:8080"},
+
+		goauth.WithBrowser(goauth.BrowserConfig{AllowedOrigins: []string{"http://localhost:8080"}, Cookies: goauth.CookieConfig{Name: "goauth_session"}}), goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs: goauth.AllowPlaintextEmailLinks(),
 		}),
-		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+
 		goauth.WithMailer(&testMailer{}),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 	)
@@ -948,7 +945,7 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 			Database: goauth.DatabaseConfig{
 				DB:     db,
 				Driver: testAuthDriver(db),
-			},
+			}, Environment: goauth.EnvironmentDev,
 		}),
 		goauth.WithSession(goauth.SessionConfig{
 			TTL:             1 * time.Hour,
@@ -956,11 +953,11 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 			RefreshTokenTTL: 1 * time.Hour,
 			TokenTTL:        1 * time.Hour,
 		}),
-		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
-			AllowedOrigins: []string{"http://localhost:8080"},
+
+		goauth.WithBrowser(goauth.BrowserConfig{AllowedOrigins: []string{"http://localhost:8080"}, Cookies: goauth.CookieConfig{Name: "goauth_session"}}), goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs: goauth.AllowPlaintextEmailLinks(),
 		}),
-		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+
 		goauth.WithMailer(&testMailer{}),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 	)
@@ -1970,11 +1967,11 @@ func TestTwoFactor_ChallengeBinding_RequiredByDefault(t *testing.T) {
 	}
 }
 
-func TestTwoFactor_ChallengeBinding_DisabledSkipsCheck(t *testing.T) {
+func TestTwoFactor_ChallengeBinding_CannotBeDisabled(t *testing.T) {
 	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
-	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{DisableChallengeBinding: true}, goauth.RegistrationConfig{})
+	a := openAuth2FA(t, db, mailer, goauth.TwoFactorConfig{}, goauth.RegistrationConfig{})
 	defer a.Close()
 	ctx := context.Background()
 
@@ -1994,8 +1991,8 @@ func TestTwoFactor_ChallengeBinding_DisabledSkipsCheck(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if login.BindingToken() != "" {
-		t.Error("expected an empty binding token when binding is disabled")
+	if login.BindingToken() == "" {
+		t.Error("expected mandatory browser binding")
 	}
 	code := extractCodeAfter(mailer.lastBody(), "Your code: ")
 	if _, aerr := a.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
@@ -2004,8 +2001,8 @@ func TestTwoFactor_ChallengeBinding_DisabledSkipsCheck(t *testing.T) {
 		Code:         code,
 		IP:           "127.0.0.1",
 		UserAgent:    "test-agent",
-	}); aerr != nil {
-		t.Fatalf("expected verify to succeed with no binding token when binding is disabled: %v", aerr)
+	}); aerr == nil {
+		t.Fatal("verification must reject a missing binding token")
 	}
 }
 
@@ -2244,84 +2241,36 @@ func TestTwoFactor_Enable_KeepOtherSessionsLeavesBoth(t *testing.T) {
 	}
 }
 
-// --- CSRF cross-site config mismatch warnings ---
-//
-// SameSite=None and ExposeCSRFTokenInBody are the same decision from two sides.
-// Setting one without the other leaves a browser deployment that half-works,
-// which reads as a library bug rather than a config mismatch, so New warns.
-// It warns rather than rejects: a native client keeps its own cookie jar and
-// is not subject to SameSite, so either alone is legitimate there.
-func newAuthWithCSRFTopology(t *testing.T, db *sql.DB, sameSite http.SameSite, exposeInBody bool) *bytes.Buffer {
-	t.Helper()
-	migrateDB(t, db, testdb.Driver(db))
-
-	var buf bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
-
-	cfg, err := goauth.NewConfig(
-		goauth.WithBcryptCost(4),
-		goauth.WithApp(goauth.AppConfig{
-			Name:     "TestApp",
-			BaseURL:  "https://api.example.com",
-			Database: goauth.DatabaseConfig{DB: db, Driver: testAuthDriver(db)},
-		}),
-		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowedOrigins: []string{"https://panel.example.com"},
-			CSRFToken:      &middleware.CSRFTokenConfig{ExposeCSRFTokenInBody: exposeInBody},
-		}),
-		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session", SameSite: sameSite}),
-		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
-		goauth.WithMailer(&testMailer{}),
-		goauth.WithLogger(logger),
-	)
-	if err != nil {
-		t.Fatalf("NewConfig: %v", err)
-	}
-	a, err := goauth.New(cfg)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	t.Cleanup(a.Close)
-	return &buf
-}
-
-func TestCSRFTopology_WarnsOnNoneWithoutBodyToken(t *testing.T) {
-	db, cleanup := newTestDB(t)
-	defer cleanup()
-
-	logs := newAuthWithCSRFTopology(t, db, http.SameSiteNoneMode, false).String()
-	if !strings.Contains(logs, "cannot read the CSRF token") {
-		t.Errorf("expected a warning about the unreadable token, got:\n%s", logs)
-	}
-}
-
-func TestCSRFTopology_WarnsOnBodyTokenWithoutNone(t *testing.T) {
-	db, cleanup := newTestDB(t)
-	defer cleanup()
-
-	logs := newAuthWithCSRFTopology(t, db, http.SameSiteLaxMode, true).String()
-	if !strings.Contains(logs, "arrives unauthenticated") {
-		t.Errorf("expected a warning about the missing session cookie, got:\n%s", logs)
-	}
-}
-
-func TestCSRFTopology_SilentWhenBothSet(t *testing.T) {
-	db, cleanup := newTestDB(t)
-	defer cleanup()
-
-	logs := newAuthWithCSRFTopology(t, db, http.SameSiteNoneMode, true).String()
-	if strings.Contains(logs, "ExposeCSRFTokenInBody") {
-		t.Errorf("a correctly configured cross-site deployment must not warn, got:\n%s", logs)
-	}
-}
-
-func TestCSRFTopology_SilentOnPlainSameOriginDefaults(t *testing.T) {
-	db, cleanup := newTestDB(t)
-	defer cleanup()
-
-	logs := newAuthWithCSRFTopology(t, db, http.SameSiteLaxMode, false).String()
-	if strings.Contains(logs, "ExposeCSRFTokenInBody") {
-		t.Errorf("the default same-origin setup must not warn, got:\n%s", logs)
+// CSRF bootstrap has one JSON contract in same-site and cross-site deployments.
+func TestCSRFTopology_JSONBootstrap(t *testing.T) {
+	for _, sameSite := range []http.SameSite{http.SameSiteLaxMode, http.SameSiteNoneMode} {
+		t.Run(fmt.Sprint(sameSite), func(t *testing.T) {
+			db, cleanup := newTestDB(t)
+			defer cleanup()
+			migrateDB(t, db, testdb.Driver(db))
+			cfg, err := goauth.NewConfig(goauth.WithApp(goauth.AppConfig{Name: "Test", BaseURL: "https://api.example.com", Database: goauth.DatabaseConfig{DB: db, Driver: testAuthDriver(db)}}), goauth.WithSecret("0123456789abcdef0123456789abcdef"), goauth.WithMailer(&testMailer{}), goauth.WithBrowser(goauth.BrowserConfig{AllowedOrigins: []string{"https://panel.example.com"}, Cookies: goauth.CookieConfig{SameSite: sameSite}}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			a, err := goauth.New(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer a.Close()
+			h, _ := a.Handler("GET /auth/csrf-token")
+			req := httptest.NewRequest("GET", "https://api.example.com/auth/csrf-token", nil)
+			req.Header.Set("Origin", "https://panel.example.com")
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != 200 || w.Header().Get("Cache-Control") != "no-store" || !strings.Contains(w.Body.String(), "token") {
+				t.Fatalf("bootstrap: %d %s", w.Code, w.Body.String())
+			}
+			for _, cookie := range w.Result().Cookies() {
+				if !cookie.HttpOnly || !cookie.Secure || cookie.Domain != "" || cookie.SameSite != sameSite {
+					t.Fatalf("cookie transport: %+v", cookie)
+				}
+			}
+		})
 	}
 }
 

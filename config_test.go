@@ -15,7 +15,7 @@ import (
 )
 
 func validTestConfig() Config {
-	return Config{
+	cfg := Config{
 		app: AppConfig{
 			Name:        "Test",
 			BaseURL:     "http://localhost",
@@ -28,10 +28,11 @@ func validTestConfig() Config {
 			RefreshTokenTTL: time.Hour,
 			TokenTTL:        time.Hour,
 		},
-		cookie:   CookieConfig{Name: "s"},
-		security: SecurityConfig{AllowedOrigins: []string{"http://localhost"}},
-		secret:   "0123456789abcdef0123456789abcdef",
+		browser: BrowserConfig{Cookies: CookieConfig{Name: "s"}, AllowedOrigins: []string{"http://localhost"}},
+		secret:  "0123456789abcdef0123456789abcdef",
 	}
+	cfg.applyDefaults()
+	return cfg
 }
 
 func TestApplyDefaults_Valid(t *testing.T) {
@@ -49,11 +50,11 @@ func TestApplyDefaults_Valid(t *testing.T) {
 	if cfg.session.TokenTTL != 1*time.Hour {
 		t.Errorf("expected tokenTTL 1h, got %v", cfg.session.TokenTTL)
 	}
-	if cfg.cookie.Name != "goauth_session" {
-		t.Errorf("expected cookie name goauth_session, got %s", cfg.cookie.Name)
+	if cfg.browser.Cookies.Name != "goauth_session" {
+		t.Errorf("expected cookie name goauth_session, got %s", cfg.browser.Cookies.Name)
 	}
-	if cfg.cookie.Path != "/" {
-		t.Errorf("expected cookie path /, got %s", cfg.cookie.Path)
+	if cfg.browser.Cookies.Path != "/" {
+		t.Errorf("expected cookie path /, got %s", cfg.browser.Cookies.Path)
 	}
 }
 
@@ -125,7 +126,7 @@ func TestValidate_RefreshTTLLessThanSessionTTL(t *testing.T) {
 
 func TestValidate_EmptyAllowedOrigins(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.security.AllowedOrigins = nil
+	cfg.browser.AllowedOrigins = nil
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty allowed origins")
@@ -134,7 +135,7 @@ func TestValidate_EmptyAllowedOrigins(t *testing.T) {
 
 func TestValidate_EmptyCookieName(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.cookie.Name = ""
+	cfg.browser.Cookies.Name = ""
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error for empty cookie name")
@@ -165,7 +166,7 @@ func TestValidate_RequiresEmailMissingMailer(t *testing.T) {
 
 func TestValidate_WildcardOrigin(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.security.AllowedOrigins = []string{"*"}
+	cfg.browser.AllowedOrigins = []string{"*"}
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected error when AllowedOrigins contains *")
@@ -606,8 +607,8 @@ func validConfigOpts() []Option {
 			c.session.IdleTTL = 7 * 24 * time.Hour
 			c.session.RefreshTokenTTL = 30 * 24 * time.Hour
 			c.session.TokenTTL = 1 * time.Hour
-			c.cookie.Name = "goauth_session"
-			c.security.AllowedOrigins = []string{"http://localhost"}
+			c.browser.Cookies.Name = "goauth_session"
+			c.browser.AllowedOrigins = []string{"http://localhost"}
 			c.registration.EnableInvite = false
 			c.secret = "0123456789abcdef0123456789abcdef"
 			// EnvironmentDev so applyDefaults auto-fills a log mailer when a
@@ -686,7 +687,7 @@ func TestNew_RejectsDefaultConfigWithoutNewConfig(t *testing.T) {
 	cfg.app.Database.Driver = DriverSQLite
 	cfg.app.Database.DB = &sql.DB{}
 	cfg.secret = "0123456789abcdef0123456789abcdef"
-	cfg.security.AllowedOrigins = []string{"http://localhost"}
+	cfg.browser.AllowedOrigins = []string{"http://localhost"}
 
 	_, err := New(&cfg)
 	if err == nil {
@@ -713,8 +714,8 @@ func TestNewConfig_OverridesDefault(t *testing.T) {
 			c.session.IdleTTL = 7 * 24 * time.Hour
 			c.session.RefreshTokenTTL = 7 * 24 * time.Hour
 			c.session.TokenTTL = 1 * time.Hour
-			c.cookie.Name = "goauth_session"
-			c.security.AllowedOrigins = []string{"http://localhost"}
+			c.browser.Cookies.Name = "goauth_session"
+			c.browser.AllowedOrigins = []string{"http://localhost"}
 			c.registration.EnableInvite = false
 			c.secret = "0123456789abcdef0123456789abcdef"
 		},
@@ -732,50 +733,48 @@ func TestNewConfig_SameSiteDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.cookie.SameSite != http.SameSiteLaxMode {
-		t.Errorf("expected SameSiteLaxMode, got %v", cfg.cookie.SameSite)
+	if cfg.browser.Cookies.SameSite != http.SameSiteLaxMode {
+		t.Errorf("expected SameSiteLaxMode, got %v", cfg.browser.Cookies.SameSite)
 	}
 }
 
 func TestWithCookie_PartialConfigKeepsDefaults(t *testing.T) {
-	cfg, err := NewConfig(append(validConfigOpts(),
-		WithCookie(CookieConfig{Name: "custom_session"}),
-	)...)
+	cfg, err := NewConfig(append(validConfigOpts(), WithBrowser(BrowserConfig{AllowedOrigins: []string{"http://localhost"}, Cookies: CookieConfig{Name: "custom_session"}}))...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.cookie.Name != "custom_session" {
-		t.Errorf("expected cookie name custom_session, got %q", cfg.cookie.Name)
+	if cfg.browser.Cookies.Name != "custom_session" {
+		t.Errorf("expected cookie name custom_session, got %q", cfg.browser.Cookies.Name)
 	}
-	if cfg.cookie.Path != "/" {
-		t.Errorf("expected default cookie path /, got %q", cfg.cookie.Path)
+	if cfg.browser.Cookies.Path != "/" {
+		t.Errorf("expected default cookie path /, got %q", cfg.browser.Cookies.Path)
 	}
-	if cfg.cookie.SameSite != http.SameSiteLaxMode {
-		t.Errorf("expected default SameSiteLaxMode, got %v", cfg.cookie.SameSite)
+	if cfg.browser.Cookies.SameSite != http.SameSiteLaxMode {
+		t.Errorf("expected default SameSiteLaxMode, got %v", cfg.browser.Cookies.SameSite)
 	}
 }
 
 func TestWithCookie_ExplicitOverridesDefaults(t *testing.T) {
-	cfg, err := NewConfig(append(validConfigOpts(),
+	cfg, err := NewConfig(append(validConfigOpts(), WithBrowser(
 		// Secure accompanies SameSite=None because browsers reject the pair
 		// without it, and config.validate() now says so rather than letting
 		// it fail silently in a browser.
-		WithCookie(CookieConfig{Name: "custom", Domain: "example.com", Path: "/api", SameSite: http.SameSiteNoneMode, Secure: SecureAlways()}),
+		BrowserConfig{AllowedOrigins: []string{"http://localhost"}, Cookies: CookieConfig{Name: "custom", Domain: "localhost", Path: "/", SameSite: http.SameSiteNoneMode, Secure: SecureAlways()}}),
 	)...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.cookie.Name != "custom" {
-		t.Errorf("expected cookie name custom, got %q", cfg.cookie.Name)
+	if cfg.browser.Cookies.Name != "custom" {
+		t.Errorf("expected cookie name custom, got %q", cfg.browser.Cookies.Name)
 	}
-	if cfg.cookie.Domain != "example.com" {
-		t.Errorf("expected cookie domain example.com, got %q", cfg.cookie.Domain)
+	if cfg.browser.Cookies.Domain != "localhost" {
+		t.Errorf("expected cookie domain example.com, got %q", cfg.browser.Cookies.Domain)
 	}
-	if cfg.cookie.Path != "/api" {
-		t.Errorf("expected cookie path /api, got %q", cfg.cookie.Path)
+	if cfg.browser.Cookies.Path != "/" {
+		t.Errorf("expected cookie path /api, got %q", cfg.browser.Cookies.Path)
 	}
-	if cfg.cookie.SameSite != http.SameSiteNoneMode {
-		t.Errorf("expected SameSiteNoneMode, got %v", cfg.cookie.SameSite)
+	if cfg.browser.Cookies.SameSite != http.SameSiteNoneMode {
+		t.Errorf("expected SameSiteNoneMode, got %v", cfg.browser.Cookies.SameSite)
 	}
 }
 
@@ -941,13 +940,13 @@ func (m *mockMailer) Send(_ context.Context, _, _, _, _ string) error { return n
 // config instead of leaving it to look like "login succeeds but never sticks".
 func TestValidate_SameSiteNoneRequiresSecure(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.cookie = CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode}
+	cfg.browser.Cookies = CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode}
 	cfg.applyDefaults()
 	err := cfg.validate()
 	if err == nil {
 		t.Fatal("expected an error for SameSite=None without Secure")
 	}
-	if !strings.Contains(err.Error(), "same_site=None requires a secure cookie") {
+	if !strings.Contains(err.Error(), "same_site=None requires Secure cookies") {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
@@ -955,7 +954,7 @@ func TestValidate_SameSiteNoneRequiresSecure(t *testing.T) {
 // The pairing the cross-site deployment actually needs.
 func TestValidate_SameSiteNoneWithSecureIsAccepted(t *testing.T) {
 	cfg := validTestConfig()
-	cfg.cookie = CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode, Secure: SecureAlways()}
+	cfg.browser.Cookies = CookieConfig{Name: "s", SameSite: http.SameSiteNoneMode, Secure: SecureAlways()}
 	cfg.applyDefaults()
 	if err := cfg.validate(); err != nil {
 		t.Fatalf("SameSite=None with Secure must be accepted, got: %v", err)

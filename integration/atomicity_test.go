@@ -12,12 +12,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/nazimdjebloun/go-auth/internal/testdb"
 
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/api"
@@ -832,7 +833,7 @@ func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...po
 			Database: goauth.DatabaseConfig{
 				DB:     db,
 				Driver: testAuthDriver(db),
-			},
+			}, Environment: goauth.EnvironmentDev,
 		}),
 		goauth.WithSession(goauth.SessionConfig{
 			TTL:             1 * time.Hour,
@@ -841,9 +842,9 @@ func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...po
 			TokenTTL:        1 * time.Hour,
 			GraceWindow:     goauth.Duration(0),
 		}),
-		goauth.WithSecurity(goauth.SecurityConfig{
-			AllowHTTPURLs:  goauth.AllowPlaintextEmailLinks(),
-			AllowedOrigins: []string{"http://localhost:8080"},
+
+		goauth.WithBrowser(goauth.BrowserConfig{AllowedOrigins: []string{"http://localhost:8080"}, Cookies: goauth.CookieConfig{Name: "goauth_session"}}), goauth.WithSecurity(goauth.SecurityConfig{
+			AllowHTTPURLs: goauth.AllowPlaintextEmailLinks(),
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
 			EnableEmailPassword: true,
@@ -853,7 +854,7 @@ func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...po
 			InviteTTL:           1 * time.Hour,
 			VerificationCodeTTL: 1 * time.Hour,
 		}),
-		goauth.WithCookie(goauth.CookieConfig{Name: "goauth_session"}),
+
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
 		goauth.WithAudit(goauth.AuditConfig{Enabled: true}),
