@@ -6,13 +6,15 @@ icon: "Download"
 
 # Installation
 
+Start with [First working application](./guides/onboarding.mdx) for a runnable browser flow through signup, verification, 2FA, a protected request and logout. This page details prerequisites and integration choices.
+
 Optional application roles require the fresh canonical schema and explicit
 initialization before signups. Use `seed-admin --app-permissions` to create the
 first protected administrator, then configure `WithAppPermissions`. Initialization
 does not install any library permissions. See the
 [setup and permission guide](./guides/app-permissions.mdx#enable-and-initialize).
 
-Version 0.5.2 requires schema revision 3. Apply the matching migration catalog
+Version 0.5.3 requires schema revision 3. Apply the matching migration catalog
 before starting the backend. Signup is closed by default: explicitly configure
 `WithRegistration` for public or invited account creation, and configure
 `WithAuthentication` separately for password/OAuth login.

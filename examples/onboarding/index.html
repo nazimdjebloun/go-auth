@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>go-auth onboarding</title>
+<style>
+body{font:16px/1.5 system-ui;background:#f5f7fa;color:#182334;max-width:640px;margin:5vh auto;padding:24px}main{background:white;border:1px solid #dce1e8;border-radius:12px;padding:28px}h1{font-size:26px}label{display:block;margin:12px 0}input{display:block;width:100%;box-sizing:border-box;padding:10px;border:1px solid #aeb8c6;border-radius:6px;font:inherit}button{font:inherit;padding:10px 14px;margin:6px 6px 6px 0;cursor:pointer}button:disabled{cursor:wait}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f5f7fa;padding:12px}#status{min-height:24px}small{color:#4d5b6f}[hidden]{display:none!important}
+</style>
+<main>
+<h1>go-auth onboarding</h1>
+<p>One backend and browser, from signup to a protected application request.</p>
+<p id="status" role="status" aria-live="polite"></p>
+<form id="credentials">
+  <label>Email<input id="email" type="email" autocomplete="username" required></label>
+  <label>Name <small>(for signup)</small><input id="name" autocomplete="name"></label>
+  <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+  <button name="action" value="signup">Create account</button>
+  <button name="action" value="login">Sign in</button>
+</form>
+<form id="challenge" hidden>
+  <h2 id="challenge-title"></h2>
+  <p>Read the code from the development email in the backend terminal.</p>
+  <label>Email code<input id="code" autocomplete="one-time-code" required></label>
+  <button>Verify code</button>
+  <button id="resend" type="button">Resend code</button>
+  <button id="cancel" type="button">Back to sign in</button>
+</form>
+<section id="application" hidden>
+  <p id="identity"></p>
+  <button id="protected">Make protected request</button>
+  <button id="logout">Sign out</button>
+</section>
+<pre id="output" hidden></pre>
+<small>Local development example. Email delivery uses terminal logs; no mailbox endpoint is exposed. Passwords and CSRF tokens stay in memory. Session credentials stay in HttpOnly cookies.</small>
+</main>
+<script type="module">
+const byId = id => document.getElementById(id);
+let csrf = '', step = 'sign_in', pending = null, currentEmail = '';
+const csrfErrors = new Set(['csrf_token_missing','csrf_token_invalid','csrf_token_mismatch']);
+async function request(method, path, body, retry = true) {
+  const write = !['GET','HEAD','OPTIONS'].includes(method);
+  if (write && !csrf) csrf = (await request('GET','/auth/csrf-token')).token;
+  const headers = body === undefined ? {} : {'Content-Type':'application/json'};
+  if (write) headers['X-CSRF-Token'] = csrf;
+  const response = await fetch(path, {method, headers, credentials:'include', cache:'no-store', body:body === undefined ? undefined : JSON.stringify(body)});
+  if (response.headers.get('X-CSRF-Token')) csrf = response.headers.get('X-CSRF-Token');
+  const result = response.status === 204 ? {} : await response.json();
+  if (!response.ok) {
+    if (write && retry && csrfErrors.has(result.error)) { csrf = ''; return request(method,path,body,false); }
+    if (result.error === 'email_not_verified') await refresh();
+    const error = new Error(result.message || result.error || 'Request failed');
+    error.status = response.status;
+    throw error;
+  }
+  return result;
+}
+function screen(next, message = '') {
+  step = next;
+  byId('credentials').hidden = next !== 'sign_in';
+  byId('challenge').hidden = !['verify_email','two_factor'].includes(next);
+  byId('application').hidden = next !== 'authenticated';
+  byId('challenge-title').textContent = next === 'two_factor' ? 'Two-factor authentication' : 'Verify your email';
+  byId('code').value = '';
+  byId('code').pattern = next === 'two_factor' ? '[0-9]{6}' : '[A-Za-z0-9]{8}';
+  const codeLength = next === 'two_factor' ? 6 : 8;
+  byId('code').minLength = 0;
+  byId('code').maxLength = codeLength;
+  byId('code').minLength = codeLength;
+  byId('status').textContent = message;
+}
+async function refresh() {
+  try {
+    const me = await request('GET','/auth/me');
+    currentEmail = me.email;
+    if (me.step === 'verify_email') { screen('verify_email','Verify your email to resume this session.'); return; }
+    if (me.step !== 'authenticated') throw new Error('Unknown session step');
+    pending = null;
+    screen('authenticated','Signed in.');
+    byId('identity').textContent = `Signed in as ${me.email}`;
+  } catch (error) {
+    screen('sign_in', error.status === 401 ? 'Create an account or sign in.' : error.message);
+  }
+}
+let challengeId = '';
+async function accept(result) {
+  if (result.step === 'authenticated') { pending = null; await refresh(); return; }
+  if (result.step === 'verify_email' || result.step === 'two_factor') {
+    if (result.step === 'two_factor') { pending = null; challengeId = result.challengeId; }
+    currentEmail = result.user?.email || currentEmail;
+    screen(result.step, result.message || 'Check your email.');
+    return;
+  }
+  throw new Error('Unknown authentication step');
+}
+async function perform(action) {
+  for (const button of document.querySelectorAll('button')) button.disabled = true;
+  try { await action(); }
+  catch (error) { byId('status').textContent = error.message; }
+  finally { for (const button of document.querySelectorAll('button')) button.disabled = false; }
+}
+byId('credentials').addEventListener('submit', event => {
+  event.preventDefault();
+  void perform(async () => {
+    const signup = event.submitter.value === 'signup';
+    if (signup && !byId('name').value.trim()) throw new Error('Enter your name to create an account.');
+    const input = {email:byId('email').value, password:byId('password').value};
+    currentEmail = input.email;
+    byId('password').value = '';
+    const result = await request('POST',signup ? '/auth/register' : '/auth/login',signup ? {...input,name:byId('name').value} : input);
+    pending = result.step === 'verify_email' ? input : null;
+    await accept(result);
+  });
+});
+byId('challenge').addEventListener('submit', event => {
+  event.preventDefault();
+  void perform(async () => {
+    if (step === 'two_factor') { await accept(await request('POST','/auth/2fa/verify',{challengeId,code:byId('code').value})); return; }
+    const result = await request('POST','/auth/verify-email',{code:byId('code').value});
+    if (result.step === 'authenticated') { pending = null; await refresh(); return; }
+    if (result.step !== 'sign_in') throw new Error('Unknown verification step');
+    const input = pending; pending = null;
+    if (input) await accept(await request('POST','/auth/login',input));
+    else screen('sign_in','Email verified. Sign in to continue.');
+  });
+});
+byId('resend').addEventListener('click', () => { void perform(async () => {
+  const result = step === 'two_factor' ? await request('POST','/auth/2fa/resend',{challengeId}) : await request('POST','/auth/verify-email/resend',{email:currentEmail});
+  byId('status').textContent = result.message;
+}); });
+byId('cancel').addEventListener('click', () => { pending = null; challengeId = ''; screen('sign_in'); });
+byId('protected').addEventListener('click', () => { void perform(async () => {
+  const result = await request('POST','/app/hello');
+  byId('output').hidden = false; byId('output').textContent = JSON.stringify(result,null,2);
+}); });
+byId('logout').addEventListener('click', () => { void perform(async () => {
+  await request('POST','/auth/logout'); pending = null; challengeId = '';
+  byId('output').hidden = true; screen('sign_in','Signed out.');
+}); });
+await refresh();
+</script>
+</html>

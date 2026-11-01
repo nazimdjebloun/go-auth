@@ -13,6 +13,9 @@
 # Output of go coverage
 *.out
 /.test-results/
+/onboarding.db
+/onboarding.db-shm
+/onboarding.db-wal
 /.github/scripts/__pycache__/
 /.migration-drafts/
 /.migration-author.lock

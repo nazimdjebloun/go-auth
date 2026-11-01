@@ -1,0 +1,118 @@
+---
+title: "First working application"
+description: "Run the complete browser flow, then use the same configuration and wrapper in your backend."
+icon: "Rocket"
+---
+
+# First working application
+
+The runnable `examples/onboarding` application uses SQLite, the real HTTP
+handlers, host-only development cookies and terminal email delivery. Its browser
+page completes signup, email verification, password login, email 2FA, a protected
+application mutation and logout. It exposes no mailbox or code-reading endpoint.
+
+## Run from this checkout
+
+These shell commands use a fresh local SQLite database. Generate the root
+secret once and keep it for subsequent restarts of this development database.
+
+```bash
+export DATABASE_URL='file:onboarding.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)'
+export GOAUTH_SECRET="$(openssl rand -hex 32)"
+
+go run ./cmd/goauth migrate --driver sqlite --dsn "$DATABASE_URL"
+go run ./examples/onboarding
+```
+
+Open **http://localhost:8080**. Use that hostname consistently. The example
+listens only on loopback; port 8080 must be available. Without `GOAUTH_SECRET`,
+or before migration, startup fails with the relevant configuration/migration
+error before workers start. Restarting does not migrate the database.
+
+For PowerShell, generate a development secret with
+`$env:GOAUTH_SECRET = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32))`
+and set `$env:DATABASE_URL` to the same DSN. Run the same Go commands, replacing
+`"$DATABASE_URL"` with `"$env:DATABASE_URL"`.
+
+From a consuming module pinned to v0.5.3, use the package paths selected by that
+module instead of the checkout-relative commands:
+
+```bash
+go get github.com/nazimdjebloun/go-auth/examples/onboarding@v0.5.3 github.com/nazimdjebloun/go-auth/cmd/goauth@v0.5.3
+go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate --driver sqlite --dsn "$DATABASE_URL"
+go run github.com/nazimdjebloun/go-auth/examples/onboarding
+```
+
+The example's SQLite driver is included by the executable. Your own SQLite
+backend must blank-import `modernc.org/sqlite`, as shown in its source. The CLI
+and application must select the same library/catalog version.
+
+## Complete the browser flow
+
+1. Enter an email, name and password, then choose **Create account**. The page
+   first obtains the mandatory CSRF token, then submits signup. The password
+   follows the default policy: 8..128 Unicode code points with a letter and
+   digit, and the default unpeppered bcrypt input bound of 72 bytes.
+2. Copy the eight-character verification code from the backend terminal into
+   **Email code**. The response has `step: "sign_in"`; the page signs in using
+   the credentials still held in memory. Email verification itself issues no
+   session credentials.
+3. Enter the new six-digit 2FA code from the terminal. Only successful second
+   factor verification creates session/refresh cookies. The page reloads
+   `/auth/me` after the `authenticated` step.
+4. Choose **Make protected request**. `POST /app/hello` uses `Auth.Protect` and
+   returns the authenticated user ID. The client sends the current signed
+   double-submit token; authentication changes replace that token.
+5. Choose **Sign out**. Logout revokes the session, clears credentials and
+   replaces CSRF protection. A later protected request requires sign-in.
+
+Resend is available on the code screen. A page reload during signup verification
+discards the in-memory password; sign in again when needed. Existing sessions
+restricted by verification use the same screen and can resume after verifying
+their own account. No password, code or browser credential is written to local
+storage by this example.
+
+The example explicitly opens public password registration and requires email
+verification and email 2FA. These are example choices, not new library defaults.
+It uses `EnvironmentDev`, including HTTP and a log mailer. Configure a real
+mailer and HTTPS for a deployed application; see [Deployment](./deployment.mdx).
+
+## Use it in your backend
+
+`examples/onboarding/main.go` contains the full configuration, explicit driver
+import, route mounting and graceful shutdown. `index.html` contains the CSRF
+bootstrap/replacement and [`step` handling](./authentication-outcomes.mdx).
+Copy the relevant parts into your application rather than building a separate
+authentication implementation.
+
+Use `Auth.Protect("POST /your-route/{id}", handler)` on your own authenticated
+browser routes and put authorization wrappers inside it. Keep CORS outside a
+method-selecting router so preflight runs before dispatch. Do not apply `Protect`
+to the built-in public authentication routes. See
+[Protect application routes](./application-routes.mdx) for authorization examples.
+
+## Closed installations and the first administrator
+
+For an internal tool, keep `AllowPublic: false` in the application's
+`WithRegistration` configuration. The library already defaults to closed signup;
+the example opens it only to demonstrate registration. Seed the first verified
+administrator after migration and before accepting users:
+
+```bash
+export ADMIN_EMAIL='admin@example.test'
+go run ./cmd/goauth seed-admin --driver sqlite --dsn "$DATABASE_URL" --env dev
+```
+
+The CLI prompts for a password or generates one if the prompt is left empty,
+and checks development email delivery before writing the account. It does not
+require opening signup. In your own application, log in that account through the
+admin panel's dedicated admin login endpoint. With optional application roles,
+add `--app-permissions` and configure/initialize that feature as described in
+[App roles and permissions](./app-permissions.mdx).
+
+## What is tested
+
+The example's test uses its actual handler, a real migrated SQLite database and
+one HTTP cookie jar. It checks startup rejection before migration, the complete
+flow above, rejection before login and 2FA, and CSRF rejection even with valid
+session cookies. Run `go test ./examples/onboarding` from the checkout.
