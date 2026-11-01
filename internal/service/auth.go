@@ -144,12 +144,7 @@ func NewAuthService(
 	twoFactorSvc *TwoFactorService,
 ) *AuthService {
 	requireTxManager(txManager)
-	if config.PasswordPolicy.MinLength == 0 {
-		config.PasswordPolicy.MinLength = 8
-	}
-	if !config.PasswordPolicy.RequireDigit && !config.PasswordPolicy.RequireUppercase && !config.PasswordPolicy.RequireSpecial {
-		config.PasswordPolicy.RequireDigit = true
-	}
+	config.PasswordPolicy = config.PasswordPolicy.WithDefaults()
 	if config.Logger == nil {
 		config.Logger = slog.Default()
 	}
@@ -249,7 +244,7 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 	hash, pepperVersion, err := hashPassword(s.hasher, input.Password)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err)
-		return nil, domain.ErrInternal
+		return nil, passwordHashError(err)
 	}
 
 	now := time.Now().UTC()

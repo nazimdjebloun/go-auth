@@ -17,3 +17,11 @@ type Hasher interface {
 	Hash(password string) (string, error)
 	Compare(password, hash string) error
 }
+
+// PasswordInputLimiter optionally declares an algorithm's maximum input bytes.
+// Zero means no algorithm-specific bound. The limit applies to the actual KDF
+// input, after any password-pepper preprocessing, and never to verification of
+// existing hashes. Implementations should return a nonnegative value.
+type PasswordInputLimiter interface {
+	MaxPasswordBytes() int
+}

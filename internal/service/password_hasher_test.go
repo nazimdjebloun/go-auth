@@ -48,6 +48,30 @@ func newRecordingPasswordHasher(t *testing.T, currentVersion uint32, keys map[ui
 	return pipeline, registry, current
 }
 
+func TestPasswordHasherInputLimitAppliesAfterMonotonicPepperSelection(t *testing.T) {
+	current := hasher.New(4)
+	algorithms, err := registry.New(current, current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipeline, err := NewPasswordHasher(algorithms, 0, map[uint32][]byte{2: []byte("preloaded-future-password-pepper-key")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	password := strings.Repeat("a", 99) + "1"
+	if _, _, err := hashPassword(pipeline, password); !errors.Is(err, domain.ErrWeakPassword) {
+		t.Fatalf("unpeppered bcrypt overflow must fail as weak_password: %v", err)
+	}
+	version := uint32(2)
+	stored, selected, err := hashPasswordAtLeast(pipeline, password, &version)
+	if err != nil || selected == nil || *selected != version {
+		t.Fatalf("preloaded newer pepper was not selected before checking the KDF input: %v", err)
+	}
+	if err := comparePassword(pipeline, password, stored, selected); err != nil {
+		t.Fatalf("long password with preserved newer pepper did not verify: %v", err)
+	}
+}
+
 func TestPasswordHasher_CurrentVersionUsesHMACAndReturnsVersion(t *testing.T) {
 	pepper := []byte("derived password pepper key version one")
 	pipeline, registry, current := newRecordingPasswordHasher(t, 1, map[uint32][]byte{1: pepper})

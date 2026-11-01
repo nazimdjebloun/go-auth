@@ -14,7 +14,7 @@ go-auth provides authentication controls; you remain responsible for deployment,
 
 Passwords use **bcrypt** from `golang.org/x/crypto/bcrypt` at cost 12 by default. They are never stored or logged in plaintext. `WithBcryptCost` changes the work factor; `WithPasswordHasher` selects the implementation used for new password hashes.
 
-`PasswordPolicy` (`MinLength`, `RequireUppercase`, `RequireDigit`, `RequireSpecial`) runs during registration and password changes. Its default requires at least eight UTF-8 bytes and a digit. A zero `MinLength` falls back to eight bytes even when other policy fields are customized.
+`PasswordPolicy` (`MinLength`, `MaxLength`, `RequireLetter`, `RequireUppercase`, `RequireDigit`, `RequireSpecial`) runs during registration and password changes. An entirely zero policy selects 8..128 Unicode code points with a letter and digit. A nonzero policy uses all composition flags literally; `PasswordPolicy{MinLength: 12}` requires length only. Zero lengths resolve to 8 and 128. Invalid length/rule combinations fail configuration validation. Passwords must be valid UTF-8; they are not Unicode-normalized or trimmed before hashing.
 
 ### Argon2id
 
@@ -24,7 +24,7 @@ Argon2id's `Memory` is a real KiB allocation for every concurrent hash or compar
 
 ### Compatibility and migration
 
-`PasswordPolicy.Validate` caps passwords at bcrypt's hard limit: **72 bytes**, not characters. The limit stays in force with a custom hasher so every configured implementation accepts the same password set.
+Character policy is separate from algorithm limits. Bcrypt's **72-byte** bound is checked before hashing and excess input returns `weak_password`. It does not constrain Argon2id. With password peppering, the bound applies after preprocessing, to the fixed 44-byte HMAC/base64 representation. Custom hashers can declare a bound through `port.PasswordInputLimiter`. Startup rejects a minimum that cannot fit a known unpeppered input limit, or a hasher too narrow for the pepper representation. Login verification never applies the current write policy to existing hashes; a legacy Argon2id password can still log in after switching new writes to bcrypt, even when it cannot be rehashed into bcrypt.
 
 Stored hashes select their verifier by their own format prefix (`$2a$`, `$2b$`, `$argon2id$`, and similar), never by blindly trying whichever hasher is current. The registry always includes the current implementation plus built-in bcrypt and Argon2id verifiers, so switching between those algorithms does not break existing users' logins. An unknown or corrupted prefix fails closed: no verifier is guessed and the current hasher is never used as a fallback. The condition is logged for operators, while the caller receives the ordinary `invalid_credentials` response so a damaged row does not become an account-enumeration oracle.
 

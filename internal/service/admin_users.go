@@ -341,7 +341,7 @@ func (s *AdminService) CreateUser(ctx context.Context, input api.CreateUserInput
 	hash, pepperVersion, err := hashPassword(s.hasher, input.Password)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err)
-		return nil, domain.ErrInternal
+		return nil, passwordHashError(err)
 	}
 
 	now := time.Now().UTC()

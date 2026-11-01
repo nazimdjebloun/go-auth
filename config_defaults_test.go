@@ -90,7 +90,7 @@ func TestDefaults_SecurityKeepsPasswordPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
+	want := (domain.PasswordPolicy{}).WithDefaults()
 	if cfg.security.PasswordPolicy != want {
 		t.Errorf("password policy = %+v, want %+v", cfg.security.PasswordPolicy, want)
 	}

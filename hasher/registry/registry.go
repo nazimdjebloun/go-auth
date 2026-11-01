@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher/argon2id"
 	"github.com/nazimdjebloun/go-auth/port"
 	"golang.org/x/crypto/bcrypt"
@@ -257,7 +258,18 @@ func isNilHasher(h port.Hasher) bool {
 // the configured algorithm, never under whatever produced the row being
 // replaced.
 func (r *Registry) Hash(password string) (string, error) {
+	if limit := r.MaxPasswordBytes(); limit > 0 && len(password) > limit {
+		return "", domain.NewError("weak_password", fmt.Sprintf("Password exceeds the selected hasher's %d-byte input limit", limit))
+	}
 	return r.current.Hash(password)
+}
+
+// MaxPasswordBytes reports the current algorithm's declared input bound.
+func (r *Registry) MaxPasswordBytes() int {
+	if limiter, ok := r.current.(port.PasswordInputLimiter); ok {
+		return limiter.MaxPasswordBytes()
+	}
+	return 0
 }
 
 // Compare dispatches on the stored hash's identifying prefix. An unknown or

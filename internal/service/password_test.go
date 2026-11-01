@@ -1081,9 +1081,9 @@ func TestPasswordPolicyDefault(t *testing.T) {
 		{"8 chars no letter", "12345678", true},
 		{"valid mixed", "abc12345", false},
 		{"empty", "", true},
-		{"above 72 bytes (bcrypt's limit)", string(make([]byte, 129)), true},
+		{"above default character maximum", string(make([]byte, 129)), true},
 	}
-	p := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
+	p := (domain.PasswordPolicy{}).WithDefaults()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := p.Validate(tt.password)
@@ -1178,7 +1178,7 @@ func TestPasswordPolicyAllRequirements(t *testing.T) {
 }
 
 func TestPasswordPolicyMaxLength(t *testing.T) {
-	p := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
+	p := domain.PasswordPolicy{MinLength: 8, MaxLength: 72, RequireDigit: true}
 	long := make([]byte, 73)
 	for i := range long {
 		long[i] = 'a'
@@ -1186,7 +1186,7 @@ func TestPasswordPolicyMaxLength(t *testing.T) {
 	long[0] = '1'
 	err := p.Validate(string(long))
 	if err == nil {
-		t.Fatal("expected error for a 73-byte password (bcrypt's limit is 72 bytes)")
+		t.Fatal("expected error for a password exceeding the configured 72-character maximum")
 	}
 
 	short := make([]byte, 72)
@@ -1213,7 +1213,7 @@ func TestPasswordPolicyUnicode(t *testing.T) {
 }
 
 func TestPasswordPolicyErrorMessages(t *testing.T) {
-	p := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
+	p := domain.PasswordPolicy{MinLength: 8, RequireLetter: true, RequireDigit: true}
 
 	err := p.Validate("short")
 	if err == nil {

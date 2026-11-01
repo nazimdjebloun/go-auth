@@ -90,7 +90,7 @@ func runSeedAdminCmd(cmd *cobra.Command, _ []string) {
 		abort(err)
 	}
 
-	policy := domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
+	policy := (domain.PasswordPolicy{}).WithDefaults()
 	password, generated, err := resolveAdminPassword(os.Getenv("ADMIN_PASSWORD"), nonInteractive, isTTY, policy, promptHidden)
 	if err != nil {
 		abort(err)
@@ -205,7 +205,7 @@ func resolveAdminEmail(envEmail string, nonInteractive, isTTY bool, prompt func(
 // auto-generate outright when non-interactive or no TTY.
 func resolveAdminPassword(envPassword string, nonInteractive, isTTY bool, policy domain.PasswordPolicy, promptHiddenFn func(label string) (string, error)) (password string, generated bool, err error) {
 	if envPassword != "" {
-		if err := policy.Validate(envPassword); err != nil {
+		if err := validateAdminPassword(policy, envPassword); err != nil {
 			var authErr *domain.AuthError
 			errors.As(err, &authErr)
 			return "", false, fmt.Errorf("seed-admin: ADMIN_PASSWORD does not meet the password policy: %s", authErr.Message)
@@ -213,24 +213,42 @@ func resolveAdminPassword(envPassword string, nonInteractive, isTTY bool, policy
 		return envPassword, false, nil
 	}
 	if nonInteractive || !isTTY {
-		pw, genErr := generatePassword()
-		return pw, true, genErr
+		return generateAdminPassword(policy)
 	}
 	typed, promptErr := promptHiddenFn("Admin password (leave empty to auto-generate): ")
 	if promptErr != nil {
 		return "", false, fmt.Errorf("seed-admin: reading admin password: %w", promptErr)
 	}
-	typed = strings.TrimSpace(typed)
 	if typed == "" {
-		pw, genErr := generatePassword()
-		return pw, true, genErr
+		return generateAdminPassword(policy)
 	}
-	if err := policy.Validate(typed); err != nil {
+	if err := validateAdminPassword(policy, typed); err != nil {
 		var authErr *domain.AuthError
 		errors.As(err, &authErr)
 		return "", false, fmt.Errorf("seed-admin: password does not meet the password policy: %s", authErr.Message)
 	}
 	return typed, false, nil
+}
+
+func generateAdminPassword(policy domain.PasswordPolicy) (string, bool, error) {
+	password, err := generatePassword()
+	if err == nil {
+		err = validateAdminPassword(policy, password)
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("seed-admin: cannot generate a password satisfying the policy; provide ADMIN_PASSWORD: %w", err)
+	}
+	return password, true, nil
+}
+
+func validateAdminPassword(policy domain.PasswordPolicy, password string) error {
+	if err := policy.Validate(password); err != nil {
+		return err
+	}
+	if len(password) > hasher.BcryptMaxPasswordBytes {
+		return domain.NewError("weak_password", "Admin password exceeds bcrypt's 72-byte input limit")
+	}
+	return nil
 }
 
 const passwordGenLength = 24

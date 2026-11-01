@@ -261,7 +261,7 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 	hash, pepperVersion, err := hashPasswordAtLeast(s.hasher, input.NewPassword, user.PasswordPepperVersion)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
+		return passwordHashError(err)
 	}
 
 	now := time.Now().UTC()
@@ -471,7 +471,7 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.Conf
 	hash, pepperVersion, err := hashPassword(s.hasher, input.NewPassword)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "user_id", input.UserID)
-		return domain.ErrInternal
+		return passwordHashError(err)
 	}
 
 	claimed, err := s.users.SetPasswordAndVerify(ctx, input.UserID, hash, pepperVersion, token.ID)
@@ -516,7 +516,7 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input api.ChangePa
 	hash, pepperVersion, err := hashPasswordAtLeast(s.hasher, input.NewPassword, user.PasswordPepperVersion)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "user_id", input.UserID)
-		return domain.ErrInternal
+		return passwordHashError(err)
 	}
 
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {

@@ -4,15 +4,16 @@ import (
 	"strings"
 	"testing"
 	"unicode"
+	"unicode/utf8"
 )
 
 // FuzzPasswordPolicyValidate probes every rule boundary against arbitrary
 // (password, policy) pairs. The oracle recomputes the policy's own stated
-// rules, so divergences — a too-short or over-72-byte password accepted with a
+// rules, so divergences — a too-short or over-limit password accepted with a
 // nil error, a required class ignored, or a non-weak_password error escaping —
 // surface as failures. It also keeps an eye on the byte-vs-rune question the
-// implementation documents: the length checks are byte counts, so a multibyte
-// passphrase must still never sneak past bcryptMaxBytes.
+// implementation documents: length uses Unicode code points. Algorithm-specific
+// byte constraints are checked by the hashing pipeline, not by this policy.
 func FuzzPasswordPolicyValidate(f *testing.F) {
 	for _, s := range []string{
 		"",
@@ -44,10 +45,7 @@ func FuzzPasswordPolicyValidate(f *testing.F) {
 		}
 		err := p.Validate(password)
 
-		effectiveMin := p.MinLength
-		if effectiveMin == 0 {
-			effectiveMin = 8
-		}
+		resolved := p.WithDefaults()
 
 		var hasLetter, hasUpper, hasDigit, hasSpecial bool
 		for _, ch := range password {
@@ -66,12 +64,13 @@ func FuzzPasswordPolicyValidate(f *testing.F) {
 			}
 		}
 
-		satisfied := len(password) >= effectiveMin &&
-			len(password) <= bcryptMaxBytes &&
-			hasLetter &&
-			(!requireUppercase || hasUpper) &&
-			(!requireDigit || hasDigit) &&
-			(!requireSpecial || hasSpecial)
+		satisfied := resolved.ValidateConfig() == nil && utf8.ValidString(password) &&
+			utf8.RuneCountInString(password) >= resolved.MinLength &&
+			utf8.RuneCountInString(password) <= resolved.MaxLength &&
+			(!resolved.RequireLetter || hasLetter) &&
+			(!resolved.RequireUppercase || hasUpper) &&
+			(!resolved.RequireDigit || hasDigit) &&
+			(!resolved.RequireSpecial || hasSpecial)
 
 		if err == nil && !satisfied {
 			t.Errorf("Validate(%q, %+v) accepted a password that violates the policy", password, p)

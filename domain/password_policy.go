@@ -4,22 +4,57 @@ import (
 	"fmt"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // PasswordPolicy defines the checks applied to new passwords.
 type PasswordPolicy struct {
-	MinLength        int
+	MinLength        int // Unicode code points; zero uses eight.
+	MaxLength        int // Unicode code points; zero uses 128.
+	RequireLetter    bool
 	RequireUppercase bool
 	RequireDigit     bool
 	RequireSpecial   bool
 }
 
-// bcryptMaxBytes is bcrypt's real input limit — golang.org/x/crypto/bcrypt
-// rejects any password whose byte length exceeds 72 with ErrPasswordTooLong,
-// regardless of what this policy allows. Validate enforces this limit itself
-// so a rejection surfaces as 400 weak_password before Hash ever runs, not as
-// a generic 500 from a hasher error every caller treats identically.
-const bcryptMaxBytes = 72
+// WithDefaults resolves lengths without changing explicit composition choices.
+// An entirely zero policy selects eight to 128 characters with a letter and
+// digit. Any nonzero policy keeps all its boolean values literally.
+func (p PasswordPolicy) WithDefaults() PasswordPolicy {
+	if p == (PasswordPolicy{}) {
+		p.RequireLetter = true
+		p.RequireDigit = true
+	}
+	if p.MinLength == 0 {
+		p.MinLength = 8
+	}
+	if p.MaxLength == 0 {
+		p.MaxLength = 128
+	}
+	return p
+}
+
+// ValidateConfig rejects impossible or negative length settings.
+func (p PasswordPolicy) ValidateConfig() error {
+	p = p.WithDefaults()
+	if p.MinLength < 1 || p.MaxLength < p.MinLength {
+		return fmt.Errorf("password policy requires 1 <= MinLength <= MaxLength")
+	}
+	classes := 0
+	if p.RequireLetter || p.RequireUppercase {
+		classes++
+	}
+	if p.RequireDigit {
+		classes++
+	}
+	if p.RequireSpecial {
+		classes++
+	}
+	if p.MaxLength < classes {
+		return fmt.Errorf("password policy MaxLength cannot fit the required character classes")
+	}
+	return nil
+}
 
 // Validate returns error, not *AuthError, so a caller assigning the result to
 // a plain `var err error` (the natural thing to do, since PasswordPolicy is
@@ -27,20 +62,21 @@ const bcryptMaxBytes = 72
 // trap: a nil *AuthError boxed into a non-nil error interface would make
 // `err != nil` true even on success.
 func (p PasswordPolicy) Validate(password string) error {
-	if p.MinLength == 0 {
-		p.MinLength = 8
+	p = p.WithDefaults()
+	if p.ValidateConfig() != nil {
+		return NewError("weak_password", "Password policy has invalid length settings")
 	}
-	if len(password) < p.MinLength {
+	if !utf8.ValidString(password) {
+		return NewError("weak_password", "Password must be valid UTF-8")
+	}
+	length := utf8.RuneCountInString(password)
+	if length < p.MinLength {
 		return NewError("weak_password",
 			fmt.Sprintf("Password must be at least %d characters", p.MinLength))
 	}
-	// len(password) is already a byte count, not a rune count — Go strings
-	// are UTF-8 byte sequences — so this is the same measure bcrypt itself
-	// uses; a multi-byte passphrase (non-Latin scripts, emoji) hits the
-	// limit at fewer characters than an all-ASCII one, which is correct.
-	if len(password) > bcryptMaxBytes {
+	if length > p.MaxLength {
 		return NewError("weak_password",
-			fmt.Sprintf("Password must be no more than %d bytes", bcryptMaxBytes))
+			fmt.Sprintf("Password must be no more than %d characters", p.MaxLength))
 	}
 
 	var hasLetter, hasUpper, hasDigit, hasSpecial bool
@@ -64,7 +100,7 @@ func (p PasswordPolicy) Validate(password string) error {
 	if p.RequireUppercase && !hasUpper {
 		missing = append(missing, "an uppercase letter")
 	}
-	if !hasLetter {
+	if p.RequireLetter && !hasLetter {
 		missing = append(missing, "a letter")
 	}
 	if p.RequireDigit && !hasDigit {

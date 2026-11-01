@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher/registry"
 	"github.com/nazimdjebloun/go-auth/port"
 )
@@ -156,8 +157,18 @@ func hashPassword(h port.Hasher, password string) (string, *uint32, error) {
 	if versioned, ok := h.(versionedPasswordPipeline); ok {
 		return versioned.hashVersioned(password)
 	}
+	if limiter, ok := h.(port.PasswordInputLimiter); ok && limiter.MaxPasswordBytes() > 0 && len(password) > limiter.MaxPasswordBytes() {
+		return "", nil, domain.NewError("weak_password", fmt.Sprintf("Password exceeds the selected hasher's %d-byte input limit", limiter.MaxPasswordBytes()))
+	}
 	hash, err := h.Hash(password)
 	return hash, nil, err
+}
+
+func passwordHashError(err error) error {
+	if errors.Is(err, domain.ErrWeakPassword) {
+		return err
+	}
+	return fmt.Errorf("%w: password hashing failed: %w", domain.ErrInternal, err)
 }
 
 func comparePassword(h port.Hasher, password, stored string, version *uint32) error {

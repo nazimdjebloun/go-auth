@@ -9,13 +9,14 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
 // SecurityConfig groups password, email-link, and OTP pepper rotation policy.
 // Browser transport belongs to BrowserConfig; two-factor policy to TwoFactorConfig.
 type SecurityConfig struct {
-	PasswordPolicy domain.PasswordPolicy // zero value = MinLength 8, RequireDigit
+	PasswordPolicy domain.PasswordPolicy // zero value = 8..128 characters, RequireLetter and RequireDigit
 
 	// AllowHTTPURLs permits http:// links in rendered emails. It governs
 	// template rendering, not transport, so it applies to every mailer.
@@ -173,6 +174,26 @@ func WithPepperRotatedAt(t time.Time) Option {
 }
 func (c *Config) validateSecurity() []error {
 	var errs []error
+	if err := c.security.PasswordPolicy.ValidateConfig(); err != nil {
+		errs = append(errs, fmt.Errorf("password_policy: %w", err))
+	}
+	limit := hasher.BcryptMaxPasswordBytes
+	if c.passwordHasher != nil {
+		limit = 0
+		if limiter, ok := c.passwordHasher.(port.PasswordInputLimiter); ok {
+			limit = limiter.MaxPasswordBytes()
+		}
+	}
+	if limit < 0 {
+		errs = append(errs, errors.New("password_hasher: MaxPasswordBytes must be nonnegative"))
+	} else if limit > 0 {
+		if c.passwordPepper.CurrentVersion == 0 && c.security.PasswordPolicy.MinLength > limit {
+			errs = append(errs, fmt.Errorf("password_policy: MinLength cannot fit the selected hasher's %d-byte input limit", limit))
+		}
+		if c.passwordPepper.CurrentVersion != 0 && limit < 44 {
+			errs = append(errs, errors.New("password_hasher: input limit cannot fit the 44-byte password-pepper representation"))
+		}
+	}
 	if len(c.secret) == 0 {
 		errs = append(errs, errors.New("secret: signing secret is required"))
 	} else if len(c.secret) < 32 {
@@ -250,9 +271,7 @@ func (c *Config) applyTwoFactorDefaults() {
 }
 
 func (c *Config) applySecurityDefaults() {
-	if c.security.PasswordPolicy == (domain.PasswordPolicy{}) {
-		c.security.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
-	}
+	c.security.PasswordPolicy = c.security.PasswordPolicy.WithDefaults()
 }
 
 func (c *Config) applyEmailURLDefaults() {

@@ -20,8 +20,8 @@ func TestPasswordPolicy_DefaultMinLength(t *testing.T) {
 	}
 }
 
-func TestPasswordPolicy_MaxLength_BcryptBoundary(t *testing.T) {
-	p := PasswordPolicy{MinLength: 8}
+func TestPasswordPolicy_MaxLength_CharacterBoundary(t *testing.T) {
+	p := PasswordPolicy{MinLength: 8, MaxLength: 72}
 
 	at := strings.Repeat("a", 72)
 	if err := p.Validate(at); err != nil {
@@ -42,14 +42,9 @@ func TestPasswordPolicy_MaxLength_BcryptBoundary(t *testing.T) {
 	}
 }
 
-// TestPasswordPolicy_MaxLength_MultiByte asserts the limit is measured in
-// bytes, not runes: a password well under 128 *characters* can still exceed
-// bcrypt's 72-*byte* limit if it contains multi-byte characters, and must be
-// rejected by Validate (400 weak_password) rather than reaching hasher.Hash
-// and failing with bcrypt.ErrPasswordTooLong (which every caller maps to a
-// generic 500).
+// Character policy is independent of the selected algorithm's byte limit.
 func TestPasswordPolicy_MaxLength_MultiByte(t *testing.T) {
-	p := PasswordPolicy{MinLength: 8}
+	p := PasswordPolicy{MinLength: 8, MaxLength: 72}
 	// 25 "é" (2 bytes each in UTF-8) = 50 bytes, 25 runes — well under 128
 	// characters, but combined with the ASCII prefix below it crosses 72
 	// bytes while staying under 100 characters.
@@ -57,19 +52,11 @@ func TestPasswordPolicy_MaxLength_MultiByte(t *testing.T) {
 	if len([]rune(password)) >= 128 {
 		t.Fatalf("test setup bug: password has %d runes, want under 128", len([]rune(password)))
 	}
-	if len(password) <= bcryptMaxBytes {
-		t.Fatalf("test setup bug: password has %d bytes, want over %d", len(password), bcryptMaxBytes)
+	if len(password) <= 72 {
+		t.Fatal("test setup must exceed bcrypt's byte bound")
 	}
-	err := p.Validate(password)
-	if err == nil {
-		t.Fatal("expected error for a password over 72 bytes despite being under 128 runes")
-	}
-	ae, ok := err.(*AuthError)
-	if !ok {
-		t.Fatalf("expected *AuthError, got %T", err)
-	}
-	if ae.Code != "weak_password" {
-		t.Errorf("expected weak_password, got %s", ae.Code)
+	if err := p.Validate(password); err != nil {
+		t.Fatalf("72 Unicode characters must fit this policy: %v", err)
 	}
 }
 
@@ -98,7 +85,7 @@ func TestPasswordPolicy_RequireSpecial(t *testing.T) {
 }
 
 func TestPasswordPolicy_RequiresLetter(t *testing.T) {
-	p := PasswordPolicy{MinLength: 8, RequireDigit: true}
+	p := PasswordPolicy{MinLength: 8, RequireLetter: true, RequireDigit: true}
 	err := p.Validate("12345678")
 	if err == nil {
 		t.Fatal("expected error when no letter present")

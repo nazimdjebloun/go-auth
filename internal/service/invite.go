@@ -239,7 +239,7 @@ func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input ap
 	hash, pepperVersion, err := hashPassword(s.hasher, input.Password)
 	if err != nil {
 		s.log.Error("failed to hash password", "err", err, "invite_id", invite.ID)
-		return nil, domain.ErrInternal
+		return nil, passwordHashError(err)
 	}
 
 	now := time.Now().UTC()

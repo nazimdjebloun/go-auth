@@ -13,6 +13,12 @@ type BcryptHasher struct {
 	cost int
 }
 
+// BcryptMaxPasswordBytes is bcrypt's input limit, measured in UTF-8 bytes.
+const BcryptMaxPasswordBytes = 72
+
+// MaxPasswordBytes declares bcrypt's algorithm-specific input bound.
+func (h *BcryptHasher) MaxPasswordBytes() int { return BcryptMaxPasswordBytes }
+
 // New returns a bcrypt hasher. Costs below bcrypt.MinCost use bcrypt.DefaultCost.
 func New(cost int) *BcryptHasher {
 	if cost < bcrypt.MinCost {

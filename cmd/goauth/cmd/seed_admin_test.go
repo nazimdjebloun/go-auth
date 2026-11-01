@@ -189,7 +189,24 @@ func TestResolveAdminEmail_TTYPrompts(t *testing.T) {
 
 // ─── mode detection + validation: password ──────────────────
 
-var defaultPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true}
+var defaultPolicy = (domain.PasswordPolicy{}).WithDefaults()
+
+func TestResolveAdminPasswordPreservesWhitespace(t *testing.T) {
+	want := " Abcdef1! "
+	got, generated, err := resolveAdminPassword("", false, true, defaultPolicy, func(string) (string, error) { return want, nil })
+	if err != nil || generated || got != want {
+		t.Fatalf("typed password was changed: generated=%t err=%v", generated, err)
+	}
+}
+
+func TestResolveAdminPasswordChecksHasherAndGeneratedBounds(t *testing.T) {
+	if _, _, err := resolveAdminPassword(strings.Repeat("a", 72)+"1", true, false, defaultPolicy, nil); err == nil {
+		t.Fatal("bcrypt-overflow admin password accepted")
+	}
+	if _, _, err := resolveAdminPassword("", true, false, domain.PasswordPolicy{MinLength: 8, MaxLength: 16}, nil); err == nil {
+		t.Fatal("generated password violated configured maximum")
+	}
+}
 
 func TestResolveAdminPassword_EnvVarValid(t *testing.T) {
 	pw, generated, err := resolveAdminPassword("Sup3rSecret", false, true, defaultPolicy, nil)
