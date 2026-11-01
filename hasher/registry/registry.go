@@ -147,7 +147,16 @@ func New(current port.Hasher, legacyForVerify ...port.Hasher) (*Registry, error)
 	if isNilHasher(current) {
 		return nil, fmt.Errorf("hasher registry: current hasher is nil")
 	}
-	const probeInput = "goauth-hasher-registry-probe"
+	probeInput := "goauth-hasher-registry-probe"
+	if limiter, ok := current.(port.PasswordInputLimiter); ok {
+		limit := limiter.MaxPasswordBytes()
+		if limit < 0 {
+			return nil, errors.New("hasher registry: MaxPasswordBytes must be nonnegative")
+		}
+		if limit > 0 && len(probeInput) > limit {
+			probeInput = probeInput[:limit]
+		}
+	}
 	probe, err := current.Hash(probeInput)
 	if err != nil {
 		return nil, fmt.Errorf("hasher registry: current hasher failed to hash: %w", err)

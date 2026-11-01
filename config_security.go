@@ -3,6 +3,7 @@ package goauth
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"time"
 
@@ -177,15 +178,9 @@ func (c *Config) validateSecurity() []error {
 	if err := c.security.PasswordPolicy.ValidateConfig(); err != nil {
 		errs = append(errs, fmt.Errorf("password_policy: %w", err))
 	}
-	limit := hasher.BcryptMaxPasswordBytes
-	if c.passwordHasher != nil {
-		limit = 0
-		if limiter, ok := c.passwordHasher.(port.PasswordInputLimiter); ok {
-			limit = limiter.MaxPasswordBytes()
-		}
-	}
-	if limit < 0 {
-		errs = append(errs, errors.New("password_hasher: MaxPasswordBytes must be nonnegative"))
+	limit, err := passwordInputLimit(c.passwordHasher)
+	if err != nil {
+		errs = append(errs, err)
 	} else if limit > 0 {
 		if c.passwordPepper.CurrentVersion == 0 && c.security.PasswordPolicy.MinLength > limit {
 			errs = append(errs, fmt.Errorf("password_policy: MinLength cannot fit the selected hasher's %d-byte input limit", limit))
@@ -201,6 +196,27 @@ func (c *Config) validateSecurity() []error {
 	}
 
 	return errs
+}
+
+func passwordInputLimit(h port.Hasher) (int, error) {
+	if h == nil {
+		return hasher.BcryptMaxPasswordBytes, nil
+	}
+	value := reflect.ValueOf(h)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if value.IsNil() {
+			return 0, errors.New("password_hasher: hasher is nil")
+		}
+	}
+	limit := 0
+	if limiter, ok := h.(port.PasswordInputLimiter); ok {
+		limit = limiter.MaxPasswordBytes()
+	}
+	if limit < 0 {
+		return 0, errors.New("password_hasher: MaxPasswordBytes must be nonnegative")
+	}
+	return limit, nil
 }
 func (c *Config) validateTwoFactor() []error {
 	var errs []error

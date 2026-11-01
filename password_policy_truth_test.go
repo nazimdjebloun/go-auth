@@ -7,8 +7,22 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/hasher/argon2id"
 )
+
+type nilPolicyHasher struct {
+	*hasher.BcryptHasher
+	limit int
+}
+
+func (h *nilPolicyHasher) MaxPasswordBytes() int { return h.limit }
+
+func TestPasswordPolicyTypedNilInputLimiterFailsConfiguration(t *testing.T) {
+	if _, err := NewConfig(minimalOpts(WithPasswordHasher((*nilPolicyHasher)(nil)))...); err == nil {
+		t.Fatal("typed-nil custom limiter accepted")
+	}
+}
 
 func TestPasswordPolicyExplicitFalseRulesReachRegistration(t *testing.T) {
 	a := buildAuth(t, minimalOpts(WithBcryptCost(4), WithSecurity(SecurityConfig{
