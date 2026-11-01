@@ -8,7 +8,7 @@ icon: "Link2"
 
 The initial sign-up/sign-in redirect flow (`GET /auth/oauth/{provider}` → provider approval → callback) is covered per-provider on the [Providers](../providers/index.mdx) pages — it's identical regardless of which provider you use. This page covers the three endpoints that only matter for an **already-authenticated** user: linking an additional provider to their account, unlinking one, and listing what's currently connected.
 
-Requires `RegistrationConfig.EnableOAuth: true` and at least one `WithProvider(...)` call — see [Authentication → Configuration](./authentication.mdx#configuration). All three routes below are otherwise unmounted (404).
+Requires `AuthenticationConfig.OAuth: true` and at least one `WithProvider(...)` call — see [Authentication → Configuration](./authentication.mdx#configuration). Disabling authentication OAuth unmounts its route group; enabling it without a provider fails startup.
 
 The curl mutation examples use `jq` to read the mandatory CSRF bootstrap JSON. Keep the same cookie jar for bootstrap and the following request; the bootstrap is repeated after authentication changes.
 

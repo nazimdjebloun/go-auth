@@ -108,10 +108,13 @@ func DefaultRateLimitConfig() *Config {
 			routes.Glob(routes.InviteInfo):     {Requests: 30, Window: time.Minute},
 			routes.Glob(routes.RefreshToken):   {Requests: 3, Window: time.Minute},
 			// Two-factor
-			routes.Glob(routes.TwoFactorVerify):  {Requests: 5, Window: time.Minute},
-			routes.Glob(routes.TwoFactorResend):  {Requests: 3, Window: time.Minute},
-			routes.Glob(routes.TwoFactorEnable):  {Requests: 5, Window: time.Minute},
-			routes.Glob(routes.TwoFactorDisable): {Requests: 5, Window: time.Minute},
+			routes.Glob(routes.TwoFactorSettingsChallenge): {Requests: 3, Window: time.Minute},
+			routes.Glob(routes.OAuthInviteInitiate):        {Requests: 10, Window: time.Minute},
+			routes.Glob(routes.OAuthInviteVerify):          {Requests: 5, Window: time.Minute},
+			routes.Glob(routes.TwoFactorVerify):            {Requests: 5, Window: time.Minute},
+			routes.Glob(routes.TwoFactorResend):            {Requests: 3, Window: time.Minute},
+			routes.Glob(routes.TwoFactorEnable):            {Requests: 5, Window: time.Minute},
+			routes.Glob(routes.TwoFactorDisable):           {Requests: 5, Window: time.Minute},
 			// OAuth initiation writes state; callbacks exchange codes with a provider.
 			routes.Glob(routes.OAuthInitiate):     {Requests: 10, Window: time.Minute},
 			routes.Glob(routes.OAuthLink):         {Requests: 10, Window: time.Minute},

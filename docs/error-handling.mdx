@@ -275,3 +275,17 @@ These failures use the normal JSON envelope. CSRF checks still reject the same r
 | `rate_limit_error` | 429 | The rate-limit store failed; the middleware fails closed. |
 
 Both rate-limit errors include `Retry-After`. Clients should respect that delay and match the JSON `error` code, rather than parsing human-readable messages.
+
+## Verification required on an existing session
+
+`403 email_not_verified` means the session is still present but the current
+email-verification policy forbids protected access. Keep the session and route
+the user to verification. `GET /auth/me` returns a minimal status with
+`requiresVerification: true`, and verification, resend and logout remain
+available. Refreshing or retrying the protected operation cannot bypass this
+requirement. Fetch the full profile after successful verification.
+
+`method_disabled` also applies when an outstanding password reset/setup token,
+OAuth callback or signup invitation is completed after its method/path was
+disabled. Optional 2FA email confirmations use `two_factor_code_invalid` for an
+invalid, expired, wrong-session or wrong-action proof.

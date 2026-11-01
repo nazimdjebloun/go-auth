@@ -48,7 +48,7 @@ func newTestOAuthService(
 		providers, providerRepo, users, tokens,
 		&testutil.MockHasher{}, gen, sessSvc, verifySvc,
 		&testutil.MockTxManager{}, OAuthServiceConfig{
-			EnableOAuth: true,
+			OAuth: true,
 		},
 	)
 	return svc, sessions

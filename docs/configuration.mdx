@@ -319,8 +319,8 @@ goauth.WithTwoFactor(goauth.TwoFactorConfig{
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `RequireEmail2FA` | `bool` | `false` | Makes email 2FA mandatory for password login, registration, and invite registration. |
-| `DefaultEnabled` | `bool` | `false` | Seeds `User.TwoFactorEnabled` at registration; users may still opt out. |
+| `RequireEmail2FA` | `bool` | `false` | Makes email 2FA mandatory for password and OAuth authentication, including signup completion where email verification does not take precedence. |
+| `DefaultEnabled` | `bool` | `false` | Seeds `User.TwoFactorEnabled` for new password, invitation, and OAuth accounts; users may still opt out. Does not update existing accounts. |
 | `CodeTTL` | `time.Duration` | `5m` | Lifetime of a 2FA login code. |
 | `DisableAdminTwoFactor` | `bool` | `false` | Opts out of mandatory admin-account 2FA across password/OAuth login and admin HTTP access. Global/per-user requirements still apply. |
 
@@ -332,7 +332,6 @@ also require session assurance for their library administrative actions.
 **Expected errors**
 
 - `two_factor: code_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `5m`.
-- `two_factor: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path`: mandatory 2FA was turned on with no password registration to gate.
 
 ## `WithSession`: Optional
 
@@ -377,43 +376,105 @@ goauth.WithSession(goauth.SessionConfig{
 
 
 
-## `WithRegistration`: Optional, replaces wholesale
+## `WithAuthentication`: Optional, replaces wholesale
 
-Which signup methods are available. Login is always available regardless of these flags: they only govern registration.
+Select which methods can authenticate existing and new accounts. Omit this
+section for email/password authentication only. Supplying it selects both
+booleans exactly as written; there are no pointer booleans or `goauth.Bool` helpers.
 
 ```go
-goauth.WithRegistration(goauth.RegistrationConfig{
-    EnableEmailPassword:      true,                  // optional, default true
-    EnableOAuth:              true,                  // optional, default true
-    EnableInvite:             false,                 // optional, default false
-    AllowPublic:              true,                  // optional, default true
-    RequireEmailVerification: false,                 // optional, default false
-    InviteTTL:                7 * 24 * time.Hour,    // optional, default 7d
-    VerificationCodeTTL:      15 * time.Minute,      // optional, default 15m
-    VerificationResendInterval: 60 * time.Second, // optional, default 60s (negative = no minimum)
+goauth.WithAuthentication(goauth.AuthenticationConfig{
+    EmailPassword: true,  // default when the section is omitted
+    OAuth:         false, // default
 })
 ```
 
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `EnableEmailPassword` | `bool` | Optional | `true` | |
-| `EnableOAuth` | `bool` | Optional | `true` | Allows OAuth to create a new account, not just link one. |
-| `EnableInvite` | `bool` | Optional | `false` | A mailer is required regardless (see below). |
-| `AllowPublic` | `bool` | Optional | `true` | Public (non-invite) registration is reachable at all. |
-| `RequireEmailVerification` | `bool` | Optional | `false` | A mailer is required regardless (see below). |
-| `InviteTTL` | `time.Duration` | Optional | `7d` | |
-| `VerificationCodeTTL` | `time.Duration` | Optional | `15m` | |
-| `VerificationResendInterval` | `time.Duration` | Optional | `60s` | Minimum time between verification email resends (the mail-bombing guard). Throttled resends return `200` with `codeSent: false` rather than an error. Set a negative value to opt out back to no minimum. |
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `EmailPassword` | `bool` | `true` | Allows password login, including admin login, password setup/change/reset, and password-based administrative account creation. |
+| `OAuth` | `bool` | `false` | Allows login and account linking through configured providers. Requires at least one `WithProvider`. |
 
-A `bool` has no "unset" state: an omitted `false` looks identical to a deliberate one. Because of that, calling `WithRegistration` at all replaces every flag wholesale rather than merging into the defaults. List every method you want enabled, since anything you do not mention becomes `false`. The two TTL fields and `VerificationResendInterval` are the exception: they keep their defaults when left at zero even if you do call `WithRegistration`.
+Disabling a method retains accounts and credentials. It does not revoke existing
+sessions. Completion checks use the current policy: outstanding password reset
+or setup tokens cannot complete with password authentication disabled, and an
+OAuth callback cannot complete with OAuth authentication disabled.
 
-**Expected errors**
+Both methods disabled is invalid. A signup method also needs its corresponding
+authentication method. Registering a provider does not enable OAuth by itself.
 
-- `email: Mailer or Email config required — enabled features need it: <reasons>`: the `<reasons>` list names exactly which of `EnableInvite`, `RequireEmailVerification`, `RequireEmail2FA`, `DefaultEnabled`, or AdminLogin two-factor is still requiring one. Call `WithMailer`/`WithEmail`, or turn off every reason listed (`TwoFactorConfig.DisableAdminTwoFactor` for the last one). See [`WithMailer` / `WithEmail` / `WithTemplates`](#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off) below for the `EnvironmentDev` exception.
-- `registration: invite_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `7d`.
-- `registration: verification_code_ttl must be positive`: same, defaults to `15m`.
-- `registration: RequireEmailVerification has no effect when both EnableEmailPassword and EnableOAuth are disabled`.
-- `registration: AllowPublic is true but no registration method is enabled`: `AllowPublic` is true but `EnableEmailPassword`, `EnableOAuth`, and `EnableInvite` are all false.
+## `WithRegistration`: Optional, replaces wholesale
+
+Select how new accounts can be created. Registration is closed by default.
+Authentication for existing accounts is controlled separately by
+`WithAuthentication`; the email-verification requirement also applies to
+existing unverified accounts and sessions.
+
+```go
+goauth.WithRegistration(goauth.RegistrationConfig{
+    AllowPublic:              false,
+    EmailPassword:            false,
+    OAuth:                    false,
+    InviteSignup:             false,
+    RequireEmailVerification: false,
+
+    InviteTTL:                  7 * 24 * time.Hour,
+    VerificationCodeTTL:        15 * time.Minute,
+    VerificationResendInterval: time.Minute,
+})
+```
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `AllowPublic` | `bool` | `false` | Opens signup without an account invitation. |
+| `EmailPassword` | `bool` | `false` | Allows password account creation through public signup or signup invitations. |
+| `OAuth` | `bool` | `false` | Allows provider account creation through public signup or signup invitations. |
+| `InviteSignup` | `bool` | `false` | Enables account-creation invitations. Organization membership invitations remain independent. Requires email delivery. |
+| `RequireEmailVerification` | `bool` | `false` | Requires verified email before login or protected access, including existing sessions. Requires email delivery. |
+| `InviteTTL` | `time.Duration` | `7d` | Account invitation lifetime. |
+| `VerificationCodeTTL` | `time.Duration` | `15m` | Email verification code lifetime. |
+| `VerificationResendInterval` | `time.Duration` | `60s` | Minimum resend interval. A throttled resend returns `codeSent: false`. Negative disables the minimum. |
+
+Each supplied boolean is literal. Omitted booleans are false; durations left at
+zero use their documented defaults. Public or invitation signup requires at
+least one signup method, and that method must be enabled for authentication.
+Closing signup does not prevent an already-created account from finishing
+email verification.
+
+For existing password accounts with OAuth-only public signup, enable both
+methods in `WithAuthentication`, then set registration `AllowPublic: true`,
+`OAuth: true`, and `EmailPassword: false`. Configure a provider explicitly.
+For strict OAuth-only access, disable authentication `EmailPassword` too.
+
+### Email verification for existing sessions
+
+Enabling `RequireEmailVerification` affects every unverified account, regardless
+of when it was created. An existing session is retained but protected requests
+return `403 {"error":"email_not_verified","message":"Please verify your email first"}`.
+`GET /auth/me` instead returns only `id`, `email`, `isVerified: false`, and
+`requiresVerification: true`. Use that response to show the signup verification
+screen before rendering protected content. Verification, resend and logout
+remain available. Refresh does not grant access around the verification check.
+`POST /auth/refresh` still rotates cookies but returns only
+`requiresVerification: true` and the email while verification is pending; no
+session object is included. After verification, the retained session can access
+protected routes again.
+Disabling the requirement removes the restriction for all accounts without
+erasing their stored verification status. Already-verified users are not asked
+to verify again. Page loads do not automatically send another email.
+
+**Expected startup errors**
+
+- `authentication: enable EmailPassword or OAuth`.
+- `authentication: OAuth requires at least one WithProvider`.
+- `registration: EmailPassword requires authentication.EmailPassword`.
+- `registration: OAuth requires authentication.OAuth`.
+- Public or invitation signup without any registration method.
+- `registration: invite_ttl must be positive` and
+  `registration: verification_code_ttl must be positive` for negative values.
+- `email: Mailer or Email config required — enabled features need it: <reasons>`.
+  The reasons identify `InviteSignup`, `RequireEmailVerification`,
+  `RequireEmail2FA`, `DefaultEnabled`, or default admin two-factor policy.
+  Development supplies the log mailer when no mailer or SMTP is configured.
 
 ## `WithOrganizations`: Optional
 
@@ -440,7 +501,7 @@ goauth.WithOrganizations(goauth.OrganizationConfig{
 
 ## `WithMailer` / `WithEmail` / `WithTemplates`: required unless every email feature is off
 
-A mailer is required whenever some configured feature actually sends email: `EnableInvite`, `RequireEmailVerification`, `TwoFactorConfig.RequireEmail2FA`, `TwoFactorConfig.DefaultEnabled`, or mandatory admin-account two-factor authentication (on by default; see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `TwoFactorConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
+A mailer is required whenever some configured feature actually sends email: `InviteSignup`, `RequireEmailVerification`, `TwoFactorConfig.RequireEmail2FA`, `TwoFactorConfig.DefaultEnabled`, or mandatory admin-account two-factor authentication (on by default; see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `TwoFactorConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
 
 **Exception: `EnvironmentDev`.** If neither `WithMailer` nor `WithEmail` is set and `Environment` is `EnvironmentDev`, `NewConfig` automatically defaults to a log-only mailer (`mailer.Log`) instead of erroring. Emails are logged (`slog`) rather than delivered, so local development works with zero mailer setup. This default only fills in when *nothing* was configured; an explicit `WithMailer`/`WithEmail` call is never overridden. Outside `EnvironmentDev`, no default is applied: a still-unconfigured mailer is a validation error.
 
@@ -688,7 +749,9 @@ grace must not be negative`, or `maintenance timeout must not be negative`.
 
 ## `WithProvider`: Optional
 
-Registers an OAuth provider. Call it once per provider; OAuth routes are mounted only when at least one is registered.
+Registers an OAuth provider. Call it once per provider and enable
+`AuthenticationConfig.OAuth` explicitly. Registration `OAuth` independently
+controls whether the provider may create new accounts.
 
 ```go
 goauth.WithProvider(github.New(github.Config{

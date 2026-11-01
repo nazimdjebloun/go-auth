@@ -39,18 +39,37 @@ type OAuthUnlinkInput struct {
 // zero — the caller already has a valid session from before the link
 // started and must not touch it (no new session is created or returned).
 type OAuthCallbackResult struct {
-	SessionID            string // stable identity for session-bound browser protection
-	SessionToken         string
-	RefreshToken         string
-	IsNewUser            bool
-	RequiresVerification bool
-	VerifyEmail          string
-	IsLink               bool
-	RequiresTwoFactor    bool      `json:"requiresTwoFactor,omitempty"`
-	CodeSent             bool      `json:"codeSent,omitempty"`
-	TwoFactorChallenge   string    `json:"challengeId,omitempty"`
-	TwoFactorExpiresAt   time.Time `json:"twoFactorExpiresAt,omitempty"`
-	bindingToken         string
+	RequiresInviteVerification bool
+	InviteChallengeID          string
+	InviteExpiresAt            time.Time
+	SessionID                  string // stable identity for session-bound browser protection
+	SessionToken               string
+	RefreshToken               string
+	IsNewUser                  bool
+	RequiresVerification       bool
+	VerifyEmail                string
+	IsLink                     bool
+	RequiresTwoFactor          bool      `json:"requiresTwoFactor,omitempty"`
+	CodeSent                   bool      `json:"codeSent,omitempty"`
+	TwoFactorChallenge         string    `json:"challengeId,omitempty"`
+	TwoFactorExpiresAt         time.Time `json:"twoFactorExpiresAt,omitempty"`
+	bindingToken               string
+}
+
+// OAuthInviteInput starts provider signup using a raw account invitation token.
+type OAuthInviteInput struct {
+	Provider    string `json:"provider"`
+	InviteToken string `json:"inviteToken"`
+}
+
+// OAuthInviteVerifyInput completes email proof before an invited OAuth account
+// is created. BindingToken comes from the initiating browser's HttpOnly cookie.
+type OAuthInviteVerifyInput struct {
+	ChallengeID  string `json:"challengeId"`
+	Code         string `json:"code"`
+	BindingToken string `json:"-"`
+	IP           string `json:"-"`
+	UserAgent    string `json:"-"`
 }
 
 // BindingToken returns the browser binding credential; it is never serialized.

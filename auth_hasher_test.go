@@ -61,7 +61,7 @@ func newHasherTestDB(t *testing.T) *sql.DB {
 
 func newAuthWithHasherTestDB(t *testing.T, db *sql.DB, extra ...Option) *Auth {
 	t.Helper()
-	opts := minimalOpts(extra...)
+	opts := minimalOpts(append([]Option{WithRegistration(RegistrationConfig{AllowPublic: true, EmailPassword: true})}, extra...)...)
 	opts = append(opts, WithApp(AppConfig{
 		Name:     "app",
 		BaseURL:  "https://example.com",

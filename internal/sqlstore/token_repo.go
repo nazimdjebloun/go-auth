@@ -30,7 +30,7 @@ func (r *TokenRepository) Create(ctx context.Context, t *domain.VerificationToke
 	}
 	_, err := r.db.ExecContext(ctx, tokenCreateQuery,
 		t.ID, t.UserID, t.Email, t.TokenHash, t.Type, t.ExpiresAt, t.UsedAt, t.CodeVerifier,
-		t.Attempts, t.ResendCount, createdAt)
+		t.Attempts, t.ResendCount, createdAt, t.ContextHash, t.EncryptedPayload)
 	return err
 }
 
@@ -44,7 +44,7 @@ func scanToken(s scanner) (*domain.VerificationToken, error) {
 	var codeVerifier sql.NullString
 	err := s.Scan(
 		&t.ID, &userID, &t.Email, &t.TokenHash, &t.Type, &t.ExpiresAt, &usedAt,
-		&t.CreatedAt, &codeVerifier, &t.Attempts, &t.ResendCount)
+		&t.CreatedAt, &codeVerifier, &t.Attempts, &t.ResendCount, &t.ContextHash, &t.EncryptedPayload)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -105,6 +105,9 @@ func (r *TokenRepository) ConsumeIfValid(ctx context.Context, input port.Consume
 
 // ConsumeIfValidUnderCap claims the exact live token within its attempt budget.
 func (r *TokenRepository) ConsumeIfValidUnderCap(ctx context.Context, input port.ConsumeTokenInput, maxAttempts int) (bool, error) {
+	if input.UserID == "" {
+		return affected(r.db.ExecContext(ctx, tokenConsumeUnownedUnderCapQuery, input.UsedAt, input.ID, input.TokenHash, input.Type, input.UsedAt, maxAttempts))
+	}
 	return affected(r.db.ExecContext(ctx, tokenConsumeIfValidUnderCapQuery,
 		input.UsedAt, input.ID, input.TokenHash, input.UserID, input.Type, input.UsedAt, maxAttempts))
 }

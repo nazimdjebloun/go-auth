@@ -22,8 +22,8 @@ func TestHandlerRegistryRespectsFeatureGates(t *testing.T) {
 	a := buildAuth(t, minimalOpts()...)
 	defer a.Close()
 
-	if len(a.routes) != 52 {
-		t.Fatalf("default route count = %d, want 52", len(a.routes))
+	if len(a.routes) != 53 {
+		t.Fatalf("default route count = %d, want 53", len(a.routes))
 	}
 	for _, pattern := range []string{routes.Login, routes.Register, routes.Me} {
 		if h, ok := a.Handler(pattern); !ok || h == nil {

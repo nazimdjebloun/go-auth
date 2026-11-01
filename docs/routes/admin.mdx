@@ -133,7 +133,9 @@ The user plus `activeSessionCount`, `hasPassword` (`false` for OAuth-only accoun
 
 POST /admin/users
 
-Creates the user pre-verified. No session is issued.
+Creates the user pre-verified. No session is issued. This password-based
+provisioning operation requires `AuthenticationConfig.EmailPassword: true`;
+otherwise it returns `405 method_disabled`.
 
 **Request body**
 
@@ -792,7 +794,7 @@ GET /admin/users/\{id\}/orgs/count
 { "count": 3 }
 ```
 
-## Platform invites: requires `EnableInvite`
+## Platform invites: requires `InviteSignup`
 
 ### Create invite
 

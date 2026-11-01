@@ -145,7 +145,7 @@ func TestValidate_EmptyCookieName(t *testing.T) {
 func TestValidate_RequiresEmailWithMailer(t *testing.T) {
 	cfg := validTestConfig()
 	cfg.mailer = &mockMailer{}
-	cfg.registration.EnableEmailPassword = true
+	cfg.registration.EmailPassword = true
 	cfg.registration.RequireEmailVerification = true
 	cfg.applyDefaults()
 	err := cfg.validate()
@@ -609,7 +609,7 @@ func validConfigOpts() []Option {
 			c.session.TokenTTL = 1 * time.Hour
 			c.browser.Cookies.Name = "goauth_session"
 			c.browser.AllowedOrigins = []string{"http://localhost"}
-			c.registration.EnableInvite = false
+			c.registration.InviteSignup = false
 			c.secret = "0123456789abcdef0123456789abcdef"
 			// EnvironmentDev so applyDefaults auto-fills a log mailer when a
 			// test doesn't provide its own WithMailer/WithEmail — the mailer
@@ -716,7 +716,7 @@ func TestNewConfig_OverridesDefault(t *testing.T) {
 			c.session.TokenTTL = 1 * time.Hour
 			c.browser.Cookies.Name = "goauth_session"
 			c.browser.AllowedOrigins = []string{"http://localhost"}
-			c.registration.EnableInvite = false
+			c.registration.InviteSignup = false
 			c.secret = "0123456789abcdef0123456789abcdef"
 		},
 	)

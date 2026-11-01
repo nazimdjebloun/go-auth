@@ -60,9 +60,9 @@ type PasswordPepperConfig struct {
 
 // TwoFactorConfig controls email two-factor policy and code lifetime.
 type TwoFactorConfig struct {
-	// RequireEmail2FA makes email two-factor mandatory for every password
-	// login. Enable/Disable both reject while it is on, so users cannot opt
-	// out. Non-admin OAuth logins are not covered — see docs/security.mdx.
+	// RequireEmail2FA makes email two-factor mandatory after password or OAuth
+	// authentication. Enable/Disable both reject while it is on, so users
+	// cannot opt out.
 	RequireEmail2FA bool
 
 	// DefaultEnabled seeds User.TwoFactorEnabled at registration. Users can
@@ -78,7 +78,7 @@ type TwoFactorConfig struct {
 	// requirement for admin password/OAuth login and privileged HTTP access.
 	// Intended for API-only deployments
 	// with no email delivery at all — every other email-gated feature
-	// (RequireEmailVerification, EnableInvite, RequireEmail2FA, DefaultEnabled)
+	// (RequireEmailVerification, InviteSignup, RequireEmail2FA, DefaultEnabled)
 	// must also be off before a mailer becomes optional; see NewConfig's
 	// validation error if one still needs it.
 	//

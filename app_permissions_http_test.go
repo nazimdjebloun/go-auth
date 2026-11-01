@@ -52,7 +52,7 @@ func newAppHTTPFixture(t *testing.T, management, requireMFA bool, options ...Opt
 		WithSecret("0123456789abcdef0123456789abcdef"),
 		WithBcryptCost(4),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
-		WithRegistration(RegistrationConfig{EnableEmailPassword: true, AllowPublic: true, EnableInvite: true}), WithBrowser(BrowserConfig{AllowedOrigins: []string{"http://localhost"}}), WithSecurity(SecurityConfig{AllowHTTPURLs: AllowPlaintextEmailLinks()}),
+		WithRegistration(RegistrationConfig{EmailPassword: true, AllowPublic: true, InviteSignup: true}), WithBrowser(BrowserConfig{AllowedOrigins: []string{"http://localhost"}}), WithSecurity(SecurityConfig{AllowHTTPURLs: AllowPlaintextEmailLinks()}),
 		WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: !requireMFA}),
 		WithAppPermissions(AppPermissionsConfig{Enable: true, EnableManagementHTTP: management}),
 	}

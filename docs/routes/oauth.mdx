@@ -6,7 +6,7 @@ icon: "KeyRound"
 
 # OAuth
 
-Mounted only when `EnableOAuth` is true and at least one provider is registered with `WithProvider`. `Auth` is either `Public` or `Session` as marked. Provider tokens are never exposed: the connected-accounts route returns profile fields only.
+Mounted when `AuthenticationConfig.OAuth` is true with at least one configured provider. Enabling OAuth without a provider fails startup; registration `OAuth` independently permits account creation. `Auth` is either `Public` or `Session` as marked. Provider tokens are never exposed: the connected-accounts route returns profile fields only.
 
 ### Initiate login
 
@@ -48,7 +48,8 @@ The state cookie uses `SameSite=None; Secure` when secure cookies are enabled so
 - Failure: `302` to `{BaseURL}/auth/callback?error={code}&provider={provider}`, where `{code}` is the `error` code (e.g. `state_used`, `state_expired`).
 - Link flow (caller already had a session): `302` to `{BaseURL}/auth/callback`. No new session is issued.
 - Verification required: `302` to `{BaseURL}/auth/callback?requiresVerification=true&provider={provider}`.
-- Admin 2FA required: `302` to `{BaseURL}/auth/callback` with `requiresTwoFactor=true`, `provider`, `challengeId`, and `expiresAt` query parameters, plus an HttpOnly challenge binding cookie. No session is issued. Submit the email code and challenge ID to `POST /auth/2fa/verify` using the same browser cookie jar. The binding credential never appears in the redirect URL.
+- 2FA required by global, per-account or admin policy: `302` to `{BaseURL}/auth/callback` with `requiresTwoFactor=true`, `provider`, `challengeId`, and `expiresAt` query parameters, plus an HttpOnly challenge binding cookie. No session is issued. Submit the email code and challenge ID to `POST /auth/2fa/verify` using the same browser cookie jar. The binding credential never appears in the redirect URL.
+- Invitation email proof required: `302` to `{BaseURL}/auth/callback?requiresInviteVerification=true&challengeId=...`, plus a host-only HttpOnly invitation-binding cookie. Complete the code through `POST /auth/oauth/invite/verify`.
 - Normal login: `200` HTML page that sets both cookies via `Set-Cookie` and redirects client-side with `window.location.replace("{BaseURL}/auth/callback")`. Cookies go in headers (not a bare `302`) because `Set-Cookie` on cross-origin redirects is unreliable in some browsers.
 
 ### Link provider
@@ -75,7 +76,7 @@ Starts linking a provider to the logged-in account. Returns the authorization UR
 
 POST /auth/oauth/\{provider\}/unlink
 
-Removes the provider link. Blocked when it is the account's last login method. `Auth:` Session. No body.
+Removes the provider link. Blocked when it is the account's last usable login method. A disabled password method or an unavailable provider does not count as an alternative. `Auth:` Session. No body.
 
 **Path params:**
 
@@ -112,6 +113,49 @@ Lists the caller's connected providers. Profile fields only. `Auth:` Session.
   ]
 }
 ```
+
+### Start invited signup
+
+POST /auth/oauth/\{provider\}/invite
+
+Starts provider signup from an account invitation while public signup can remain
+closed. Requires authentication `OAuth`, registration `OAuth`, and
+`InviteSignup`. `Auth:` Public, with mandatory CSRF and origin checks.
+
+```json
+{ "inviteToken": "raw-token-from-the-invitation-link" }
+```
+
+Returns `200 {"url":"https://provider.example/authorize?..."}` and the normal
+OAuth state cookie. Navigate the browser to `url`. The backend binds state to the selected provider and stores an encrypted
+copy of the current invitation code hash, so a resend that rotates the invitation
+invalidates an already-started flow. The returned provider address must match
+the invited email. A different address is rejected without consuming the invite.
+An expired, revoked or consumed invitation cannot create an account.
+
+### Confirm an invited provider email
+
+POST /auth/oauth/invite/verify
+
+Only needed when the provider did not confirm ownership of the invited address.
+The callback has already mailed a code and returned the invitation challenge ID.
+No account exists yet. The pending provider profile is encrypted in storage.
+`Auth:` Public, with the same browser's invitation-binding cookie and CSRF.
+
+```json
+{ "challengeId": "...", "code": "123456" }
+```
+
+The one-time code uses `VerificationCodeTTL`, bounded by invitation expiry, and
+allows five guesses. Successful proof, account creation, provider connection,
+and invitation consumption commit together. An existing email is never silently
+connected to the provider; sign into that account and connect it explicitly.
+
+Success sets the normal session/refresh cookies and returns
+`200 {"isNewUser":true}`, or returns `requiresTwoFactor`, `challengeId`,
+`codeSent` and `expiresAt` with a challenge-binding cookie when local 2FA is
+required. Complete that challenge through `/auth/2fa/verify`. A failed account
+creation leaves the invitation and email proof available for retry.
 
 ## Next
 

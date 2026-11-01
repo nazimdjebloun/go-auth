@@ -322,7 +322,7 @@ Only the protected admin role requires email 2FA by default, including OAuth
 login. Every other role follows the non-admin policy, even with installed
 library grants: password login and library actions require MFA when
 `RequireEmail2FA` or the account's `TwoFactorEnabled` is on. Admin MFA settings
-do not affect these roles. Non-admin OAuth retains the provider-authentication
+do not affect these roles. Non-admin OAuth follows the same global and account-level MFA
 policy described in [Security](../security.mdx#authentication-policy-matrix).
 
 Promotion to the protected admin role does not add assurance to a live session:

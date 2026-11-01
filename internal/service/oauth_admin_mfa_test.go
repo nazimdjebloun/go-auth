@@ -78,7 +78,7 @@ func TestOAuthAdminLoginRequiresSecondFactorBeforeSession(t *testing.T) {
 	}
 }
 
-func TestOAuthNonAdminLoginUsesProviderAuthentication(t *testing.T) {
+func TestOAuthNonAdminLoginEnforcesConfiguredTwoFactor(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		global  bool
@@ -120,6 +120,12 @@ func TestOAuthNonAdminLoginUsesProviderAuthentication(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if tc.global || tc.perUser {
+				if !result.RequiresTwoFactor || result.SessionToken != "" {
+					t.Fatalf("OAuth skipped required 2FA: %+v", result)
+				}
+				return
 			}
 			if result.RequiresTwoFactor || result.SessionToken == "" || result.BindingToken() != "" {
 				t.Fatalf("non-admin OAuth did not use provider authentication: %+v", result)

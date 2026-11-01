@@ -20,7 +20,7 @@ func TestAdminAccessRequiresVerifiedSessionAcrossLoginAndRefresh(t *testing.T) {
 			migrateDB(t, db, testdb.Driver(db))
 			mailer := &testMailer{}
 			a, err := newTestAuth2FA(db, mailer, goauth.TwoFactorConfig{DisableAdminTwoFactor: optOut}, goauth.RegistrationConfig{
-				EnableEmailPassword: true, AllowPublic: true,
+				EmailPassword: true, AllowPublic: true,
 			})
 			if err != nil {
 				t.Fatal(err)

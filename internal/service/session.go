@@ -31,20 +31,21 @@ type SessionService struct {
 
 // SessionConfig configures session lifetimes and token rotation.
 type SessionConfig struct {
-	CookieName        string
-	RefreshCookieName string
-	Domain            string
-	Path              string
-	Secure            bool
-	SameSite          http.SameSite
-	Duration          time.Duration
-	IdleTTL           time.Duration
-	RefreshTTL        time.Duration
-	MaxLifetime       time.Duration // 0 = no max lifetime
-	GraceWindow       time.Duration
-	TouchDebounce     time.Duration // min interval between last_active_at updates
-	Logger            *slog.Logger
-	Audit             AuditPublisher
+	RequireEmailVerification bool
+	CookieName               string
+	RefreshCookieName        string
+	Domain                   string
+	Path                     string
+	Secure                   bool
+	SameSite                 http.SameSite
+	Duration                 time.Duration
+	IdleTTL                  time.Duration
+	RefreshTTL               time.Duration
+	MaxLifetime              time.Duration // 0 = no max lifetime
+	GraceWindow              time.Duration
+	TouchDebounce            time.Duration // min interval between last_active_at updates
+	Logger                   *slog.Logger
+	Audit                    AuditPublisher
 }
 
 // DefaultSessionConfig returns the default session settings.
@@ -389,4 +390,19 @@ func (s *SessionService) ListAll(ctx context.Context, userID string) ([]domain.S
 // IsSessionError reports whether an error is a session lookup failure.
 func IsSessionError(err error) bool {
 	return errors.Is(err, domain.ErrSessionNotFound) || errors.Is(err, domain.ErrSessionExpired)
+}
+
+// checkUserAccess is separate from session identity validation: an unverified
+// owner retains enough identity to complete verification and log out.
+func (s *SessionService) checkUserAccess(user *domain.User) error {
+	if user == nil {
+		return domain.ErrInvalidCredentials
+	}
+	if user.IsBanned {
+		return domain.ErrUserBanned
+	}
+	if s.config.RequireEmailVerification && !user.IsVerified {
+		return domain.ErrEmailNotVerified
+	}
+	return nil
 }

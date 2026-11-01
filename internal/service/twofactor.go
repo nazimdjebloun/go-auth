@@ -51,12 +51,13 @@ const (
 // round-trip. It is NOT the brute-force control — per-IP rate limiting is, with
 // the residual distributed case accepted and documented in docs/security.mdx.
 type TwoFactorService struct {
-	users     port.UserRepository
-	sessions  port.SessionRevoker // DeleteAllForUserExcept (Enable/Disable revoke other sessions)
-	tokens    port.TokenRepository
-	hasher    port.Hasher
-	mailer    port.Mailer
-	templates port.TemplateProvider
+	settingsSessions port.SessionIdentityReader
+	users            port.UserRepository
+	sessions         port.SessionRevoker // DeleteAllForUserExcept (Enable/Disable revoke other sessions)
+	tokens           port.TokenRepository
+	hasher           port.Hasher
+	mailer           port.Mailer
+	templates        port.TemplateProvider
 	// store backs the account-scoped notify counter only. Auth.New hands it
 	// a dedicated non-evicting store, never the rate limiter's: an evicted
 	// counter here is a suspicious-activity email that silently never sends.
@@ -159,16 +160,20 @@ func (s *TwoFactorService) withTx(ctx context.Context, fn func(context.Context) 
 // 5 guesses/min either way, and the refusal only added an account-level denial
 // vector. Do not reintroduce it.
 func (s *TwoFactorService) Challenge(ctx context.Context, userID string) (*api.ChallengeResult, error) {
-	return s.challenge(ctx, userID, nil)
+	return s.challenge(ctx, userID, nil, "")
 }
 
 // challengeWithPassword binds first-factor authorization to the exact password
 // verified by authenticate, even if a reset commits before this call starts.
 func (s *TwoFactorService) challengeWithPassword(ctx context.Context, expected *domain.User) (*api.ChallengeResult, error) {
-	return s.challenge(ctx, expected.ID, expected)
+	return s.challenge(ctx, expected.ID, expected, hashToken("password"))
 }
 
-func (s *TwoFactorService) challenge(ctx context.Context, userID string, expected *domain.User) (*api.ChallengeResult, error) {
+func (s *TwoFactorService) challengeWithOAuth(ctx context.Context, userID string) (*api.ChallengeResult, error) {
+	return s.challenge(ctx, userID, nil, hashToken("oauth"))
+}
+
+func (s *TwoFactorService) challenge(ctx context.Context, userID string, expected *domain.User, methodHash string) (*api.ChallengeResult, error) {
 	ctx = sessioncontext.With(ctx, sessioncontext.Current(ctx))
 	var user *domain.User
 	var token *domain.VerificationToken
@@ -194,7 +199,7 @@ func (s *TwoFactorService) challenge(ctx context.Context, userID string, expecte
 		if err != nil {
 			return err
 		}
-		if existing != nil && sessioncontext.Of(existing.TokenHash) == sessioncontext.Current(ctx) && existing.UsedAt == nil &&
+		if existing != nil && existing.ContextHash == methodHash && sessioncontext.Of(existing.TokenHash) == sessioncontext.Current(ctx) && existing.UsedAt == nil &&
 			s.now().UTC().Before(existing.ExpiresAt) &&
 			existing.Attempts < maxAttemptsPerChallenge &&
 			existing.ResendCount < maxCodeRefreshesPerChallenge &&
@@ -208,7 +213,7 @@ func (s *TwoFactorService) challenge(ctx context.Context, userID string, expecte
 		if err := s.tokens.DeleteUnusedTwoFactor(txCtx, userID, sessioncontext.Current(ctx) == sessioncontext.Admin); err != nil {
 			return err
 		}
-		token, raw, err = s.prepareIssue(txCtx, user)
+		token, raw, err = s.prepareIssue(txCtx, user, methodHash)
 		return err
 	})
 	if err != nil {
@@ -243,7 +248,7 @@ func (s *TwoFactorService) challenge(ctx context.Context, userID string, expecte
 
 // prepareIssue creates only the challenge credential, inside its caller's
 // transaction. Delivery is separated to keep external I/O outside row locks.
-func (s *TwoFactorService) prepareIssue(ctx context.Context, user *domain.User) (*domain.VerificationToken, string, error) {
+func (s *TwoFactorService) prepareIssue(ctx context.Context, user *domain.User, methodHash string) (*domain.VerificationToken, string, error) {
 	if s.mailer == nil {
 		return nil, "", domain.ErrEmailNotConfigured
 	}
@@ -256,7 +261,7 @@ func (s *TwoFactorService) prepareIssue(ctx context.Context, user *domain.User) 
 	}
 	now := s.now().UTC()
 	token := &domain.VerificationToken{
-		ID: generateID(), UserID: &user.ID, Email: user.Email,
+		ID: generateID(), UserID: &user.ID, Email: user.Email, ContextHash: methodHash,
 		TokenHash: sessioncontext.Bind(sessioncontext.Current(ctx), hashOTP(raw, s.config.OTPPepper)), Type: domain.TokenTwoFactor,
 		ExpiresAt: now.Add(s.config.TwoFactorCodeTTL), CreatedAt: now,
 	}
@@ -339,6 +344,9 @@ func (s *TwoFactorService) Verify(ctx context.Context, input api.TwoFactorVerify
 	if token == nil || token.Type != domain.TokenTwoFactor || token.UserID == nil {
 		return nil, domain.ErrTwoFactorCodeInvalid
 	}
+	if err := s.checkChallengeMethod(token); err != nil {
+		return nil, err
+	}
 	if !sessioncontext.Matches(ctx, token.TokenHash) {
 		return nil, domain.ErrTwoFactorCodeInvalid
 	}
@@ -393,6 +401,9 @@ func (s *TwoFactorService) Verify(ctx context.Context, input api.TwoFactorVerify
 		}
 		if user.IsBanned {
 			return domain.ErrUserBanned
+		}
+		if s.config.RequireEmailVerification && !user.IsVerified {
+			return domain.ErrEmailNotVerified
 		}
 		ok, err := s.tokens.ConsumeIfValidUnderCap(txCtx, port.ConsumeTokenInput{
 			ID: token.ID, TokenHash: token.TokenHash, UserID: *token.UserID,
@@ -606,19 +617,14 @@ func (s *TwoFactorService) Resend(ctx context.Context, input api.TwoFactorResend
 // to true would in fact default to false and silently skip revocation for every
 // client that didn't send it.
 func (s *TwoFactorService) Enable(ctx context.Context, input api.TwoFactorEnableInput) error {
-	user, aerr := s.authorizeChange(ctx, input.UserID, input.Password)
-	if aerr != nil {
-		return aerr
-	}
-	if user.TwoFactorEnabled {
-		return nil
-	}
-
-	// Borrow ChangePassword's call, not its control flow: there, an empty
-	// except-id means "revoke everything including the caller". Here opting out
-	// must skip revocation entirely, or keepOtherSessions would log the user
-	// out of the very session making the request.
-	apply := func(txCtx context.Context) error {
+	return s.settingsTransaction(ctx, func(txCtx context.Context) error {
+		user, err := s.authorizeSettingChange(txCtx, input.UserID, input.Password, input.ChallengeID, input.Code, input.CallerSessionID, domain.TokenTwoFactorEnable)
+		if err != nil {
+			return err
+		}
+		if user.TwoFactorEnabled {
+			return nil
+		}
 		if err := s.users.SetTwoFactorEnabled(txCtx, user.ID, true, s.now().UTC()); err != nil {
 			return err
 		}
@@ -631,29 +637,19 @@ func (s *TwoFactorService) Enable(ctx context.Context, input api.TwoFactorEnable
 			return s.audit.Record(txCtx, audit.NewTwoFactorEnabledEvent(user.ID))
 		}
 		return nil
-	}
-	err := s.txManager.WithTx(ctx, apply)
-	if err != nil {
-		s.log.Error("failed to enable 2fa", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
-	}
-	return nil
+	})
 }
 
-// Disable turns off per-user 2FA. No session revocation: turning 2FA off is not
-// the "someone may be in my account" signal that turning it on is.
+// Disable changes only the personal preference, never a mandatory requirement.
 func (s *TwoFactorService) Disable(ctx context.Context, input api.TwoFactorDisableInput) error {
-	user, aerr := s.authorizeChange(ctx, input.UserID, input.Password)
-	if aerr != nil {
-		return aerr
-	}
-	if !user.TwoFactorEnabled {
-		return nil
-	}
-
-	// The flag and its audit record commit together, mirroring Enable: an
-	// audit failure under fail-closed must not leave 2FA silently off.
-	apply := func(txCtx context.Context) error {
+	return s.settingsTransaction(ctx, func(txCtx context.Context) error {
+		user, err := s.authorizeSettingChange(txCtx, input.UserID, input.Password, input.ChallengeID, input.Code, input.CallerSessionID, domain.TokenTwoFactorDisable)
+		if err != nil {
+			return err
+		}
+		if !user.TwoFactorEnabled {
+			return nil
+		}
 		if err := s.users.SetTwoFactorEnabled(txCtx, user.ID, false, s.now().UTC()); err != nil {
 			return err
 		}
@@ -661,13 +657,7 @@ func (s *TwoFactorService) Disable(ctx context.Context, input api.TwoFactorDisab
 			return s.audit.Record(txCtx, audit.NewTwoFactorDisabledEvent(user.ID))
 		}
 		return nil
-	}
-	err := s.txManager.WithTx(ctx, apply)
-	if err != nil {
-		s.log.Error("failed to disable 2fa", "err", err, "user_id", user.ID)
-		return domain.ErrInternal
-	}
-	return nil
+	})
 }
 
 // authorizeChange gates both Enable and Disable: mandatory 2FA cannot be
@@ -675,15 +665,24 @@ func (s *TwoFactorService) Disable(ctx context.Context, input api.TwoFactorDisab
 // password check is what stops an OAuth-authenticated session — which never
 // passed a second factor — from switching 2FA off.
 func (s *TwoFactorService) authorizeChange(ctx context.Context, userID, password string) (*domain.User, error) {
+	if s.config.PasswordAuthenticationDisabled {
+		return nil, domain.ErrMethodDisabled
+	}
 	if s.config.RequireEmail2FA {
 		return nil, domain.ErrTwoFactorAlreadyEnforced
 	}
-	user, err := s.users.GetByID(ctx, userID)
+	user, err := s.users.GetByIDForUpdate(ctx, userID)
 	if err != nil {
 		return nil, fmt.Errorf("authorize change: lookup: %w", err)
 	}
 	if user == nil {
 		return nil, domain.ErrUserNotFound
+	}
+	if user.IsBanned {
+		return nil, domain.ErrUserBanned
+	}
+	if s.config.RequireEmailVerification && !user.IsVerified {
+		return nil, domain.ErrEmailNotVerified
 	}
 	if !user.HasPassword() {
 		return nil, domain.ErrTwoFactorPasswordRequired
@@ -695,4 +694,13 @@ func (s *TwoFactorService) authorizeChange(ctx context.Context, userID, password
 		return nil, domain.ErrInvalidCredentials
 	}
 	return user, nil
+}
+
+// Known first-factor flows must still be enabled when their second factor completes.
+// Empty context belongs to legacy challenges or trusted programmatic callers.
+func (s *TwoFactorService) checkChallengeMethod(token *domain.VerificationToken) error {
+	if (token.ContextHash == hashToken("password") && s.config.PasswordAuthenticationDisabled) || (token.ContextHash == hashToken("oauth") && s.config.OAuthAuthenticationDisabled) {
+		return domain.ErrMethodDisabled
+	}
+	return nil
 }

@@ -33,7 +33,7 @@ func TestAppPermissionsOAuthCreationAndMissingDefaultRollback(t *testing.T) {
 	links := sqlstore.NewProviderAccountRepository(f.db)
 	sessions := NewSessionService(f.db, sqlstore.NewSessionRepository(f.db), token.New(), DefaultSessionConfig())
 	provider := &stubOAuthProvider{name: "test", profile: oauthTestProfile("test", "first", "oauth-app@example.com")}
-	s := NewOAuthService(map[string]port.OAuthProvider{"test": provider}, links, f.users, tokens, &testutil.MockHasher{}, token.New(), sessions, nil, f.db, OAuthServiceConfig{EnableOAuth: true, DisableAdminTwoFactor: true, AppPermissions: f.s})
+	s := NewOAuthService(map[string]port.OAuthProvider{"test": provider}, links, f.users, tokens, &testutil.MockHasher{}, token.New(), sessions, nil, f.db, OAuthServiceConfig{OAuth: true, DisableAdminTwoFactor: true, AppPermissions: f.s})
 	callback := func(raw string) (*api.OAuthCallbackResult, error) {
 		t.Helper()
 		verifier := "verifier"
@@ -74,7 +74,7 @@ func TestAppPermissionsInviteCreationAndMissingDefaultRollback(t *testing.T) {
 	sessionRepo := sqlstore.NewSessionRepository(f.db)
 	sessions := NewSessionService(f.db, sessionRepo, token.New(), DefaultSessionConfig())
 	cfg := defaultTestConfig()
-	cfg.EnableInvite, cfg.AppPermissions = true, f.s
+	cfg.InviteSignup, cfg.AppPermissions = true, f.s
 	s := NewInviteService(f.users, sessionRepo, invites, &testutil.MockHasher{}, token.New(), nil, f.db, cfg, sessions, nil)
 	complete := func(raw, email string) (*api.CompleteInviteResult, string, error) {
 		t.Helper()
@@ -165,7 +165,7 @@ func TestAppPermissionsOAuthMFAUsesProtectedAdminIdentity(t *testing.T) {
 			sessionRepo := sqlstore.NewSessionRepository(f.db)
 			sessions := NewSessionService(f.db, sessionRepo, token.New(), DefaultSessionConfig())
 			provider := &stubOAuthProvider{name: "test", profile: oauthTestProfile("test", "subject", "oauth-mfa@example.com")}
-			s := NewOAuthService(map[string]port.OAuthProvider{"test": provider}, links, f.users, tokens, &testutil.MockHasher{}, token.New(), sessions, nil, f.db, OAuthServiceConfig{EnableOAuth: true, AppPermissions: f.s})
+			s := NewOAuthService(map[string]port.OAuthProvider{"test": provider}, links, f.users, tokens, &testutil.MockHasher{}, token.New(), sessions, nil, f.db, OAuthServiceConfig{OAuth: true, AppPermissions: f.s})
 			cfg := defaultTestConfig()
 			cfg.AppPermissions, cfg.RequireEmail2FA = f.s, global
 			cfg.TwoFactorCodeTTL = 5 * time.Minute
@@ -186,7 +186,7 @@ func TestAppPermissionsOAuthMFAUsesProtectedAdminIdentity(t *testing.T) {
 				return result
 			}
 			created := callback("new-state")
-			if !created.IsNewUser || created.RequiresTwoFactor || created.SessionToken == "" {
+			if !created.IsNewUser || created.RequiresTwoFactor != global || (global && created.SessionToken != "") || (!global && created.SessionToken == "") {
 				t.Fatalf("delegated OAuth signup imposed admin MFA: %+v", created)
 			}
 			user, err := f.users.GetByEmail(ctx, provider.profile.Email)
@@ -197,7 +197,7 @@ func TestAppPermissionsOAuthMFAUsesProtectedAdminIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			login := callback("existing-state")
-			if login.IsNewUser || login.RequiresTwoFactor || login.SessionToken == "" {
+			if login.IsNewUser || login.RequiresTwoFactor != global || (global && login.SessionToken != "") || (!global && login.SessionToken == "") {
 				t.Fatalf("delegated OAuth login changed provider policy: %+v", login)
 			}
 			adminRole, err := f.repo.RoleBySlug(ctx, "admin")

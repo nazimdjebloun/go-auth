@@ -159,6 +159,10 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Not authenticated"})
 		return
 	}
+	if h.services.RequireEmailVerification && !user.IsVerified {
+		h.writeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email, "isVerified": false, "requiresVerification": true})
+		return
+	}
 	// Session travels alongside the user because the active org lives on it
 	// and is otherwise unreadable by a client: PUT/DELETE /auth/orgs/active
 	// only answer with a bare {"message"}. Every token hash on domain.Session

@@ -159,6 +159,8 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     attempts INT NOT NULL DEFAULT 0,
     resend_count INT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    context_hash VARCHAR(64) NOT NULL DEFAULT '',
+    encrypted_payload TEXT NOT NULL DEFAULT (''),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

@@ -67,9 +67,9 @@ type Config struct {
 	AppPermissions *AppPermissionsService
 
 	InviteOnly                 bool
-	EnableEmailPassword        bool
-	EnableOAuth                bool
-	EnableInvite               bool
+	EmailPassword              bool
+	OAuth                      bool
+	InviteSignup               bool
 	RequireEmailVerification   bool
 	InviteTTL                  time.Duration
 	VerificationCodeTTL        time.Duration
@@ -219,7 +219,7 @@ func (s *AuthService) createAuditedLoginSession(
 
 // Register creates a user account.
 func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*api.RegisterResult, error) {
-	if !s.config.EnableEmailPassword {
+	if s.config.PasswordAuthenticationDisabled || !s.config.EmailPassword {
 		return nil, domain.ErrMethodDisabled
 	}
 	if s.config.InviteOnly {
@@ -351,6 +351,9 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 // On success it returns the authenticated user. requiresVerification is true
 // when the user must verify their email before a session can be issued.
 func (s *AuthService) authenticate(ctx context.Context, input api.LoginInput) (*domain.User, bool, error) {
+	if s.config.PasswordAuthenticationDisabled {
+		return nil, false, domain.ErrMethodDisabled
+	}
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 
 	user, err := s.users.GetByEmail(ctx, input.Email)
@@ -396,11 +399,7 @@ func (s *AuthService) authenticate(ctx context.Context, input api.LoginInput) (*
 		return nil, false, domain.ErrUserBanned
 	}
 
-	protected, err := appProtectedIdentity(ctx, s.config.AppPermissions, user)
-	if err != nil {
-		return nil, false, err
-	}
-	if s.config.RequireEmailVerification && !user.IsVerified && !protected {
+	if s.config.RequireEmailVerification && !user.IsVerified {
 		return user, true, nil
 	}
 
@@ -581,13 +580,17 @@ func (s *AuthService) AdminLogin(ctx context.Context, input api.LoginInput) (*ap
 	if err != nil {
 		return nil, err
 	}
-	if requiresVerification || !protected {
+	if !protected {
 		if s.audit != nil {
 			if err := s.audit.Record(ctx, audit.NewAdminLoginFailedEvent(input.Email, net.ParseIP(input.IP), input.UserAgent)); err != nil {
 				s.log.Error("admin login-failed audit record error", "err", err)
 			}
 		}
 		return nil, domain.ErrInvalidCredentials
+	}
+
+	if requiresVerification {
+		return &api.LoginResult{User: user, RequiresVerification: true}, nil
 	}
 
 	// Apply the same account policy used by ordinary login. An explicit admin
@@ -656,6 +659,9 @@ func (s *AuthService) ValidateSession(ctx context.Context, tokenRaw string) (*do
 		return nil, nil, domain.ErrUserBanned
 	}
 
+	if s.config.RequireEmailVerification && !user.IsVerified {
+		return nil, nil, domain.ErrEmailNotVerified
+	}
 	return user, session, nil
 }
 

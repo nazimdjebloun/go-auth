@@ -5,14 +5,37 @@ import (
 	"time"
 )
 
-// RegistrationConfig controls which registration methods are available.
-// Login is ALWAYS unconditional regardless of these flags.
+// AuthenticationConfig selects the usable authentication methods for all accounts.
+// A supplied section replaces both choices. Without WithAuthentication, only
+// email/password authentication is enabled.
+type AuthenticationConfig struct {
+	EmailPassword bool
+	OAuth         bool
+}
+
+// WithAuthentication selects sign-in and credential-management methods.
+func WithAuthentication(cfg AuthenticationConfig) Option {
+	return func(c *Config) {
+		c.authentication = cfg
+		c.set.authentication = true
+	}
+}
+
+func (c *Config) applyAuthenticationDefaults() {
+	if !c.set.authentication {
+		c.authentication = AuthenticationConfig{EmailPassword: true}
+	}
+}
+
+// RegistrationConfig controls new account creation and email verification.
+// Method switches affect public and invitation signup, not existing-account
+// login. RequireEmailVerification also restricts unverified existing sessions.
 type RegistrationConfig struct {
-	EnableEmailPassword        bool          // email+password registration (default true)
-	EnableOAuth                bool          // OAuth signup for new users (default true)
-	EnableInvite               bool          // invite-code registration (default false; requires a mailer)
-	AllowPublic                bool          // public registration is allowed (default true)
-	RequireEmailVerification   bool          // require email verification on signup (default false)
+	EmailPassword              bool          // email+password registration (default false)
+	OAuth                      bool          // OAuth signup for new users (default false)
+	InviteSignup               bool          // invite-code registration (default false; requires a mailer)
+	AllowPublic                bool          // public registration is allowed (default false)
+	RequireEmailVerification   bool          // require verified email for signup, login and protected access (default false)
 	InviteTTL                  time.Duration // how long signup invites last (default 7d)
 	VerificationCodeTTL        time.Duration // how long verification codes live (default 15m)
 	VerificationResendInterval time.Duration // minimum interval between verification resends (default 60s; negative = no minimum)
@@ -30,10 +53,10 @@ type OrganizationConfig struct {
 // validate), so defaulting them on would make the zero configuration invalid.
 func defaultRegistration() RegistrationConfig {
 	return RegistrationConfig{
-		EnableEmailPassword:      true,
-		EnableOAuth:              true,
-		EnableInvite:             false,
-		AllowPublic:              true,
+		EmailPassword:            false,
+		OAuth:                    false,
+		InviteSignup:             false,
+		AllowPublic:              false,
 		RequireEmailVerification: false,
 		InviteTTL:                7 * 24 * time.Hour,
 		VerificationCodeTTL:      15 * time.Minute,
@@ -62,7 +85,7 @@ func (c *Config) applyOrganizationDefaults() {
 }
 
 // WithRegistration configures which registration methods are available.
-// Login is ALWAYS unconditional regardless of these settings.
+// Authentication methods are selected independently with WithAuthentication.
 //
 // Calling this replaces the default registration settings wholesale rather
 // than merging into them — the bool fields have no "unset" state, so an

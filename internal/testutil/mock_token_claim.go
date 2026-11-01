@@ -13,7 +13,7 @@ func (m *MockTokenRepo) ConsumeIfValidUnderCap(ctx context.Context, input port.C
 	defer m.mu.Unlock()
 	token := m.tokens[input.ID]
 	if token == nil || token.TokenHash != input.TokenHash ||
-		token.UserID == nil || *token.UserID != input.UserID || token.Type != input.Type ||
+		((token.UserID == nil && input.UserID != "") || (token.UserID != nil && *token.UserID != input.UserID)) || token.Type != input.Type ||
 		token.UsedAt != nil || !token.ExpiresAt.After(input.UsedAt) || token.Attempts >= maxAttempts {
 		return false, nil
 	}

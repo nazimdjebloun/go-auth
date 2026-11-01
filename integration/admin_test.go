@@ -43,9 +43,9 @@ func openOrgAdminAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth
 			AllowHTTPURLs: goauth.AllowPlaintextEmailLinks(),
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
-			EnableEmailPassword: true,
-			EnableOAuth:         true,
-			EnableInvite:        false,
+			EmailPassword:       true,
+			OAuth:               false,
+			InviteSignup:        false,
 			AllowPublic:         true,
 			InviteTTL:           1 * time.Hour,
 			VerificationCodeTTL: 1 * time.Hour,

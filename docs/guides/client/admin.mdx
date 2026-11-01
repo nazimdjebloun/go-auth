@@ -90,7 +90,7 @@ export const adminApi = {
   countUserAuditLogs: (userId: string, params: Record<string, string | number> = {}) =>
     apiRequest("GET", `/admin/users/${userId}/audit-logs/count?${new URLSearchParams(params as Record<string, string>)}`),
 
-  // --- Platform invites — requires RegistrationConfig.EnableInvite ---
+  // --- Platform invites — requires RegistrationConfig.InviteSignup ---
 
   createInvite: (email: string) => apiRequest("POST", "/admin/invites", { email }),
 

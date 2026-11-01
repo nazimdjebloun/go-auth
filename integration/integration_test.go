@@ -128,9 +128,9 @@ func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditCon
 			AllowHTTPURLs: goauth.AllowPlaintextEmailLinks(),
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
-			EnableEmailPassword: true,
-			EnableOAuth:         true,
-			EnableInvite:        true,
+			EmailPassword:       true,
+			OAuth:               false,
+			InviteSignup:        true,
 			AllowPublic:         true,
 			InviteTTL:           1 * time.Hour,
 			VerificationCodeTTL: 1 * time.Hour,
@@ -167,9 +167,9 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorCo
 		sec.AllowHTTPURLs = goauth.AllowPlaintextEmailLinks()
 	}
 
-	reg.EnableEmailPassword = true
-	reg.EnableOAuth = true
-	reg.EnableInvite = true
+	reg.EmailPassword = true
+	reg.OAuth = false
+	reg.InviteSignup = true
 	reg.AllowPublic = true
 	if reg.InviteTTL == 0 {
 		reg.InviteTTL = 1 * time.Hour
@@ -760,6 +760,7 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 	migrateDB(t, db, testdb.Driver(db))
 	cfg, err := goauth.NewConfig(
 		goauth.WithBcryptCost(4),
+		goauth.WithRegistration(goauth.RegistrationConfig{EmailPassword: true, AllowPublic: true}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",
@@ -939,6 +940,7 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 	migrateDB(t, db, testdb.Driver(db))
 	cfg, err := goauth.NewConfig(
 		goauth.WithBcryptCost(4),
+		goauth.WithRegistration(goauth.RegistrationConfig{EmailPassword: true, AllowPublic: true}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",
@@ -1304,12 +1306,20 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 		}
 	}
 	if len(typed) == 0 {
-		rows, _ := db.Query(testdb.SQL(db, "SELECT event_type, user_agent FROM audit_log"))
+		rows, err := db.Query(testdb.SQL(db, "SELECT event_type, user_agent FROM audit_log"))
+		if err != nil {
+			t.Fatalf("read stored audit events: %v", err)
+		}
 		defer func() { _ = rows.Close() }()
 		for rows.Next() {
 			var et, ua string
-			_ = rows.Scan(&et, &ua)
+			if err := rows.Scan(&et, &ua); err != nil {
+				t.Fatalf("scan stored audit event: %v", err)
+			}
 			t.Logf("stored event: type=%s ua=%q", et, ua)
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatalf("iterate stored audit events: %v", err)
 		}
 		t.Fatal("expected login.success audit events to be returned")
 	}

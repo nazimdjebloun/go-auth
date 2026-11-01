@@ -225,7 +225,7 @@ func TestAppAuthorizationServiceCoverage(t *testing.T) {
 	// Business dependencies are deliberately absent: a missing guard fails the
 	// test before it can mutate data or send email, including bulk operations.
 	cfg := defaultTestConfig()
-	cfg.AppPermissions, cfg.EnableInvite = f.s, true
+	cfg.AppPermissions, cfg.InviteSignup = f.s, true
 	services := map[string]any{
 		"Admin":          NewAdminService(f.db, nil, nil, nil, nil, nil, cfg, nil),
 		"Invite":         NewInviteService(nil, nil, nil, nil, nil, nil, f.db, cfg, nil, nil),

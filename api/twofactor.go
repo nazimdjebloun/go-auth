@@ -26,6 +26,8 @@ type TwoFactorResendInput struct {
 // UserID and CallerSessionID come from the validated session. With CallerSessionID
 // supplied, the zero value of KeepOtherSessions revokes the user's other sessions.
 type TwoFactorEnableInput struct {
+	ChallengeID       string `json:"challengeId,omitempty"`
+	Code              string `json:"code,omitempty"`
 	UserID            string `json:"-"`
 	Password          string `json:"password"`
 	KeepOtherSessions bool   `json:"keepOtherSessions"`
@@ -34,8 +36,11 @@ type TwoFactorEnableInput struct {
 
 // TwoFactorDisableInput authenticates disabling the user's two-factor setting.
 type TwoFactorDisableInput struct {
-	UserID   string `json:"-"`
-	Password string `json:"password"`
+	ChallengeID     string `json:"challengeId,omitempty"`
+	Code            string `json:"code,omitempty"`
+	CallerSessionID string `json:"-"`
+	UserID          string `json:"-"`
+	Password        string `json:"password"`
 }
 
 // ChallengeResult describes a pending 2FA challenge.
@@ -58,4 +63,12 @@ type TwoFactorVerifyResult struct {
 	Session      *domain.Session
 	SessionToken string
 	RefreshToken string
+}
+
+// TwoFactorSettingsChallengeInput requests a one-time email confirmation for
+// an optional 2FA preference change, bound to the authenticated caller session.
+type TwoFactorSettingsChallengeInput struct {
+	UserID          string `json:"-"`
+	CallerSessionID string `json:"-"`
+	Action          string `json:"action"` // enable or disable
 }

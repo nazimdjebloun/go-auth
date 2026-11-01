@@ -107,6 +107,11 @@ func (s *OrgPermissionsService) current(ctx context.Context, actor api.OrgPermis
 }
 
 func (s *OrgPermissionsService) assurance(ctx context.Context, actor api.OrgPermissionActor, user *domain.User) error {
+	if s.sessionSvc != nil {
+		if err := s.sessionSvc.checkUserAccess(user); err != nil {
+			return err
+		}
+	}
 	required := s.config.RequireUserTwoFactor || user.TwoFactorEnabled
 	if actor.SessionID == "" {
 		if required {

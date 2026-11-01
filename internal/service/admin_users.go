@@ -308,6 +308,9 @@ func (s *AdminService) DeleteUser(ctx context.Context, input api.DeleteUserInput
 
 // CreateUser creates a user.
 func (s *AdminService) CreateUser(ctx context.Context, input api.CreateUserInput) (*domain.User, error) {
+	if s.config.PasswordAuthenticationDisabled {
+		return nil, domain.ErrMethodDisabled
+	}
 	if s.config.AppPermissions != nil && ctx.Value(appManagementContextKey{}) == nil {
 		return runAppMutation(ctx, s.config.AppPermissions, appActor(input.ActorID, input.ActorSessionID), "goauth.app.users.create", func(txCtx context.Context) (*domain.User, error) { return s.CreateUser(txCtx, input) })
 	}

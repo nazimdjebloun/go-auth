@@ -218,7 +218,7 @@ func newOAuthTestHarness(t testing.TB) *oauthTestHarness {
 			SessionTTL: 30 * 24 * time.Hour,
 			TokenTTL:   1 * time.Hour,
 		},
-		EnableOAuth:              true,
+		OAuth:                    true,
 		RequireEmailVerification: false,
 	}
 

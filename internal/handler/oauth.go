@@ -170,6 +170,11 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if result.RequiresInviteVerification {
+		http.SetCookie(w, h.inviteBindingCookie(result.BindingToken(), int(time.Until(result.InviteExpiresAt).Seconds())))
+		http.Redirect(w, r, h.baseURL+"/auth/callback?requiresInviteVerification=true&challengeId="+url.QueryEscape(result.InviteChallengeID), http.StatusFound)
+		return
+	}
 	if result.IsLink {
 		if !h.rotateCSRF(w, r) {
 			return

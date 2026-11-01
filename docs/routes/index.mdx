@@ -17,7 +17,7 @@ Conventions used on every page:
 - Request and response bodies are `application/json` with camelCase fields. No streaming, no file uploads, no multipart forms.
 - Success responses carry a `message` plus route-specific fields, except `204 No Content` (no body) and a few list/count routes documented per page. Failures use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx) for the taxonomy.
 - Tokens travel in cookies (`goauth_session`, `goauth_refresh` by default), never in bodies. State-changing requests need `Origin` and `X-CSRF-Token`; see [Security](../security.mdx).
-- Some route groups are conditional: `POST /auth/register` needs `EnableEmailPassword`; invite routes need `EnableInvite`; OAuth routes need `EnableOAuth` plus a registered provider; org routes (both self-service and admin) need organizations enabled. Unmounted groups are not 404 fallthroughs: the paths simply do not exist.
+- Some route groups are conditional: `POST /auth/register` needs `EmailPassword`; invite routes need `InviteSignup`; OAuth routes need authentication `OAuth` plus a registered provider; org routes (both self-service and admin) need organizations enabled. Unmounted groups are not 404 fallthroughs: the paths simply do not exist.
 
 ## Pages
 

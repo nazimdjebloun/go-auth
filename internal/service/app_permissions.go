@@ -113,6 +113,11 @@ func (s *AppPermissionsService) current(ctx context.Context, userID string) (*do
 }
 
 func (s *AppPermissionsService) assurance(ctx context.Context, actor api.AppPermissionActor, user *domain.User, role *domain.AppRole, checkTwoFactor bool) error {
+	if s.sessionSvc != nil {
+		if err := s.sessionSvc.checkUserAccess(user); err != nil {
+			return err
+		}
+	}
 	requireSecondFactor := checkTwoFactor && (s.config.RequireUserTwoFactor || user.TwoFactorEnabled ||
 		(role.IsAdmin() && s.config.RequireAdminTwoFactor))
 	if actor.SessionID == "" {

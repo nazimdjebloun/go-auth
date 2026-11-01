@@ -11,6 +11,9 @@ import { Tab, Tabs } from 'fumadocs-ui/components/tabs';
 go-auth embeds one complete desired auth schema and a versioned migration catalog
 per driver. Auth migrations run separately from application and ORM migrations.
 `New` never executes DDL. Use the matching CLI before starting auth services.
+Version 0.5.2 targets revision 3 on all drivers. The additive upgrade preserves
+existing token rows and adds empty workflow context/payload values; PostgreSQL
+also extends the token-type check for optional 2FA setting confirmations.
 
 The column tables below describe the **PostgreSQL** schema. Names are fixed on
 SQLite and MySQL; types, collations, constraints and indexes differ (see
@@ -974,7 +977,7 @@ CREATE INDEX idx_sessions_ip_address ON sessions (ip_address(64));
 
 ### `verification_tokens`
 
-One table behind seven short-lived token flows, discriminated by `type`.
+One table behind nine short-lived token flows, discriminated by `type`.
 
 | Column | Type | Notes |
 |---|---|---|
@@ -982,13 +985,15 @@ One table behind seven short-lived token flows, discriminated by `type`.
 | `user_id` | `UUID` | → `users(id)` `ON DELETE CASCADE`. Nullable: an invite-verify token can exist before the account does |
 | `email` | `TEXT` | |
 | `token_hash` | `TEXT` | Unique |
-| `type` | `TEXT` | `CHECK` on `verify_email`, `reset_password`, `set_password`, `invite_verify`, `oauth_state`, `delete_account`, `2fa_login` |
+| `type` | `TEXT` | `CHECK` on `verify_email`, `reset_password`, `set_password`, `invite_verify`, `oauth_state`, `delete_account`, `2fa_login`, `2fa_enable`, `2fa_disable` |
 | `expires_at` / `used_at` | `TIMESTAMPTZ` | `used_at` makes tokens single-use |
 | `code_verifier` | `TEXT` | The PKCE verifier, only populated for `oauth_state` rows |
 | `attempts` / `resend_count` | `INT` | Wrong-guess and resend counters for code challenges |
 | `created_at` | `TIMESTAMPTZ` | |
+| `context_hash` | `VARCHAR(64)` | Selected provider-name hash for new OAuth state; invitation code hash for pending invitation proof; first-factor method hash for login 2FA; initiating session hash for an optional 2FA setting confirmation. Empty on older tokens. SQLite uses `TEXT`. |
+| `encrypted_payload` | `TEXT` | Encrypted invitation code hash on invited OAuth state, or encrypted pending profile before invitation email confirmation; empty otherwise |
 
-- The seven `type` values are enforced by `CHECK` on PostgreSQL only; on SQLite and MySQL the column is unconstrained.
+- The nine `type` values are enforced by `CHECK` on PostgreSQL only; on SQLite and MySQL the column is unconstrained.
 
 <Tabs items={['PostgreSQL', 'SQLite', 'MySQL']}>
 <Tab value="PostgreSQL">
@@ -999,13 +1004,15 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     user_id UUID REFERENCES users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
     token_hash TEXT UNIQUE NOT NULL,
-    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account', '2fa_login')),
+    type TEXT NOT NULL CHECK (type IN ('verify_email', 'reset_password', 'set_password', 'invite_verify', 'oauth_state', 'delete_account', '2fa_login', '2fa_enable', '2fa_disable')),
     expires_at TIMESTAMPTZ NOT NULL,
     used_at TIMESTAMPTZ,
     code_verifier TEXT,
     attempts INT NOT NULL DEFAULT 0,
     resend_count INT NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    context_hash VARCHAR(64) NOT NULL DEFAULT '',
+    encrypted_payload TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
@@ -1026,7 +1033,9 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     code_verifier TEXT,
     attempts INTEGER NOT NULL DEFAULT 0,
     resend_count INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    context_hash TEXT NOT NULL DEFAULT '',
+    encrypted_payload TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_verification_tokens_token_hash ON verification_tokens(token_hash);
@@ -1048,6 +1057,8 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     attempts INT NOT NULL DEFAULT 0,
     resend_count INT NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    context_hash VARCHAR(64) NOT NULL DEFAULT '',
+    encrypted_payload TEXT NOT NULL DEFAULT (''),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

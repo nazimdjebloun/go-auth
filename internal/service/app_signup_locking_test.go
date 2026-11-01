@@ -86,7 +86,7 @@ func appSignupAction(t *testing.T, f appFixture, mode, email string) func(contex
 			map[string]port.OAuthProvider{"test": provider},
 			sqlstore.NewProviderAccountRepository(f.db), users, tokens,
 			&testutil.MockHasher{}, token.New(), f.s.sessionSvc, nil, f.db,
-			OAuthServiceConfig{EnableOAuth: true, DisableAdminTwoFactor: true, AppPermissions: f.s},
+			OAuthServiceConfig{OAuth: true, DisableAdminTwoFactor: true, AppPermissions: f.s},
 		)
 		return func(ctx context.Context) error {
 			_, err := svc.Callback(ctx, api.OAuthCallbackInput{

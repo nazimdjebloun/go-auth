@@ -69,6 +69,9 @@ func NewPasswordService(
 // ForgotPassword queues an account-independent recovery request. A missing
 // queue fails closed instead of falling back to account-dependent SMTP work.
 func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPasswordInput) error {
+	if s.config.PasswordAuthenticationDisabled {
+		return domain.ErrMethodDisabled
+	}
 	if s.mailer == nil {
 		return domain.ErrEmailNotConfigured
 	}
@@ -79,6 +82,9 @@ func (s *PasswordService) ForgotPassword(ctx context.Context, input api.ForgotPa
 }
 
 func (s *PasswordService) sendPasswordReset(ctx context.Context, input api.ForgotPasswordInput) error {
+	if s.config.PasswordAuthenticationDisabled {
+		return domain.ErrMethodDisabled
+	}
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	if s.mailer == nil {
 		// This check precedes the account lookup so a configuration failure has
@@ -210,6 +216,9 @@ func (s *PasswordService) writePasswordResetToken(
 
 // ResetPassword changes a password using a valid reset code.
 func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPasswordInput) error {
+	if s.config.PasswordAuthenticationDisabled {
+		return domain.ErrMethodDisabled
+	}
 	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {
 		return err
 	}
@@ -318,6 +327,9 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 
 // RequestSetPassword sends a password-setup code.
 func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string) error {
+	if s.config.PasswordAuthenticationDisabled {
+		return domain.ErrMethodDisabled
+	}
 	user, err := s.users.GetByID(ctx, userID)
 	if err != nil {
 		return fmt.Errorf("request set password: lookup: %w", err)
@@ -391,6 +403,9 @@ func (s *PasswordService) RequestSetPassword(ctx context.Context, userID string)
 
 // ConfirmSetPassword sets a password using a valid code.
 func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.ConfirmSetPasswordInput) error {
+	if s.config.PasswordAuthenticationDisabled {
+		return domain.ErrMethodDisabled
+	}
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil {
 		return fmt.Errorf("confirm set password: lookup: %w", err)
@@ -476,6 +491,9 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.Conf
 
 // ChangePassword changes a user's password.
 func (s *PasswordService) ChangePassword(ctx context.Context, input api.ChangePasswordInput) error {
+	if s.config.PasswordAuthenticationDisabled {
+		return domain.ErrMethodDisabled
+	}
 	user, err := s.users.GetByID(ctx, input.UserID)
 	if err != nil {
 		return fmt.Errorf("change password: lookup: %w", err)

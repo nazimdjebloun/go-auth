@@ -47,26 +47,30 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 	}
 
 	h := handler.NewWithLogger(handler.Deps{
-		AppPermissions: svc.AppPermissions,
-		OrgPermissions: svc.OrgPermissions,
-		Auth:           svc.Auth,
-		Password:       svc.Password,
-		Session:        sessSvc,
-		Verify:         svc.Verify,
-		Invite:         svc.Invite,
-		Admin:          svc.Admin,
-		OAuth:          oauthSvc,
-		Org:            orgSvc,
-		OrgInvite:      svc.OrgInvite,
-		TwoFactor:      svc.TwoFactor,
-		AuditLog:       svc.AuditLog,
+		RequireEmailVerification: cfg.registration.RequireEmailVerification,
+		AppPermissions:           svc.AppPermissions,
+		OrgPermissions:           svc.OrgPermissions,
+		Auth:                     svc.Auth,
+		Password:                 svc.Password,
+		Session:                  sessSvc,
+		Verify:                   svc.Verify,
+		Invite:                   svc.Invite,
+		Admin:                    svc.Admin,
+		OAuth:                    oauthSvc,
+		Org:                      orgSvc,
+		OrgInvite:                svc.OrgInvite,
+		TwoFactor:                svc.TwoFactor,
+		AuditLog:                 svc.AuditLog,
 	}, cfg.logger, cfg.csrf, clientIPCfg, cookies)
 
 	// OAuth handlers (separate because they need baseURL for redirects).
 	oauthHandlers := handler.NewOAuthHandlers(oauthSvc, cfg.app.BaseURL, cfg.csrf, clientIPCfg, cookies, cfg.logger)
 	oauthHandlers.AttachTwoFactor(svc.TwoFactor)
 
-	authMW := middleware.AuthMiddleware(sessSvc, cookies, userRepo, cfg.logger)
+	pendingMW := middleware.AuthMiddleware(sessSvc, cookies, userRepo, cfg.logger)
+	authMW := func(next http.Handler) http.Handler {
+		return pendingMW(middleware.RequireVerifiedEmail(cfg.registration.RequireEmailVerification)(next))
+	}
 	adminMW := middleware.RequireAdminSession(!cfg.twoFactor.DisableAdminTwoFactor || cfg.twoFactor.RequireEmail2FA, cfg.logger)
 	if svc.AppPermissions != nil {
 		adminMW = middleware.RequireProtectedAppAdmin(svc.AppPermissions)
@@ -112,9 +116,9 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 		AppPermissions: cfg.appPermissions.Enable,
 		OrgPermissions: cfg.orgPermissions.Enable, OrgPermissionManagement: cfg.orgPermissions.EnableManagementHTTP,
 		AppPermissionManagement: cfg.appPermissions.EnableManagementHTTP,
-		EmailRegistration:       cfg.registration.EnableEmailPassword,
-		Invite:                  cfg.registration.EnableInvite,
-		OAuth:                   cfg.registration.EnableOAuth && oauthSvc != nil,
+		EmailRegistration:       cfg.registration.EmailPassword,
+		Invite:                  cfg.registration.InviteSignup,
+		OAuth:                   cfg.authentication.OAuth && oauthSvc != nil,
 		Organizations:           orgSvc != nil,
 	}, h, oauthHandlers, httproutes.Middleware{
 		OrgOperation: func(key string) func(http.Handler) http.Handler {
@@ -127,7 +131,7 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 			return adminMW
 		},
 		CORS: corsMW, RateLimit: rateLimitMW, CSRFToken: csrfTokenMW,
-		CSRF: csrfMW, Auth: authMW, Admin: adminMW,
+		CSRF: csrfMW, Auth: authMW, AuthPending: pendingMW, Admin: adminMW,
 		OrgMember: orgMemberMW, OrgAdmin: orgAdminMW, OrgOwner: orgOwnerMW,
 	})
 

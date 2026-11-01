@@ -1,0 +1,141 @@
+---
+title: "v0.5.2"
+description: "Separate authentication and signup policy, verification for existing sessions, OAuth invitations, and consistent email 2FA."
+date: "2026-11-01"
+---
+
+Authentication methods and account creation now have independent configuration.
+Email verification also restricts unverified users who already have a session,
+and provider login follows the same local email-2FA requirements as password
+login. Signup invitations support OAuth without opening public registration.
+
+**This patch release includes breaking pre-v1 configuration and client changes.**
+Apply migration revision 3 before starting the updated backend, update options,
+and teach clients to handle verification-required session status.
+
+## Authentication and registration
+
+`WithAuthentication` selects methods for all accounts, including existing ones
+and administrators. Its omitted-section default is email/password enabled and
+OAuth disabled. Enabling OAuth requires at least one configured provider.
+
+`WithRegistration` selects new-account methods for public and invitation signup.
+Public registration, both signup methods and signup invitations now default to
+false. Opening signup requires an explicit method. Organization invitations
+remain independent.
+
+| Removed registration field | Replacement |
+|---|---|
+| `EnableEmailPassword` | `EmailPassword` |
+| `EnableOAuth` | `OAuth` |
+| `EnableInvite` | `InviteSignup` |
+
+For public password signup with verified email:
+
+```go
+goauth.WithAuthentication(goauth.AuthenticationConfig{
+    EmailPassword: true,
+    OAuth:         false,
+}),
+goauth.WithRegistration(goauth.RegistrationConfig{
+    AllowPublic:              true,
+    EmailPassword:            true,
+    OAuth:                    false,
+    InviteSignup:             false,
+    RequireEmailVerification: true,
+    InviteTTL:                  7 * 24 * time.Hour,
+    VerificationCodeTTL:        15 * time.Minute,
+    VerificationResendInterval: time.Minute,
+}),
+```
+
+To retain existing password login while allowing only OAuth signup, enable both
+authentication methods, configure a provider, and set registration
+`EmailPassword: false`, `OAuth: true`, `AllowPublic: true`. Strict OAuth-only
+authentication also sets authentication `EmailPassword: false`.
+
+Disabling password authentication also rejects password-based administrative
+account creation; it does not establish a first OAuth administrator automatically.
+
+Supplied booleans are literal; omitted fields are false. No `goauth.Bool`, method
+lists or signup enums are introduced. Omitted duration fields use documented
+defaults. Invalid combinations fail startup instead of silently doing nothing.
+
+## Email verification for existing sessions
+
+`RequireEmailVerification` stays in `WithRegistration` and remains a global
+policy. When enabled, all unverified accounts must verify, including accounts
+created earlier. Protected requests from existing sessions return
+`403 email_not_verified`. `GET /auth/me` returns only `id`, `email`,
+`isVerified: false`, and `requiresVerification: true` so clients can show their
+signup verification screen before protected content.
+
+The session is retained. Verification, resend, minimal status and logout remain
+available. Successful verification restores protected access without another
+password login; signup that never received a session still signs in afterward.
+Disabling the flag removes the requirement for everyone without erasing stored
+verification status. Refresh still rotates cookies but returns only `requiresVerification: true`
+and the account email while restricted; no session object is returned.
+`Auth.GetSession`, `Auth.CheckSession` and `Auth.RequireAuth` enforce verification,
+while low-level session identity lookup remains available for verification and
+logout. Refresh does not bypass the restriction, and page loads do
+not send repeated emails.
+
+## OAuth and two-factor corrections
+
+- Global and account-level local email 2FA now apply to ordinary OAuth login.
+  Default admin 2FA remains enabled. A provider-verified email establishes
+  address ownership, not a completed second factor.
+- `DefaultEnabled` initializes the preference for new OAuth accounts too. It
+  does not change existing accounts or make the personal preference mandatory.
+  Initial signup gates on global `RequireEmail2FA`; later login also applies the
+  personal preference.
+- Passwordless users can confirm optional 2FA changes with a one-time email code.
+  Request `POST /auth/2fa/settings/challenge` with `action: "enable"` or
+  `"disable"`, then send `challengeId` and `code` to the matching existing
+  enable/disable endpoint. Proof is bound to the account, current email, action
+  and initiating session; it cannot issue a login session. Global enforcement
+  cannot be disabled through the personal setting.
+- Disconnecting a provider now counts usable alternatives. Stored passwords count only while password authentication is enabled;
+  other provider identities count only while their provider is configured and
+  OAuth authentication is enabled.
+
+## OAuth signup invitations
+
+`POST /auth/oauth/{provider}/invite` accepts `inviteToken` and starts a normal
+browser-bound OAuth flow associated with that invitation's current code hash.
+Public signup may stay closed. The provider email must match the invited email.
+A provider-verified address can proceed directly; otherwise an email code must
+be confirmed through `POST /auth/oauth/invite/verify` before an account exists.
+
+New OAuth state is bound to the selected provider; invitation code hashes are
+encrypted in that state. Pending provider data is encrypted in storage. The invitation, one-time email
+proof, account, provider identity and baseline role commit together. Expired,
+revoked, rotated and already-used invitations cannot create accounts. Failed
+account creation does not consume the invitation. Existing accounts are never
+automatically connected to a provider merely because emails match.
+
+## Outstanding flows and migrations
+
+Current configuration is checked when operations complete. Disabling a method
+blocks outstanding password reset/setup tokens or OAuth callbacks for that
+method. Pending password/OAuth second-factor challenges also recheck their
+first-factor method before issuing a session. Closing public or invitation signup blocks unfinished account creation;
+an already-created account can still finish email verification. Disabling an
+authentication method does not delete stored credentials or revoke existing
+sessions.
+
+All three dialect catalogs target revision 3. The additive migration introduces
+`verification_tokens.context_hash` and `encrypted_payload`, with empty defaults
+for existing rows. PostgreSQL also extends the token-type constraint for
+`2fa_enable` and `2fa_disable`. Published revisions 1 and 2 remain unchanged.
+
+Run the existing migration command from the application's module before
+starting the new library. `CheckSchema: true` validates compatibility but never
+applies migrations. See [Migrations](../migrations.mdx),
+[Configuration](../configuration.mdx), [Authentication](../guides/authentication.mdx),
+and [OAuth routes](../routes/oauth.mdx).
+
+Admin-panel OAuth UI and first OAuth-administrator bootstrap are separate work;
+an existing password-only dashboard needs an OAuth login path before password
+authentication can be disabled globally.

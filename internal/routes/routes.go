@@ -73,10 +73,13 @@ const (
 	InviteInfo     = "GET /auth/invite/info"
 	InviteRegister = "POST /auth/invite/register"
 
-	TwoFactorVerify  = "POST /auth/2fa/verify"
-	TwoFactorResend  = "POST /auth/2fa/resend"
-	TwoFactorEnable  = "POST /auth/2fa/enable"
-	TwoFactorDisable = "POST /auth/2fa/disable"
+	TwoFactorSettingsChallenge = "POST /auth/2fa/settings/challenge"
+	OAuthInviteInitiate        = "POST /auth/oauth/{provider}/invite"
+	OAuthInviteVerify          = "POST /auth/oauth/invite/verify"
+	TwoFactorVerify            = "POST /auth/2fa/verify"
+	TwoFactorResend            = "POST /auth/2fa/resend"
+	TwoFactorEnable            = "POST /auth/2fa/enable"
+	TwoFactorDisable           = "POST /auth/2fa/disable"
 
 	// ListUsers and the following constants define administrator user routes.
 	ListUsers              = "GET /admin/users"

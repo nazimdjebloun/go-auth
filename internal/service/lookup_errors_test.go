@@ -36,6 +36,13 @@ type lookupFaultTokens struct {
 	err error
 }
 
+func (r *lookupFaultUsers) GetByIDForUpdate(ctx context.Context, id string) (*domain.User, error) {
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.MockUserRepo.GetByIDForUpdate(ctx, id)
+}
+
 func (r *lookupFaultTokens) GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error) {
 	if r.err != nil {
 		return nil, r.err
@@ -158,7 +165,7 @@ func newLookupErrorFixture(t *testing.T) *lookupErrorFixture {
 		twoFactor:    NewTwoFactorService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, mail, nil, cfg, sessionSvc),
 		oauth: NewOAuthService(map[string]port.OAuthProvider{
 			"github": &stubOAuthProvider{name: "github", profile: oauthTestProfile("github", "subject", "user@example.com")},
-		}, testutil.NewMockProviderAccountRepo(), users, tokens, hasher, gen, sessionSvc, nil, tx, OAuthServiceConfig{EnableOAuth: true}),
+		}, testutil.NewMockProviderAccountRepo(), users, tokens, hasher, gen, sessionSvc, nil, tx, OAuthServiceConfig{OAuth: true}),
 	}
 }
 

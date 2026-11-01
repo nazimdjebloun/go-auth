@@ -12,6 +12,11 @@ first protected administrator, then configure `WithAppPermissions`. Initializati
 does not install any library permissions. See the
 [setup and permission guide](./guides/app-permissions.mdx#enable-and-initialize).
 
+Version 0.5.2 requires schema revision 3. Apply the matching migration catalog
+before starting the backend. Signup is closed by default: explicitly configure
+`WithRegistration` for public or invited account creation, and configure
+`WithAuthentication` separately for password/OAuth login.
+
 ## Prerequisites
 
 - Go 1.26.10 or later
@@ -89,7 +94,8 @@ Pass option functions to `NewConfig(opts ...Option)`. The table maps each option
 | `WithSession` | Session, refresh-token, and verification/reset-token lifetimes |
 | `WithTwoFactor` | Email two-factor settings |
 | `WithBrowser` | Public API origin, exact allowed frontend origins, cookies and transport |
-| `WithRegistration` | Which signup methods are available |
+| `WithAuthentication` | Allowed password/OAuth login and credential methods for all accounts |
+| `WithRegistration` | Explicit signup methods and global email-verification policy; signup is closed by default |
 | `WithOrganizations` | Multi-tenant organizations |
 | `WithAppPermissions` | Opt-in application roles and delegated library permissions |
 | `WithMaintenance` | Background cleanup of expired sessions and tokens |

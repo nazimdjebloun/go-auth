@@ -16,6 +16,7 @@ icon: "google"
 ```go
 import "github.com/nazimdjebloun/go-auth/provider/google"
 
+goauth.WithAuthentication(goauth.AuthenticationConfig{EmailPassword: true, OAuth: true}),
 goauth.WithProvider(google.New(google.Config{
     ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),     // required
     ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"), // required
@@ -65,7 +66,7 @@ curl https://api.myapp.com/auth/oauth/google
 
 No `Origin` header needed — this is a `GET` with no state-changing effect, so `OriginCheck` doesn't apply to it.
 
-OAuth paths are unmounted when `EnableOAuth` is false or no provider is registered; those requests receive the router's not-found response rather than a `provider_not_found` error envelope.
+OAuth paths are unmounted when `AuthenticationConfig.OAuth` is false. Enabling it without a provider fails startup. Registration `OAuth` controls account creation independently.
 
 ---
 

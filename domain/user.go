@@ -45,26 +45,33 @@ type TokenType string
 
 // TokenVerifyEmail and the following values are supported token types.
 const (
-	TokenVerifyEmail   TokenType = "verify_email"
-	TokenResetPass     TokenType = "reset_password"
-	TokenSetPass       TokenType = "set_password"
-	TokenInviteVerify  TokenType = "invite_verify"
-	TokenOAuthState    TokenType = "oauth_" + "state"
-	TokenDeleteAccount TokenType = "delete_account"
-	TokenTwoFactor     TokenType = "2fa_login"
+	TokenVerifyEmail      TokenType = "verify_email"
+	TokenResetPass        TokenType = "reset_password"
+	TokenSetPass          TokenType = "set_password"
+	TokenInviteVerify     TokenType = "invite_verify"
+	TokenOAuthState       TokenType = "oauth_" + "state"
+	TokenDeleteAccount    TokenType = "delete_account"
+	TokenTwoFactor        TokenType = "2fa_login"
+	TokenTwoFactorEnable  TokenType = "2fa_enable"
+	TokenTwoFactorDisable TokenType = "2fa_disable"
 )
 
 // VerificationToken records a hashed, expiring workflow token.
 type VerificationToken struct {
-	ID           string     `json:"id"`
-	UserID       *string    `json:"userId,omitempty"` // nil for invite verify codes
-	Email        string     `json:"email"`
-	TokenHash    string     `json:"-"`
-	Type         TokenType  `json:"type"`
-	ExpiresAt    time.Time  `json:"expiresAt"`
-	UsedAt       *time.Time `json:"usedAt,omitempty"`
-	CreatedAt    time.Time  `json:"createdAt"`
-	CodeVerifier *string    `json:"-"` // PKCE code verifier for OAuth state tokens
+	// ContextHash identifies the provider for OAuth state, invitation for an
+	// invite proof, first-factor method for login 2FA, or initiating session
+	// for a settings confirmation. It is never a raw credential.
+	ContextHash      string     `json:"-"`
+	EncryptedPayload string     `json:"-"` // encrypted pending OAuth profile; never raw tokens
+	ID               string     `json:"id"`
+	UserID           *string    `json:"userId,omitempty"` // nil for invite verify codes
+	Email            string     `json:"email"`
+	TokenHash        string     `json:"-"`
+	Type             TokenType  `json:"type"`
+	ExpiresAt        time.Time  `json:"expiresAt"`
+	UsedAt           *time.Time `json:"usedAt,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	CodeVerifier     *string    `json:"-"` // PKCE code verifier for OAuth state tokens
 
 	// Attempts and ResendCount are per-token (per challenge lineage) counters
 	// used by the 2FA login flow. They stay on this row across a resend, which

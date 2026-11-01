@@ -13,10 +13,13 @@ import (
 // surface as an inconsistency at runtime between password-login and
 // OAuth-login session lifetimes.
 type CommonConfig struct {
-	AppName    string
-	BaseURL    string
-	SessionTTL time.Duration
-	TokenTTL   time.Duration
-	Logger     *slog.Logger
-	Audit      AuditPublisher
+	// Authentication policy is resolved by the public configuration.
+	PasswordAuthenticationDisabled bool
+	OAuthAuthenticationDisabled    bool
+	AppName                        string
+	BaseURL                        string
+	SessionTTL                     time.Duration
+	TokenTTL                       time.Duration
+	Logger                         *slog.Logger
+	Audit                          AuditPublisher
 }

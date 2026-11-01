@@ -7,6 +7,11 @@ direct service APIs.
 > **Pre-1.0:** Public Go APIs, route paths, configuration options, and JSON
 > response shapes may change without a deprecation period until v1 is released.
 
+Authentication methods now live in `WithAuthentication`; registration is closed
+by default and is opened explicitly with `WithRegistration`. Email verification
+also restricts existing unverified sessions until they complete verification.
+See the [v0.5.2 migration guide](docs/changelog/v0.5.2.mdx).
+
 Service operations with multiple arguments now take named `api` input structs.
 `Admin.GetStats` takes `api.GetAdminStatsInput` with trusted actor and session IDs.
 CSRF failures use the same JSON error envelope as handlers and other middleware;
@@ -62,8 +67,9 @@ and require organizations. New orgs initialize protected owner/admin/member role
 atomically; an existing org must be initialized by its owner. Custom roles combine
 installed library actions and org-local business permissions. Use
 `RequireOrgPermissionScope` or `RequireActiveOrgPermissionScope` for application
-routes. Apply migration revision 2 when upgrading the library, even if org
+routes. Migration revision 2 introduced these tables, even if org
 permissions remain disabled: fixed-role operations also use the new tables.
+Apply revision 3 for v0.5.2, which adds invitation and settings-confirmation token context.
 Existing deployments need a controlled activation with owner initialization for
 each org before normal permission-protected org traffic resumes. App roles and
 permissions remain independent. See the [org permission guide](docs/guides/org-permissions.mdx).
@@ -114,6 +120,10 @@ func main() {
 				CheckSchema: true,
 			},
 		}),
+		goauth.WithAuthentication(goauth.AuthenticationConfig{EmailPassword: true}),
+		goauth.WithRegistration(goauth.RegistrationConfig{
+			AllowPublic: true, EmailPassword: true, RequireEmailVerification: true,
+		}),
 		goauth.WithSecret(os.Getenv("AUTH_SECRET")), // at least 32 bytes
 		goauth.WithBrowser(goauth.BrowserConfig{
 			APIURL: "http://localhost:8080",
@@ -160,8 +170,12 @@ The statement timeout also bounds each shared verification phase.
 Maintainers prepare reviewed release SQL with the separate
 [migration authoring tool](docs/migration-authoring.mdx).
 
-Email verification marks the address verified and then requires a separate
-sign-in; it does not issue session cookies. OAuth initiation sets a short-lived
+Email verification marks the address verified and does not issue session cookies.
+A signup waiting without a session signs in afterward; an existing restricted
+session resumes access without another sign-in. `Auth.GetSession`,
+`Auth.CheckSession`, and `Auth.RequireAuth` enforce that access requirement;
+low-level session identity lookup remains available for verification/logout. Use the minimal
+`/auth/me` response with `requiresVerification: true` to show the verification screen. OAuth initiation sets a short-lived
 browser state cookie that must return on the callback. Provider linking also
 requires the same live session at the callback. If you call `auth.Services().OAuth`
 directly, use the `State` field of the returned `api.OAuthInitiation` to bind
@@ -176,7 +190,7 @@ Invite resends rotate only the current pending or expired invite. Revocation
 and acceptance cannot be overwritten by a delayed resend or expiry read.
 
 OAuth unlink removes every identity for the selected provider and requires a
-password or an identity from another provider to remain.
+usable password or a configured, enabled identity from another provider to remain.
 
 For production, configure SMTP with `WithEmail` or provide a custom
 `port.Mailer`. A mailer is required whenever an enabled feature sends email;

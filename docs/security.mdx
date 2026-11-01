@@ -100,18 +100,24 @@ Email-based 2FA is controlled globally by `TwoFactorConfig.RequireEmail2FA` and 
 
 ### Authentication policy matrix
 
-This table describes when the built-in flows issue a session. Verification and 2FA requirements are checked before session creation; when email verification is pending, finish that flow and sign in again.
+This table describes session issuance with an enabled authentication method.
+When signup has not issued a session, complete email verification and sign in.
+An existing session restricted by verification resumes access after verification.
 
 | Path | Email verification when required | Local email 2FA |
 |---|---|---|
-| Password registration | Returns `RequiresVerification` without a session. | If verification is not required, challenges only when `RequireEmail2FA` is on. |
-| Invite registration | The accepted invitation establishes the address as verified. | Challenges when `RequireEmail2FA` is on. |
-| Non-admin password login | An unverified account returns `RequiresVerification`. | Challenges when `RequireEmail2FA` or the user's `TwoFactorEnabled` is on. |
-| Admin password login, including the admin endpoint | Admins bypass the email-verification gate. | Required by default; global/per-user settings still apply when `DisableAdminTwoFactor` is on. |
-| Non-admin OAuth registration or login | Unverified accounts must verify first; a provider-verified matching address satisfies this requirement. | No local challenge, even with `RequireEmail2FA` or per-user 2FA enabled. Authentication is delegated to the provider. |
-| Admin OAuth login | Unverified accounts must verify first; unlike admin password login, this path applies the email-verification gate. | Required by default after verification; global/per-user settings still apply when `DisableAdminTwoFactor` is on. |
+| Password registration | Returns `RequiresVerification` without a session. | If verification is not required, challenges when `RequireEmail2FA` is on. |
+| Password invitation signup | The accepted invitation establishes address ownership. | Challenges when `RequireEmail2FA` is on. |
+| Password login | An unverified account must complete verification before receiving a session. | Challenges when globally required or enabled on the account; admin default also applies. |
+| OAuth registration or login | A provider-verified matching address satisfies verification; otherwise verification completes before unrestricted access. | Global, per-account, and default admin requirements apply. |
+| OAuth invitation signup | The provider email must match the invitation. If not provider-verified, an emailed code is confirmed before account creation. | Global, per-account, and default admin requirements apply after address proof. |
+| Existing session | Unverified accounts receive `email_not_verified` on protected requests; verification, minimal session status and logout remain available. | Existing assurance checks continue to apply. |
 
-`DefaultEnabled` seeds the per-user flag for password and invite registrations. It does not itself require a challenge for their initial signup session; it applies on subsequent password logins. OAuth registration does not seed that flag, and non-admin OAuth does not consult it. These are the existing policies, unchanged by the named-input API migration.
+`DefaultEnabled` initializes the personal setting for new password, invitation,
+and OAuth accounts. It does not update existing accounts. Password and password
+invitation signup gate their initial session only on the global requirement;
+OAuth signup also gates its initial session only on the global requirement. Users can change
+optional personal 2FA, but cannot override a global or admin requirement.
 
 The OAuth rows describe login/registration callbacks. Linking a provider keeps the existing authenticated session and does not issue a replacement. Low-level programmatic session creation assumes that its caller has already completed the appropriate authentication checks.
 
@@ -119,11 +125,21 @@ The OAuth rows describe login/registration callbacks. Linking a provider keeps t
 
 Admin accounts require a second factor by default through ordinary password login, admin login, and OAuth. This is independent of `RequireEmail2FA` and the admin user's `TwoFactorEnabled` setting. A mailer is therefore required even when the rest of the deployment does not use 2FA. Successful verification writes `sessions.two_factor_verified_at` as part of session creation; refresh preserves it. Admin HTTP routes and `Auth.RequireAdmin` reject sessions without that assurance as `403 two_factor_required`, including old sessions and first-factor sessions belonging to newly promoted admins.
 
-Use `TwoFactorConfig.DisableAdminTwoFactor` through `WithTwoFactor` only for an API-only deployment with no email delivery. It removes the second factor from the highest-privilege login path. `NewConfig` still requires a mailer when `RequireEmailVerification`, `EnableInvite`, `RequireEmail2FA`, or `DefaultEnabled` is enabled. See [Admin login](./guides/admin.mdx#admin-login) for the request and response shape.
+Use `TwoFactorConfig.DisableAdminTwoFactor` through `WithTwoFactor` only for an API-only deployment with no email delivery. It removes the second factor from the highest-privilege login path. `NewConfig` still requires a mailer when `RequireEmailVerification`, `InviteSignup`, `RequireEmail2FA`, or `DefaultEnabled` is enabled. See [Admin login](./guides/admin.mdx#admin-login) for the request and response shape.
 
 ### OAuth accounts
 
-Admin OAuth login returns an email challenge before issuing a session. The callback sets the existing HttpOnly challenge binding cookie and redirects with `requiresTwoFactor=true`, `challengeId`, and `expiresAt`; finish through `POST /auth/2fa/verify`. Non-admin OAuth login still trusts the provider's authentication and does not apply the library's password-login 2FA policy. Do not offer OAuth linking to non-admin accounts where that policy must protect every login path.
+OAuth login returns an email challenge before issuing a session whenever the global, account-level, or admin policy requires it. The callback sets the existing HttpOnly challenge binding cookie and redirects with `requiresTwoFactor=true`, `challengeId`, and `expiresAt`; finish through `POST /auth/2fa/verify`. A provider's verified-email claim establishes address ownership, not completion of the library's second factor. Connecting a provider does not bypass local MFA.
+
+### Optional 2FA settings without a password
+
+A session alone cannot change the setting. Password accounts can confirm with
+an enabled password method. Passwordless users request an action-specific code
+at `POST /auth/2fa/settings/challenge` and submit `challengeId` plus `code` to
+`/auth/2fa/enable` or `/auth/2fa/disable`. The proof is bound to the account,
+current email, action and initiating session. It expires after `CodeTTL`, allows
+five guesses, is consumed with the setting change, and cannot issue a login
+session. Repeated requests reuse a live challenge without sending more email.
 
 ### Attempt limits
 
@@ -137,7 +153,7 @@ Twenty failed 2FA attempts on one account within an hour send a notification ema
 
 Verification, set-password, and account-deletion requests remove their own unused code when rendering or delivery fails. Cleanup has a separate five-second deadline even if the request was canceled, and does not remove codes issued by another request. A cleanup failure is returned as a server error. Successful mailer acceptance does not guarantee final delivery, especially with an asynchronous mailer.
 
-An account waiting for email verification needs working email delivery before it can complete that flow. With `RequireEmail2FA: true`, a password login that needs a new challenge also needs successful mailer acceptance. Use `TwoFactorConfig.DefaultEnabled` to seed per-user 2FA for password and invite registrations while allowing the user to disable it later.
+An account waiting for email verification needs working email delivery before it can complete that flow. With `RequireEmail2FA: true`, a password or OAuth login that needs a new challenge also needs successful mailer acceptance. Use `TwoFactorConfig.DefaultEnabled` to seed per-user 2FA for password, invitation and OAuth registrations while allowing the user to disable it later.
 
 ## Rate limiting
 
@@ -200,9 +216,8 @@ read rejects signup and rolls back its account, invite claim and provider link.
 
 Only the protected admin role requires second-factor assurance by default.
 Custom roles follow the non-admin MFA policy, including roles with library
-grants. Their password logins and library actions require assurance when
-`RequireEmail2FA` or the account's `TwoFactorEnabled` is on; non-admin OAuth
-retains the provider-authentication policy above. Promotion to the protected
+grants. Their password/OAuth logins and library actions require assurance when
+`RequireEmail2FA` or the account's `TwoFactorEnabled` is on. Promotion to the protected
 admin role requires a newly challenged login before an existing first-factor
 session can perform administrative actions. Disabling default admin MFA leaves
 global and per-user requirements in force. Trusted local CLI provisioning uses

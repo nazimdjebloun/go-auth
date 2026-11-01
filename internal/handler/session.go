@@ -28,6 +28,21 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 
 	middleware.SetSessionCookie(w, h.cookies.ForRequest(r), refreshResult.SessionToken)
 	middleware.SetRefreshCookie(w, h.cookies.ForRequest(r), refreshResult.RefreshToken)
+	if h.services.RequireEmailVerification {
+		_, user, err := h.services.Session.ValidateWithUser(r.Context(), refreshResult.SessionToken)
+		if err != nil {
+			h.writeError(w, err)
+			return
+		}
+		if user == nil {
+			h.writeError(w, domain.ErrInvalidCredentials)
+			return
+		}
+		if !user.IsVerified {
+			h.writeJSON(w, http.StatusOK, map[string]any{"requiresVerification": true, "email": user.Email})
+			return
+		}
+	}
 	// The session goes out verbatim, like every other endpoint that returns
 	// one. The hand-built subset this replaces renamed lastActiveAt to
 	// lastActive and omitted activeOrgId/activeOrgRole, so a client that

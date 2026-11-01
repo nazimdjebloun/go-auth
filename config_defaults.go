@@ -22,6 +22,7 @@ package goauth
 func (c *Config) applyDefaults() {
 	c.applyAppDefaults()
 	c.applyMailerDefaults()
+	c.applyAuthenticationDefaults()
 	c.applyRegistrationDefaults()
 	c.applyOrganizationDefaults()
 	c.applyAppPermissionDefaults()

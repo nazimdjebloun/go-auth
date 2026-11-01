@@ -91,20 +91,22 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	}
 
 	commonCfg := service.CommonConfig{
-		AppName:    cfg.app.Name,
-		BaseURL:    cfg.app.BaseURL,
-		SessionTTL: cfg.session.TTL,
-		TokenTTL:   cfg.session.TokenTTL,
-		Logger:     cfg.logger,
-		Audit:      auditPub,
+		PasswordAuthenticationDisabled: !cfg.authentication.EmailPassword,
+		OAuthAuthenticationDisabled:    !cfg.authentication.OAuth,
+		AppName:                        cfg.app.Name,
+		BaseURL:                        cfg.app.BaseURL,
+		SessionTTL:                     cfg.session.TTL,
+		TokenTTL:                       cfg.session.TokenTTL,
+		Logger:                         cfg.logger,
+		Audit:                          auditPub,
 	}
 
 	serviceCfg := service.Config{
 		CommonConfig:               commonCfg,
 		InviteOnly:                 !cfg.registration.AllowPublic,
-		EnableEmailPassword:        cfg.registration.EnableEmailPassword,
-		EnableOAuth:                cfg.registration.EnableOAuth,
-		EnableInvite:               cfg.registration.EnableInvite,
+		EmailPassword:              cfg.registration.EmailPassword,
+		OAuth:                      cfg.registration.OAuth,
+		InviteSignup:               cfg.registration.InviteSignup,
 		RequireEmailVerification:   cfg.registration.RequireEmailVerification,
 		InviteTTL:                  cfg.registration.InviteTTL,
 		VerificationCodeTTL:        cfg.registration.VerificationCodeTTL,
@@ -166,6 +168,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		ratelimit.WithStoreLogger(cfg.logger),
 	)
 	twoFactorSvc := service.NewTwoFactorService(sqlDB, userRepo, sessionRepo, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
+	twoFactorSvc.AttachSettingsSessions(sessionRepo)
 
 	// Register commits the user row and its audit record in one
 	// transaction, so a crash cannot leave an account with no record of its
@@ -194,13 +197,16 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 			AppPermissions:           appPermissionsSvc,
 			CommonConfig:             commonCfg,
 			RequireEmailVerification: cfg.registration.RequireEmailVerification,
-			EnableOAuth:              cfg.registration.EnableOAuth,
+			OAuth:                    cfg.registration.OAuth,
+			InviteSignup:             cfg.registration.InviteSignup,
+			DefaultTwoFactorEnabled:  cfg.twoFactor.DefaultEnabled,
 			InviteOnly:               !cfg.registration.AllowPublic,
 			Encryptor:                encryptor,
 			DisableAdminTwoFactor:    cfg.twoFactor.DisableAdminTwoFactor,
 		}
 		oauthSvc = service.NewOAuthService(oauthProviders, providerAccountRepo, userRepo, tokenRepo, hasherImpl, genImpl, sessSvc, verifySvc, sqlDB, oauthCfg)
 		oauthSvc.AttachTwoFactor(twoFactorSvc)
+		oauthSvc.AttachInvites(inviteRepo)
 	}
 
 	var orgPermissionsSvc *service.OrgPermissionsService
@@ -332,6 +338,7 @@ func startAuditService(cfg *Config, sqlDB *sqlstore.DB) (*audit.Service, service
 // latter is unresolved consumer intent.
 func buildSessionConfig(cfg *Config, auditPub service.AuditPublisher) service.SessionConfig {
 	sessionCfg := service.DefaultSessionConfig()
+	sessionCfg.RequireEmailVerification = cfg.registration.RequireEmailVerification
 	sessionCfg.Duration = cfg.session.TTL
 	sessionCfg.IdleTTL = cfg.session.IdleTTL
 	sessionCfg.RefreshTTL = cfg.session.RefreshTokenTTL

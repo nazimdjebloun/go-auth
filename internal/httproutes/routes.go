@@ -29,6 +29,7 @@ type Features struct {
 // Middleware contains the exact wrappers used by the built-in HTTP routes.
 // The order in each Build entry is outermost to innermost.
 type Middleware struct {
+	AuthPending                                   func(http.Handler) http.Handler
 	OrgOperation                                  func(string) func(http.Handler) http.Handler
 	AppOperation                                  func(string) func(http.Handler) http.Handler
 	CORS, RateLimit, CSRFToken, CSRF, Auth, Admin func(http.Handler) http.Handler
@@ -41,6 +42,10 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 	corsMW, rateLimitMW := mw.CORS, mw.RateLimit
 	csrfTokenMW, csrfMW := mw.CSRFToken, mw.CSRF
 	authMW, adminMW := mw.Auth, mw.Admin
+	pendingMW := mw.AuthPending
+	if pendingMW == nil {
+		pendingMW = authMW
+	}
 	operation := func(key string) func(http.Handler) http.Handler {
 		if mw.AppOperation != nil {
 			return mw.AppOperation(key)
@@ -65,12 +70,13 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 		{routes.ForgotPassword, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ForgotPassword)))))},
 		{routes.ResetPassword, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResetPassword)))))},
 		{routes.VerifyEmail, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.VerifyEmail)))))},
+		{routes.TwoFactorSettingsChallenge, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RequestTwoFactorSettingsChallenge))))))},
 		{routes.TwoFactorVerify, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.VerifyTwoFactor)))))},
 		{routes.TwoFactorResend, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendTwoFactor)))))},
 		{routes.TwoFactorEnable, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Enable2FA))))))},
 		{routes.TwoFactorDisable, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Disable2FA))))))},
-		{routes.Logout, corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.Logout)))))},
-		{routes.Me, corsMW(rateLimitMW(authMW(http.HandlerFunc(h.GetMe))))},
+		{routes.Logout, corsMW(csrfTokenMW(csrfMW(pendingMW(http.HandlerFunc(h.Logout)))))},
+		{routes.Me, corsMW(rateLimitMW(pendingMW(http.HandlerFunc(h.GetMe))))},
 		{routes.CSRFToken, corsMW(csrfTokenMW(http.HandlerFunc(h.GetCSRFToken)))},
 		{routes.ChangeName, corsMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ChangeName)))))},
 		{routes.ListSessions, corsMW(authMW(http.HandlerFunc(h.ListSessions)))},
@@ -84,7 +90,7 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 		{routes.DeleteAccount, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.DeleteAccount))))))},
 		{routes.RequestDeleteAccount, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.RequestDeleteAccount))))))},
 		{routes.ConfirmDeleteAccount, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ConfirmDeleteAccount))))))},
-		{routes.ResendVerification, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(http.HandlerFunc(h.ResendVerification))))))},
+		{routes.ResendVerification, corsMW(rateLimitMW(csrfTokenMW(csrfMW(pendingMW(http.HandlerFunc(h.ResendVerification))))))},
 		{routes.ResendVerificationPublic, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.ResendVerificationPublic)))))},
 		{routes.RefreshToken, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(h.RefreshToken)))))},
 		{routes.ListUsers, corsMW(rateLimitMW(authMW(operation("goauth.app.users.read")(http.HandlerFunc(h.ListUsers)))))},
@@ -193,6 +199,7 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 	}
 
 	if features.OAuth {
+		entries = append(entries, Entry{routes.OAuthInviteInitiate, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(oauthHandlers.InitiateInvite)))))}, Entry{routes.OAuthInviteVerify, corsMW(rateLimitMW(csrfTokenMW(csrfMW(http.HandlerFunc(oauthHandlers.VerifyInviteEmail)))))})
 		wrappedOAuthCallback := corsMW(rateLimitMW(http.HandlerFunc(oauthHandlers.Callback)))
 		entries = append(entries,
 			Entry{routes.OAuthInitiate, corsMW(rateLimitMW(http.HandlerFunc(oauthHandlers.Initiate)))},

@@ -1021,7 +1021,7 @@ func TestAdminLogin_NonexistentUser(t *testing.T) {
 	}
 }
 
-func TestAdminLogin_UnverifiedAdmin_Succeeds(t *testing.T) {
+func TestAdminLogin_UnverifiedAdmin_RequiresVerification(t *testing.T) {
 	svc := newAdminLoginService(t)
 	hash, _ := svc.hasher.Hash("Passw0rd!")
 	user := &domain.User{
@@ -1052,7 +1052,7 @@ func TestAdminLogin_UnverifiedAdmin_Succeeds(t *testing.T) {
 	if result.User == nil {
 		t.Fatal("Expected user, got nil")
 	}
-	if result.SessionToken == "" {
-		t.Fatal("Expected session token, got empty")
+	if result.SessionToken != "" || !result.RequiresVerification {
+		t.Fatal("unverified admin received a session instead of verification")
 	}
 }

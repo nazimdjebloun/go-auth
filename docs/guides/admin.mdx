@@ -368,7 +368,7 @@ const detail = await apiRequest("GET", `/admin/users/${userId}`);
 
 ### Create a user — `POST /admin/users`
 
-Creates the user **pre-verified** — `isVerified: true` from the moment it's created, no email round-trip. There's no session issued; this is admin provisioning, not a login.
+Creates the user **pre-verified** — `isVerified: true` from the moment it's created, no email round-trip. There's no session issued; this is admin provisioning, not a login. Password authentication must be enabled; otherwise this password-based account-creation operation returns `405 method_disabled`.
 
 **Request body**
 
@@ -1240,9 +1240,9 @@ await apiRequest("PATCH", "/admin/orgs/org-123/members/b3f1.../role", { role: "o
 
 ---
 
-## Platform invites — requires `EnableInvite`
+## Platform invites — requires `InviteSignup`
 
-Admin-issued, invite-only signup: an admin creates an invite for an email address, and the recipient completes registration with it via `POST /auth/invite/register` — covered in [Authentication → Register via invite](./authentication.mdx#register-via-invite--requires-enableinvite-true). This is a different feature from organization invites — see [Organizations → Invites](./organizations.mdx#invites) for those. These routes only exist when `RegistrationConfig.EnableInvite: true`; otherwise they 404.
+Admin-issued, invite-only signup: an admin creates an invite for an email address, and the recipient completes registration with it via `POST /auth/invite/register` — covered in [Authentication → Register via invite](./authentication.mdx#register-via-invite--requires-invitesignup-true). This is a different feature from organization invites — see [Organizations → Invites](./organizations.mdx#invites) for those. These routes only exist when `RegistrationConfig.InviteSignup: true`; otherwise they 404.
 
 An invite's `status` is one of `pending`, `accepted`, `revoked`, or `expired`. Admin listings derive `expired` from a pending row's `expiresAt`; token reads report expiry without writing an old snapshot back to the database.
 
@@ -1271,7 +1271,7 @@ The raw invite code is emailed directly to `email` — it's never included in th
 
 | Code | Status | Cause |
 |---|---|---|
-| `method_disabled` | 405 | `EnableInvite` is `false` |
+| `method_disabled` | 405 | `InviteSignup` is `false` |
 | `invalid_json` | 400 | Malformed body or invalid email |
 | `email_failed` | 500 | No mailer configured, or send failure |
 

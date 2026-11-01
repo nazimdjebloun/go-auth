@@ -8,7 +8,7 @@ icon: "LogIn"
 
 Identity and credential flows. `Auth` is either `Public` (no session needed) or `Session` (the session cookie is required; without it the route answers `401 {"error": ..., "message": ...}`). Cookie names below are the defaults (`goauth_session`, `goauth_refresh`); see `WithBrowser` on [Configuration](../configuration.mdx). Session credentials travel in cookies, never in bodies: on direct login and register the handler sets both cookies and omits token fields from JSON. User examples show the default disabled app-permissions mode; enabled mode omits `role` and returns app-role identity/assignment fields. All error responses use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx).
 
-`POST /auth/register` is only mounted when `EnableEmailPassword` is true. Invite routes are only mounted when `EnableInvite` is true.
+`POST /auth/register` is only mounted when `EmailPassword` is true. Invite routes are only mounted when `InviteSignup` is true.
 
 Requests use the app context by default. The admin client sends `X-GoAuth-Session: admin` on every request, including CSRF bootstrap and 2FA verification. Admin login always selects admin; its default cookies are `goauth_admin_session`, `goauth_admin_refresh`, and `_goauth_admin_2fa_challenge`, with `_goauth_admin_csrf` for CSRF. Follow-up `/auth/me`, refresh, and logout requests need the selector too. Register and invite-register reject admin context; use the app registration flow to create an account. See [browser configuration](../configuration.mdx#independent-app-and-admin-sessions).
 
@@ -150,7 +150,16 @@ Terminates the current session and clears both cookies. `Auth:` Session.
 
 GET /auth/me
 
-Returns the caller: full user object, whether the account has a password, and the current session (token hashes are never serialized). `Auth:` Session.
+Returns the caller: full user object, whether the account has a password, and the current session (token hashes are never serialized). `Auth:` Session. When email verification is required and the account is unverified, the response is restricted instead:
+
+```json
+{ "id": "...", "email": "alice@example.com", "isVerified": false, "requiresVerification": true }
+```
+
+Show the verification page before protected content. The session is retained;
+verification, resend and logout remain available. After code confirmation,
+fetch `/auth/me` again to load the full profile and session.
+
 
 **Response `200 OK`:**
 
@@ -417,7 +426,7 @@ Consumes the deletion code. The user ID comes from the session, never the body. 
 
 GET /auth/invite/info
 
-Reads an invite code (from the emailed link) and returns who it was issued to. Only mounted when `EnableInvite` is true. `Auth:` Public.
+Reads an invite code (from the emailed link) and returns who it was issued to. Only mounted when `InviteSignup` is true. `Auth:` Public.
 
 **Query:**
 
@@ -437,7 +446,7 @@ Reads an invite code (from the emailed link) and returns who it was issued to. O
 
 POST /auth/invite/register
 
-Completes registration from an invite code, creating the account and a session in one step. Only mounted when `EnableInvite` is true. `Auth:` Public.
+Completes registration from an invite code, creating the account and a session in one step. Only mounted when `InviteSignup` is true. `Auth:` Public.
 
 **Request body:**
 
@@ -512,6 +521,30 @@ Refreshes the code on the same challenge; `challengeId` does not change. Unknown
 }
 ```
 
+### Confirm an optional 2FA setting by email
+
+POST /auth/2fa/settings/challenge
+
+Requests a confirmation code bound to the current session and the selected
+operation. Passwordless accounts can use this without setting a password.
+`Auth:` Session. A globally mandatory 2FA policy rejects personal changes.
+
+```json
+{ "action": "enable" }
+```
+
+Use `"disable"` for disabling. Response `200 OK`:
+
+```json
+{ "challengeId": "...", "codeSent": true, "expiresAt": "2026-11-01T12:05:00Z" }
+```
+
+A live challenge is reused with `codeSent: false`; requesting it again does not
+send another email or reset its five-guess budget. It expires after `CodeTTL`.
+Submit its `challengeId` and `code` to the matching enable or disable endpoint
+using the same authenticated session. This proof cannot complete `/auth/2fa/verify`
+or authorize the opposite setting change.
+
 ### Enable 2FA
 
 POST /auth/2fa/enable
@@ -533,7 +566,9 @@ Opts the caller into 2FA. `keepOtherSessions` defaults to `false` (omitted revok
 { "message": "Two-factor authentication enabled" }
 ```
 
-**Errors:** `two_factor_password_required` (no password given), `invalid_credentials` (wrong password), `two_factor_already_enforced` (`RequireEmail2FA` is on; toggling is rejected).
+Alternatively submit `{ "challengeId": "...", "code": "123456", "keepOtherSessions": false }` after requesting an `enable` confirmation.
+
+**Errors:** `two_factor_code_invalid` (invalid, expired, wrong-session or wrong-action proof), `two_factor_password_required` (no password or confirmation supplied), `invalid_credentials` (wrong password), `two_factor_already_enforced` (`RequireEmail2FA` is on; toggling is rejected).
 
 ### Disable 2FA
 
@@ -553,7 +588,9 @@ Opts the caller out. No session revocation. `Auth:` Session.
 { "message": "Two-factor authentication disabled" }
 ```
 
-**Errors:** `two_factor_password_required`, `invalid_credentials`.
+Alternatively submit `{ "challengeId": "...", "code": "123456" }` after requesting a `disable` confirmation. Mandatory global/admin policy cannot be overridden by changing the personal setting.
+
+**Errors:** `two_factor_code_invalid`, `two_factor_password_required`, `invalid_credentials`, `two_factor_already_enforced`.
 
 ## Next
 

@@ -119,7 +119,9 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     code_verifier TEXT,
     attempts INTEGER NOT NULL DEFAULT 0,
     resend_count INTEGER NOT NULL DEFAULT 0,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    context_hash TEXT NOT NULL DEFAULT '',
+    encrypted_payload TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS provider_accounts (

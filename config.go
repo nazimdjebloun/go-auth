@@ -29,6 +29,7 @@ type Config struct {
 	browser        BrowserConfig
 	csrf           *middleware.CSRFTokenConfig
 	registration   RegistrationConfig
+	authentication AuthenticationConfig
 	organizations  OrganizationConfig
 	appPermissions AppPermissionsConfig
 	orgPermissions OrgPermissionsConfig
@@ -78,6 +79,7 @@ type resolved struct {
 // for. Bool fields have no "unset" state, so a section-level default can only
 // be applied to a section nobody touched — see applyDefaults.
 type sectionsSet struct {
+	authentication bool
 	registration   bool
 	rateLimitStore bool // true once WithRateLimitStore/WithRateLimit set a Store — that Store is the consumer's, Close() must not touch it
 }

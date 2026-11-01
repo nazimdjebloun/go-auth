@@ -720,7 +720,10 @@ try {
 
 Read `twoFactorEnabled` from `/auth/me`. This per-account flag does not describe
 global mandatory 2FA or default admin MFA. Changing it requires the current
-password; passwordless accounts must set a password first. With `RequireEmail2FA`,
+password or an action-specific email confirmation. Passwordless accounts request
+a challenge at `/auth/2fa/settings/challenge` with `{ action: "enable" }` or
+`{ action: "disable" }`, then submit `challengeId` and `code` to the matching
+setting endpoint using the same session. With `RequireEmail2FA`,
 changes return `two_factor_already_enforced`. Enabling revokes other sessions
 unless `keepOtherSessions: true` is supplied.
 
@@ -782,3 +785,16 @@ Full working example applications are on the way:
 - [Admin Client](./admin-client-config.mdx) — cross-origin admin dashboard setup
 - [Configuration](./configuration.mdx) — server-side config options
 - [Routes](./routes/) — every endpoint, request/response shape, and error code
+
+## Verification required on an existing session
+
+Check `/auth/me` before rendering protected pages. When it returns
+`requiresVerification: true`, only `id`, `email` and `isVerified: false` accompany
+that flag; do not treat the response as a complete user profile. Render the
+verification screen, retain the session, and fetch `/auth/me` again after code
+confirmation. Protected requests may return `403 email_not_verified` if the
+policy changes while the app is open; handle that response the same way.
+`POST /auth/refresh` can also return only `requiresVerification: true` and
+`email` after rotating the cookies. Treat that response as verification status,
+not as a full session. Do not log out, retry the protected write automatically, or send a new email on
+every render. Keep verification, resend and logout accessible.

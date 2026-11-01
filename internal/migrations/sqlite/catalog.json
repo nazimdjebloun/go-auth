@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "release": "v0.5.1",
+  "release": "v0.5.2",
   "dialect": "sqlite",
-  "targetRevision": 2,
+  "targetRevision": 3,
   "bootstrapRevision": 1,
   "migrations": [
     {
@@ -23,6 +23,16 @@
       "transactional": true,
       "schema": "schema_000002.sql",
       "schemaChecksum": "e0ecf821ddde8ff4f07c02a703bb0ac1149d8f3caf8bf7615871d1bfb91e3105",
+      "checks": []
+    },
+    {
+      "id": 3,
+      "file": "000003_v0.5.2_001.sql",
+      "checksum": "309af4e50d48320da9741d89017be331a9a944ca7cb4036ec79ac53c8bd47b07",
+      "kind": "upgrade",
+      "transactional": true,
+      "schema": "schema_000003.sql",
+      "schemaChecksum": "6ac752a8b4408f2556d1aa943993ee81c48f6d3344264d4023bd201a64f84426",
       "checks": []
     }
   ]

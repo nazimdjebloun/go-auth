@@ -3,9 +3,9 @@ package sqlstore
 var (
 	// tokenSelectColumns is the single source of truth for the verification
 	// token column list and its order — scanToken depends on both.
-	tokenSelectColumns = sqlText("id, user_id, email, token_hash, type, expires_at, used_at, created_at, code_verifier, attempts, resend_count")
+	tokenSelectColumns = sqlText("id, user_id, email, token_hash, type, expires_at, used_at, created_at, code_verifier, attempts, resend_count, context_hash, encrypted_payload")
 
-	tokenCreateQuery = sqlText(`INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at, used_at, code_verifier, attempts, resend_count, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`)
+	tokenCreateQuery = sqlText(`INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at, used_at, code_verifier, attempts, resend_count, created_at, context_hash, encrypted_payload) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`)
 
 	tokenByHashQuery = sqlText(`SELECT ` + tokenSelectColumns + ` FROM verification_tokens WHERE token_hash = $1`)
 
@@ -41,3 +41,5 @@ var (
 	tokenUpdateForResendQuery = sqlText(`UPDATE verification_tokens SET token_hash = $1, expires_at = $2, created_at = $3, resend_count = resend_count + 1
 		WHERE id = $4 AND used_at IS NULL AND resend_count < $5 AND attempts < $6`)
 )
+
+var tokenConsumeUnownedUnderCapQuery = sqlText(`UPDATE verification_tokens SET used_at = $1 WHERE id = $2 AND token_hash = $3 AND user_id IS NULL AND type = $4 AND used_at IS NULL AND expires_at > $5 AND attempts < $6`)

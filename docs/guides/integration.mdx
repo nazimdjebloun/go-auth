@@ -74,7 +74,7 @@ The built-in HTTP handlers and middleware use `{"error": code, "message": messag
 
 ## Authentication policy
 
-Named inputs do not change authentication requirements. With app permissions disabled, non-admin OAuth continues to trust provider authentication without applying local password-login 2FA. Admin OAuth still applies local 2FA by default. The [policy matrix](../security.mdx#authentication-policy-matrix) specifies verification and second-factor behavior for each path.
+Password and OAuth login apply the same global and per-account email-2FA requirements. Admin OAuth also applies the admin default. Authentication and signup methods are independently selected with `WithAuthentication` and `WithRegistration`. The [policy matrix](../security.mdx#authentication-policy-matrix) specifies verification and second-factor behavior for each path.
 
 ## Optional application authorization
 
@@ -150,3 +150,19 @@ For direct browser access to custom API routes, register each path's OPTIONS han
 Update admin clients to send `X-GoAuth-Session: admin` on every request, including bootstrap and 2FA follow-ups. Admin login always issues the admin context's credential cookies. Old shared admin cookies are not reused as admin credentials; sign in again. App cookie names remain unchanged. Optional `Cookies.AdminName`, `AdminRefreshName`, and `AdminChallengeName` customize the independent admin names; transport policy remains common to both contexts. The bundled panel handles selection automatically, with `VITE_API_URL` pointing directly at the backend.
 
 Old CSRF tokens are incompatible and safe bootstrap requests replace them. No database schema migration is needed. Review HTTPS/HTTP development settings and direct API deployment using [Deployment](./deployment.mdx).
+
+## Session access checks and verification-only identity lookup
+
+Use `Auth.GetSession` or `Auth.CheckSession` when authorizing ordinary
+programmatic access. They apply the current email-verification requirement as
+well as session liveness and account status. `GetSession` returns
+`email_not_verified` and `CheckSession` returns false for a restricted account.
+`Auth.RequireAuth` applies the same verification requirement to custom protected
+HTTP routes.
+
+The low-level `Services().Session.ValidateWithUser` checks session identity and
+liveness without imposing email verification. It remains available to build
+verification, minimal-status and logout flows. Its successful return is not
+permission to bypass verification for ordinary protected operations. The
+built-in `/auth/me` exposes only minimal verification status while restricted;
+`/auth/refresh` rotates cookies but similarly omits the session body.

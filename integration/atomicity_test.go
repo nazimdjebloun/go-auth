@@ -827,6 +827,7 @@ func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...po
 	migrateDB(t, db, testdb.Driver(db))
 	opts := []goauth.Option{
 		goauth.WithBcryptCost(4),
+		goauth.WithAuthentication(goauth.AuthenticationConfig{EmailPassword: true, OAuth: len(providers) > 0}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",
@@ -847,9 +848,9 @@ func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...po
 			AllowHTTPURLs: goauth.AllowPlaintextEmailLinks(),
 		}),
 		goauth.WithRegistration(goauth.RegistrationConfig{
-			EnableEmailPassword: true,
-			EnableOAuth:         true,
-			EnableInvite:        true,
+			EmailPassword:       true,
+			OAuth:               len(providers) > 0,
+			InviteSignup:        true,
 			AllowPublic:         true,
 			InviteTTL:           1 * time.Hour,
 			VerificationCodeTTL: 1 * time.Hour,

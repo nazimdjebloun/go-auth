@@ -26,6 +26,7 @@ import (
 // OAuthService manages OAuth login and account linking.
 type OAuthService struct {
 	providers    map[string]port.OAuthProvider
+	invites      port.InviteRepository
 	providerRepo port.ProviderAccountRepository
 	userRepo     port.UserRepository
 	tokenRepo    port.TokenRepository
@@ -49,7 +50,9 @@ type OAuthServiceConfig struct {
 	AppPermissions *AppPermissionsService
 
 	RequireEmailVerification bool
-	EnableOAuth              bool
+	OAuth                    bool
+	InviteSignup             bool
+	DefaultTwoFactorEnabled  bool
 	InviteOnly               bool
 	Encryptor                *crypto.Encryptor
 	DisableAdminTwoFactor    bool
@@ -125,6 +128,13 @@ func (s *OAuthService) getProvider(name string) (port.OAuthProvider, error) {
 
 // Initiate starts an OAuth login flow.
 func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*api.OAuthInitiation, error) {
+	return s.initiate(ctx, providerName, "")
+}
+
+func (s *OAuthService) initiate(ctx context.Context, providerName, inviteHash string) (*api.OAuthInitiation, error) {
+	if s.config.OAuthAuthenticationDisabled {
+		return nil, domain.ErrMethodDisabled
+	}
 	p, err := s.getProvider(providerName)
 	if err != nil {
 		return nil, err
@@ -140,6 +150,7 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*api.
 	}
 
 	stateToken := &domain.VerificationToken{
+		ContextHash:  hashToken(providerName),
 		ID:           uuid.New().String(),
 		TokenHash:    hashToken(stateRaw),
 		Type:         domain.TokenOAuthState,
@@ -147,6 +158,15 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*api.
 		CodeVerifier: &codeVerifier,
 	}
 
+	if inviteHash != "" {
+		if s.encryptor == nil {
+			return nil, domain.ErrInternal
+		}
+		stateToken.EncryptedPayload, err = s.encryptor.Encrypt(inviteHash)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if err := s.tokenRepo.Create(ctx, stateToken); err != nil {
 		s.log.Error("failed to store state token", "err", err, "provider", providerName)
 		return nil, domain.ErrInternal
@@ -161,6 +181,9 @@ func (s *OAuthService) Initiate(ctx context.Context, providerName string) (*api.
 // Email field, so callback must present that same live session. OAuth state
 // rows never represent an email address.
 func (s *OAuthService) InitiateLink(ctx context.Context, input api.OAuthLinkInput) (*api.OAuthInitiation, error) {
+	if s.config.OAuthAuthenticationDisabled {
+		return nil, domain.ErrMethodDisabled
+	}
 	p, err := s.getProvider(input.Provider)
 	if err != nil {
 		return nil, err
@@ -179,6 +202,7 @@ func (s *OAuthService) InitiateLink(ctx context.Context, input api.OAuthLinkInpu
 	}
 
 	stateToken := &domain.VerificationToken{
+		ContextHash:  hashToken(input.Provider),
 		ID:           uuid.New().String(),
 		UserID:       &input.UserID,
 		Email:        input.SessionTokenHash,
@@ -199,6 +223,9 @@ func (s *OAuthService) InitiateLink(ctx context.Context, input api.OAuthLinkInpu
 
 // Callback completes an OAuth login or account link.
 func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInput) (*api.OAuthCallbackResult, error) {
+	if s.config.OAuthAuthenticationDisabled {
+		return nil, domain.ErrMethodDisabled
+	}
 	p, err := s.getProvider(input.Provider)
 	if err != nil {
 		return nil, err
@@ -219,6 +246,9 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 	// A verified state hash carries the context through provider callbacks,
 	// which cannot carry our browser request header.
 	ctx = sessioncontext.With(ctx, sessioncontext.Of(input.State))
+	if stateToken.ContextHash != "" && stateToken.ContextHash != hashToken(input.Provider) {
+		return nil, domain.ErrInvalidCredentials
+	}
 	if stateToken.UsedAt != nil {
 		return nil, domain.ErrOAuthStateUsed
 	}
@@ -239,6 +269,9 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 		}
 		if user.IsBanned {
 			return nil, domain.ErrUserBanned
+		}
+		if s.config.RequireEmailVerification && !user.IsVerified {
+			return nil, domain.ErrEmailNotVerified
 		}
 	}
 
@@ -266,6 +299,28 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 		return nil, domain.NewError("provider_error", "Failed to authenticate with provider")
 	}
 
+	// Normalize on a copy: providers may reuse profile values across calls.
+	profile := *info
+	profile.Email = strings.ToLower(strings.TrimSpace(profile.Email))
+	info = &profile
+
+	var invite *domain.Invite
+	if stateToken.EncryptedPayload != "" {
+		if sessioncontext.Current(ctx) == sessioncontext.Admin || s.encryptor == nil {
+			return nil, domain.ErrInvalidCredentials
+		}
+		inviteHash, err := s.encryptor.Decrypt(stateToken.EncryptedPayload)
+		if err != nil {
+			return nil, domain.ErrInvalidCredentials
+		}
+		invite, err = s.pendingInvite(ctx, inviteHash)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.EqualFold(strings.TrimSpace(info.Email), invite.Email) {
+			return nil, domain.ErrInvalidEmail
+		}
+	}
 	existing, lookupErr := s.providerRepo.GetByProvider(ctx, input.Provider, info.ProviderUserID)
 	if lookupErr != nil {
 		s.log.Error("failed to look up provider account", "err", lookupErr, "provider", input.Provider)
@@ -338,61 +393,50 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 			return &api.OAuthCallbackResult{RequiresVerification: true, VerifyEmail: user.Email}, nil
 		}
 
-		admin, err := appProtectedIdentity(ctx, s.config.AppPermissions, user)
-		if err != nil {
-			return nil, err
-		}
-		if admin {
-			if s.twoFactorSvc == nil && !s.config.DisableAdminTwoFactor {
-				return nil, domain.ErrInternal
-			}
-			required := false
-			if s.twoFactorSvc != nil {
-				required, err = s.twoFactorSvc.EnforceContext(ctx, user)
-				if err != nil {
-					return nil, err
-				}
-			}
-			if required {
-				challenge, err := s.twoFactorSvc.Challenge(ctx, user.ID)
-				if err != nil {
-					return nil, err
-				}
-				return api.NewOAuthCallbackResult(api.OAuthCallbackResult{
-					RequiresTwoFactor: true, CodeSent: challenge.Sent,
-					TwoFactorChallenge: challenge.ID, TwoFactorExpiresAt: challenge.ExpiresAt,
-				}, challenge.BindingToken), nil
-			}
-		}
-
-		sessResult, sessionErr := s.sessionSvc.Create(ctx, api.CreateSessionInput{
-			UserID:    user.ID,
-			IP:        input.IP,
-			UserAgent: input.UserAgent,
-		})
-		if sessionErr != nil {
-			s.log.Error("failed to create session", "err", sessionErr, "user_id", user.ID)
-			return nil, domain.ErrInternal
-		}
-		s.log.Info("oauth login", "user_id", user.ID, "provider", input.Provider, "ip", input.IP)
-		if s.audit != nil {
-			if err := s.audit.Record(ctx, audit.NewOAuthEvent(audit.EventOAuthLogin, user.ID, input.Provider, net.ParseIP(input.IP), input.UserAgent)); err != nil {
-				return nil, err
-			}
-		}
-		return &api.OAuthCallbackResult{SessionID: sessResult.Session.ID, SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken}, nil
+		return s.completeOAuthLogin(ctx, user, input.Provider, input.IP, input.UserAgent, false)
 	}
 
 	if sessioncontext.Current(ctx) == sessioncontext.Admin {
 		return nil, domain.ErrInvalidCredentials
 	}
-	if !s.config.EnableOAuth {
+	if !s.config.OAuth {
 		return nil, domain.ErrMethodDisabled
 	}
-	if s.config.InviteOnly {
+	if invite != nil {
+		if !info.EmailVerified {
+			return s.prepareInviteVerification(ctx, info, invite)
+		}
+	} else if s.config.InviteOnly {
 		return nil, domain.ErrForbidden
 	}
+	return s.registerOAuth(ctx, input, info, invite)
+}
 
+func (s *OAuthService) registerOAuth(ctx context.Context, input api.OAuthCallbackInput, info *port.OAuthProfile, invite *domain.Invite) (*api.OAuthCallbackResult, error) {
+	newUser, err := s.createOAuthAccount(ctx, input, info, invite)
+	if err != nil {
+		return nil, err
+	}
+
+	s.log.Info("oauth register", "user_id", newUser.ID, "provider", input.Provider, "email_verified", info.EmailVerified)
+
+	// Only send verification email if the provider did NOT verify the email
+	// and email verification is required.
+	if s.config.RequireEmailVerification && !newUser.IsVerified {
+		if _, err := s.verifySvc.SendVerification(ctx, newUser); err != nil {
+			return nil, err
+		}
+		return &api.OAuthCallbackResult{IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email}, nil
+	}
+
+	result, err := s.completeOAuthLogin(ctx, newUser, input.Provider, input.IP, input.UserAgent, true)
+	if result != nil {
+		result.IsNewUser = true
+	}
+	return result, err
+}
+
+func (s *OAuthService) createOAuthAccount(ctx context.Context, input api.OAuthCallbackInput, info *port.OAuthProfile, invite *domain.Invite) (*domain.User, error) {
 	if err := validateEmail(info.Email); err != nil {
 		return nil, domain.NewError("provider_error", "Failed to authenticate with provider")
 	}
@@ -406,14 +450,15 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 
 	now := time.Now().UTC()
 	newUser := &domain.User{
-		ID:         uuid.New().String(),
-		Email:      info.Email,
-		Name:       info.Name,
-		Role:       domain.RoleUser,
-		IsVerified: info.EmailVerified,
-		IsBanned:   false,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:               uuid.New().String(),
+		Email:            info.Email,
+		Name:             info.Name,
+		Role:             domain.RoleUser,
+		IsVerified:       info.EmailVerified,
+		IsBanned:         false,
+		TwoFactorEnabled: s.config.DefaultTwoFactorEnabled,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 	if info.EmailVerified {
 		newUser.VerifiedAt = &now
@@ -429,6 +474,15 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 			}
 			s.log.Error("failed to create user", "err", err, "email", info.Email)
 			return domain.ErrInternal
+		}
+		if invite != nil {
+			claimed, err := s.invites.ClaimInvite(txCtx, invite.Code, time.Now().UTC())
+			if err != nil {
+				return err
+			}
+			if !claimed {
+				return domain.ErrInviteAlreadyUsed
+			}
 		}
 		if s.config.AppPermissions != nil {
 			if err := s.config.AppPermissions.AssignBaseline(txCtx, newUser); err != nil {
@@ -450,28 +504,7 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 		return nil, err
 	}
 
-	s.log.Info("oauth register", "user_id", newUser.ID, "provider", input.Provider, "email_verified", info.EmailVerified)
-
-	// Only send verification email if the provider did NOT verify the email
-	// and email verification is required.
-	if s.config.RequireEmailVerification && !newUser.IsVerified {
-		if _, err := s.verifySvc.SendVerification(ctx, newUser); err != nil {
-			return nil, err
-		}
-		return &api.OAuthCallbackResult{IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email}, nil
-	}
-
-	sessResult, sessionErr := s.sessionSvc.Create(ctx, api.CreateSessionInput{
-		UserID:    newUser.ID,
-		IP:        input.IP,
-		UserAgent: input.UserAgent,
-	})
-	if sessionErr != nil {
-		s.log.Error("failed to create session", "err", sessionErr, "user_id", newUser.ID)
-		return nil, domain.ErrInternal
-	}
-
-	return &api.OAuthCallbackResult{SessionID: sessResult.Session.ID, SessionToken: sessResult.SessionToken, RefreshToken: sessResult.RefreshToken, IsNewUser: true}, nil
+	return newUser, nil
 }
 
 // Unlink removes a linked OAuth provider.
@@ -499,9 +532,9 @@ func (s *OAuthService) Unlink(ctx context.Context, input api.OAuthUnlinkInput) e
 
 		// Delete removes every identity for this provider. Multiple accounts
 		// under the same provider are one removable group, not surviving methods.
-		hasRemainingMethod := user.HasPassword()
+		hasRemainingMethod := user.HasPassword() && !s.config.PasswordAuthenticationDisabled
 		for _, account := range accounts {
-			if account.Provider != input.Provider {
+			if _, configured := s.providers[account.Provider]; account.Provider != input.Provider && configured && !s.config.OAuthAuthenticationDisabled {
 				hasRemainingMethod = true
 				break
 			}
@@ -586,4 +619,82 @@ func (s *OAuthService) createProviderAccount(ctx context.Context, userID string,
 		return nil, domain.ErrInternal
 	}
 	return pa, nil
+}
+
+// completeOAuthLogin applies the same second-factor requirement to every provider login.
+func (s *OAuthService) completeOAuthLogin(ctx context.Context, user *domain.User, provider, ip, userAgent string, newAccount bool) (*api.OAuthCallbackResult, error) {
+	var current *domain.User
+	var result *api.SessionResult
+	var required, verification bool
+	err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		var err error
+		current, err = s.userRepo.GetByIDForUpdate(txCtx, user.ID)
+		if err != nil {
+			return err
+		}
+		if current == nil {
+			return domain.ErrUserNotFound
+		}
+		if current.IsBanned {
+			return domain.ErrUserBanned
+		}
+		if sessioncontext.Current(ctx) == sessioncontext.Admin {
+			admin, err := appProtectedIdentity(txCtx, s.config.AppPermissions, current)
+			if err != nil {
+				return err
+			}
+			if !admin {
+				return domain.ErrInvalidCredentials
+			}
+		}
+		if s.config.RequireEmailVerification && !current.IsVerified {
+			verification = true
+			return nil
+		}
+		if s.twoFactorSvc != nil {
+			required, err = s.twoFactorSvc.EnforceContext(txCtx, current)
+			if err != nil {
+				return err
+			}
+			if newAccount && !s.twoFactorSvc.config.RequireEmail2FA {
+				required = false
+			}
+		} else {
+			admin, err := appProtectedIdentity(txCtx, s.config.AppPermissions, current)
+			if err != nil {
+				return err
+			}
+			if (admin && !s.config.DisableAdminTwoFactor) || current.TwoFactorEnabled {
+				return domain.ErrInternal
+			}
+		}
+		if required {
+			return nil
+		}
+		result, err = s.sessionSvc.Create(txCtx, api.CreateSessionInput{UserID: current.ID, IP: ip, UserAgent: userAgent})
+		if err != nil {
+			return err
+		}
+		if s.audit != nil {
+			return s.audit.Record(txCtx, audit.NewOAuthEvent(audit.EventOAuthLogin, current.ID, provider, net.ParseIP(ip), userAgent))
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if verification {
+		if _, err := s.verifySvc.SendVerification(ctx, current); err != nil {
+			return nil, err
+		}
+		return &api.OAuthCallbackResult{RequiresVerification: true, VerifyEmail: current.Email}, nil
+	}
+	if required {
+		challenge, err := s.twoFactorSvc.challengeWithOAuth(ctx, current.ID)
+		if err != nil {
+			return nil, err
+		}
+		return api.NewOAuthCallbackResult(api.OAuthCallbackResult{RequiresTwoFactor: true, CodeSent: challenge.Sent, TwoFactorChallenge: challenge.ID, TwoFactorExpiresAt: challenge.ExpiresAt}, challenge.BindingToken), nil
+	}
+	return &api.OAuthCallbackResult{SessionID: result.Session.ID, SessionToken: result.SessionToken, RefreshToken: result.RefreshToken}, nil
 }

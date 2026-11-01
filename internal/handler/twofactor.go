@@ -83,6 +83,8 @@ func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
 	currentSession := middleware.GetSessionFromContext(r.Context())
 
 	var body struct {
+		ChallengeID       string `json:"challengeId"`
+		Code              string `json:"code"`
 		Password          string `json:"password"`
 		KeepOtherSessions bool   `json:"keepOtherSessions"`
 	}
@@ -95,6 +97,7 @@ func (h *Handler) Enable2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.services.TwoFactor.Enable(r.Context(), api.TwoFactorEnableInput{
+		ChallengeID: body.ChallengeID, Code: body.Code,
 		UserID:            user.ID,
 		Password:          body.Password,
 		KeepOtherSessions: body.KeepOtherSessions,
@@ -119,13 +122,20 @@ func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Password string `json:"password"`
+		ChallengeID string `json:"challengeId"`
+		Code        string `json:"code"`
+		Password    string `json:"password"`
 	}
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
 
+	sessionID := ""
+	if session := middleware.GetSessionFromContext(r.Context()); session != nil {
+		sessionID = session.ID
+	}
 	if err := h.services.TwoFactor.Disable(r.Context(), api.TwoFactorDisableInput{
+		ChallengeID: body.ChallengeID, Code: body.Code, CallerSessionID: sessionID,
 		UserID:   user.ID,
 		Password: body.Password,
 	}); err != nil {
@@ -136,4 +146,26 @@ func (h *Handler) Disable2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Two-factor authentication disabled"})
+}
+
+// RequestTwoFactorSettingsChallenge starts email confirmation for an optional preference change.
+func (h *Handler) RequestTwoFactorSettingsChallenge(w http.ResponseWriter, r *http.Request) {
+	user := middleware.GetUserFromContext(r.Context())
+	session := middleware.GetSessionFromContext(r.Context())
+	if user == nil || session == nil {
+		h.writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized", "message": "Authentication required"})
+		return
+	}
+	var body struct {
+		Action string `json:"action"`
+	}
+	if !h.decodeJSON(w, r, &body) {
+		return
+	}
+	result, err := h.services.TwoFactor.RequestSettingsChallenge(r.Context(), api.TwoFactorSettingsChallengeInput{UserID: user.ID, CallerSessionID: session.ID, Action: body.Action})
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
+	h.writeJSON(w, http.StatusOK, map[string]any{"challengeId": result.ID, "codeSent": result.Sent, "expiresAt": result.ExpiresAt})
 }

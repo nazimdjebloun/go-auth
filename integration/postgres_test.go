@@ -21,6 +21,7 @@ import (
 func newPostgresTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 	cfg, err := goauth.NewConfig(
 		goauth.WithBcryptCost(4),
+		goauth.WithRegistration(goauth.RegistrationConfig{EmailPassword: true, AllowPublic: true}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestAppPG",
 			BaseURL: "http://localhost:8080",

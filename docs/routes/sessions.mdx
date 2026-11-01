@@ -26,6 +26,11 @@ Send `X-GoAuth-Session: admin` consistently for the admin frontend, including bo
 }
 ```
 
+Email-verification policy also applies to existing sessions: protected routes
+return `email_not_verified` until the account verifies. Refreshing credentials
+does not remove that restriction or mark the account verified. The retained
+session can still finish verification and log out.
+
 ### Refresh token
 
 POST /auth/refresh
@@ -37,6 +42,17 @@ Rotates both tokens using the refresh cookie and sets the new cookies only while
 ```json
 { "session": { "...": "the rotated session" } }
 ```
+
+If email verification is required and the session owner is unverified, the
+rotated cookies are still returned, but the body is restricted:
+
+```json
+{ "requiresVerification": true, "email": "alice@example.com" }
+```
+
+It does not include a `session` object. Show the verification screen instead of
+rendering protected content. Refresh retains the session for verification;
+protected routes continue to enforce the current policy.
 
 **Errors:** `invalid_refresh` (no refresh cookie was sent).
 

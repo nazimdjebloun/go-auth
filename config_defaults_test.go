@@ -49,6 +49,8 @@ func minimalOpts(extra ...Option) []Option {
 // in-memory SQLite database.
 func buildAuth(t *testing.T, opts ...Option) *Auth {
 	t.Helper()
+	// Most HTTP fixtures exercise an explicitly public password application.
+	opts = append([]Option{WithRegistration(RegistrationConfig{AllowPublic: true, EmailPassword: true})}, opts...)
 	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
@@ -188,9 +190,9 @@ func TestDefaults_PartialRegistrationKeepsTTLs(t *testing.T) {
 	cfg, err := NewConfig(minimalOpts(
 		WithMailer(noopMailer{}),
 		WithRegistration(RegistrationConfig{
-			EnableEmailPassword: true,
-			EnableInvite:        true,
-			AllowPublic:         true,
+			EmailPassword: true,
+			InviteSignup:  true,
+			AllowPublic:   true,
 		}))...)
 	if err != nil {
 		t.Fatal(err)
@@ -204,7 +206,7 @@ func TestDefaults_PartialRegistrationKeepsTTLs(t *testing.T) {
 	if cfg.registration.VerificationResendInterval != 60*time.Second {
 		t.Errorf("VerificationResendInterval = %v, want 60s", cfg.registration.VerificationResendInterval)
 	}
-	if cfg.registration.EnableOAuth {
+	if cfg.registration.OAuth {
 		t.Error("explicit registration flags must not be merged with defaults")
 	}
 }
@@ -414,7 +416,7 @@ func TestDefaults_NoMailerOK_WhenNoEmailFeatureNeedsOne(t *testing.T) {
 			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 		}),
 		WithSecret("0123456789abcdef0123456789abcdef"), WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://example.com"}}), WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: true}),
-		// No WithMailer/WithEmail, no RequireEmailVerification/EnableInvite/
+		// No WithMailer/WithEmail, no RequireEmailVerification/InviteSignup/
 		// RequireEmail2FA/DefaultTwoFactorEnabled — an API-only deployment.
 	)
 	if err != nil {
@@ -441,7 +443,7 @@ func TestDefaults_NoMailerFails_WhenAdminTwoFactorStillOn(t *testing.T) {
 	}
 }
 
-func TestDefaults_NoMailerFails_WhenEnableInviteOn(t *testing.T) {
+func TestDefaults_NoMailerFails_WhenInviteSignupOn(t *testing.T) {
 	_, err := NewConfig(
 		WithApp(AppConfig{
 			Name:        "app",
@@ -450,13 +452,13 @@ func TestDefaults_NoMailerFails_WhenEnableInviteOn(t *testing.T) {
 			Database:    DatabaseConfig{Driver: DriverSQLite, DB: &sql.DB{}},
 		}),
 		WithSecret("0123456789abcdef0123456789abcdef"), WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://example.com"}}), WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: true}),
-		WithRegistration(RegistrationConfig{EnableEmailPassword: true, EnableInvite: true}),
+		WithRegistration(RegistrationConfig{EmailPassword: true, InviteSignup: true}),
 	)
 	if err == nil {
-		t.Fatal("expected an error: EnableInvite needs a mailer even with AdminLogin two-factor disabled")
+		t.Fatal("expected an error: InviteSignup needs a mailer even with AdminLogin two-factor disabled")
 	}
-	if !strings.Contains(err.Error(), "EnableInvite") {
-		t.Errorf("error = %v, want it to name EnableInvite as the reason", err)
+	if !strings.Contains(err.Error(), "InviteSignup") {
+		t.Errorf("error = %v, want it to name InviteSignup as the reason", err)
 	}
 }
 

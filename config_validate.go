@@ -74,14 +74,20 @@ func (c *Config) validateCoherence() []error {
 	// Options that gate a path no enabled feature can reach. Each is a no-op
 	// rather than a danger, but a consumer who set one believes it is doing
 	// something.
-	if c.twoFactor.RequireEmail2FA && !c.registration.EnableEmailPassword {
-		errs = append(errs, errors.New("two_factor: RequireEmail2FA has no effect when EnableEmailPassword is disabled — every gated path is a password path"))
+	if !c.authentication.EmailPassword && !c.authentication.OAuth {
+		errs = append(errs, errors.New("authentication: enable EmailPassword or OAuth"))
 	}
-	if c.registration.RequireEmailVerification && !c.registration.EnableEmailPassword && !c.registration.EnableOAuth {
-		errs = append(errs, errors.New("registration: RequireEmailVerification has no effect when both EnableEmailPassword and EnableOAuth are disabled"))
+	if c.registration.EmailPassword && !c.authentication.EmailPassword {
+		errs = append(errs, errors.New("registration: EmailPassword requires authentication.EmailPassword"))
 	}
-	if c.registration.AllowPublic && !c.registration.EnableEmailPassword && !c.registration.EnableOAuth && !c.registration.EnableInvite {
-		errs = append(errs, errors.New("registration: AllowPublic is true but no registration method is enabled"))
+	if c.registration.OAuth && !c.authentication.OAuth {
+		errs = append(errs, errors.New("registration: OAuth requires authentication.OAuth"))
+	}
+	if c.authentication.OAuth && len(c.providers) == 0 {
+		errs = append(errs, errors.New("authentication: OAuth requires at least one WithProvider"))
+	}
+	if (c.registration.AllowPublic || c.registration.InviteSignup) && !c.registration.EmailPassword && !c.registration.OAuth {
+		errs = append(errs, errors.New("registration: AllowPublic or InviteSignup is true but no registration method is enabled (EmailPassword or OAuth)"))
 	}
 
 	// A forwarding header is only as trustworthy as the hop that set it.

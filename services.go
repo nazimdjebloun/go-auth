@@ -169,6 +169,8 @@ type AdminOperations interface {
 
 // OAuthOperations exposes the oauth service methods available to callers.
 type OAuthOperations interface {
+	InitiateInvite(ctx context.Context, input api.OAuthInviteInput) (*api.OAuthInitiation, error)
+	VerifyInviteEmail(ctx context.Context, input api.OAuthInviteVerifyInput) (*api.OAuthCallbackResult, error)
 	Initiate(ctx context.Context, providerName string) (*api.OAuthInitiation, error)
 	InitiateLink(ctx context.Context, input api.OAuthLinkInput) (*api.OAuthInitiation, error)
 	Callback(ctx context.Context, input api.OAuthCallbackInput) (*api.OAuthCallbackResult, error)
@@ -219,6 +221,7 @@ type OrgInviteOperations interface {
 
 // TwoFactorOperations exposes the twofactor service methods available to callers.
 type TwoFactorOperations interface {
+	RequestSettingsChallenge(ctx context.Context, input api.TwoFactorSettingsChallengeInput) (*api.ChallengeResult, error)
 	CookieName() string
 	CookieTTL() time.Duration
 	BindingDisabled() bool

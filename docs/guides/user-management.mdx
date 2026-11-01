@@ -67,7 +67,7 @@ For a complete change name form, see [Client → Change name](./client/user-mana
 
 ## Two-factor authentication
 
-Turned on globally with `TwoFactorConfig.RequireEmail2FA` (mandatory for password login and, unless email verification takes precedence, password signup) or per-user via `POST /auth/2fa/enable` (opt-in, unless `RequireEmail2FA` is on, in which case per-user toggling is rejected). Full config reference on [Configuration](../configuration.mdx); the risk trade-offs behind this design are on [Security](../security.mdx).
+Turned on globally with `TwoFactorConfig.RequireEmail2FA` (mandatory for password and OAuth authentication, with email verification taking precedence when pending) or per-user via `POST /auth/2fa/enable` (opt-in, unless `RequireEmail2FA` is on, in which case per-user toggling is rejected). Full config reference on [Configuration](../configuration.mdx); the risk trade-offs behind this design are on [Security](../security.mdx).
 
 <Callout type="warn" title="Requires a mailer">
   `TwoFactorConfig.RequireEmail2FA` or `TwoFactorConfig.DefaultEnabled` without `WithMailer`/`WithEmail` is rejected outright by `NewConfig`.
@@ -75,7 +75,7 @@ Turned on globally with `TwoFactorConfig.RequireEmail2FA` (mandatory for passwor
 
 ### Enable/disable 2FA
 
-Both require the account's password, even for an OAuth-authenticated session — this is what stops a compromised OAuth session from turning your second factor off. Rejected with `two_factor_already_enforced` if `RequireEmail2FA` is on.
+Confirm the change with an enabled password method, or request an action-specific email code through `POST /auth/2fa/settings/challenge` and submit `challengeId` plus `code` to the matching enable/disable endpoint. The code is bound to the initiating session, account, email and action; passwordless users do not need to set a password. Globally mandatory 2FA rejects personal changes with `two_factor_already_enforced`.
 
 **`POST /auth/2fa/enable`** — body `{ "password": "...", "keepOtherSessions": false }`. `keepOtherSessions` defaults to `false` if omitted — every other session gets revoked, on the theory that turning 2FA on is usually a response to "I think someone else has my password." Set it to `true` to keep other sessions alive.
 
@@ -240,3 +240,15 @@ For a complete delete account form for OAuth-only accounts, see [Client → Dele
 - [Authentication](./authentication.mdx) — register, login, logout, and verification
 - [Security](./security.mdx) — password changes, verification resend, and config
 - [Admin](./admin.mdx) — banning, role changes, and admin-initiated session revocation
+
+## Email verification with an existing session
+
+`RequireEmailVerification` is a global access requirement. Enabling it later
+restricts existing unverified accounts on their next protected request.
+`GET /auth/me` returns only the account ID, email, `isVerified: false`, and
+`requiresVerification: true`; render the same verification screen used after
+signup. Send a code on an explicit user action, not every page load. Verification,
+resend and logout remain available. After successful verification, the retained
+session resumes protected access without another login. Signup that never
+received a session still signs in after verification. Disabling the requirement
+restores access for unverified sessions too. Refresh cannot bypass the gate.

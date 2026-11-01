@@ -100,7 +100,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input api.CreateInvite
 	if err := s.requireOperation(ctx, input.AdminID, input.ActorSessionID, "goauth.app.invites.create"); err != nil {
 		return nil, err
 	}
-	if !s.config.EnableInvite {
+	if !s.config.InviteSignup {
 		return nil, domain.ErrMethodDisabled
 	}
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
@@ -204,7 +204,7 @@ func (s *InviteService) CreateInvite(ctx context.Context, input api.CreateInvite
 
 // CompleteInviteRegistration registers a user from an invitation.
 func (s *InviteService) CompleteInviteRegistration(ctx context.Context, input api.CompleteInviteInput) (*api.CompleteInviteResult, error) {
-	if !s.config.EnableInvite {
+	if !s.config.InviteSignup || !s.config.EmailPassword || s.config.PasswordAuthenticationDisabled {
 		return nil, domain.ErrMethodDisabled
 	}
 	invite, err := s.invites.GetByCode(ctx, hashToken(input.Code))
