@@ -32,6 +32,7 @@ func (a *Auth) CompleteInviteRegistration(ctx context.Context, input api.Complet
 
 // CheckSession validates a raw session token and returns whether it is valid.
 // It checks the session exists, is not expired, and the associated user exists and is not banned.
+// When email verification is required, it also returns false for unverified users.
 func (a *Auth) CheckSession(ctx context.Context, tokenRaw string) bool {
 	_, _, err := a.services.Auth.ValidateSession(ctx, tokenRaw)
 	return err == nil
@@ -40,6 +41,7 @@ func (a *Auth) CheckSession(ctx context.Context, tokenRaw string) bool {
 // GetSession validates a raw session token and returns the associated user and session.
 // Returns the user, session, and nil error on success.
 // Returns nil, nil, error if the token is invalid, expired, or the user is banned.
+// When email verification is required, unverified users receive domain.ErrEmailNotVerified.
 func (a *Auth) GetSession(ctx context.Context, tokenRaw string) (*domain.User, *domain.Session, error) {
 	user, session, err := a.services.Auth.ValidateSession(ctx, tokenRaw)
 	if err != nil {

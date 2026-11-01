@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "release": "v0.5.2",
+  "release": "v0.5.3",
   "dialect": "mysql",
   "targetRevision": 3,
   "bootstrapRevision": 1,

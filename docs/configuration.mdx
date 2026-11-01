@@ -822,7 +822,6 @@ goauth.WithAuditSink(myOtherSink) // optional: adds one more sink at a time
 | `OutboxMaxAge` | `time.Duration` | Optional | `7d` | |
 | `DeadLetterTTL` | `time.Duration` | Optional | `7d` | |
 | `OutboxMaxRows` | `int` | Optional | `100000` | |
-| `QueueSize` | `int` | Optional | (removed — ignored) | The in-memory queue is gone; `audit_outbox` is the queue. |
 | `Sinks` | `[]audit.EventSink` | Optional | none | Additional destinations: Kafka, NATS, a webhook. Each external sink must also implement `audit.BatchDeliveryTimeBounder`. |
 
 `WithAuditSink` appends one sink at a time and only takes effect when audit logging is enabled via `WithAudit`. Calling `WithAudit` more than once does not duplicate previously-added sinks. They are merged once, not accumulated per call.

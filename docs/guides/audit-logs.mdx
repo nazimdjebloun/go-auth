@@ -44,7 +44,6 @@ goauth.WithAuditSink(myOtherSink) // optional — adds one more sink at a time
 | `DeadLetterTTL` | `time.Duration` | `7d` | How long a dead-lettered row is kept as failure evidence. Negative keeps forever. |
 | `OutboxMaxRows` | `int` | `100000` | Backlog emergency valve: dead-lettered rows are shed first, then oldest pending. Shredding never touches `audit_log`; shedding pending rows is logged at ERROR. Negative disables. |
 | `Sinks` | `[]audit.EventSink` | none | Extra destinations — Kafka, NATS, a webhook. Custom external sinks must also implement `audit.BatchDeliveryTimeBounder`. One outbox row tracks fan-out to the configured set. |
-| `QueueSize` | `int` | (removed — ignored) | The historical in-memory queue is gone; the `audit_outbox` table is the queue. Retained on the struct so existing config code compiles. |
 
 `WithAuditSink` appends one sink at a time without needing to repeat the whole config; calling `WithAudit` more than once doesn't duplicate sinks already added.
 

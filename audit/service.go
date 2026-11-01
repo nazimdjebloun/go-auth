@@ -25,9 +25,6 @@ const (
 // ServiceConfig configures audit recording and delivery.
 type ServiceConfig struct {
 	FailureMode FailureMode
-	// Deprecated: the in-memory queue is gone — the outbox is the queue.
-	// Retained so existing config wiring compiles; ignored.
-	QueueSize int
 	// Workers is the dispatcher worker count (default 3).
 	Workers int
 	// BatchSize is the dispatch claim/delivery batch size (default 50).

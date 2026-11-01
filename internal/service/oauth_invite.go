@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -59,6 +58,9 @@ func (s *OAuthService) prepareInviteVerification(ctx context.Context, info *port
 	if s.encryptor == nil || s.twoFactorSvc == nil {
 		return nil, domain.ErrInternal
 	}
+	if len(s.twoFactorSvc.config.OTPPepper) == 0 {
+		return nil, domain.ErrInternal
+	}
 	profile := *info
 	profile.Raw = nil
 	data, err := json.Marshal(profile) //nolint:gosec // G117: provider credentials are encrypted immediately below, never stored as JSON.
@@ -110,8 +112,7 @@ func (s *OAuthService) VerifyInviteEmail(ctx context.Context, input api.OAuthInv
 	if s.twoFactorSvc == nil || s.encryptor == nil {
 		return nil, domain.ErrInternal
 	}
-	want := s.twoFactorSvc.bindingToken("oauth-invite." + input.ChallengeID)
-	if want == "" || subtle.ConstantTimeCompare([]byte(want), []byte(input.BindingToken)) != 1 {
+	if !s.twoFactorSvc.checkBinding("oauth-invite."+input.ChallengeID, input.BindingToken) {
 		return nil, domain.ErrVerificationCodeInvalid
 	}
 	token, err := s.tokenRepo.GetByID(ctx, input.ChallengeID)

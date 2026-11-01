@@ -34,7 +34,6 @@ type AuditConfig struct {
 	Enabled       bool
 	FailureMode   audit.FailureMode
 	RetentionDays int           // days of audit rows to retain; 0 = keep forever
-	QueueSize     int           // Deprecated: the in-memory queue is gone; the outbox is the queue. Ignored.
 	Workers       int           // dispatcher workers, default 3
 	BatchSize     int           // dispatch batch size, default 50
 	FlushInterval time.Duration // dispatch poll interval, default 100ms
