@@ -96,7 +96,7 @@ Same request shape as [Login](./authentication.mdx#login), but only succeeds for
 ```json
 {
   "user": { "...": "role: admin" },
-  "requiresTwoFactor": true,
+  "step": "two_factor",
   "codeSent": true,
   "challengeId": "c4a1...",
   "expiresAt": "2026-08-09T12:05:00Z",
@@ -106,7 +106,7 @@ Same request shape as [Login](./authentication.mdx#login), but only succeeds for
 
 No session/refresh cookie is set on the challenge response — only the 2FA binding cookie. Complete the login with `POST /auth/2fa/verify` (`{challengeId, code}`) using the code emailed to the admin; that call is what actually sets `goauth_admin_session`/`goauth_admin_refresh`. See [Two-factor authentication](./authentication.mdx#two-factor-authentication) for the full request/response shape.
 
-If `DisableAdminTwoFactor` is true and neither global nor per-user 2FA is required, login instead returns the ordinary login result with `user` and sets the session/refresh cookies immediately. Always branch on `requiresTwoFactor` rather than assuming a challenge.
+If `DisableAdminTwoFactor` is true and neither global nor per-user 2FA is required, login instead returns the ordinary login result with `user` and sets the session/refresh cookies immediately. Always branch on `step: "two_factor"` rather than assuming a challenge.
 
 **Errors**
 
@@ -184,7 +184,7 @@ if result.RequiresTwoFactor {
 
 ```ts
 const result = await apiRequest("POST", "/auth/admin/login", { email, password });
-if (result.requiresTwoFactor) {
+if (result.step === "two_factor") {
   setChallengeId(result.challengeId); // show the code screen
 } else {
   setAdminUser(result.user); // session cookies are already set

@@ -240,8 +240,7 @@ export interface AuthUser {
 
 export interface LoginOutcome {
   user: AuthUser
-  requiresVerification?: boolean
-  requiresTwoFactor?: boolean
+  step: "authenticated" | "verify_email" | "two_factor";
   codeSent?: boolean
   challengeId?: string
   expiresAt?: string
@@ -374,13 +373,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setChallenge(null)
     try {
       const result = await authApi.login(input)
-      if (result.requiresVerification) return result
-      if (result.requiresTwoFactor) {
+      if (result.step === "verify_email") return result
+      if (result.step === "two_factor") {
         setChallenge({ challengeId: result.challengeId!, expiresAt: result.expiresAt! })
         return result
       }
       await refresh()
-      return {}
+      return result
     } catch (err: any) {
       setError(err.message ?? err.error)
       throw err
@@ -392,13 +391,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setChallenge(null)
     try {
       const result = await authApi.register(input)
-      if (result.requiresVerification) return result
-      if (result.requiresTwoFactor) {
+      if (result.step === "verify_email") return result
+      if (result.step === "two_factor") {
         setChallenge({ challengeId: result.challengeId!, expiresAt: result.expiresAt! })
         return result
       }
       await refresh()
-      return {}
+      return result
     } catch (err: any) {
       setError(err.message ?? err.error)
       throw err
@@ -485,7 +484,7 @@ function AccountMenu() {
 
 ### 2FA login flow (optional)
 
-When login policy requires email 2FA, `login()` returns `{ requiresTwoFactor: true, challengeId, expiresAt }`. Show the emailed-code input and call `verifyTwoFactor`. Challenged registration uses the same state. Session-producing results call `refresh()`; verification-required results must finish email verification and sign in again.
+When login policy requires email 2FA, `login()` returns `{ step: "two_factor", challengeId, expiresAt }`. Show the emailed-code input and call `verifyTwoFactor`. Challenged registration uses the same state. Session-producing results call `refresh()`; verification-required results finish email verification, then follow its `authenticated` or `sign_in` step.
 
 ```tsx
 // components/login-form.tsx (or any component handling 2FA)
@@ -504,7 +503,7 @@ function LoginForm() {
     setNeedsVerification(false)
     try {
       const result = await login({ email, password })
-      setNeedsVerification(result.requiresVerification === true)
+      setNeedsVerification(result.step === "verify_email")
     } catch {
       // The provider exposes the failure through error below.
     }
@@ -552,7 +551,7 @@ function LoginForm() {
 - **Mount-time `refresh()`** — calls `GET /auth/me` to hydrate user from existing session cookie
 - **`loading` starts as `true`** — gate route rendering on `loading === false`
 - **`setUnauthorizedHandler`** — clears user state app-wide on `401` or `403 user_banned`
-- **Gated login** — `requiresVerification` or `requiresTwoFactor` returns without calling `refresh()`
+- **Gated login** — `step: "verify_email"` or `step: "two_factor"` returns without calling `refresh()`
 - **2FA challenge** — `challenge` is set whenever login policy requires it, including default admin MFA, and cleared on successful verification or logout
 
 ## Route protection (Next.js proxy)
@@ -789,12 +788,12 @@ Full working example applications are on the way:
 ## Verification required on an existing session
 
 Check `/auth/me` before rendering protected pages. When it returns
-`requiresVerification: true`, only `id`, `email` and `isVerified: false` accompany
+`step: "verify_email"`, only `id`, `email` and `isVerified: false` accompany
 that flag; do not treat the response as a complete user profile. Render the
 verification screen, retain the session, and fetch `/auth/me` again after code
 confirmation. Protected requests may return `403 email_not_verified` if the
 policy changes while the app is open; handle that response the same way.
-`POST /auth/refresh` can also return only `requiresVerification: true` and
+`POST /auth/refresh` can also return only `step: "verify_email"` and
 `email` after rotating the cookies. Treat that response as verification status,
 not as a full session. Do not log out, retry the protected write automatically, or send a new email on
 every render. Keep verification, resend and logout accessible.

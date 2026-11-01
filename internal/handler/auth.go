@@ -38,11 +38,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.RequiresVerification {
-		h.writeJSON(w, http.StatusCreated, map[string]interface{}{
-			"user":                 result.User,
-			"requiresVerification": true,
-			"message":              "Verification email sent. Please verify your email to continue.",
-		})
+		h.writeJSON(w, http.StatusCreated, api.AuthenticationResponse{Step: api.StepVerifyEmail, User: result.User, Message: "Verification email sent. Please verify your email to continue."})
 		return
 	}
 	if result.RequiresTwoFactor {
@@ -53,9 +49,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	if !h.issueSessionCookies(w, r, result.Session, result.SessionToken, result.RefreshToken) {
 		return
 	}
-	result.SessionToken = ""
-	result.RefreshToken = ""
-	h.writeJSON(w, http.StatusCreated, result)
+	h.writeJSON(w, http.StatusCreated, api.AuthenticationResponse{Step: api.StepAuthenticated, User: result.User, Session: result.Session})
 }
 
 // Login authenticates a user.
@@ -80,11 +74,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.RequiresVerification {
-		h.writeJSON(w, http.StatusOK, map[string]interface{}{
-			"user":                 result.User,
-			"requiresVerification": true,
-			"message":              "Please verify your email to continue.",
-		})
+		h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: api.StepVerifyEmail, User: result.User, Message: "Please verify your email to continue."})
 		return
 	}
 	if result.RequiresTwoFactor {
@@ -95,9 +85,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	if !h.issueSessionCookies(w, r, result.Session, result.SessionToken, result.RefreshToken) {
 		return
 	}
-	result.SessionToken = ""
-	result.RefreshToken = ""
-	h.writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: api.StepAuthenticated, User: result.User, Session: result.Session})
 }
 
 // AdminLogin authenticates an administrator.
@@ -121,6 +109,10 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 		h.writeError(w, err)
 		return
 	}
+	if result.RequiresVerification {
+		h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: api.StepVerifyEmail, User: result.User, Message: "Please verify your email to continue."})
+		return
+	}
 	if result.RequiresTwoFactor {
 		h.writeTwoFactorChallenge(w, r, http.StatusOK, result.User, result.CodeSent, result.TwoFactorChallenge, result.TwoFactorExpiresAt, result.BindingToken())
 		return
@@ -129,9 +121,7 @@ func (h *Handler) AdminLogin(w http.ResponseWriter, r *http.Request) {
 	if !h.issueSessionCookies(w, r, result.Session, result.SessionToken, result.RefreshToken) {
 		return
 	}
-	result.SessionToken = ""
-	result.RefreshToken = ""
-	h.writeJSON(w, http.StatusOK, result)
+	h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: api.StepAuthenticated, User: result.User, Session: result.Session})
 }
 
 // Logout ends the current session.
@@ -149,7 +139,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	if !h.clearSessionCookies(w, r) {
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]string{"message": "Logged out"})
+	h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: api.StepSignIn, Message: "Logged out"})
 }
 
 // GetMe returns the authenticated user.
@@ -160,7 +150,7 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.services.RequireEmailVerification && !user.IsVerified {
-		h.writeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email, "isVerified": false, "requiresVerification": true})
+		h.writeJSON(w, http.StatusOK, map[string]any{"id": user.ID, "email": user.Email, "isVerified": false, "step": api.StepVerifyEmail})
 		return
 	}
 	// Session travels alongside the user because the active org lives on it
@@ -170,9 +160,10 @@ func (h *Handler) GetMe(w http.ResponseWriter, r *http.Request) {
 	// own session either way.
 	resp := struct {
 		*domain.User
+		Step        api.AuthStep    `json:"step"`
 		HasPassword bool            `json:"hasPassword"`
 		Session     *domain.Session `json:"session,omitempty"`
-	}{user, user.HasPassword(), middleware.GetSessionFromContext(r.Context())}
+	}{user, api.StepAuthenticated, user.HasPassword(), middleware.GetSessionFromContext(r.Context())}
 	h.writeJSON(w, http.StatusOK, resp)
 }
 

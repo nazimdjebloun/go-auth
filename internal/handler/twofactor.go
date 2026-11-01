@@ -37,7 +37,7 @@ func (h *Handler) VerifyTwoFactor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.clearTwoFactorBindingCookie(w, r)
-	h.writeJSON(w, http.StatusOK, map[string]any{"user": result.User, "session": result.Session})
+	h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: api.StepAuthenticated, User: result.User, Session: result.Session})
 }
 
 // ResendTwoFactor refreshes the code on the caller's existing challenge. An
@@ -64,6 +64,7 @@ func (h *Handler) ResendTwoFactor(w http.ResponseWriter, r *http.Request) {
 
 	h.setTwoFactorBindingCookie(w, r, result.BindingToken)
 	h.writeJSON(w, http.StatusOK, map[string]any{
+		"step":        api.StepTwoFactor,
 		"codeSent":    result.Sent,
 		"expiresAt":   result.ExpiresAt,
 		"challengeId": result.ID,

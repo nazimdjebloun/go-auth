@@ -4,6 +4,7 @@
     "integration",
     "application-routes",
     "authentication",
+    "authentication-outcomes",
     "user-management",
     "sessions",
     "organizations",

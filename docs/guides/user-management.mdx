@@ -246,7 +246,7 @@ For a complete delete account form for OAuth-only accounts, see [Client → Dele
 `RequireEmailVerification` is a global access requirement. Enabling it later
 restricts existing unverified accounts on their next protected request.
 `GET /auth/me` returns only the account ID, email, `isVerified: false`, and
-`requiresVerification: true`; render the same verification screen used after
+`step: "verify_email"`; render the same verification screen used after
 signup. Send a code on an explicit user action, not every page load. Verification,
 resend and logout remain available. After successful verification, the retained
 session resumes protected access without another login. Signup that never

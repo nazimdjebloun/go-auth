@@ -129,7 +129,7 @@ Use `TwoFactorConfig.DisableAdminTwoFactor` through `WithTwoFactor` only for an 
 
 ### OAuth accounts
 
-OAuth login returns an email challenge before issuing a session whenever the global, account-level, or admin policy requires it. The callback sets the existing HttpOnly challenge binding cookie and redirects with `requiresTwoFactor=true`, `challengeId`, and `expiresAt`; finish through `POST /auth/2fa/verify`. A provider's verified-email claim establishes address ownership, not completion of the library's second factor. Connecting a provider does not bypass local MFA.
+OAuth login returns an email challenge before issuing a session whenever the global, account-level, or admin policy requires it. The callback sets the existing HttpOnly challenge binding cookie and redirects with `step=two_factor`, `challengeId`, and `expiresAt`; finish through `POST /auth/2fa/verify`. A provider's verified-email claim establishes address ownership, not completion of the library's second factor. Connecting a provider does not bypass local MFA.
 
 ### Optional 2FA settings without a password
 

@@ -39,7 +39,7 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !user.IsVerified {
-			h.writeJSON(w, http.StatusOK, map[string]any{"requiresVerification": true, "email": user.Email})
+			h.writeJSON(w, http.StatusOK, map[string]any{"step": api.StepVerifyEmail, "email": user.Email})
 			return
 		}
 	}
@@ -49,7 +49,7 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	// refreshed got a different shape than the one /auth/me had just handed
 	// it. Every token hash on domain.Session is json:"-", and it is the
 	// caller's own session either way.
-	h.writeJSON(w, http.StatusOK, map[string]any{"session": refreshResult.Session})
+	h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: api.StepAuthenticated, Session: refreshResult.Session})
 }
 
 // ListSessions returns a page of the authenticated user's sessions.

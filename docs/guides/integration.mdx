@@ -82,6 +82,14 @@ Go operations return ordinary errors. Use `errors.Is` for a sentinel and `errors
 
 The built-in HTTP handlers and middleware use `{"error": code, "message": message}` with `Content-Type: application/json`. CSRF rejection bodies now use this envelope too, replacing their former plain-text bodies. Match the code rather than parsing the message. OAuth callback failures remain browser redirects with an `error` query parameter. Router-generated errors and your own handlers are outside this contract. See [Error Handling](../error-handling.mdx) for codes and statuses.
 
+## Frontend authentication outcomes
+
+Successful HTTP authentication flows return one `step` instead of `requires*`
+booleans. OAuth callbacks use the same names in query parameters. See
+[Authentication outcomes](./authentication-outcomes.mdx) for the decision table,
+response fields and email-verification continuation behavior. Go service result
+fields and the HTTP error envelope are unchanged.
+
 ## Authentication policy
 
 Password and OAuth login apply the same global and per-account email-2FA requirements. Admin OAuth also applies the admin default. Authentication and signup methods are independently selected with `WithAuthentication` and `WithRegistration`. The [policy matrix](../security.mdx#authentication-policy-matrix) specifies verification and second-factor behavior for each path.

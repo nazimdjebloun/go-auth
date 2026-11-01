@@ -38,7 +38,7 @@ func TestOAuthAdminCallbackSetsBindingCookieWithoutIssuingSession(t *testing.T) 
 	recorder := httptest.NewRecorder()
 	h.callback(recorder, request)
 	location, err := url.Parse(recorder.Header().Get("Location"))
-	if err != nil || recorder.Code != http.StatusFound || location.Query().Get("requiresTwoFactor") != "true" || location.Query().Get("challengeId") == "" {
+	if err != nil || recorder.Code != http.StatusFound || location.Query().Get("step") != "two_factor" || location.Query().Get("challengeId") == "" {
 		t.Fatalf("callback did not redirect to MFA: status=%d location=%v err=%v", recorder.Code, location, err)
 	}
 	var binding string

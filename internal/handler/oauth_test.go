@@ -822,8 +822,8 @@ func TestOAuthCallback_Link_DoesNotTouchSessionCookies(t *testing.T) {
 		t.Fatalf("expected 302, got %d", res.StatusCode)
 	}
 	loc := res.Header.Get("Location")
-	if loc != th.baseURL+"/auth/callback" {
-		t.Errorf("expected redirect to %s, got %s", th.baseURL+"/auth/callback", loc)
+	if loc != th.baseURL+"/auth/callback?step=linked" {
+		t.Errorf("expected redirect to %s, got %s", th.baseURL+"/auth/callback?step=linked", loc)
 	}
 
 	if res.Header.Get("X-CSRF-Token") == "" {

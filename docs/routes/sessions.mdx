@@ -40,14 +40,14 @@ Rotates both tokens using the refresh cookie and sets the new cookies only while
 **Response `200 OK`:**
 
 ```json
-{ "session": { "...": "the rotated session" } }
+{ "step": "authenticated", "session": { "...": "the rotated session" } }
 ```
 
 If email verification is required and the session owner is unverified, the
 rotated cookies are still returned, but the body is restricted:
 
 ```json
-{ "requiresVerification": true, "email": "alice@example.com" }
+{ "step": "verify_email", "email": "alice@example.com" }
 ```
 
 It does not include a `session` object. Show the verification screen instead of

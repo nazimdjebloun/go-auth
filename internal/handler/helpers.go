@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/httperr"
 )
@@ -94,13 +95,9 @@ func (h *Handler) writeTwoFactorChallenge(w http.ResponseWriter, r *http.Request
 	if codeSent {
 		message = "Two-factor code sent to your email"
 	}
-	h.writeJSON(w, status, map[string]any{
-		"user":              user,
-		"requiresTwoFactor": true,
-		"codeSent":          codeSent,
-		"challengeId":       challengeID,
-		"expiresAt":         expiresAt,
-		"message":           message,
+	h.writeJSON(w, status, api.AuthenticationResponse{
+		Step: api.StepTwoFactor, User: user, CodeSent: &codeSent,
+		ChallengeID: challengeID, ExpiresAt: &expiresAt, Message: message,
 	})
 }
 

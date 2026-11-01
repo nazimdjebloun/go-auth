@@ -163,9 +163,9 @@ export function RegisterForm() {
     try {
       const result = await authApi.register({ email, password, name });
 
-      if (result.requiresVerification) {
+      if (result.step === "verify_email") {
         window.location.href = "/verify-email";
-      } else if (result.requiresTwoFactor) {
+      } else if (result.step === "two_factor") {
         window.location.href = `/two-factor?challengeId=${result.challengeId}`;
       } else {
         window.location.href = "/dashboard";
@@ -237,7 +237,7 @@ export function RegisterForm() {
 
 ### Verify email form
 
-Shown when `register()` returns `requiresVerification: true`.
+Shown when `register()` returns `step: "verify_email"`.
 
 ```tsx
 // components/verify-email-form.tsx
@@ -395,7 +395,7 @@ export function InviteRegisterForm({ token }: { token: string }) {
         confirmPassword,
       });
 
-      if (result.requiresTwoFactor) {
+      if (result.step === "two_factor") {
         window.location.href = `/two-factor?challengeId=${result.challengeId}`;
       } else {
         window.location.href = "/dashboard";
@@ -487,8 +487,8 @@ import { authApi } from "../lib/api/auth";
 
 type LoginOutcome =
   | { success: true; user: User }
-  | { success: false; requiresVerification: true }
-  | { success: false; requiresTwoFactor: true; challengeId: string };
+  | { success: false; step: "verify_email" }
+  | { success: false; step: "two_factor"; challengeId: string };
 
 export async function login(
   email: string,
@@ -496,12 +496,12 @@ export async function login(
 ): Promise<LoginOutcome> {
   const result = await authApi.login({ email, password });
 
-  if (result.requiresVerification) {
-    return { success: false, requiresVerification: true };
+  if (result.step === "verify_email") {
+    return { success: false, step: "verify_email" };
   }
 
-  if (result.requiresTwoFactor) {
-    return { success: false, requiresTwoFactor: true, challengeId: result.challengeId };
+  if (result.step === "two_factor") {
+    return { success: false, step: "two_factor", challengeId: result.challengeId };
   }
 
   return { success: true, user: result.user };
@@ -538,9 +538,9 @@ export function LoginForm() {
 
       if (result.success) {
         window.location.href = "/dashboard";
-      } else if (result.requiresVerification) {
+      } else if (result.step === "verify_email") {
         window.location.href = "/verify-email";
-      } else if (result.requiresTwoFactor) {
+      } else if (result.step === "two_factor") {
         window.location.href = `/two-factor?challengeId=${result.challengeId}`;
       }
     } catch (err: any) {
@@ -600,7 +600,7 @@ export function LoginForm() {
 
 ### Verify form
 
-Shown when `login()` or `register()` returns `requiresTwoFactor: true`. The `challengeId` comes from the login response.
+Shown when `login()` or `register()` returns `step: "two_factor"`. The `challengeId` comes from the login response.
 
 ```tsx
 // components/two-factor-form.tsx

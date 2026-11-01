@@ -97,7 +97,7 @@ window.location.href = url;
 
 ### The callback — `GET`/`POST /auth/oauth/github/callback`
 
-Admin accounts stop for email 2FA by default. Handle `requiresTwoFactor=true`, `challengeId`, and `expiresAt` on the landing URL and finish through `POST /auth/2fa/verify` before treating the user as logged in. See [Callback outcomes](../routes/oauth.mdx#callback).
+Admin accounts stop for email 2FA by default. Handle `step=two_factor`, `challengeId`, and `expiresAt` on the landing URL and finish through `POST /auth/2fa/verify` before treating the user as logged in. See [Callback outcomes](../routes/oauth.mdx#callback).
 
 GitHub redirects here itself — your frontend never calls this URL directly. On completed login it sets session cookies and redirects the browser to `{BaseURL}/auth/callback`; on failure, to `{BaseURL}/auth/callback?error={code}&provider=github`. Your frontend route at `{BaseURL}/auth/callback` reads that query string to know whether to show the app or an error.
 

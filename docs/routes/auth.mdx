@@ -6,6 +6,8 @@ icon: "LogIn"
 
 # Authentication
 
+Successful authentication responses use one explicit [`step`](../guides/authentication-outcomes.mdx); the old `requires*` flags are removed.
+
 Identity and credential flows. `Auth` is either `Public` (no session needed) or `Session` (the session cookie is required; without it the route answers `401 {"error": ..., "message": ...}`). Cookie names below are the defaults (`goauth_session`, `goauth_refresh`); see `WithBrowser` on [Configuration](../configuration.mdx). Session credentials travel in cookies, never in bodies: on direct login and register the handler sets both cookies and omits token fields from JSON. User examples show the default disabled app-permissions mode; enabled mode omits `role` and returns app-role identity/assignment fields. All error responses use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx).
 
 `POST /auth/register` is only mounted when `EmailPassword` is true. Invite routes are only mounted when `InviteSignup` is true.
@@ -20,6 +22,7 @@ Shared shapes used below:
 
 ```json
 {
+  "step": "authenticated",
   "user": {
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "email": "user@example.com",
@@ -51,7 +54,7 @@ Gated 2FA shape (login, register, invite register when a second factor is owed):
 ```json
 {
   "user": { "...": "full user object, same as above" },
-  "requiresTwoFactor": true,
+  "step": "two_factor",
   "codeSent": true,
   "challengeId": "c4a1...",
   "expiresAt": "2026-08-09T12:05:00Z",
@@ -80,7 +83,7 @@ Creates a user. `Auth:` Public.
 ```json
 {
   "user": { "...": "full user object" },
-  "requiresVerification": true,
+  "step": "verify_email",
   "message": "Verification email sent. Please verify your email to continue."
 }
 ```
@@ -89,6 +92,7 @@ Creates a user. `Auth:` Public.
 
 ```json
 {
+  "step": "authenticated",
   "user": { "...": "full user object" },
   "session": { "...": "full session object" }
 }
@@ -116,7 +120,7 @@ Authenticates with email and password. `Auth:` Public.
 ```json
 {
   "user": { "...": "full user object" },
-  "requiresVerification": true,
+  "step": "verify_email",
   "message": "Please verify your email to continue."
 }
 ```
@@ -125,6 +129,7 @@ Authenticates with email and password. `Auth:` Public.
 
 ```json
 {
+  "step": "authenticated",
   "user": { "...": "full user object" },
   "session": { "...": "full session object" }
 }
@@ -141,7 +146,7 @@ Terminates the current session and clears both cookies. `Auth:` Session.
 **Response `200 OK`:**
 
 ```json
-{ "message": "Logged out" }
+{ "step": "sign_in", "message": "Logged out" }
 ```
 
 **Errors:** `session_expired` (no usable session).
@@ -153,7 +158,7 @@ GET /auth/me
 Returns the caller: full user object, whether the account has a password, and the current session (token hashes are never serialized). `Auth:` Session. When email verification is required and the account is unverified, the response is restricted instead:
 
 ```json
-{ "id": "...", "email": "alice@example.com", "isVerified": false, "requiresVerification": true }
+{ "id": "...", "email": "alice@example.com", "isVerified": false, "step": "verify_email" }
 ```
 
 Show the verification page before protected content. The session is retained;
@@ -165,6 +170,7 @@ fetch `/auth/me` again to load the full profile and session.
 
 ```json
 {
+  "step": "authenticated",
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "email": "user@example.com",
   "name": "Ada",
@@ -314,7 +320,7 @@ Consumes the set-password code. `Auth:` Public.
 
 POST /auth/verify-email
 
-Verifies the email with the code from the registration or resend email. This does not create a session; the user must sign in afterward. Only the code is used. `Auth:` Public.
+Verifies the email with the code from the registration or resend email. This does not create a session. It returns `step: "authenticated"` if the selected context already has this user's live session, otherwise `step: "sign_in"`. Only the code is used. `Auth:` Public.
 
 **Request body:**
 
@@ -326,6 +332,7 @@ Verifies the email with the code from the registration or resend email. This doe
 
 ```json
 {
+  "step": "sign_in",
   "user": { "...": "full user object" }
 }
 ```
@@ -463,6 +470,7 @@ Completes registration from an invite code, creating the account and a session i
 
 ```json
 {
+  "step": "authenticated",
   "user": { "...": "full user object" },
   "session": { "...": "full session object" }
 }
@@ -491,6 +499,7 @@ Completes any gated flow (login, admin login, register, invite register). Needs 
 
 ```json
 {
+  "step": "authenticated",
   "user": { "...": "full user object" },
   "session": { "...": "full session object" }
 }

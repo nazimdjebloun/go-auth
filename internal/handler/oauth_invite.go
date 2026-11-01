@@ -69,12 +69,12 @@ func (h *OAuthHandlers) VerifyInviteEmail(w http.ResponseWriter, r *http.Request
 			return
 		}
 		http.SetCookie(w, newBindingCookie(bindingCookieParams{name: h.challengeCookieName(r), value: result.BindingToken(), path: "/", secure: h.cookies.Secure, sameSite: h.cookies.SameSite, maxAge: int(h.twoFactor.CookieTTL().Seconds())}))
-		h.writeJSON(w, http.StatusOK, map[string]any{"requiresTwoFactor": true, "challengeId": result.TwoFactorChallenge, "codeSent": result.CodeSent, "expiresAt": result.TwoFactorExpiresAt})
+		h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: api.StepTwoFactor, ChallengeID: result.TwoFactorChallenge, CodeSent: &result.CodeSent, ExpiresAt: &result.TwoFactorExpiresAt})
 		return
 	}
 	if err := middleware.SetAuthenticationCookies(w, r, h.cookies, h.csrfTokenCfg, result.SessionID, result.SessionToken, result.RefreshToken); err != nil {
 		h.writeError(w, err)
 		return
 	}
-	h.writeJSON(w, http.StatusOK, map[string]bool{"isNewUser": true})
+	h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: api.StepAuthenticated, IsNewUser: result.IsNewUser})
 }

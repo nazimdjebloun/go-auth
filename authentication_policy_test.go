@@ -140,7 +140,7 @@ func TestVerificationPolicyRestrictsExistingSessionsAndRefresh(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
-	if w.Code != http.StatusOK || status["requiresVerification"] != true || status["email"] != reg.User.Email || status["role"] != nil || status["session"] != nil {
+	if w.Code != http.StatusOK || status["step"] != "verify_email" || status["email"] != reg.User.Email || status["role"] != nil || status["session"] != nil {
 		t.Fatalf("pending status leaked protected data: %d %s", w.Code, w.Body.String())
 	}
 	if _, _, err := b.GetSession(ctx, reg.SessionToken); !errors.Is(err, domain.ErrEmailNotVerified) {

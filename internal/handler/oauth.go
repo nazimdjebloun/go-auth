@@ -172,7 +172,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 
 	if result.RequiresInviteVerification {
 		http.SetCookie(w, h.inviteBindingCookie(result.BindingToken(), int(time.Until(result.InviteExpiresAt).Seconds())))
-		http.Redirect(w, r, h.baseURL+"/auth/callback?requiresInviteVerification=true&challengeId="+url.QueryEscape(result.InviteChallengeID), http.StatusFound)
+		http.Redirect(w, r, h.baseURL+"/auth/callback?step=verify_invite_email&challengeId="+url.QueryEscape(result.InviteChallengeID), http.StatusFound)
 		return
 	}
 	if result.IsLink {
@@ -183,12 +183,12 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		// flow — Callback issued no new one, so there's nothing to write.
 		// Must not fall through to writeCookieRedirect: an empty
 		// SessionToken there would blank the caller's live session cookie.
-		http.Redirect(w, r, h.baseURL+"/auth/callback", http.StatusFound)
+		http.Redirect(w, r, h.baseURL+"/auth/callback?step=linked", http.StatusFound)
 		return
 	}
 
 	if result.RequiresVerification {
-		redirectURL := h.baseURL + "/auth/callback?requiresVerification=true&provider=" + url.QueryEscape(provider)
+		redirectURL := h.baseURL + "/auth/callback?step=verify_email&provider=" + url.QueryEscape(provider)
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}
@@ -205,7 +205,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 			}))
 		}
 		params := url.Values{
-			"requiresTwoFactor": {"true"}, "provider": {provider},
+			"step": {string(api.StepTwoFactor)}, "provider": {provider},
 			"challengeId": {result.TwoFactorChallenge},
 			"expiresAt":   {result.TwoFactorExpiresAt.Format(time.RFC3339)},
 		}
@@ -213,7 +213,7 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	redirectURL := h.baseURL + "/auth/callback"
+	redirectURL := h.baseURL + "/auth/callback?step=authenticated"
 	h.writeCookieRedirect(w, r, result.SessionID, result.SessionToken, result.RefreshToken, redirectURL)
 }
 

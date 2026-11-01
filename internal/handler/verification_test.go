@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -75,6 +76,31 @@ func TestVerifyEmail_HappyPath(t *testing.T) {
 	updated, _ := th.users.GetByID(context.Background(), uid)
 	if !updated.IsVerified {
 		t.Fatal("expected user to be verified")
+	}
+}
+
+func TestVerifyEmailSessionLookupFailureDoesNotConsumeCode(t *testing.T) {
+	th := newTestHarness()
+	uid := "verification-outage"
+	user := &domain.User{ID: uid, Email: "outage@example.test", Role: domain.RoleUser}
+	checkTestErrors(t).noError(th.users.Create(t.Context(), user))
+	checkTestErrors(t).noError(th.tokens.Create(t.Context(), &domain.VerificationToken{
+		ID: "verification-code", UserID: &uid, Email: user.Email, TokenHash: hashOTP("ABC123"), Type: domain.TokenVerifyEmail, ExpiresAt: time.Now().UTC().Add(time.Minute),
+	}))
+	th.sessions.getWithUserErr = errors.New("database unavailable")
+	r := httptest.NewRequest("POST", "/auth/verify-email", strings.NewReader(`{"code":"ABC123"}`))
+	r.Header.Set("Cookie", th.handler.cookies.Name+"=session")
+	w := httptest.NewRecorder()
+	th.handler.VerifyEmail(w, r)
+	if w.Code != 500 {
+		t.Fatalf("backend failure: %d %s", w.Code, w.Body.String())
+	}
+	th.sessions.getWithUserErr = nil
+	r = httptest.NewRequest("POST", "/auth/verify-email", strings.NewReader(`{"code":"ABC123"}`))
+	w = httptest.NewRecorder()
+	th.handler.VerifyEmail(w, r)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"step":"sign_in"`) {
+		t.Fatalf("verification code was consumed by failed lookup: %d %s", w.Code, w.Body.String())
 	}
 }
 

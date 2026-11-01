@@ -1,0 +1,87 @@
+---
+title: "Authentication outcomes"
+description: "One explicit frontend step for password, invitation and OAuth flows."
+icon: "Workflow"
+---
+
+# Authentication outcomes
+
+Branch on `step` after a successful authentication response. Password login,
+admin login, signup, invitation redemption and second-factor verification use
+the same names. OAuth callbacks retain their redirect protocol and put `step`
+in the landing URL's query parameters. Errors retain their existing HTTP
+status and `{error, message}` envelope, or OAuth `error` query parameter.
+
+| Step | Frontend action | Data |
+|---|---|---|
+| `authenticated` | Fetch `/auth/me`, then enter the application. | Password flows include `user` and session metadata. OAuth has already issued cookies. |
+| `verify_email` | Show email verification; offer the appropriate resend operation. | Password responses include `user`; restricted `/auth/me` and refresh expose minimal status and email. |
+| `two_factor` | Collect the six-digit email code and POST `/auth/2fa/verify`. | `challengeId`, `expiresAt`, `codeSent` in JSON; OAuth redirects include the ID and expiry. |
+| `verify_invite_email` | Collect the invitation address-proof code and POST `/auth/oauth/invite/verify`. | OAuth callback supplies `challengeId`. The result may proceed to `two_factor`. |
+| `sign_in` | Display sign-in, or repeat login using credentials still held in memory. | Returned after logout or email verification without this user's live session. |
+| `linked` | Confirm the provider connection, then refresh account data. | OAuth linking keeps the existing session; it creates no new login. |
+
+`requiresVerification`, `requiresTwoFactor`, and `requiresInviteVerification`
+are removed from HTTP responses and callback queries. Replace these conditions
+with comparisons against `step`. Transport-neutral Go service result structs
+retain their existing fields; this change concerns the browser HTTP contract.
+
+## Examples
+
+```json
+{
+  "step": "two_factor",
+  "challengeId": "...",
+  "expiresAt": "2026-11-01T12:05:00Z",
+  "codeSent": true,
+  "message": "Two-factor code sent to your email"
+}
+```
+
+The password endpoints also include `user` on this response. No session exists
+for that attempt until second-factor verification succeeds. Challenge-binding
+credentials stay in HttpOnly cookies and never appear in JSON or callback URLs.
+
+```ts
+type User = { id: string; email: string }
+type AuthOutcome =
+  | { step: "authenticated"; user?: User }
+  | { step: "verify_email"; user: User }
+  | { step: "two_factor"; challengeId: string; expiresAt: string; codeSent: boolean }
+  | { step: "sign_in" }
+
+function nextScreen(result: AuthOutcome): string {
+  switch (result.step) {
+    case "authenticated": return "load-current-user"
+    case "verify_email": return "email-verification"
+    case "two_factor": return "two-factor-code"
+    case "sign_in": return "sign-in"
+  }
+}
+```
+
+Do not trust a landing URL as proof of authentication: anyone can edit its
+query parameters. Fetch `/auth/me` with credentials; protected backend routes
+remain the authority for application access. Handle an unknown step as an
+integration error rather than assuming login succeeded.
+
+## Email verification and existing sessions
+
+`POST /auth/verify-email` never creates credentials. It returns `authenticated`
+when the selected context already has a live, non-banned session belonging to
+the account just verified; that same session can resume application access.
+It returns `sign_in` otherwise. A different account's cookie does not qualify.
+If optional session lookup fails because the database is unavailable, the
+request fails before consuming the one-time verification code.
+
+`GET /auth/me` remains a profile endpoint: its normal profile shape gains
+`step: "authenticated"`. When verification is pending, it returns only `id`,
+`email`, `isVerified: false`, and `step: "verify_email"`. Refresh similarly
+returns the step and either session metadata or minimal pending status.
+Public resend responses remain generic and do not reveal whether an account
+exists. Session refresh, CSRF rotation and challenge binding keep their existing
+cookie behavior.
+
+Admin clients send `X-GoAuth-Session: admin` throughout this flow, including
+verification, resend, CSRF bootstrap, refresh and logout. App clients use the
+app context. Both may call one API host while keeping independent sessions.

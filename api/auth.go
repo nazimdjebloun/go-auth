@@ -55,11 +55,8 @@ type RegisterInput struct {
 	UserAgent string
 }
 
-// RegisterResult is serialized directly by the HTTP handler on the normal
-// success path. Tags keep it consistent with the hand-built map the handler
-// uses on the requires-verification path ({"user", "requiresVerification",
-// "message"}) — both used to produce the same field capitalized differently
-// depending on which branch ran.
+// RegisterResult is the transport-neutral registration result. The HTTP layer
+// translates it into AuthenticationResponse and sets credentials as cookies.
 type RegisterResult struct {
 	User                 *domain.User    `json:"user"`
 	Session              *domain.Session `json:"session,omitempty"`

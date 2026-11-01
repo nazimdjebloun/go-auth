@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
@@ -17,6 +18,11 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
+	activeUserID, err := h.verificationSessionUserID(r)
+	if err != nil {
+		h.writeError(w, err)
+		return
+	}
 
 	user, err := h.services.Verify.VerifyEmail(r.Context(), body.Code)
 	if err != nil {
@@ -24,9 +30,32 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user": user,
-	})
+	step := api.StepSignIn
+	if user != nil && user.ID == activeUserID {
+		step = api.StepAuthenticated
+	}
+	h.writeJSON(w, http.StatusOK, api.AuthenticationResponse{Step: step, User: user})
+}
+
+// Check an optional existing session before consuming the one-time code. A
+// backend failure must not consume the code and then masquerade as logged out.
+// A fresh signup still needs login; verifying email never issues credentials.
+func (h *Handler) verificationSessionUserID(r *http.Request) (string, error) {
+	cookie, err := r.Cookie(h.cookies.ForRequest(r).Name)
+	if err != nil || cookie.Value == "" {
+		return "", nil
+	}
+	_, user, err := h.services.Session.ValidateWithUser(r.Context(), cookie.Value)
+	if errors.Is(err, domain.ErrSessionNotFound) || errors.Is(err, domain.ErrSessionExpired) || errors.Is(err, domain.ErrSessionRevoked) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if user == nil || user.IsBanned {
+		return "", nil
+	}
+	return user.ID, nil
 }
 
 // ResendVerification sends verification email to the authenticated user.

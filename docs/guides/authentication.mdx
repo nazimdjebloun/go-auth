@@ -82,6 +82,7 @@ Requires authentication and registration `EmailPassword: true`, plus `AllowPubli
 
 ```json
 {
+  "step": "authenticated",
   "user": {
     "id": "b3f1...",
     "email": "ada@example.com",
@@ -113,7 +114,7 @@ The raw session and refresh tokens are never in this body — they're set as `Ht
 ```json
 {
   "user": { "...": "same shape as above, isVerified: false" },
-  "requiresVerification": true,
+  "step": "verify_email",
   "message": "Verification email sent. Please verify your email to continue."
 }
 ```
@@ -125,7 +126,7 @@ No cookies are set on this response. The account exists in the database, but the
 ```json
 {
   "user": { "...": "same shape as above" },
-  "requiresTwoFactor": true,
+  "step": "two_factor",
   "codeSent": true,
   "challengeId": "c4a1...",
   "expiresAt": "2026-08-09T12:05:00Z",
@@ -208,9 +209,9 @@ const result = await apiRequest(API_BASE, "POST", "/auth/register", {
   name: "Ada Lovelace",
 });
 
-if (result.requiresVerification) {
+if (result.step === "verify_email") {
   // show "check your email" — no session exists yet
-} else if (result.requiresTwoFactor) {
+} else if (result.step === "two_factor") {
   setChallengeId(result.challengeId); // show the code screen; no session exists yet
 } else {
   setUser(result.user); // cookies are already set by the browser
@@ -229,10 +230,11 @@ Only relevant when `RequireEmailVerification: true`. Two ways in: a link with a 
   Email verification requires `WithMailer` or `WithEmail`. Admin login also requires a mailer while its default 2FA challenge is enabled. In `EnvironmentDev`, a required but unconfigured mailer defaults to log-only delivery. See [Configuration](../configuration.mdx#withmailer--withemail--withtemplates-required-unless-every-email-feature-is-off).
 </Callout>
 
-**`POST /auth/verify-email`** — body `{ "code": "..." }`. On success, the handler marks the email verified. It does not issue session cookies; ask the user to sign in with their password afterward.
+**`POST /auth/verify-email`** — body `{ "code": "..." }`. On success, the handler marks the email verified. It issues no session cookies. Continue according to `step`: `authenticated` resumes this account's existing live session; `sign_in` requires login.
 
 ```json
 {
+  "step": "sign_in",
   "user": { "...": "isVerified is now true" }
 }
 ```
@@ -283,7 +285,7 @@ if err != nil {
 
 ```ts
 const result = await apiRequest(API_BASE, "POST", "/auth/verify-email", { code });
-// result.user.isVerified is now true; show the sign-in form
+// result.user.isVerified is now true; resume on authenticated, otherwise show sign-in
 ```
 
 For a complete email verification form with resend, see [Client → Email verification](./client/authentication.mdx#email-verification).
@@ -311,6 +313,7 @@ Two-step: look up the invite to pre-fill the form, then complete registration wi
 
 ```json
 {
+  "step": "authenticated",
   "user": { "...": "isVerified: true" },
   "session": { "...": "same shape as register" }
 }
@@ -403,7 +406,7 @@ Registration method switches do not disable existing-account login.
 ```json
 {
   "user": { "...": "isVerified: false" },
-  "requiresVerification": true,
+  "step": "verify_email",
   "message": "Please verify your email to continue."
 }
 ```
@@ -415,7 +418,7 @@ No session is issued — the credentials were correct, but that's not enough on 
 ```json
 {
   "user": { "...": "same shape as normal success" },
-  "requiresTwoFactor": true,
+  "step": "two_factor",
   "codeSent": true,
   "challengeId": "c4a1...",
   "expiresAt": "2026-08-09T12:05:00Z",
@@ -481,9 +484,9 @@ if result.RequiresTwoFactor {
 ```ts
 const result = await apiRequest(API_BASE, "POST", "/auth/login", { email, password });
 
-if (result.requiresVerification) {
+if (result.step === "verify_email") {
   // route to a "verify your email" screen
-} else if (result.requiresTwoFactor) {
+} else if (result.step === "two_factor") {
   // route to a "enter your code" screen — the binding cookie is already set
   setChallengeId(result.challengeId);
 } else {
@@ -499,7 +502,7 @@ For a complete login form with branching logic and error handling, see [Client �
 
 ## Two-factor authentication
 
-Turned on globally with `TwoFactorConfig.RequireEmail2FA` (mandatory for password and OAuth authentication, with email verification taking precedence when pending) or per-user via `POST /auth/2fa/enable` (opt-in, unless `RequireEmail2FA` is on, in which case per-user toggling is rejected). Password login applies either requirement. Password and invite registration gate only on the global flag, with email verification taking precedence for password registration. When gated, these paths return the `{user, requiresTwoFactor: true, codeSent, challengeId, expiresAt, message}` shape shown above instead of a session, plus a binding cookie. OAuth applies the same global and per-account 2FA requirements; see the [authentication policy matrix](../security.mdx#authentication-policy-matrix). Full config reference on [Configuration](../configuration.mdx); the risk trade-offs behind this design are on [Security](../security.mdx).
+Turned on globally with `TwoFactorConfig.RequireEmail2FA` (mandatory for password and OAuth authentication, with email verification taking precedence when pending) or per-user via `POST /auth/2fa/enable` (opt-in, unless `RequireEmail2FA` is on, in which case per-user toggling is rejected). Password login applies either requirement. Password and invite registration gate only on the global flag, with email verification taking precedence for password registration. When gated, these paths return the `{user, step: "two_factor", codeSent, challengeId, expiresAt, message}` shape shown above instead of a session, plus a binding cookie. OAuth applies the same global and per-account 2FA requirements; see the [authentication policy matrix](../security.mdx#authentication-policy-matrix). Full config reference on [Configuration](../configuration.mdx); the risk trade-offs behind this design are on [Security](../security.mdx).
 
 <Callout type="warn" title="Requires a mailer">
   Same requirement as email verification — `TwoFactorConfig.RequireEmail2FA` or `TwoFactorConfig.DefaultEnabled` without `WithMailer`/`WithEmail` is rejected outright by `NewConfig`.
@@ -511,6 +514,7 @@ Completes any of the gated flows above — it doesn't need to know which one sta
 
 ```json
 {
+  "step": "authenticated",
   "user": { "...": "same shape as login" },
   "session": { "...": "same shape as login" }
 }
@@ -615,7 +619,7 @@ For enabling and disabling 2FA, see [User management → Two-factor](./user-mana
 Takes no body and requires an authenticated session. It revokes that session server-side, then clears both session cookies and rotates the CSRF cookie. If server-side revocation fails, it returns `500 internal_error` and does not clear the cookies; the client must not discard its local authenticated state or redirect as though logout succeeded.
 
 ```json
-{ "message": "Logged out" }
+{ "step": "sign_in", "message": "Logged out" }
 ```
 
 #### curl
@@ -668,7 +672,7 @@ For account deletion and name changes, see [User management](./user-management.m
 `RequireEmailVerification` is a global access requirement. Enabling it later
 restricts existing unverified accounts on their next protected request.
 `GET /auth/me` returns only the account ID, email, `isVerified: false`, and
-`requiresVerification: true`; render the same verification screen used after
+`step: "verify_email"`; render the same verification screen used after
 signup. Send a code on an explicit user action, not every page load. Verification,
 resend and logout remain available. After successful verification, the retained
 session resumes protected access without another login. Signup that never

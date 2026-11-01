@@ -534,11 +534,12 @@ func auditEntryMatchesFilter(e api.AuditLogEntry, filter port.AuditLogFilter) bo
 }
 
 type mockSessionRepo struct {
-	mu            sync.Mutex
-	sessions      map[string]*domain.Session
-	byID          map[string]*domain.Session
-	byRefreshHash map[string]*domain.Session
-	deleteByIDErr error
+	mu             sync.Mutex
+	sessions       map[string]*domain.Session
+	byID           map[string]*domain.Session
+	byRefreshHash  map[string]*domain.Session
+	deleteByIDErr  error
+	getWithUserErr error
 	// clearActiveOrgCalls records session IDs passed to ClearActiveOrg.
 	clearActiveOrgCalls []string
 	// users backs GetByTokenHashWithUser, which the real repo answers with a
@@ -579,6 +580,11 @@ func (m *mockSessionRepo) GetByTokenHash(_ context.Context, hash string) (*domai
 // session whose user cannot be resolved, both come back as (nil, nil, nil).
 func (m *mockSessionRepo) GetByTokenHashWithUser(ctx context.Context, hash string) (*domain.Session, *domain.User, error) {
 	m.mu.Lock()
+	if m.getWithUserErr != nil {
+		err := m.getWithUserErr
+		m.mu.Unlock()
+		return nil, nil, err
+	}
 	sess, ok := m.sessions[hash]
 	users := m.users
 	m.mu.Unlock()

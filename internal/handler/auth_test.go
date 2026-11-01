@@ -453,7 +453,7 @@ func TestAdminLogin_SetsCookieAndHidesToken(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["requiresTwoFactor"] != true {
+	if resp["step"] != "two_factor" {
 		t.Fatalf("expected admin login to require two-factor, got %v", resp)
 	}
 	for _, c := range res.Cookies() {

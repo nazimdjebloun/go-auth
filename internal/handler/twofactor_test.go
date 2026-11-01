@@ -100,8 +100,8 @@ func TestLogin_RequiresTwoFactor_GatedResponseNoSessionCookie(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&resp); err != nil {
 		t.Fatal(err)
 	}
-	if resp["requiresTwoFactor"] != true {
-		t.Errorf("expected requiresTwoFactor: true, got %v", resp["requiresTwoFactor"])
+	if resp["step"] != "two_factor" {
+		t.Errorf("expected requiresTwoFactor: true, got %v", resp["step"])
 	}
 	if resp["challengeId"] == nil || resp["challengeId"] == "" {
 		t.Error("expected a non-empty challengeId")

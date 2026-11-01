@@ -64,9 +64,7 @@ func (h *Handler) InviteRegister(w http.ResponseWriter, r *http.Request) {
 	if !h.issueSessionCookies(w, r, result.Session, result.SessionToken, result.RefreshToken) {
 		return
 	}
-	result.SessionToken = ""
-	result.RefreshToken = ""
-	h.writeJSON(w, http.StatusCreated, result)
+	h.writeJSON(w, http.StatusCreated, api.AuthenticationResponse{Step: api.StepAuthenticated, User: result.User, Session: result.Session})
 }
 
 // CreateInvite creates an account invitation.

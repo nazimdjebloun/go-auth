@@ -281,7 +281,7 @@ Both rate-limit errors include `Retry-After`. Clients should respect that delay 
 `403 email_not_verified` means the session is still present but the current
 email-verification policy forbids protected access. Keep the session and route
 the user to verification. `GET /auth/me` returns a minimal status with
-`requiresVerification: true`, and verification, resend and logout remain
+`step: "verify_email"`, and verification, resend and logout remain
 available. Refreshing or retrying the protected operation cannot bypass this
 requirement. Fetch the full profile after successful verification.
 

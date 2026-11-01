@@ -17,7 +17,7 @@ OAuth defaults to the app context. To initiate an admin flow, send `X-GoAuth-Ses
 ## Frontend client setup
 
 Admin sign-in through a linked provider stops for email 2FA by default. The
-landing URL includes `requiresTwoFactor=true`, `challengeId`, and `expiresAt`.
+landing URL includes `step=two_factor`, `challengeId`, and `expiresAt`.
 Show the code-entry screen and submit the challenge and email code to
 `POST /auth/2fa/verify` in the same browser; the callback has already set the
 HttpOnly binding cookie. No session exists until verification succeeds. See

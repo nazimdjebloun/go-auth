@@ -457,11 +457,11 @@ Enabling `RequireEmailVerification` affects every unverified account, regardless
 of when it was created. An existing session is retained but protected requests
 return `403 {"error":"email_not_verified","message":"Please verify your email first"}`.
 `GET /auth/me` instead returns only `id`, `email`, `isVerified: false`, and
-`requiresVerification: true`. Use that response to show the signup verification
+`step: "verify_email"`. Use that response to show the signup verification
 screen before rendering protected content. Verification, resend and logout
 remain available. Refresh does not grant access around the verification check.
 `POST /auth/refresh` still rotates cookies but returns only
-`requiresVerification: true` and the email while verification is pending; no
+`step: "verify_email"` and the email while verification is pending; no
 session object is included. After verification, the retained session can access
 protected routes again.
 Disabling the requirement removes the restriction for all accounts without

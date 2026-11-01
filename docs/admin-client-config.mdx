@@ -193,7 +193,7 @@ export interface AuthUser {
 }
 export interface LoginResult {
   user: AuthUser
-  requiresTwoFactor?: boolean
+  step: "authenticated" | "verify_email" | "two_factor";
   codeSent?: boolean
   challengeId?: string
   expiresAt?: string
@@ -297,6 +297,10 @@ export const adminApi = {
 }
 ```
 
+This context example assumes verified administrators. A backend can also
+return `step: "verify_email"`; the complete verification and continuation
+contract is documented in [Authentication outcomes](./guides/authentication-outcomes.mdx).
+
 ## React context with role checking
 
 The admin `AuthProvider` adds a critical check: a valid session is not necessarily an admin session.
@@ -359,7 +363,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (input: { email: string; password: string }) => {
     setChallenge(null)
     const result = await authApi.login(input)
-    if (result.requiresTwoFactor) {
+    if (result.step === "verify_email") {
+      throw new Error("Verify your email before admin login; follow the authentication-outcomes verification flow.")
+    }
+    if (result.step === "two_factor") {
       setChallenge({ challengeId: result.challengeId!, expiresAt: result.expiresAt!, codeSent: result.codeSent ?? false })
       return
     }
@@ -422,7 +429,7 @@ Admin login always requires 2FA (unless `DisableAdminTwoFactor` is set):
 const login = useCallback(async (input: { email: string; password: string }) => {
   setChallenge(null)
   const result = await authApi.login(input)
-  if (result.requiresTwoFactor) {
+  if (result.step === "two_factor") {
     setChallenge({ challengeId: result.challengeId!, expiresAt: result.expiresAt!, codeSent: result.codeSent ?? false }) // show emailed-code input
     return
   }

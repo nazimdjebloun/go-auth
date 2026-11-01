@@ -41,8 +41,7 @@ interface User {
 }
 
 interface AuthOutcome {
-  requiresVerification?: boolean;
-  requiresTwoFactor?: boolean;
+  step: "authenticated" | "verify_email" | "two_factor";
   challengeId?: string;
   expiresAt?: string;
   codeSent?: boolean;
@@ -88,9 +87,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const result = await authApi.login(input);
-      if (result.requiresVerification || result.requiresTwoFactor) return result;
+      if (result.step === "verify_email" || result.step === "two_factor") return result;
       await refresh();
-      return {};
+      return result;
     } catch (err: any) {
       setError(err.message ?? err.error);
       throw err;
@@ -101,9 +100,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setError(null);
     try {
       const result = await authApi.register(input);
-      if (result.requiresVerification || result.requiresTwoFactor) return result;
+      if (result.step === "verify_email" || result.step === "two_factor") return result;
       await refresh();
-      return {};
+      return result;
     } catch (err: any) {
       setError(err.message ?? err.error);
       throw err;
@@ -167,7 +166,7 @@ export function useAuth(): AuthContextValue {
 
 **`setUnauthorizedHandler(() => setUser(null))`.** This clears app-wide user state when any request receives `401` or `403 user_banned` for a revoked, banned, or expired session.
 
-**Gated login and registration.** A response with `requiresVerification` or `requiresTwoFactor` does not create a session, so `login` and `register` return that response without calling `refresh()`. Store `challengeId` while showing a 2FA prompt, then call `verifyTwoFactor`; only a successful verification refreshes `user`.
+**Gated login and registration.** A response with `step: "verify_email"` or `step: "two_factor"` does not create a session, so `login` and `register` return that response without calling `refresh()`. Store `challengeId` while showing a 2FA prompt, then call `verifyTwoFactor`; only a successful verification refreshes `user`.
 
 **Why `login`/`register` call `refresh()` after a session is issued.** This keeps `refresh()` as the one code path that populates `user`, at the cost of one request.
 
