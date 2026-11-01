@@ -363,3 +363,5 @@ Use `RequireOrgPermissionScope` or `RequireActiveOrgPermissionScope` for custom
 business routes, and constrain every application-owned query by `scope.OrgID`.
 Access response flags are informational. The library cannot authorize individual
 application resources without the application's own tenant/resource predicates.
+
+For application HTTP routes, prefer `Auth.Protect(pattern, handler)`, which combines the configured rate limiter with mandatory browser CSRF, session authentication and email-verification enforcement. Put ownership or role/permission checks inside it. `RequireAuth` alone only applies authentication and verification; see [application routes](./guides/application-routes.mdx).

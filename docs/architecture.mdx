@@ -252,3 +252,5 @@ removal and reinstallation, protected-admin bypass, non-delegable routes, and
 MFA. Separate tests exercise unprivileged requests through the actual mounted
 handlers. CI requires all six coverage tests in both full and repeated backend
 runs; missing, skipped, or insufficient passing runs fail the job.
+
+For custom application endpoints, `Auth.Protect(pattern, handler)` composes CORS, configured rate limiting, browser CSRF checks, authentication and current email-verification enforcement. Authorization wrappers passed inside it run after authentication. Its inner ServeMux supplies canonical pattern and path parameters on any HTTP router. See [application routes](./guides/application-routes.mdx).

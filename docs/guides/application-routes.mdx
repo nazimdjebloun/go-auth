@@ -1,0 +1,83 @@
+---
+title: "Protect application routes"
+description: "A complete browser security wrapper for your own HTTP endpoints."
+icon: "ShieldCheck"
+---
+
+# Protect application routes
+
+Use `Auth.Protect(pattern, handler)` for authenticated application endpoints.
+It composes the configured rate limiter, mandatory signed double-submit and
+Origin/Referer checks, session authentication (including transparent refresh),
+and current email-verification policy. It also supplies CORS headers.
+
+```go
+mux := http.NewServeMux()
+auth.Mount(mux)
+
+pattern := "POST /widgets/{id}/publish"
+mux.Handle(pattern, auth.Protect(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    user := middleware.GetUserFromContext(r.Context())
+    widgetID := r.PathValue("id")
+    // Check ownership in your application before writing this user's widget.
+    _ = user
+    _ = widgetID
+    w.WriteHeader(http.StatusNoContent)
+})))
+
+// Preflight must run before the mux selects a method-specific route.
+server := &http.Server{Addr: ":8080", Handler: auth.CORS(mux)}
+```
+
+Import `github.com/nazimdjebloun/go-auth/middleware` for context access.
+`Protect` establishes identity; it cannot infer ownership of application data.
+The `WithRateLimitRoute` key uses the same pattern if a custom rate is needed.
+Without an override, the configured fallback rate applies. Explicitly disabled
+rate limits and configured exemptions are respected.
+
+## Authorization runs after authentication
+
+```go
+pattern := "POST /reports/{id}/publish"
+mux.Handle(pattern, auth.Protect(pattern,
+    auth.RequireAppPermission("reports.publish")(publishReport)))
+
+pattern = "GET /private-admin"
+mux.Handle(pattern, auth.Protect(pattern, auth.RequireAdmin(adminPage)))
+
+pattern = "POST /orgs/{orgID}/widgets"
+mux.Handle(pattern, auth.Protect(pattern,
+    auth.RequireOrg(domain.OrgRoleMember)(createOrgWidget)))
+```
+
+Permission and organization features must be enabled and provisioned as
+documented in their guides. The wrappers retain their existing live checks;
+`Protect` does not grant a role or permission. Include the authenticated user
+and organization in application queries rather than trusting IDs in JSON.
+
+## Client flow and failures
+
+First call `GET /auth/csrf-token` with credentials, then send its token as
+`X-CSRF-Token` on mutations, with credentials. Honor replacement tokens in the
+same response header. Keep `X-GoAuth-Session: admin` on every request from an
+independent admin client; the ordinary application uses the app context.
+
+| Situation | Result |
+|---|---|
+| Missing, expired, or revoked credentials | 401; display sign-in. |
+| Valid session whose email now requires verification | 403 `email_not_verified`; display verification, then retry using that session. |
+| Missing/invalid double-submit token or denied Origin/Referer | 403 CSRF error; the business handler does not run. |
+| Valid identity without the requested authorization | The inner authorization wrapper's error, usually 403. |
+| Rate budget exhausted | 429 with `Retry-After`. |
+| Request outside the declared route | 404 before rate accounting. |
+
+Verification, sign-in and logout retain their built-in route policies. Do not
+wrap `Auth.Mount` routes in `Protect`: authentication and verification endpoints
+must remain reachable before the caller has full application access.
+
+Patterns use Go ServeMux syntax. Invalid patterns or a nil handler panic during
+setup. On third-party routers, adapt the returned `http.Handler` normally and
+ensure `OPTIONS` reaches it, or put `auth.CORS` around the complete router.
+`Request.Pattern` and `PathValue` are populated by the wrapper even if the outer
+router does not supply them. Existing low-level middleware stays available for
+custom transport arrangements.

@@ -8,6 +8,16 @@ icon: "Plug"
 
 The public `Auth.Services()` interfaces are the contract for custom transports and application code. Import `github.com/nazimdjebloun/go-auth/api` for operation inputs. Mounted HTTP routes call those same operations and add cookie handling, authentication middleware, CSRF checks, and rate limiting.
 
+## Application HTTP routes
+
+Use `Auth.Protect("POST /widgets/{id}", handler)` for the complete browser
+protection chain on your own endpoints. Add role, app-permission or organization
+wrappers inside it so they run after authentication. Patterns use ServeMux
+syntax for routing, rate selection and exemptions. Put `Auth.CORS` around a
+method-selecting router so preflights run before dispatch. See
+[Protect application routes](./application-routes.mdx) for a full example,
+failure behavior and third-party router integration.
+
 ## Migrating Go callers
 
 Service operations with multiple values after `context.Context` now take one named input. This is a breaking Go API change before v1; return values and HTTP request bodies are unchanged. Single-value operations, such as `Session.Validate(ctx, token)` and `OAuth.Initiate(ctx, provider)`, keep their direct argument.

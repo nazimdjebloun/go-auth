@@ -2,6 +2,7 @@
   "title": "Guides",
   "pages": [
     "integration",
+    "application-routes",
     "authentication",
     "user-management",
     "sessions",
