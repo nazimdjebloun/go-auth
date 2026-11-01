@@ -159,7 +159,7 @@ func (c *Config) clone() Config {
 			}
 		}
 		rl.TrustedIPs = append([]string(nil), c.rateLimit.TrustedIPs...)
-		rl.DisabledPaths = append([]string(nil), c.rateLimit.DisabledPaths...)
+		rl.DisabledRoutes = append([]string(nil), c.rateLimit.DisabledRoutes...)
 		// Only consumer-supplied stores may be shared across Auth instances.
 		if !c.set.rateLimitStore {
 			rl.Store = nil

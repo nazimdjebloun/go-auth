@@ -478,20 +478,20 @@ func TestWithRateLimit_DeepCopiesRoutes(t *testing.T) {
 	}
 }
 
-func TestWithRateLimit_DeepCopiesDisabledPaths(t *testing.T) {
+func TestWithRateLimit_DeepCopiesDisabledRoutes(t *testing.T) {
 	// The path values are arbitrary markers — nothing is routed here. The test
 	// writes through the library's copy and checks the caller's slice is
-	// unaffected, which it was not before DisabledPaths was cloned.
+	// unaffected, which it was not before DisabledRoutes was cloned.
 	shared := *ratelimit.DefaultRateLimitConfig()
-	shared.DisabledPaths = []string{"/caller-owned"}
+	shared.DisabledRoutes = []string{"/caller-owned"}
 
 	cfg, err := NewConfig(minimalOpts(WithRateLimit(shared))...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.rateLimit.DisabledPaths[0] = "/written-by-library"
-	if shared.DisabledPaths[0] != "/caller-owned" {
-		t.Errorf("caller's DisabledPaths slice was aliased: %v", shared.DisabledPaths)
+	cfg.rateLimit.DisabledRoutes[0] = "/written-by-library"
+	if shared.DisabledRoutes[0] != "/caller-owned" {
+		t.Errorf("caller's DisabledRoutes slice was aliased: %v", shared.DisabledRoutes)
 	}
 }
 

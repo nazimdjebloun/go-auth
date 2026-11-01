@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 
+	"github.com/nazimdjebloun/go-auth/internal/ratelimitpolicy"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
@@ -21,7 +22,7 @@ func WithRateLimit(cfg ratelimit.Config) Option {
 			}
 		}
 		clone.TrustedIPs = append([]string(nil), cfg.TrustedIPs...)
-		clone.DisabledPaths = append([]string(nil), cfg.DisabledPaths...)
+		clone.DisabledRoutes = append([]string(nil), cfg.DisabledRoutes...)
 		// Store and Logger are deliberately shared: they are live objects the
 		// consumer owns, not data to be snapshotted.
 		c.rateLimit = &clone
@@ -112,6 +113,9 @@ func (c *Config) validateRateLimit() []error {
 		return nil
 	}
 	rl := c.rateLimit
+	if _, err := ratelimitpolicy.New(rl); err != nil {
+		errs = append(errs, fmt.Errorf("rate_limit: %w", err))
+	}
 	// A nil Store requests a per-Auth in-memory store. New creates it only
 	// after all fallible startup work succeeds.
 	if err := validateRate("default", rl.Default, false); err != nil {

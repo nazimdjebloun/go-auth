@@ -19,7 +19,7 @@ goauth.WithRateLimit(ratelimit.Config{
         "POST /auth/login": {Requests: 10, Window: time.Minute},
     },
     Store:           nil,                        // optional, default: a bounded in-memory store
-    DisabledPaths:   nil,                        // optional, default none
+    DisabledRoutes:  nil,                        // optional, default none
     TrustedIPs:      []string{"10.0.0.0/8"},     // optional, default none — required if IPAddressHeader is set
     IPv6Subnet:      64,                         // optional, default 64
     IPAddressHeader: "CF-Connecting-IP",         // optional, default "" (trusts RemoteAddr only)
@@ -33,9 +33,9 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{Requests: 10, Windo
 |---|---|---|---|
 | `Enabled` | `bool` | `true` | Disabling it logs a warning at startup — it's flagged as insecure for production. |
 | `Default` | `ratelimit.Rate` | `60/min` | Applied to any route not listed in `Routes` (and not matched by a prefix pattern — see below). |
-| `Routes` | `map[string]ratelimit.Rate` | the built-in table | Keyed by `"METHOD /path"`, or `"METHOD /path/*"` with a `*` standing in for one path segment (see [How a request is matched to a limit](#how-a-request-is-matched-to-a-limit)). A `Rate{Requests: 0}` entry disables limiting for that specific route without touching `DisabledPaths`. |
+| `Routes` | `map[string]ratelimit.Rate` | the built-in table | Keyed by Go ServeMux patterns, such as `"POST /widgets/{id}"` or `"GET /files/{rest...}"`. A `Rate{Requests: 0}` entry disables limiting for that specific route without touching `DisabledRoutes`. |
 | `Store` | `ratelimit.Store` | a bounded in-memory store | Leave it `nil` and one is created for you (and closed by `Auth.Close()`). See [A note on the default store](#a-note-on-the-default-store) below. |
-| `DisabledPaths` | `[]string` | none | Exact path matches, exempted entirely — no counting, no headers. |
+| `DisabledRoutes` | `[]string` | none | Exact path matches, exempted entirely — no counting, no headers. |
 | `TrustedIPs` | `[]string` | none | CIDR ranges. Required for `IPAddressHeader` to have any effect — see below. |
 | `IPv6Subnet` | `int` | `64` | IPv6 addresses are masked to this prefix length before being used as a rate-limit key, so a client rotating addresses within their own `/64` still shares one bucket. |
 | `IPAddressHeader` | `string` | `""` | e.g. `"CF-Connecting-IP"`, `"X-Forwarded-For"` — only ever read when the immediate peer's address is in `TrustedIPs`; otherwise ignored, so an untrusted client can't spoof it to pick its own rate-limit key. |
@@ -82,9 +82,9 @@ if s, ok := store.(interface{ Stats() ratelimit.Stats }); ok {
 
 ## How a request is matched to a limit
 
-For each request, the key checked against `Routes` is `"METHOD /exact/path"` first. If nothing matches, every key containing a `*` is tried as a **segment-wildcard match**: the key and the request path are split on `/`, and it's a match only when both have the same number of segments and every non-`*` segment is equal (e.g. `"POST /auth/orgs/*/invites"` matches `POST /auth/orgs/abc123/invites` but not `POST /auth/orgs/abc123/invites/xyz/resend` — that's a different, deeper route with its own key). If more than one wildcard key matches — not the case in the built-in table, which has one key per route, but possible in a replacement `Routes` map — the one with the fewest `*` segments wins. If still nothing matches, `Default` applies.
+`Routes`, `DisabledRoutes`, router registrations and `RateLimitWithPattern` use the same Go ServeMux pattern language. `{id}` matches one escaped path segment; `{rest...}` matches the remaining subtree; `/health/{$}` matches that trailing-slash path exactly. `GET` also matches `HEAD`, and methodless patterns match all methods. The most specific matching registration wins. Ambiguous or malformed patterns fail `NewConfig`; direct construction of middleware panics during setup, just as invalid ServeMux registration does.
 
-`*` always stands for exactly one path segment — never "the rest of the path" — so a wildcard entry only ever covers the one route it's shaped for, not an entire subtree beneath it. Each route that needs its own limit gets its own key.
+Exemptions are checked first, then the route table, then `Default`. The selected table entry supplies both the rate and counter identity. Canonical-path redirects do not count as matching entries. Old `*` globs are rejected: change `POST /auth/orgs/*/invites` to `POST /auth/orgs/{orgID}/invites`. Change the `DisabledPaths` field to `DisabledRoutes`; its values now use this same pattern language.
 
 ### What the counter is keyed on
 
@@ -99,7 +99,7 @@ r.Post("/widgets/{id}/publish",
     auth.RateLimitWithPattern("POST /widgets/{id}/publish")(publishHandler).ServeHTTP)
 ```
 
-The string only has to be stable and one-per-route; it isn't parsed. To give the route its own *limit* as well as its own counter, add the same string to the table with `WithRateLimitRoute`.
+The declaration is validated and must match the actual request. A mismatch receives 404 before any counter is charged; an invalid declaration panics when the middleware is constructed. Use the same canonical pattern in `WithRateLimitRoute` to give it a custom rate. Third-party routers still need to populate path parameters for the application handler.
 
 ### What the client IP is
 
@@ -134,38 +134,38 @@ Every rate-limited route below has a limit unless you override it. A route wrapp
 | `POST /auth/2fa/resend` | 3/min |
 | `POST /auth/2fa/enable` | 5/min |
 | `POST /auth/2fa/disable` | 5/min |
-| `GET /auth/oauth/*` | 10/min |
-| `POST /auth/oauth/*/link` | 10/min |
-| `GET /auth/oauth/*/callback` | 10/min |
-| `POST /auth/oauth/*/callback` | 10/min |
+| `GET /auth/oauth/{provider}` | 10/min |
+| `POST /auth/oauth/{provider}/link` | 10/min |
+| `GET /auth/oauth/{provider}/callback` | 10/min |
+| `POST /auth/oauth/{provider}/callback` | 10/min |
 | `POST /auth/orgs` | 5/hour |
-| `GET /auth/orgs/*` | 60/min |
-| `PUT /auth/orgs/*` | 10/min |
-| `DELETE /auth/orgs/*` | 5/min |
-| `GET /auth/orgs/*/members` | 60/min |
-| `DELETE /auth/orgs/*/members/*` | 5/min |
-| `PATCH /auth/orgs/*/members/*/role` | 10/min |
-| `POST /auth/orgs/*/leave` | 30/min |
+| `GET /auth/orgs/{orgID}` | 60/min |
+| `PUT /auth/orgs/{orgID}` | 10/min |
+| `DELETE /auth/orgs/{orgID}` | 5/min |
+| `GET /auth/orgs/{orgID}/members` | 60/min |
+| `DELETE /auth/orgs/{orgID}/members/{userID}` | 5/min |
+| `PATCH /auth/orgs/{orgID}/members/{userID}/role` | 10/min |
+| `POST /auth/orgs/{orgID}/leave` | 30/min |
 | `PUT /auth/orgs/active` | 10/min |
 | `DELETE /auth/orgs/active` | 5/min |
-| `POST /auth/orgs/*/invites` | 20/hour |
+| `POST /auth/orgs/{orgID}/invites` | 20/hour |
 | `POST /auth/orgs/invites/accept` | 30/min |
-| `GET /auth/orgs/*/invites` | 30/min |
-| `POST /auth/orgs/*/invites/*/resend` | 30/min |
-| `DELETE /auth/orgs/*/invites/*` | 10/min |
+| `GET /auth/orgs/{orgID}/invites` | 30/min |
+| `POST /auth/orgs/{orgID}/invites/{inviteID}/resend` | 30/min |
+| `DELETE /auth/orgs/{orgID}/invites/{inviteID}` | 10/min |
 | `GET /admin/users` | 60/min |
 | `POST /admin/users` | 10/min |
-| `PATCH /admin/users/*/role`, `PATCH /admin/users/*/ban`, `PATCH /admin/users/*/unban` | 30/min |
-| `DELETE /admin/users/*` | 10/min |
-| `GET /admin/users/*/sessions` | 60/min |
-| `DELETE /admin/users/*/sessions`, `DELETE /admin/users/*/sessions/*` | 20/min |
+| `PATCH /admin/users/{id}/role`, `PATCH /admin/users/{id}/ban`, `PATCH /admin/users/{id}/unban` | 30/min |
+| `DELETE /admin/users/{id}` | 10/min |
+| `GET /admin/users/{id}/sessions` | 60/min |
+| `DELETE /admin/users/{id}/sessions`, `DELETE /admin/users/{id}/sessions/{sessionId}` | 20/min |
 | `POST /admin/invites` | 10/min |
 | `GET /admin/invites` | 60/min |
-| `DELETE /admin/invites/*` | 10/min |
-| `DELETE /admin/invites/*/hard` | 10/min |
-| `POST /admin/invites/*/resend` | 5/min |
+| `DELETE /admin/invites/{id}` | 10/min |
+| `DELETE /admin/invites/{id}/hard` | 10/min |
+| `POST /admin/invites/{id}/resend` | 5/min |
 
-The full table is generated from the library's internal route list via a helper that turns each `{param}` path segment into `*`, so it can never drift from the routes `Auth.Mount` actually registers.
+The table uses the library's canonical route constants directly, so parameter syntax stays identical to `Auth.Mount`.
 
 ## Hitting a limit
 

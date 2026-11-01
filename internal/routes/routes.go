@@ -1,11 +1,8 @@
 // Package routes is the single source of truth for every HTTP route
 // go-auth mounts: the canonical "METHOD /path" string used to register it
-// on a ServeMux, and everything derived from that path (the rate-limit
-// table's glob form). It imports nothing else in this module, so anything
+// on a ServeMux and to select rate-limit policy. It imports nothing else in this module, so anything
 // is free to depend on it without risking an import cycle.
 package routes
-
-import "strings"
 
 // Register and the following constants define the routes mounted by go-auth.
 const (
@@ -169,16 +166,3 @@ const (
 	ResendOrgInvite     = "POST /auth/orgs/{orgID}/invites/{inviteID}/resend"
 	DeleteOrgInvite     = "DELETE /auth/orgs/{orgID}/invites/{inviteID}"
 )
-
-// Glob rewrites a "METHOD /path/{param}" route into "METHOD /path/*", the
-// form the rate-limit table matches against — one wildcard segment per
-// ServeMux path parameter, regardless of the parameter's name.
-func Glob(pattern string) string {
-	segments := strings.Split(pattern, "/")
-	for i, seg := range segments {
-		if strings.HasPrefix(seg, "{") && strings.HasSuffix(seg, "}") {
-			segments[i] = "*"
-		}
-	}
-	return strings.Join(segments, "/")
-}

@@ -11,14 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nazimdjebloun/go-auth/internal/ratelimitpolicy"
+	"github.com/nazimdjebloun/go-auth/internal/routepattern"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
-
-// defaultRouteKey is the key material used when a request matches no entry
-// in Routes and the router didn't tell us which pattern it matched. It is a
-// constant on purpose: the one thing that must never end up in a rate-limit
-// key is a string the caller controls the size and variety of.
-const defaultRouteKey = "*"
 
 // maxKeyPattern bounds the pattern half of a key. Every source of a pattern
 // is configuration or router metadata today, so nothing can drive this — it
@@ -170,95 +166,6 @@ func normalizeMethod(method string) string {
 	}
 }
 
-// matchWildcardRoute finds the Routes entry matching routeKey ("METHOD
-// /path") where the pattern has "*" wildcard segments (from
-// routes.Glob — one wildcard per ServeMux path parameter). A pattern
-// matches only when it has the same number of segments as routeKey, with
-// each non-"*" segment equal. When more than one pattern matches — not
-// expected of the built-in table, since it has one entry per route, but
-// possible in a caller-supplied Routes map — the one with the fewest
-// wildcard segments (the most specific) wins.
-//
-// It returns the matched pattern as well as the rate: the pattern is the
-// key material the counter is charged to, so discarding it here is what
-// forced the caller back onto the raw path.
-func matchWildcardRoute(routesMap map[string]ratelimit.Rate, routeKey string) (string, ratelimit.Rate, bool) {
-	reqSegs := strings.Split(routeKey, "/")
-
-	var best ratelimit.Rate
-	bestPattern := ""
-	found := false
-	bestWildcards := -1
-
-	for pattern, rate := range routesMap {
-		if !strings.Contains(pattern, "*") {
-			continue
-		}
-		patSegs := strings.Split(pattern, "/")
-		if len(patSegs) != len(reqSegs) {
-			continue
-		}
-		wildcards := 0
-		matched := true
-		for i, seg := range patSegs {
-			if seg == "*" {
-				wildcards++
-				continue
-			}
-			if seg != reqSegs[i] {
-				matched = false
-				break
-			}
-		}
-		if !matched {
-			continue
-		}
-		if !found || wildcards < bestWildcards {
-			best = rate
-			bestPattern = pattern
-			bestWildcards = wildcards
-			found = true
-		}
-	}
-
-	return bestPattern, best, found
-}
-
-// resolveRoute returns the rate for this request and the pattern its counter
-// is keyed on.
-//
-// Rate resolution is unchanged: exact "METHOD /path" against Routes, then
-// segment-wildcard, then Default. What's new is the second return — bounded
-// key material, sourced in order of how specific it is:
-//
-//  1. the matched Routes key (a configuration string)
-//  2. the caller's declared pattern, from RateLimitWithPattern
-//  3. r.Pattern, which net/http's ServeMux fills in with the registered
-//     pattern (Go 1.23+)
-//  4. defaultRouteKey, when nothing above is available
-//
-// Step 4 is the only lossy one: routes that reach it share a single counter
-// per client per method. That is a tighter limit rather than a looser one,
-// but it does mean a consumer on a third-party router who wants per-route
-// granularity has to say which route this is — hence RateLimitWithPattern.
-func resolveRoute(cfg *ratelimit.Config, r *http.Request, declared string) (ratelimit.Rate, string) {
-	routeKey := r.Method + " " + r.URL.Path
-	if rate, ok := cfg.Routes[routeKey]; ok {
-		return rate, routeKey
-	}
-	if pattern, rate, ok := matchWildcardRoute(cfg.Routes, routeKey); ok {
-		return rate, pattern
-	}
-	switch {
-	case declared != "":
-		return cfg.Default, declared
-	case r.Pattern != "":
-		return cfg.Default, r.Pattern
-	default:
-		return cfg.Default, defaultRouteKey
-	}
-}
-
 // RateLimit returns rate-limiting middleware for the given configuration.
 func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 	return rateLimit(cfg, "")
@@ -268,29 +175,44 @@ func RateLimit(cfg *ratelimit.Config) func(http.Handler) http.Handler {
 // doesn't populate http.Request.Pattern — chi, gorilla/mux, echo, and
 // anything else that isn't net/http's ServeMux.
 //
-// Pass the route this handler serves, in "METHOD /path/{param}" form (the
-// literal text doesn't matter, only that it's one stable string per route):
-//
-//	r.Post("/widgets/{id}/publish",
-//	    auth.RateLimitWithPattern("POST /widgets/{id}/publish")(publishHandler).ServeHTTP)
-//
-// Without it, such routes still get limited — they just share the one
-// fallback counter per client rather than getting one each.
-//
-// Don't reuse a pattern that's already a key in cfg.Routes unless this really
-// is that route. The declared pattern is key material only — the rate still
-// comes from matching the request's own method and path — so a handler
-// declaring "POST /auth/login" shares the login counter while being charged
-// cfg.Default, which both mis-limits this route and lets its traffic consume
-// the login budget. That's the one way to break the Store's "one key, one
-// Rate" requirement through this middleware.
+// Pass the canonical ServeMux pattern, for example "POST /widgets/{id}/publish".
+// It is validated during construction; malformed patterns panic like ServeMux
+// registration. Requests that do not match the declaration receive 404.
+// The rate table uses the same syntax and selects both rate and counter key.
 func RateLimitWithPattern(cfg *ratelimit.Config, pattern string) func(http.Handler) http.Handler {
+	if pattern == "" {
+		panic("rate limit: declared route pattern must not be empty")
+	}
 	return rateLimit(cfg, pattern)
 }
 
 func rateLimit(cfg *ratelimit.Config, declared string) func(http.Handler) http.Handler {
+	var declaration *routepattern.Matcher[bool]
+	if declared != "" {
+		var err error
+		declaration, err = routepattern.New(map[string]bool{declared: true})
+		if err != nil {
+			panic(err)
+		}
+	}
+	guard := func(next http.Handler) http.Handler {
+		if declaration == nil {
+			return next
+		}
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if _, _, ok := declaration.Match(r); !ok {
+				http.NotFound(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 	if cfg == nil || !cfg.Enabled {
-		return func(next http.Handler) http.Handler { return next }
+		return guard
+	}
+	policy, err := ratelimitpolicy.New(cfg)
+	if err != nil {
+		panic(err)
 	}
 	if cfg.Logger == nil {
 		cfg.Logger = slog.Default()
@@ -306,19 +228,9 @@ func rateLimit(cfg *ratelimit.Config, declared string) func(http.Handler) http.H
 	}
 	store := cfg.Store
 
-	disabled := make(map[string]bool)
-	for _, path := range cfg.DisabledPaths {
-		disabled[path] = true
-	}
-
 	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if disabled[r.URL.Path] {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			rate, pattern := resolveRoute(cfg, r, declared)
+		return guard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			rate, pattern := policy.Match(r, cfg.Default, declared)
 			if rate.Requests <= 0 {
 				next.ServeHTTP(w, r)
 				return
@@ -359,7 +271,7 @@ func rateLimit(cfg *ratelimit.Config, declared string) func(http.Handler) http.H
 			}
 
 			next.ServeHTTP(w, r)
-		})
+		}))
 	}
 }
 

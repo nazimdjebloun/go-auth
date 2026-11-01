@@ -40,14 +40,9 @@ func (a *Auth) RateLimit(next http.Handler) http.Handler {
 //	r.Post("/widgets/{id}/publish",
 //	    auth.RateLimitWithPattern("POST /widgets/{id}/publish")(publish).ServeHTTP)
 //
-// The string only has to be stable and one-per-route — it isn't parsed. To
-// give the route its own limit as well as its own counter, add the same
-// string to the rate table with WithRateLimitRoute.
-//
-// Don't reuse a pattern that already names one of the mounted routes: the
-// pattern picks the counter, but the rate still comes from matching this
-// request's own method and path, so the route would share the other route's
-// counter while being charged the default rate.
+// The declaration must be a valid ServeMux pattern and match the request.
+// Invalid patterns panic during construction; mismatched requests receive 404.
+// Use the same pattern in WithRateLimitRoute to select a custom rate.
 func (a *Auth) RateLimitWithPattern(pattern string) func(http.Handler) http.Handler {
 	return middleware.RateLimitWithPattern(a.cfg.rateLimit, pattern)
 }

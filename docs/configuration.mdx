@@ -671,7 +671,7 @@ goauth.WithRateLimit(ratelimit.Config{
         "POST /auth/login": {Requests: 10, Window: time.Minute},
     },
     Store:           nil,                        // optional, default: a bounded in-memory store
-    DisabledPaths:   nil,                        // optional, default none
+    DisabledRoutes:  nil,                        // optional, default none
     TrustedIPs:      []string{"10.0.0.0/8"},     // optional, default none (required if IPAddressHeader is set)
     IPv6Subnet:      64,                         // optional, default 64
     IPAddressHeader: "CF-Connecting-IP",         // optional, default "" (trusts RemoteAddr only)
@@ -702,7 +702,7 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
 | `Default` | `ratelimit.Rate` | Optional | `60 requests / minute` | Fallback for any route not in `Routes`. |
 | `Routes` | `map[string]ratelimit.Rate` | Optional | a built-in table covering login, register, password reset, verification, invites, etc. | Keyed by `"METHOD /path"`. A `Rate{Requests: 0}` entry disables limiting for that one route. |
 | `Store` | `ratelimit.Store` | Optional | a bounded in-memory store | Left `nil`, each successful `New` creates its own store when rate limiting is enabled; `Auth.Close()` stops it. `NewConfig` creates no store or background work. Supply one to share a distributed store (Redis, etc.) across instances. A supplied store is yours to close. |
-| `DisabledPaths` | `[]string` | Optional | none | |
+| `DisabledRoutes` | `[]string` | Optional | none | ServeMux patterns exempt from rate counting; replaces `DisabledPaths`. |
 | `TrustedIPs` | `[]string` | Optional | none | IPs/CIDRs. Required if `IPAddressHeader` is set. |
 | `IPv6Subnet` | `int` | Optional | `64` | Subnet prefix length used to bucket IPv6 clients. Must be 1–128. |
 | `IPAddressHeader` | `string` | Optional | `""` (trusts `RemoteAddr` only) | The header is only honored from a peer in `TrustedIPs`; otherwise it is ignored, since an untrusted client could spoof it to pick its own rate-limit key. |
@@ -719,6 +719,8 @@ goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
 - `rate_limit: ipv6_subnet must be between 1 and 128, got N`.
 - `rate_limit: trusted_ips contains invalid IP/CIDR "..."`.
 - `rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can be spoofed to bypass rate limiting`: call `WithTrustedIPs` alongside `WithIPAddressHeader`.
+
+Route keys and exemptions use Go ServeMux patterns: `POST /widgets/{id}`, `GET /files/{rest...}`, and methodless paths for all methods. Invalid or ambiguous patterns fail configuration validation. Replace old `*` globs with named parameters and rename `DisabledPaths` to `DisabledRoutes`. See [rate matching](./guides/rate-limiting.mdx#how-a-request-is-matched-to-a-limit).
 
 ## `WithMaintenance`: Optional, on by default
 

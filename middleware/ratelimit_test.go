@@ -27,7 +27,7 @@ func TestRateLimit_PathParamCannotMintFreshCounters(t *testing.T) {
 		IPv6Subnet: 64,
 		Default:    ratelimit.Rate{Requests: 1000, Window: time.Minute},
 		Routes: map[string]ratelimit.Rate{
-			"POST /auth/orgs/*/invites": {Requests: 3, Window: time.Minute},
+			"POST /auth/orgs/{orgID}/invites": {Requests: 3, Window: time.Minute},
 		},
 	}
 	rl := RateLimit(cfg)
@@ -243,8 +243,8 @@ func TestRateLimitWithPattern_SeparatesRoutesOnPatternlessRouters(t *testing.T) 
 	gadgets := RateLimitWithPattern(cfg, "GET /gadgets/{id}")(handler)
 
 	for i := 0; i < 4; i++ {
-		for _, h := range []http.Handler{widgets, gadgets} {
-			req := httptest.NewRequest("GET", "/irrelevant/"+fmt.Sprint(i), nil)
+		for j, h := range []http.Handler{widgets, gadgets} {
+			req := httptest.NewRequest("GET", []string{"/widgets/", "/gadgets/"}[j]+fmt.Sprint(i), nil)
 			req.RemoteAddr = "192.0.2.50:1234"
 			h.ServeHTTP(httptest.NewRecorder(), req)
 		}
@@ -284,19 +284,14 @@ func TestRateLimit_RetryAfterIsAtLeastOne(t *testing.T) {
 	}
 }
 
-// TestRateLimit_WildcardMatch_MidPathSegment is a regression test for a bug
-// where a Routes key with a "*" anywhere but the very end (e.g.
-// "POST /auth/orgs/*/invites") never matched any real request — the old
-// matcher only treated a key as a pattern when it literally ended in "/*",
-// and even then matched by string prefix rather than by segment. A route
-// like this silently fell back to Default instead of its configured rate.
-func TestRateLimit_WildcardMatch_MidPathSegment(t *testing.T) {
+// A named parameter in the middle of a route must select that route's rate.
+func TestRateLimit_ParameterMatch_MidPathSegment(t *testing.T) {
 	cfg := &ratelimit.Config{
 		Enabled:    true,
 		IPv6Subnet: 64,
 		Default:    ratelimit.Rate{Requests: 100, Window: time.Minute},
 		Routes: map[string]ratelimit.Rate{
-			"POST /auth/orgs/*/invites": {Requests: 1, Window: time.Minute},
+			"POST /auth/orgs/{orgID}/invites": {Requests: 1, Window: time.Minute},
 		},
 	}
 	rl := RateLimit(cfg)
@@ -320,20 +315,18 @@ func TestRateLimit_WildcardMatch_MidPathSegment(t *testing.T) {
 		t.Fatalf("expected the tight 1/min limit to trip on the second request, got %d allowed calls", calls)
 	}
 	if last.Code != http.StatusTooManyRequests {
-		t.Errorf("expected 429 once the mid-path wildcard route's own limit is exceeded, got %d", last.Code)
+		t.Errorf("expected 429 once the mid-path parameter route's own limit is exceeded, got %d", last.Code)
 	}
 }
 
-// TestRateLimit_WildcardMatch_TrailingSegment covers the case the old
-// matcher did handle (a key ending in "/*"), now going through the same
-// segment-based matcher as every other wildcard route.
-func TestRateLimit_WildcardMatch_TrailingSegment(t *testing.T) {
+// A trailing named parameter matches exactly one segment.
+func TestRateLimit_ParameterMatch_TrailingSegment(t *testing.T) {
 	cfg := &ratelimit.Config{
 		Enabled:    true,
 		IPv6Subnet: 64,
 		Default:    ratelimit.Rate{Requests: 100, Window: time.Minute},
 		Routes: map[string]ratelimit.Rate{
-			"GET /auth/orgs/*": {Requests: 1, Window: time.Minute},
+			"GET /auth/orgs/{orgID}": {Requests: 1, Window: time.Minute},
 		},
 	}
 	rl := RateLimit(cfg)
@@ -350,18 +343,14 @@ func TestRateLimit_WildcardMatch_TrailingSegment(t *testing.T) {
 	}
 }
 
-// TestRateLimit_WildcardMatch_DoesNotMatchDeeperPath is the flip side of
-// the old bug: since matching is now exact by segment count, a wildcard
-// route no longer silently swallows every deeper path under it. A route
-// one level deeper than the pattern must have its own entry or fall to
-// Default — it must not inherit the shallower pattern's rate.
-func TestRateLimit_WildcardMatch_DoesNotMatchDeeperPath(t *testing.T) {
+// A single-segment parameter must not inherit a deeper path's policy.
+func TestRateLimit_ParameterMatch_DoesNotMatchDeeperPath(t *testing.T) {
 	cfg := &ratelimit.Config{
 		Enabled:    true,
 		IPv6Subnet: 64,
 		Default:    ratelimit.Rate{Requests: 5, Window: time.Minute},
 		Routes: map[string]ratelimit.Rate{
-			"GET /auth/orgs/*": {Requests: 1, Window: time.Minute},
+			"GET /auth/orgs/{orgID}": {Requests: 1, Window: time.Minute},
 		},
 	}
 	rl := RateLimit(cfg)
