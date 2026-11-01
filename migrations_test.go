@@ -18,7 +18,7 @@ func TestNewSchemaCheckRejectsUntrackedAndDirtyBorrowedDatabase(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	cfg, err := NewConfig(minimalOpts(WithApp(AppConfig{
 		Name: "schema-check", BaseURL: "http://localhost:3000", Environment: EnvironmentDev,
-		Database: DatabaseConfig{DB: db, Driver: DriverSQLite, CheckSchema: true},
+		Database: DatabaseConfig{DB: db, Driver: DriverSQLite},
 	}))...)
 	if err != nil {
 		t.Fatal(err)

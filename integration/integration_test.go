@@ -20,21 +20,14 @@ import (
 	goauth "github.com/nazimdjebloun/go-auth"
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/nazimdjebloun/go-auth/port"
 	_ "modernc.org/sqlite"
 )
 
 func migrateDB(t *testing.T, db *sql.DB, driver string) {
 	t.Helper()
-	schemaSQL, err := goauth.GetSchema(driver)
-	if err != nil {
+	if _, err := goauth.Migrate(t.Context(), db, goauth.MigrationOptions{Driver: driver}); err != nil {
 		t.Fatal(err)
-	}
-	for _, stmt := range schema.SplitSQL(schemaSQL) {
-		if _, err := db.Exec(stmt); err != nil {
-			t.Fatalf("migration failed: %v\nStatement: %s", err, stmt)
-		}
 	}
 }
 

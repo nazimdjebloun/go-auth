@@ -153,9 +153,9 @@ catalog, so verification and repair reject obsolete tables left behind by an
 incomplete drop or rename. Starting-schema checks also reject partial additions
 from pending steps. Unrelated application objects remain outside these checks.
 
-`DatabaseConfig.CheckSchema` is optional and defaults to `false`. When enabled,
-`New` checks history before constructing services or starting workers, using
-the shared ten-second startup database timeout. The first policy accepts only
+`New` always checks connectivity and history before constructing services or
+starting workers, using the shared ten-second startup database timeout. This
+also applies to borrowed databases and pools. The compatibility check accepts only
 the library's completed target revision with recognized history/checksums. It
 rejects older, newer/unknown, missing and dirty state. It does not certify absence
 of live drift; use deployment verification for that.
@@ -164,7 +164,6 @@ of live drift; use deployment verification for that.
 Database: goauth.DatabaseConfig{
     URL:         databaseURL,
     Driver:      goauth.DriverPostgres,
-    CheckSchema: true,
 },
 ```
 

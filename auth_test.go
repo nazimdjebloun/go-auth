@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/internal/httproutes"
 	"github.com/nazimdjebloun/go-auth/internal/routes"
+	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
@@ -88,19 +90,9 @@ func TestClose_DoesNotCloseConsumerSuppliedPool(t *testing.T) {
 	}
 	defer pool.Close()
 
-	cfg, err := NewConfig(append(minimalOpts(), WithApp(AppConfig{
-		Name:     "app",
-		BaseURL:  "https://example.com",
-		Database: DatabaseConfig{Driver: DriverPostgres, Pool: pool},
-	}))...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, err := New(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	// Exercise Close independently: New now requires a reachable, migrated DB.
+	a := &Auth{cfg: Config{app: AppConfig{Database: DatabaseConfig{opened: true}}},
+		db: sqlstore.NewDB(stdlib.OpenDBFromPool(pool), string(DriverPostgres))}
 	a.Close()
 
 	// Acquire from a closed pgxpool.Pool fails immediately with "closed

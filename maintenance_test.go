@@ -47,14 +47,8 @@ func newMaintenanceTestDB(t *testing.T) (*sqlstore.DB, *sqlstore.SessionReposito
 		}
 	})
 
-	ddl, err := GetSchema("sqlite")
-	if err != nil {
+	if _, err := Migrate(t.Context(), db.DB, MigrationOptions{Driver: "sqlite"}); err != nil {
 		t.Fatal(err)
-	}
-	for _, stmt := range SplitSQL(ddl) {
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			t.Fatal(err)
-		}
 	}
 
 	now := time.Now().UTC()

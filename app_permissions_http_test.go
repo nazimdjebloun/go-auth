@@ -32,7 +32,9 @@ type appHTTPFixture struct {
 func newAppHTTPFixture(t *testing.T, management, requireMFA bool, options ...Option) appHTTPFixture {
 	t.Helper()
 	raw := testdb.OpenSelected(t)
-	testdb.Apply(t, raw)
+	if _, err := Migrate(t.Context(), raw, MigrationOptions{Driver: testdb.Driver(raw)}); err != nil {
+		t.Fatal(err)
+	}
 	db := sqlstore.NewDB(raw, testdb.Driver(raw))
 	users := sqlstore.NewUserRepository(db).WithAppPermissions()
 	now := time.Now().UTC()

@@ -22,17 +22,13 @@ const (
 // DatabaseConfig configures the database connection.
 // Provide one of URL, DB, or Pool. URL is the preferred option —
 // the library will open, validate, and close the connection automatically.
+// New checks connectivity and recorded migration compatibility for every source
+// before starting workers. Apply migrations separately before construction.
 type DatabaseConfig struct {
 	URL    string        // connection string (preferred)
 	DB     *sql.DB       // pre-opened *sql.DB (library borrows, does not close)
 	Pool   *pgxpool.Pool // pre-opened pgx pool (library borrows, does not close)
 	Driver Driver        // DriverPostgres, DriverSQLite, DriverMySQL (required: NewConfig rejects an empty driver)
-
-	// CheckSchema opts into a compatibility check before services/workers start.
-	// Missing, dirty or incompatible history rejects startup. This does not run
-	// migrations or certify absence of structural drift. The startup DB timeout
-	// also bounds this check (10 seconds).
-	CheckSchema bool
 
 	// Limits apply only to URL-created databases, not borrowed DB or Pool.
 	MaxOpenConns    int           // 0 defaults to 25 (PostgreSQL/MySQL), 1 (SQLite)

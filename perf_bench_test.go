@@ -11,7 +11,6 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/nazimdjebloun/go-auth/api"
-	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 )
 
@@ -24,14 +23,8 @@ func benchAuth(b *testing.B, auditEnabled ...bool) *Auth {
 	if err != nil {
 		b.Fatal(err)
 	}
-	schemaSQL, err := GetSchema("sqlite")
-	if err != nil {
+	if _, err := Migrate(b.Context(), db, MigrationOptions{Driver: "sqlite"}); err != nil {
 		b.Fatal(err)
-	}
-	for _, stmt := range schema.SplitSQL(schemaSQL) {
-		if _, err := db.Exec(stmt); err != nil {
-			b.Fatalf("migrate: %v", err)
-		}
 	}
 	opts := []Option{
 		WithBcryptCost(4),

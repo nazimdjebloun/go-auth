@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -60,12 +61,15 @@ func TestDatabaseBudget_DefaultMemoryPersists(t *testing.T) {
 }
 
 func TestDatabaseBudget_BorrowedSQLUnchanged(t *testing.T) {
-	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(1)")
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "borrowed.db")+"?_pragma=foreign_keys(1)")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(7)
+	if _, err := Migrate(t.Context(), db, MigrationOptions{Driver: "sqlite"}); err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := NewConfig(minimalOpts(WithApp(AppConfig{
 		Name: "app", BaseURL: "https://example.com",
 		Database: DatabaseConfig{Driver: DriverSQLite, DB: db, MaxOpenConns: 1},

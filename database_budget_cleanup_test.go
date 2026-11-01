@@ -63,9 +63,21 @@ func TestDatabaseBudget_ConstructorFailureClosesOwnedDB(t *testing.T) {
 }
 
 func TestDatabaseBudget_CloseOwnedAndPreserveBorrowedOnFailure(t *testing.T) {
+	dsn := filepath.Join(t.TempDir(), "owned.db")
+	bootstrap, err := sql.Open("sqlite", dsn+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Migrate(t.Context(), bootstrap, MigrationOptions{Driver: "sqlite"}); err != nil {
+		_ = bootstrap.Close()
+		t.Fatal(err)
+	}
+	if err := bootstrap.Close(); err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := NewConfig(minimalOpts(WithApp(AppConfig{
 		Name: "app", BaseURL: "https://example.com",
-		Database: DatabaseConfig{Driver: DriverSQLite, URL: ":memory:"},
+		Database: DatabaseConfig{Driver: DriverSQLite, URL: dsn},
 	}))...)
 	if err != nil {
 		t.Fatal(err)

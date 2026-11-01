@@ -3,6 +3,7 @@ package goauth
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -122,10 +123,11 @@ func New(in *Config) (*Auth, error) {
 			_ = sqlDB.Close()
 		}
 	}()
-	if cfg.app.Database.CheckSchema {
-		if err := CheckSchema(startupCtx, sqlDB.DB, string(cfg.app.Database.Driver)); err != nil {
-			return nil, err
-		}
+	if err := sqlDB.PingContext(startupCtx); err != nil {
+		return nil, fmt.Errorf("goauth: startup database connection: %w", err)
+	}
+	if err := CheckSchema(startupCtx, sqlDB.DB, string(cfg.app.Database.Driver)); err != nil {
+		return nil, fmt.Errorf("goauth: startup schema compatibility: %w; apply matching goauth migrations before startup (existing untracked schemas require explicit adoption)", err)
 	}
 	wired, err := buildServices(startupCtx, &cfg, keys, sqlDB, passwordHasher, passwordPepperKeys, hasherImpl)
 	if err != nil {

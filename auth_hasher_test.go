@@ -13,7 +13,6 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/hasher/argon2id"
 	"github.com/nazimdjebloun/go-auth/internal/keyring"
-	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -47,14 +46,8 @@ func newHasherTestDB(t *testing.T) *sql.DB {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	t.Cleanup(func() { _ = db.Close() })
-	schemaSQL, err := GetSchema("sqlite")
-	if err != nil {
+	if _, err := Migrate(t.Context(), db, MigrationOptions{Driver: "sqlite"}); err != nil {
 		t.Fatal(err)
-	}
-	for _, stmt := range schema.SplitSQL(schemaSQL) {
-		if _, err := db.Exec(stmt); err != nil {
-			t.Fatalf("migrate: %v", err)
-		}
 	}
 	return db
 }

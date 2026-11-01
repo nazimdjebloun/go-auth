@@ -42,9 +42,8 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		userRepo.WithAppPermissions()
 		sessionRepo.WithAppPermissions()
 	}
-	// Keep the zero-config path lazy: historically New with a borrowed pgx
-	// pool did not dial it. Once any pepper key is configured, validate every
-	// version present in the database before serving requests. Omitting the
+	// Once any pepper key is configured, validate every version present in
+	// the database before serving requests. Omitting the
 	// option against an already-peppered database still fails closed per-row at
 	// login; it never falls back to treating a peppered hash as unpeppered.
 	if len(passwordPepperKeys) > 0 {

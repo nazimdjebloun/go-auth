@@ -11,7 +11,6 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/domain"
-	"github.com/nazimdjebloun/go-auth/internal/schema"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 	_ "modernc.org/sqlite"
 )
@@ -60,14 +59,8 @@ func buildAuth(t *testing.T, opts ...Option) *Auth {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	t.Cleanup(func() { _ = db.Close() })
-	schemaSQL, err := GetSchema("sqlite")
-	if err != nil {
+	if _, err := Migrate(t.Context(), db, MigrationOptions{Driver: "sqlite"}); err != nil {
 		t.Fatal(err)
-	}
-	for _, stmt := range schema.SplitSQL(schemaSQL) {
-		if _, err := db.Exec(stmt); err != nil {
-			t.Fatalf("migrate: %v", err)
-		}
 	}
 	cfg, err := NewConfig(append(opts, WithApp(AppConfig{
 		Name:     "app",

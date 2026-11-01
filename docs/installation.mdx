@@ -112,6 +112,12 @@ Pass option functions to `NewConfig(opts ...Option)`. The table maps each option
 
 ## Database setup
 
+`New` requires a reachable database with the matching completed auth migration
+history. It checks both before starting workers, including with a borrowed
+database or pool. Run migrations separately; construction does not create or
+upgrade tables. SMTP configuration is validated, but startup does not promise
+delivery to a remote mailbox.
+
 The published catalog and desired schema are embedded in the library. Apply
 pending auth migrations explicitly before starting the app:
 

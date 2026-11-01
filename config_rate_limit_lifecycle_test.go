@@ -31,7 +31,9 @@ func TestNewConfigDoesNotAllocateOwnedRateLimitResources(t *testing.T) {
 
 func TestNewReusedConfigHasIndependentRateLimitStores(t *testing.T) {
 	db := testdb.Open(t, "sqlite", "")
-	testdb.Apply(t, db)
+	if _, err := Migrate(t.Context(), db, MigrationOptions{Driver: "sqlite"}); err != nil {
+		t.Fatal(err)
+	}
 	cfg, err := NewConfig(minimalOpts(
 		WithApp(AppConfig{Name: "app", BaseURL: "https://example.com", Database: DatabaseConfig{Driver: DriverSQLite, DB: db}}),
 		WithBcryptCost(4),

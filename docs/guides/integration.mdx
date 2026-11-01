@@ -113,8 +113,9 @@ Auth owns its fixed tables and the `goauth_migrations` journal. Run the matching
 `goauth migrate` independently of application/ORM migrations, before starting
 services and workers. Keep app fields in extension tables with foreign keys;
 do not include auth SQL in application desired schemas or copied host migrations.
-`DatabaseConfig.CheckSchema` enables a compatibility check at startup; it never
-executes DDL. See [Migrations](../migrations.mdx) for adoption and recovery.
+`New` checks database connectivity and recorded migration compatibility before
+starting workers, including for borrowed handles. It never executes DDL. See
+[Migrations](../migrations.mdx) for adoption and recovery.
 
 ## Startup and shutdown
 

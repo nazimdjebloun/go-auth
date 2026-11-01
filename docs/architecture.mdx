@@ -127,7 +127,7 @@ validation together. `config_defaults.go` preserves defaulting order, while
 
 1. Clones and checks the config, derives keys, and builds the password hasher.
 2. Opens (or adopts) the database connection based on `DatabaseConfig` and wraps it in `internal/sqlstore.DB`, which implements `port.TxManager`.
-3. If `DatabaseConfig.CheckSchema` is enabled, checks recorded schema compatibility before any services/workers start. It never runs migrations.
+3. Checks database connectivity and recorded schema compatibility for every database source before any services/workers start. It never runs migrations.
 4. Constructs the repositories, mailer, template provider, audit service, and dependent services in that order.
 5. Builds the HTTP adapters and middleware, then the enabled route registry with each route's specific chain.
 6. Starts maintenance and returns an `*Auth` with `Services()` for programmatic calls, `Handler(pattern)` for custom routers, and middleware accessors for application routes. `Services()` returns a value containing operation interfaces; disabled optional capabilities remain nil.
