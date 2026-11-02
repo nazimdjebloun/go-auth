@@ -89,12 +89,11 @@ type TwoFactorConfig struct {
 	DisableAdminTwoFactor bool
 }
 
-// WithPasswordHasher provides a custom password hasher implementation,
-// replacing the default (bcrypt). The stored hash's own format prefix
-// (e.g. "$2a$", "$argon2id$") identifies which algorithm produced it —
-// Compare must dispatch on that prefix, not on whichever hasher is
-// currently configured, so hashes written under a previous hasher remain
-// verifiable after this is changed. See rehash-on-login below.
+// WithPasswordHasher selects the implementation used for new password hashes.
+// The library dispatches verification by the stored hash's format prefix and
+// retains built-in bcrypt and Argon2id verifiers. A custom implementation must
+// produce a self-identifying hash and verify its own output; it does not need
+// to implement the built-in legacy algorithms. See rehash-on-login below.
 func WithPasswordHasher(h port.Hasher) Option {
 	return func(c *Config) {
 		c.passwordHasher = h
@@ -119,7 +118,7 @@ func WithPasswordPepper(cfg PasswordPepperConfig) Option {
 }
 
 // WithBcryptCost is the narrow sugar for "stay on bcrypt, just change the
-// cost" — no WithPasswordHasher(bcrypt.New(14)) call needed for a one-int
+// cost" — no WithPasswordHasher(hasher.New(14)) call needed for a one-int
 // tweak. Existing rows hashed at a different cost keep verifying (Compare
 // reads the cost from each stored hash, not from the hasher), and a
 // successful login against them re-hashes the password at the new cost —
@@ -141,8 +140,8 @@ func WithSecurity(cfg SecurityConfig) Option {
 	}
 }
 
-// WithTwoFactor groups the email two-factor settings. A zero-valued CodeTTL or
-// ChallengeCookieName keeps its default — see applyDefaults.
+// WithTwoFactor groups the email two-factor settings. A zero CodeTTL keeps its
+// default. Browser cookie settings, including challenge names, use WithBrowser.
 func WithTwoFactor(cfg TwoFactorConfig) Option {
 	return func(c *Config) {
 		c.twoFactor = cfg
