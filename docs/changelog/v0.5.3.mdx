@@ -1,0 +1,128 @@
+---
+title: "v0.5.3"
+description: "Startup readiness, truthful password policy, safe application routes, explicit authentication steps, and complete onboarding."
+date: "2026-11-02"
+---
+
+This release improves the complete installation and browser integration path:
+mandatory startup readiness, literal password rules, canonical route patterns,
+a safe application-route wrapper, explicit frontend steps and runnable
+onboarding. It also hardens invitation proofs and removes ignored audit queue
+configuration. These are pre-v1 breaking API changes; follow the upgrade notes.
+
+For setup and integration examples, see [First working application](../guides/onboarding.mdx),
+[Protect application routes](../guides/application-routes.mdx), and
+[Authentication outcomes](../guides/authentication-outcomes.mdx).
+
+## Onboarding
+
+`examples/onboarding` provides a complete local browser application, real SQLite
+migration commands, development email delivery, signup, email verification,
+login/2FA, a protected mutation and logout. Its integration test exercises that
+exact handler with cookies, including startup and CSRF failures. The README and
+introductory docs lead to this path; closed installations have a first-admin
+branch. The example starts no migration implicitly.
+
+## Authentication outcomes
+
+Successful browser flows use one `step`: `authenticated`, `verify_email`,
+`two_factor`, `verify_invite_email`, `sign_in` or `linked`. OAuth retains redirects
+with the same step names. Replace the former `requires*` booleans and query flags.
+Go service result fields remain unchanged. Email verification resumes a matching
+existing session or returns `sign_in` without issuing credentials. Unverified
+admin login correctly returns `verify_email` instead of attempting empty-session
+cookie issuance. Session/refresh credentials and challenge bindings remain in
+HttpOnly cookies.
+
+## Application routes
+
+`Auth.Protect(pattern, handler)` composes the configured rate limiter, mandatory
+browser CSRF checks, authentication and live email-verification policy, with
+CORS responses. It provides path parameters on third-party routers. Pass role,
+permission or organization wrappers inside it for authorization. Method-based
+routers still need CORS before method dispatch for preflight requests. Existing
+low-level middleware remains available.
+
+## Route patterns
+
+Rate tables, router registrations, explicit route declarations and exemptions
+use Go ServeMux patterns. Replace `*` globs with `{id}` or `{rest...}`, and
+rename `ratelimit.Config.DisabledPaths` to `DisabledRoutes`. Exemptions support
+methods and parameters. Invalid or ambiguous patterns fail configuration;
+direct middleware construction panics at setup. Declared-route mismatches
+receive 404 before counting. Rate selection and counter identity come from
+the same matching table entry.
+
+## Removed
+
+`DatabaseConfig.CheckSchema` is removed. `New` always checks database
+availability and recorded migration compatibility before workers start, for
+URL-created and borrowed handles alike. Apply matching migrations before
+starting the updated library; existing untracked databases require explicit
+adoption. Startup executes no migration DDL and does not replace deployment
+verification for structural drift.
+
+`goauth.AuditConfig.QueueSize` and `audit.ServiceConfig.QueueSize` are removed.
+Both fields were ignored: audit delivery uses the durable `audit_outbox` table.
+Remove them from struct literals; no replacement field is required.
+`mailer.AsyncConfig.QueueSize` still controls its real in-memory email queue
+and is unchanged.
+
+This is a breaking pre-v1 Go API cleanup. Existing audit recording, delivery,
+backlog limits and defaults are unchanged.
+
+## Fixed
+
+- Password rules honor explicit false values and expose `RequireLetter`.
+  `MinLength` and new `MaxLength` count Unicode code points. An entirely zero policy
+  defaults to 8..128 characters with a letter and digit; a nonzero policy is
+  literal, so a minimum-only policy no longer silently requires a digit.
+  Invalid UTF-8 passwords are rejected. `PasswordPolicy.WithDefaults` and
+  `ValidateConfig` expose the same default resolution and configuration checks
+  for direct Go callers.
+- Custom hasher startup probes respect declared input limits; typed-nil hashers
+  and negative limits fail validation instead of being invoked. Custom hashers
+  can implement `port.PasswordInputLimiter` with `MaxPasswordBytes`; zero means
+  no declared algorithm-specific bound. The limit applies after optional pepper
+  preprocessing to new password writes, not verification of existing hashes.
+- Impossible password configurations fail startup. Bcrypt's 72-byte limit is
+  enforced on the actual KDF input, after pepper preprocessing, and reports
+  `weak_password`. It no longer caps Argon2id passwords. Existing credential
+  verification remains compatible when the current write algorithm changes.
+- Admin seeding applies the same character policy and bcrypt bound, validates
+  generated passwords, and preserves whitespace in typed passwords.
+- Email verification checks any existing session before consuming the code.
+  A session-lookup infrastructure failure returns an error without consuming
+  the one-time code, so the user can retry.
+- OAuth invitation email proof now uses the same challenge-binding validator
+  as login and resend. Internally constructed services consistently honor their
+  binding policy; missing or incorrect bindings and missing signing keys remain
+  rejected when binding is required. Public challenge binding remains mandatory;
+  no consumer option to disable it has been added.
+- Preparing an invitation email proof rejects an empty OTP pepper before
+  storing a challenge or sending a code. Normal library construction already
+  derives a nonempty pepper from `WithSecret`; the new guard prevents unsafe
+  hashing in incorrectly constructed internal services.
+- `Auth.CheckSession` and `Auth.GetSession` comments now explain verification
+  enforcement: the former returns false for an unverified user when verification
+  is required, and the latter returns `domain.ErrEmailNotVerified`.
+
+## Upgrade
+
+- Remove `DatabaseConfig.CheckSchema` and apply the matching auth catalog before
+  startup. Adopt supported untracked databases explicitly.
+- Remove audit `QueueSize` fields. Keep the async mailer's real `QueueSize`.
+- Rename `DisabledPaths` to `DisabledRoutes` and replace rate-table `*` globs
+  with ServeMux parameters. Explicit rate-limit declarations must match requests.
+- Review customized password rules: use `RequireLetter` to retain a letter
+  requirement. Lengths now count Unicode code points; the default maximum is
+  128. Bcrypt separately enforces its actual input-byte limit.
+- Replace HTTP `requires*` flags with `step`, including OAuth callback queries.
+  Update both application and admin clients; their cookie contexts stay separate.
+- Prefer `Auth.Protect(pattern, handler)` for custom browser routes. Put CORS
+  before method routing and authorization inside the wrapper.
+
+No new schema migration is required from v0.5.2. All three dialects retain
+revision 3, and their published SQL and checksums are unchanged. The
+[v0.5.2 configuration and client migration](./v0.5.2.mdx) still applies when
+upgrading from an earlier release.

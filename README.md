@@ -7,28 +7,26 @@ direct service APIs.
 > **Pre-1.0:** Public Go APIs, route paths, configuration options, and JSON
 > response shapes may change without a deprecation period until v1 is released.
 
-Authentication methods now live in `WithAuthentication`; registration is closed
-by default and is opened explicitly with `WithRegistration`. Email verification
-also restricts existing unverified sessions until they complete verification.
-See the [v0.5.2 migration guide](docs/changelog/v0.5.2.mdx).
+## How it works
 
-Service operations with multiple arguments now take named `api` input structs.
-`Admin.GetStats` takes `api.GetAdminStatsInput` with trusted actor and session IDs.
-CSRF failures use the same JSON error envelope as handlers and other middleware;
-OAuth callback failures remain redirects. See the
-[integration contract](docs/guides/integration.mdx) for the Go migration table,
-authentication policy, and startup/shutdown ownership rules.
+Configure go-auth in your Go backend, apply its database migrations, and mount
+its authentication routes alongside your application routes. Your frontend
+calls that backend for signup, login, verification, and session management.
+Session credentials stay in HttpOnly cookies; HTTP responses tell the frontend
+its next authentication `step`.
+
+Use `Auth.Protect` on application endpoints, then add your ownership, role, or
+permission checks. Applications with their own transport can call the same
+operations through Go service APIs.
 
 ## What it includes
 
-- Email/password and OAuth registration and login, with case-sensitive provider
-  identities on every database
+- Email/password and OAuth login, public or invited signup, and email verification
 - Session and refresh-token rotation, idle expiry, and absolute lifetime limits
 - Password recovery for accounts with an existing password, password changes,
-  email verification, and OAuth-only account password setup after sign-in
+  and OAuth-only account password setup after sign-in
 - Optional email 2FA and mandatory admin-account 2FA by default
-- Multi-tenant organizations, roles, invitations, and active-organization
-  sessions whose scope stays synchronized with membership changes
+- Multi-tenant organizations, roles, invitations, and active-organization sessions
 - Administrative user, session, organization, invitation, and audit-log APIs
 - Opt-in [application roles and granular permissions](docs/guides/app-permissions.mdx),
   with one role per account and selective delegation of library actions
@@ -37,50 +35,9 @@ authentication policy, and startup/shutdown ownership rules.
 - CSRF protection, route-specific rate limiting, and enumeration-resistant
   credential flows
 - PostgreSQL, MySQL, and SQLite schemas embedded in the library
-- Durable audit pipeline with a transactional outbox, retry + dead-letter delivery, and custom sink support
+- Durable audit logs with a transactional outbox, retries, and dead-letter delivery
 - Replaceable mailer, templates, OAuth providers, password hasher, rate-limit
   store, and audit sinks
-
-Application permissions are off by default; accounts use the supported fixed
-`admin` and `user` roles, returned through the user `role` field. Enable app permissions with
-`WithAppPermissions(AppPermissionsConfig{Enable: true, EnableManagementHTTP: true})`,
-then initialize the protected administrator with `seed-admin --app-permissions`
-before accepting signups. The built-in admin keeps full library access;
-custom roles receive only explicitly installed and granted permissions.
-Ordinary signup assigns its default role atomically without global management locks.
-Enabled-mode user results omit `role`; use `appRoleId` and
-`/auth/access` for application access information.
-App authorization IDs must use the lowercase, hyphenated UUIDs returned by the API.
-With management HTTP enabled, authorized operators can inspect another account
-at `GET /admin/authorization/users/{id}/access`.
-Assigning the current app role preserves assignment and global revisions after
-the usual authorization and expected-revision checks.
-The [app permission guide](docs/guides/app-permissions.mdx) covers selective
-seeding, atomic bulk changes, single-role assignment, and backend checks.
-
-The canonical schema includes the app authorization tables and account role
-columns even when the feature is disabled.
-
-Org permissions are separately enabled with
-`WithOrgPermissions(OrgPermissionsConfig{Enable: true, EnableManagementHTTP: true})`
-and require organizations. New orgs initialize protected owner/admin/member roles
-atomically; an existing org must be initialized by its owner. Custom roles combine
-installed library actions and org-local business permissions. Use
-`RequireOrgPermissionScope` or `RequireActiveOrgPermissionScope` for application
-routes. Migration revision 2 introduced these tables, even if org
-permissions remain disabled: fixed-role operations also use the new tables.
-Apply revision 3 for v0.5.2, which adds invitation and settings-confirmation token context.
-Existing deployments need a controlled activation with owner initialization for
-each org before normal permission-protected org traffic resumes. App roles and
-permissions remain independent. See the [org permission guide](docs/guides/org-permissions.mdx).
-Use the self `/access` endpoint to inspect current permissions; role-management
-reads require `goauth.org.roles.read` and allow authorized inspection of banned
-members and disabled roles. Fixed-role changes keep assignments consistent even
-while org permission enforcement is disabled. Invite resends also retain the original
-inviter's delegation checks, as described in the guide.
-Authorized effective-access inspection reports no effective permissions for
-disabled roles or banned members. Stale role-linked invitations return
-`org_invite_role_changed` with instructions to delete and recreate the invitation.
 
 ## Install
 
@@ -92,193 +49,106 @@ go get github.com/nazimdjebloun/go-auth
 
 ## Local quick start
 
-This example uses SQLite and `EnvironmentDev`. Development mode supplies a
-log-only mailer when no mailer is configured, so verification codes and emails
-are written to the application log instead of being delivered.
-
-```go
-package main
-
-import (
-	"log"
-	"net/http"
-	"os"
-
-	goauth "github.com/nazimdjebloun/go-auth"
-	_ "modernc.org/sqlite"
-)
-
-func main() {
-	cfg, err := goauth.NewConfig(
-		goauth.WithApp(goauth.AppConfig{
-			Name:        "MyApp",
-			BaseURL:     "http://localhost:3000",
-			Environment: goauth.EnvironmentDev,
-			Database: goauth.DatabaseConfig{
-				URL:         "file:goauth.db",
-				Driver:      goauth.DriverSQLite,
-				CheckSchema: true,
-			},
-		}),
-		goauth.WithAuthentication(goauth.AuthenticationConfig{EmailPassword: true}),
-		goauth.WithRegistration(goauth.RegistrationConfig{
-			AllowPublic: true, EmailPassword: true, RequireEmailVerification: true,
-		}),
-		goauth.WithSecret(os.Getenv("AUTH_SECRET")), // at least 32 bytes
-		goauth.WithBrowser(goauth.BrowserConfig{
-			APIURL: "http://localhost:8080",
-			AllowedOrigins: []string{"http://localhost:3000"},
-		}),
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	auth, err := goauth.New(cfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer auth.Close()
-
-	mux := http.NewServeMux()
-	auth.Mount(mux)
-	log.Fatal(http.ListenAndServe(":8080", mux))
-}
-```
-
-Generate a development secret and apply the embedded schema before starting the
-application:
+Run the complete browser example from a source checkout. These commands use
+Bash and OpenSSL; the [onboarding guide](docs/guides/onboarding.mdx) also covers
+PowerShell and running from your own Go module.
 
 ```bash
-export AUTH_SECRET="$(openssl rand -base64 32)"
+git clone https://github.com/nazimdjebloun/go-auth.git
+cd go-auth
 
-go run github.com/nazimdjebloun/go-auth/cmd/goauth migrate \
-  --driver sqlite --dsn "file:goauth.db"
+export DATABASE_URL='file:onboarding.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)'
+export GOAUTH_SECRET="$(openssl rand -hex 32)"
+go run ./cmd/goauth migrate --driver sqlite --dsn "$DATABASE_URL"
+go run ./examples/onboarding
 ```
 
-Run the command from your application's Go module so it uses the `go-auth`
-version pinned in `go.mod`; from this source checkout, use `go run ./cmd/goauth`.
-Auth has its own numbered migration history and stays separate from application
-or ORM migrations. `New` never migrates; `CheckSchema: true` checks recorded
-compatibility before workers start. Existing untracked auth tables need explicit,
-validated adoption. Recovery provides verified completion and policy-controlled
-retries of interrupted upgrades. See [Migrations](docs/migrations.mdx).
-Verification and recovery reject retired auth tables left behind by incomplete
-drops or renames.
-The statement timeout also bounds each shared verification phase.
+Open **http://localhost:8080**. Create an account, enter the eight-character
+verification code printed by the development mailer, then enter its six-digit
+2FA code. Choose **Make protected request**, then **Sign out**. The page handles
+CSRF bootstrap/replacement and the explicit authentication `step`; session
+credentials stay in HttpOnly cookies.
 
-Maintainers prepare reviewed release SQL with the separate
-[migration authoring tool](docs/migration-authoring.mdx).
+The example explicitly opens signup and enables verification and 2FA. Library
+signup remains closed by default. `New` always checks connectivity and recorded
+migration compatibility before workers start; it never applies migrations.
+Keep the generated secret for later restarts of that database.
 
-Email verification marks the address verified and does not issue session cookies.
-A signup waiting without a session signs in afterward; an existing restricted
-session resumes access without another sign-in. `Auth.GetSession`,
-`Auth.CheckSession`, and `Auth.RequireAuth` enforce that access requirement;
-low-level session identity lookup remains available for verification/logout. Use the minimal
-`/auth/me` response with `requiresVerification: true` to show the verification screen. OAuth initiation sets a short-lived
-browser state cookie that must return on the callback. Provider linking also
-requires the same live session at the callback. If you call `auth.Services().OAuth`
-directly, use the `State` field of the returned `api.OAuthInitiation` to bind
-the flow to the initiating browser and pass that value to `Callback`.
-OAuth rejects failed profile requests and missing or mismatched provider
-identities before looking up or linking an account.
+[First working application](docs/guides/onboarding.mdx) includes consuming-module
+commands, PowerShell setup, the complete flow and first-admin setup for closed
+installations. The [example source](examples/onboarding/main.go) is the complete
+configuration and HTTP integration, including graceful shutdown.
 
-Organization owner creation and removal require an existing owner. Membership
-mutations check current actor and target roles inside their transaction.
+## Use it in your backend
 
-Invite resends rotate only the current pending or expired invite. Revocation
-and acceptance cannot be overwritten by a delayed resend or expiry read.
+Build a configuration with `NewConfig`, create an instance with `New`, and call
+`Auth.Close` after your HTTP server shuts down. The
+[example source](examples/onboarding/main.go) includes configuration, a database
+driver import, and graceful shutdown. The main configuration sections are:
 
-OAuth unlink removes every identity for the selected provider and requires a
-usable password or a configured, enabled identity from another provider to remain.
+- `WithApp`: application name, frontend base URL, environment, and database.
+- `WithSecret`: your persistent application secret, with at least 32 random bytes.
+- `WithAuthentication`: whether password and OAuth authentication are allowed.
+- `WithRegistration`: signup methods, public or invited signup, and email verification.
+- `WithBrowser`: public API origin, exact frontend origins, and cookie delivery.
+- `WithTwoFactor`: optional or required email 2FA.
 
-For production, configure SMTP with `WithEmail` or provide a custom
-`port.Mailer`. A mailer is required whenever an enabled feature sends email;
-admin-login 2FA is one such feature and is enabled by default. PostgreSQL support
-is built on pgx. SQLite and MySQL applications must blank-import their selected
-`database/sql` driver.
-
-Browser CSRF protection is mandatory: `GET /auth/csrf-token` returns JSON and sets an HttpOnly cookie; echo the token in `X-CSRF-Token` with credentials on mutations. Handle replacement response headers after authentication changes. See [browser configuration](docs/configuration.mdx#withbrowser-required-allowedorigins), [deployment](docs/guides/deployment.mdx), and [breaking API migration](docs/guides/integration.mdx#browser-and-csrf-migration).
-
-One API can serve an app and an admin dashboard with independent logins in the same browser. The app uses the default cookie context; the panel sends `X-GoAuth-Session: admin` on every request, selecting separate session, refresh, challenge, and CSRF cookies. Both frontends can call the API directly. The selector grants no permissions; normal authorization and 2FA checks still apply.
-
-## Password security
-
-Public password reset and verification resend use a durable recovery queue so
-SMTP timing does not reveal registered addresses. The `recovery_requests`
-table is included in the [schema](docs/schemas.mdx#recovery_requests).
-Call `Auth.Close` during shutdown to stop the delivery worker.
-
-Email-code delivery failures clear only the request's unused token, allowing
-another attempt while preserving concurrently issued codes.
-
-`NewConfig` starts no background work. Each `Auth` gets its own default
-rate-limit store; `Auth.Close` releases it. Supplied stores remain yours to close.
-
-Admin accounts must complete email 2FA through password or OAuth login by
-default. Admin routes check the session's completed second factor, recorded in
-`sessions.two_factor_verified_at`.
-
-With app permissions enabled, only the protected admin role uses admin 2FA
-settings. Every other role follows the user 2FA policy, including custom roles
-with delegated administrative permissions.
-
-`New` revalidates the complete configuration before deriving secrets or
-starting services, including options applied after `NewConfig`.
-
-Internal authentication, session, admin, and 2FA services require their
-transaction manager at construction; there is no implicit autocommit fallback.
-`goauth.New` supplies it automatically. See [Architecture](docs/architecture.mdx)
-for the internal construction and testing contract.
-
-Password login and 2FA session issuance serialize with password replacement.
-2FA verification claims the exact live code under its attempt cap; a resend
-invalidates an in-flight verification of the previous code.
-A reset or change revokes pending challenges and prevents an in-flight login
-from issuing a session using the old password.
-
-The zero-configuration password KDF is bcrypt at cost 12. Existing hashes select
-their verifier from their own format prefix, and a successful login upgrades a
-stale algorithm or parameter set through a guarded rehash.
-
-Argon2id is available but is not the default:
+Mount built-in routes and protect your own routes on the same server:
 
 ```go
-import "github.com/nazimdjebloun/go-auth/hasher/argon2id"
+// auth is a configured *goauth.Auth.
+mux := http.NewServeMux()
+auth.Mount(mux)
 
-goauth.WithPasswordHasher(argon2id.New(argon2id.DefaultOptions()))
+pattern := "GET /app/me"
+mux.Handle(pattern, auth.Protect(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    user := middleware.GetUserFromContext(r.Context())
+    w.Header().Set("Content-Type", "application/json")
+    _ = json.NewEncoder(w).Encode(map[string]string{"userId": user.ID})
+})))
+
+// CORS handles preflight before the mux selects a method-specific route.
+handler := auth.CORS(mux)
 ```
 
-`argon2id.DefaultOptions()` uses RFC 9106's memory-constrained profile: 64 MiB,
-three iterations, and parallelism four. Its memory cost applies to every
-concurrent hash or comparison, so benchmark it on the deployment hardware.
+This snippet uses `net/http`, `encoding/json`, and
+`github.com/nazimdjebloun/go-auth/middleware`. Pass `handler` to your HTTP server.
+`Protect` combines rate limiting, browser CSRF checks, session authentication,
+and email-verification enforcement. Add ownership or permission checks inside
+it before accessing application data. See [application routes](docs/guides/application-routes.mdx).
 
-Password peppering is also opt-in. Omitting `WithPasswordPepper` skips HMAC and
-stores an ordinary bcrypt or Argon2id hash. To enable independently versioned
-pepper keys:
+For a custom router, use `handler, ok := auth.Handler("POST /auth/login")`.
+The returned handler includes its middleware. Your router must populate
+`PathValue` for built-in routes with parameters. See the
+[integration contract](docs/guides/integration.mdx) for details.
 
-```go
-goauth.WithPasswordPepper(goauth.PasswordPepperConfig{
-	CurrentVersion: 1,
-	Keys: map[uint32]string{
-		1: os.Getenv("AUTH_PASSWORD_PEPPER_V1"), // at least 32 bytes
-	},
-})
-```
+An app and admin panel can call the same backend directly with independent
+logins. The app uses the default context; the panel sends
+`X-GoAuth-Session: admin` on every request. Configure both frontend origins and
+the public API origin in `WithBrowser`. See [deployment](docs/guides/deployment.mdx).
 
-All instances must receive the same version-to-secret mapping. Add a new version
-for rotation, preload it on every instance, then make it current while retaining
-every key still referenced by the database. Missing or empty configured keys
-fail startup; the library never silently falls back to unpeppered verification
-for a versioned row. See [Password hashing and pepper
-rotation](docs/security.mdx#password-hashing-and-hasher-migration) for the full
-rollout procedure and failure model.
+## Security and defaults
+
+- Signup is closed by default. Enable the signup methods you need separately
+  from the methods allowed for login.
+- Browser routes require signed double-submit CSRF protection and origin checks.
+  Clients obtain a token from `GET /auth/csrf-token` and send it on mutations.
+- HTTPS and secure cookies are required outside development. HTTP is supported
+  in `EnvironmentDev`; use a real mailer for deployed applications.
+- Password hashing defaults to bcrypt at cost 12. Argon2id and versioned password
+  peppering are opt-in. Passwords default to 8–128 Unicode code points with a
+  letter and a digit; the selected algorithm's input limit also applies.
+- Admin accounts require email 2FA by default. User 2FA can be optional or required.
+- When email verification is required, unverified accounts must verify before
+  accessing protected routes, including through an existing session.
+
+See [configuration](docs/configuration.mdx) for every default and
+[security](docs/security.mdx) for the guarantees and deployment requirements.
 
 ## Using the library without HTTP
 
-`Auth` exposes facade methods for core operations:
-
-Import the operation types from `github.com/nazimdjebloun/go-auth/api`.
+`Auth` exposes facade methods for core operations. Import their input types from
+`github.com/nazimdjebloun/go-auth/api`:
 
 ```go
 result, err := auth.Login(ctx, api.LoginInput{
@@ -290,23 +160,16 @@ result, err := auth.Login(ctx, api.LoginInput{
 ```
 
 The complete service surface is available under `auth.Services()` for applications
-that provide their own transport. The returned bundle is a value, so reassigning
-one of its fields does not change the instance's wiring. `Auth.Mount` remains
-the simplest way to use the built-in handlers, cookies, CSRF checks, and route
-middleware.
-
-For a custom router, use `handler, ok := auth.Handler("POST /auth/login")`.
-The returned handler has its middleware already applied and sets the canonical
-request pattern for rate limiting. For routes with `{parameter}` path segments,
-your router must populate the corresponding `PathValue`s. Disabled and unknown
-routes return `ok == false`.
+that provide their own transport. Direct calls execute business rules; your
+transport supplies authentication, authorization, rate limits, and browser
+protections where applicable. See the [integration contract](docs/guides/integration.mdx).
 
 ## Documentation
 
 - [Installation](docs/installation.mdx) — prerequisites, drivers, CLI, and setup
 - [Configuration](docs/configuration.mdx) — every option, default, and validation
   rule
-- [Security](docs/security.mdx) — password migration, peppers, tokens, CSRF, 2FA,
+- [Security](docs/security.mdx) — password hashing, peppers, tokens, CSRF, 2FA,
   and enumeration protection
 - [Routes](docs/routes/) — HTTP methods, paths, authentication, and bodies
 - [Schemas](docs/schemas.mdx) — tables, indexes, and driver differences
@@ -316,6 +179,7 @@ routes return `ok == false`.
 - [Architecture](docs/architecture.mdx) — package boundaries, middleware, and
   transaction behavior
 - [Error handling](docs/error-handling.mdx) — public error codes and statuses
+- [Changelog](docs/changelog/index.mdx) — release history and upgrade instructions
 
 The documentation is also published at
 [go-auth.nimirixlabs.com](https://go-auth.nimirixlabs.com).
