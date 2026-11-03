@@ -9,7 +9,7 @@ import (
 )
 
 // lockPasswordIdentity reasserts the KDF's snapshot under the same row lock that
-// credential replacement takes. Call only inside the issuance transaction.
+// credential replacement takes. Call only inside the protected transaction.
 func lockPasswordIdentity(ctx context.Context, users port.UserAuthenticationLocker, expected *domain.User) (*domain.User, error) {
 	current, err := users.GetByIDForUpdate(ctx, expected.ID)
 	if err != nil {

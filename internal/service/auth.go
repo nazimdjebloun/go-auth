@@ -723,6 +723,8 @@ func (s *AuthService) DeleteAccount(ctx context.Context, input api.DeleteAccount
 	if !user.HasPassword() {
 		return domain.ErrPasswordRequired
 	}
+	verified := *user
+	user = &verified
 	if err := comparePassword(s.hasher, input.Password, *user.PasswordHash, user.PasswordPepperVersion); err != nil {
 		return domain.NewError("wrong_password", "Password is incorrect")
 	}
@@ -741,7 +743,15 @@ func (s *AuthService) DeleteAccount(ctx context.Context, input api.DeleteAccount
 		}
 		return s.audit.Record(txCtx, audit.NewAccountDeletedEvent(input.UserID))
 	}
-	if err := s.deletion.DeleteUserAndRecord(ctx, input.UserID, record); err != nil {
+	if err := s.users.WithAdminGuard(ctx, func(txCtx context.Context) error {
+		// Take the coordinator's account guard before the individual user lock.
+		// The KDF stays outside locks; its exact snapshot must still authorize
+		// deletion after any concurrent password change, reset, or ban.
+		if _, err := lockPasswordIdentity(txCtx, s.users, user); err != nil {
+			return err
+		}
+		return s.deletion.DeleteUserAndRecord(txCtx, input.UserID, record)
+	}); err != nil {
 		s.log.Error("failed to delete account", "err", err, "user_id", input.UserID)
 		return err
 	}

@@ -381,6 +381,9 @@ DELETE /auth/account
 
 Deletes the caller's account immediately with password confirmation. Clears both cookies. `Auth:` Session. OAuth-only accounts (no password) use the code flow below instead.
 
+The verified credential is rechecked inside the deletion transaction. A
+concurrent password or authentication-state change rejects the stale request.
+
 **Request body:**
 
 ```json
@@ -393,7 +396,8 @@ Deletes the caller's account immediately with password confirmation. Clears both
 { "message": "Account deleted successfully" }
 ```
 
-**Errors:** `wrong_password`.
+**Errors:** `wrong_password`, `invalid_credentials` (`401`, credential or
+authentication state changed before deletion), `user_banned` (`403`).
 
 ### Request account deletion code
 

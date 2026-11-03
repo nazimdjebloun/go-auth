@@ -264,6 +264,13 @@ Password reset is one database transaction after the intentionally out-of-transa
 
 For code-confirmed account deletion through the coordinator wired by `goauth.New`, the validated deletion code is conditionally consumed in the same database transaction as membership/counter maintenance, session removal, and user deletion. A failed token write or a later deletion failure rolls the claim back. Successful user deletion may cascade the token row; the service does not attempt another token write after commit. The audit record joins the same transaction. Existing databases must have the documented foreign-key configuration in place.
 
+Password-confirmed deletion performs the KDF before acquiring locks, then
+rechecks that exact password hash, pepper version and authentication metadata
+under the coordinator's account-mutation guard. A password change/reset or
+authentication-state change that wins that race rejects the stale deletion as
+`invalid_credentials`; a current ban returns `user_banned`. The recheck precedes
+all membership, counter, session and user deletion writes and their audit event.
+
 
 `New()` validates distinct stored versions whenever a keyring is configured. The database ping and stored-version query share a 10-second startup deadline, so an unavailable database fails construction instead of leaving startup blocked indefinitely. Never replace key material under an existing version. Losing a referenced key locks out those rows; if a pepper is compromised, forced password resets may still be appropriate because rotating it cannot revoke an attacker's copy of the leaked database and old key. `PepperRotatedAt` cannot solve that: a timestamp can classify a short-lived OTP as stale but cannot recreate password-verification key material. See [OWASP's password pepper guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#peppering) before opting in.
 

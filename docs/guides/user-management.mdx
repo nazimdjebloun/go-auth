@@ -133,6 +133,8 @@ Two paths depending on whether the account has a password: immediate deletion wi
 |---|---|---|
 | `password_required` | 400 | Account has no password — use the request/confirm flow below instead |
 | `wrong_password` | 400 | Password didn't match |
+| `invalid_credentials` | 401 | Password or authentication state changed before deletion committed |
+| `user_banned` | 403 | Account was banned before the deletion transaction authorized it |
 | `user_not_found` | 404 | Session's user no longer exists |
 
 #### curl

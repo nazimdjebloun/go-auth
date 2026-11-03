@@ -140,6 +140,8 @@ the public API origin in `WithBrowser`. See [deployment](docs/guides/deployment.
   letter and a digit; the selected algorithm's input limit also applies.
 - Password changes invalidate outstanding reset links. Reset completion also
   invalidates any other outstanding reset links for that account.
+- Password-confirmed account deletion rechecks the verified credential inside
+  its transaction before removing account data.
 - Admin accounts require email 2FA by default. User 2FA can be optional or required.
 - When email verification is required, unverified accounts must verify before
   accessing protected routes, including through an existing session.
