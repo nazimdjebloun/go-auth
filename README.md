@@ -143,7 +143,7 @@ the public API origin in `WithBrowser`. See [deployment](docs/guides/deployment.
 - Password-confirmed account deletion rechecks the verified credential inside
   its transaction before removing account data.
 - Password setup rechecks the exact code's purpose, ownership, hash, expiry and
-  unused state when claiming it, after password hashing and user-lock waits.
+  unused state when claiming it, after password hashing and database lock waits.
 - Admin accounts require email 2FA by default. User 2FA can be optional or required.
 - When email verification is required, unverified accounts must verify before
   accessing protected routes, including through an existing session.

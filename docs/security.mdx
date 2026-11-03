@@ -278,7 +278,7 @@ Set-password confirmation also requires the stored password hash to be NULL when
 
 The final set-password claim also checks the exact token ID, hash, owning user,
 set-password purpose, unused state and expiry. Its decision time is sampled
-after acquiring the user lock, so hashing and user-lock waits do not extend a
+after acquiring the user and token locks, so hashing and database waits do not extend a
 code's lifetime. The user's current email must match the address proved by the
 code. Token consumption and password installation join the same transaction,
 including an existing caller transaction; outer rollback restores both rows.

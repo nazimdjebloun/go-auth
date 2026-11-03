@@ -95,7 +95,7 @@ below describes the default mode; opt-in custom roles use explicit operation gra
 
 `port.UserRepository.SetPasswordAndVerify` accepts
 `port.SetPasswordAndVerifyInput`, carrying the user, new hash/pepper version,
-token ID/hash and proved email. SQL implementations lock the user, sample the
+token ID/hash and proved email. SQL implementations lock the user and token, sample the
 current time, claim the exact live set-password token and install the password
 in one transaction. Existing transaction contexts are joined, so a later caller
 failure rolls back both the code and password. Repository test doubles must

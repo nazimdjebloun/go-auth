@@ -299,7 +299,7 @@ POST /auth/set-password/confirm
 Consumes the set-password code. `Auth:` Public.
 
 The final transaction checks the exact code and current expiry after hashing
-and taking the user lock. A code that becomes unusable during that work is
+and taking the user and token locks. A code that becomes unusable during that work is
 rejected as `code_used`; the password and code remain unchanged by that attempt.
 
 **Request body:**

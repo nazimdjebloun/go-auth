@@ -3,6 +3,7 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -161,6 +162,18 @@ func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, input port.Se
 		}
 		if user == nil || user.HasPassword() || user.IsBanned || user.Email != input.Email {
 			return nil
+		}
+		if r.db.Driver() != "sqlite" && r.db.Driver() != "sqlite3" {
+			// A token-only maintenance/issuance write can hold this row even
+			// after the user lock is acquired. Wait before sampling expiry.
+			var tokenID string
+			err := r.db.QueryRowContext(ctx, "SELECT id FROM verification_tokens WHERE id=$1 AND user_id=$2 AND type=$3 FOR UPDATE", input.TokenID, input.UserID, domain.TokenSetPass).Scan(&tokenID)
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
 		}
 		now := time.Now().UTC()
 		claimed, err := NewTokenRepository(r.db).ConsumeIfValid(ctx, port.ConsumeTokenInput{
