@@ -399,7 +399,8 @@ func (m *MockUserRepo) DemoteWithAdminGuard(ctx context.Context, userID string, 
 }
 
 // SetPasswordAndVerify consumes a token, sets a password, and verifies a user.
-func (m *MockUserRepo) SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
+func (m *MockUserRepo) SetPasswordAndVerify(ctx context.Context, input port.SetPasswordAndVerifyInput) (bool, error) {
+	userID, passwordHash, pepperVersion, tokenID := input.UserID, input.PasswordHash, input.PepperVersion, input.TokenID
 	recordMockTx(ctx, m)
 	m.mu.Lock()
 	defer m.mu.Unlock()

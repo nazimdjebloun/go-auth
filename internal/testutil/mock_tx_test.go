@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
 )
 
 func TestMockTxManagerCommitsAndRollsBackRepositories(t *testing.T) {
@@ -156,7 +157,7 @@ func TestMockTxManagerRollsBackSetPasswordClaims(t *testing.T) {
 	tx := &MockTxManager{}
 	want := errors.New("later write failed")
 	err := tx.WithTx(t.Context(), func(ctx context.Context) error {
-		if ok, err := repo.SetPasswordAndVerify(ctx, "user", "hash", nil, "code"); err != nil || !ok {
+		if ok, err := repo.SetPasswordAndVerify(ctx, port.SetPasswordAndVerifyInput{UserID: "user", PasswordHash: "hash", TokenID: "code"}); err != nil || !ok {
 			t.Fatalf("set password = %v, %v", ok, err)
 		}
 		return want
@@ -167,7 +168,7 @@ func TestMockTxManagerRollsBackSetPasswordClaims(t *testing.T) {
 	if user, err := repo.GetByID(t.Context(), "user"); err != nil || user.HasPassword() || user.IsVerified {
 		t.Fatalf("credential survived rollback: %+v, %v", user, err)
 	}
-	if ok, err := repo.SetPasswordAndVerify(t.Context(), "user", "hash", nil, "code"); err != nil || !ok {
+	if ok, err := repo.SetPasswordAndVerify(t.Context(), port.SetPasswordAndVerifyInput{UserID: "user", PasswordHash: "hash", TokenID: "code"}); err != nil || !ok {
 		t.Fatalf("rolled-back token could not be claimed again: %v, %v", ok, err)
 	}
 }

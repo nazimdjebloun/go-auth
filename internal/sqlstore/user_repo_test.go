@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/port"
 )
 
 func TestUpdatePasswordHash_GuardsHashAndPepperVersion(t *testing.T) {
@@ -81,40 +82,24 @@ func TestUpdatePasswordHash_GuardsHashAndPepperVersion(t *testing.T) {
 }
 
 func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
-	db := newSQLiteTestDB(t)
-	if _, err := db.Exec(`
-		CREATE TABLE users (
-			id TEXT PRIMARY KEY,
-			password_hash TEXT,
-			password_pepper_version INTEGER,
-			is_verified INTEGER NOT NULL,
-			verified_at DATETIME,
-			updated_at DATETIME NOT NULL
-		)`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(`
-		CREATE TABLE verification_tokens (
-			id TEXT PRIMARY KEY,
-			used_at DATETIME
-		)`); err != nil {
-		t.Fatal(err)
-	}
+	db := backendDB(t)
+	userID := backendUser(t, db)
 	now := time.Now().UTC()
-	if _, err := db.Exec("INSERT INTO users (id, is_verified, updated_at) VALUES (?, ?, ?)", "u1", false, now); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("INSERT INTO verification_tokens (id) VALUES (?)", "tok-1"); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec("INSERT INTO verification_tokens (id) VALUES (?)", "tok-2"); err != nil {
-		t.Fatal(err)
+	tokenIDs := []string{"00000000-0000-4000-8000-000000000211", "00000000-0000-4000-8000-000000000212"}
+	for _, tokenID := range tokenIDs {
+		if err := NewTokenRepository(db).Create(t.Context(), &domain.VerificationToken{
+			ID: tokenID, UserID: &userID, Email: userID + "@example.com", TokenHash: tokenID,
+			Type: domain.TokenSetPass, ExpiresAt: now.Add(time.Hour),
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	repo := NewUserRepository(db)
 	ctx := context.Background()
 
-	claimed, err := repo.SetPasswordAndVerify(ctx, "u1", "hash-A", nil, "tok-1")
+	input := port.SetPasswordAndVerifyInput{UserID: userID, PasswordHash: "hash-A", TokenID: tokenIDs[0], TokenHash: tokenIDs[0], Email: userID + "@example.com"}
+	claimed, err := repo.SetPasswordAndVerify(ctx, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +110,8 @@ func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
 	// A second confirm with the same code must lose the claim and leave the
 	// first password in place — before the guarded claim, both writes
 	// landed and the later password silently won.
-	claimed, err = repo.SetPasswordAndVerify(ctx, "u1", "hash-B", nil, "tok-1")
+	input.PasswordHash = "hash-B"
+	claimed, err = repo.SetPasswordAndVerify(ctx, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +121,8 @@ func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
 
 	// A separately issued code can also be live when requests race. Its
 	// claim must roll back if the password was installed by the first code.
-	claimed, err = repo.SetPasswordAndVerify(ctx, "u1", "hash-C", nil, "tok-2")
+	input.PasswordHash, input.TokenID, input.TokenHash = "hash-C", tokenIDs[1], tokenIDs[1]
+	claimed, err = repo.SetPasswordAndVerify(ctx, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +133,7 @@ func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
 	var storedHash string
 	var verified bool
 	if err := db.QueryRowContext(ctx,
-		"SELECT password_hash, is_verified FROM users WHERE id = ?", "u1",
+		"SELECT password_hash, is_verified FROM users WHERE id = $1", userID,
 	).Scan(&storedHash, &verified); err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +146,7 @@ func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
 
 	var usedCount int
 	if err := db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM verification_tokens WHERE id = ? AND used_at IS NOT NULL", "tok-1",
+		"SELECT COUNT(*) FROM verification_tokens WHERE id = $1 AND used_at IS NOT NULL", tokenIDs[0],
 	).Scan(&usedCount); err != nil {
 		t.Fatal(err)
 	}
@@ -168,7 +155,7 @@ func TestSetPasswordAndVerify_ClaimsTokenOnce(t *testing.T) {
 	}
 	var secondCodeUsed bool
 	if err := db.QueryRowContext(ctx,
-		"SELECT used_at IS NOT NULL FROM verification_tokens WHERE id = ?", "tok-2",
+		"SELECT used_at IS NOT NULL FROM verification_tokens WHERE id = $1", tokenIDs[1],
 	).Scan(&secondCodeUsed); err != nil {
 		t.Fatal(err)
 	}

@@ -142,6 +142,8 @@ the public API origin in `WithBrowser`. See [deployment](docs/guides/deployment.
   invalidates any other outstanding reset links for that account.
 - Password-confirmed account deletion rechecks the verified credential inside
   its transaction before removing account data.
+- Password setup rechecks the exact code's purpose, ownership, hash, expiry and
+  unused state when claiming it, after password hashing and user-lock waits.
 - Admin accounts require email 2FA by default. User 2FA can be optional or required.
 - When email verification is required, unverified accounts must verify before
   accessing protected routes, including through an existing session.
@@ -169,6 +171,10 @@ The complete service surface is available under `auth.Services()` for applicatio
 that provide their own transport. Direct calls execute business rules; your
 transport supplies authentication, authorization, rate limits, and browser
 protections where applicable. See the [integration contract](docs/guides/integration.mdx).
+
+Repository test doubles implementing `port.UserRepository` must use the
+`SetPasswordAndVerify(ctx, port.SetPasswordAndVerifyInput)` contract, which carries
+the validated token hash and email as well as the new credential.
 
 ## Documentation
 

@@ -268,7 +268,8 @@ func (m *mockUserRepo) UpdatePasswordHash(_ context.Context, userID, oldHash str
 	return true, nil
 }
 
-func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
+func (m *mockUserRepo) SetPasswordAndVerify(_ context.Context, input port.SetPasswordAndVerifyInput) (bool, error) {
+	userID, passwordHash, pepperVersion, tokenID := input.UserID, input.PasswordHash, input.PepperVersion, input.TokenID
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	u, ok := m.users[userID]

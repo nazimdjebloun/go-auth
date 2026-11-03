@@ -276,6 +276,13 @@ all membership, counter, session and user deletion writes and their audit event.
 
 Set-password confirmation also requires the stored password hash to be NULL when writing. If a distinct live code or another credential write installed a password first, the losing confirmation rolls back its code claim and leaves that password unchanged.
 
+The final set-password claim also checks the exact token ID, hash, owning user,
+set-password purpose, unused state and expiry. Its decision time is sampled
+after acquiring the user lock, so hashing and user-lock waits do not extend a
+code's lifetime. The user's current email must match the address proved by the
+code. Token consumption and password installation join the same transaction,
+including an existing caller transaction; outer rollback restores both rows.
+
 ## Secret rotation and the OTP pepper timestamp
 
 Codes issued before a rotation were hashed with an HMAC under a pepper that no longer exists, so they can never verify without special handling and would otherwise fail as `invalid_code`, indistinguishable from a typo. Pair every secret rotation with `WithPepperRotatedAt`, set to the moment the new secret went live:

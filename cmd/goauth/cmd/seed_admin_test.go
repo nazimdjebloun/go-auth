@@ -77,7 +77,7 @@ func (f *fakeUserRepo) Count(_ context.Context, filter port.UserFilter) (int, er
 func (f *fakeUserRepo) CountByDay(_ context.Context, _ port.UserFilter) ([]api.DailyCount, error) {
 	return nil, nil
 }
-func (f *fakeUserRepo) SetPasswordAndVerify(_ context.Context, _, _ string, _ *uint32, _ string) (bool, error) {
+func (f *fakeUserRepo) SetPasswordAndVerify(_ context.Context, _ port.SetPasswordAndVerifyInput) (bool, error) {
 	return true, nil
 }
 func (f *fakeUserRepo) SetBanStatus(_ context.Context, _ string, _ bool, _ *time.Time, _ time.Time) error {

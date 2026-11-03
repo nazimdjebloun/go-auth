@@ -150,38 +150,39 @@ func (r *UserRepository) SetTwoFactorEnabled(ctx context.Context, userID string,
 }
 
 // SetPasswordAndVerify consumes a token, sets the password, and verifies the user.
-func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error) {
-	tx, err := r.db.BeginTx(ctx, nil)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	now := time.Now().UTC()
-
-	// Claim the one-time code BEFORE writing the password, gating on it
-	// still being unused: only the request that flips used_at proceeds, so
-	// concurrent confirms with the same code cannot both land — the loser
-	// rolls back without touching the winner's password.
-	claimed, err := affected(tx.ExecContext(ctx, r.db.Rebind(tokenMarkUsedIfUnusedQuery), now, tokenID))
-	if err != nil {
-		return false, err
-	}
-	if !claimed {
-		return false, nil
-	}
-
-	updated, err := affected(tx.ExecContext(ctx, r.db.Rebind(userSetPasswordQuery), passwordHash, pepperVersion, now, now, userID))
-	if err != nil {
-		return false, err
-	}
-	if !updated {
-		// A different code or credential writer won the race. Rolling back
-		// also restores this code so the transaction has no partial effect.
-		return false, nil
-	}
-
-	return true, tx.Commit()
+func (r *UserRepository) SetPasswordAndVerify(ctx context.Context, input port.SetPasswordAndVerifyInput) (bool, error) {
+	var updated bool
+	err := r.db.WithTx(ctx, func(ctx context.Context) error {
+		// Match credential replacement's user-before-token lock order. Sampling
+		// after the lock includes time spent hashing and waiting for this user.
+		user, err := r.GetByIDForUpdate(ctx, input.UserID)
+		if err != nil {
+			return err
+		}
+		if user == nil || user.HasPassword() || user.IsBanned || user.Email != input.Email {
+			return nil
+		}
+		now := time.Now().UTC()
+		claimed, err := NewTokenRepository(r.db).ConsumeIfValid(ctx, port.ConsumeTokenInput{
+			ID: input.TokenID, TokenHash: input.TokenHash, UserID: input.UserID,
+			Type: domain.TokenSetPass, UsedAt: now,
+		})
+		if err != nil || !claimed {
+			return err
+		}
+		updated, err = affected(r.db.ExecContext(ctx, userSetPasswordQuery,
+			input.PasswordHash, input.PepperVersion, now, now, input.UserID))
+		if err != nil {
+			return err
+		}
+		if !updated {
+			// Never let an outer transaction commit a token claim after an
+			// unexpected failure to update the already-locked user.
+			return fmt.Errorf("setting password: locked user state changed")
+		}
+		return nil
+	})
+	return updated && err == nil, err
 }
 
 // UpdatePasswordHash replaces a matching password hash and pepper version.

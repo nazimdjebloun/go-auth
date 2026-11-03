@@ -500,7 +500,10 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.Conf
 		return passwordHashError(err)
 	}
 
-	claimed, err := s.users.SetPasswordAndVerify(ctx, input.UserID, hash, pepperVersion, token.ID)
+	claimed, err := s.users.SetPasswordAndVerify(ctx, port.SetPasswordAndVerifyInput{
+		UserID: input.UserID, PasswordHash: hash, PepperVersion: pepperVersion,
+		TokenID: token.ID, TokenHash: token.TokenHash, Email: token.Email,
+	})
 	if err != nil {
 		s.log.Error("failed to set password", "err", err, "user_id", input.UserID)
 		return domain.ErrInternal

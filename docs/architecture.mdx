@@ -93,6 +93,14 @@ below describes the default mode; opt-in custom roles use explicit operation gra
 
 ## Package map
 
+`port.UserRepository.SetPasswordAndVerify` accepts
+`port.SetPasswordAndVerifyInput`, carrying the user, new hash/pepper version,
+token ID/hash and proved email. SQL implementations lock the user, sample the
+current time, claim the exact live set-password token and install the password
+in one transaction. Existing transaction contexts are joined, so a later caller
+failure rolls back both the code and password. Repository test doubles must
+implement this input contract as well.
+
 | Package | Responsibility |
 |---|---|
 | `domain` | Core types (`User`, `Session`, `Organization`, ...) and every `AuthError`. No dependencies on anything else in the module. |

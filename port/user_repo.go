@@ -54,6 +54,17 @@ type UserAuthenticationLocker interface {
 	GetByIDForUpdate(ctx context.Context, id string) (*domain.User, error)
 }
 
+// SetPasswordAndVerifyInput binds a password installation to the exact code
+// and email checked by the service. The repository samples expiry after locking.
+type SetPasswordAndVerifyInput struct {
+	UserID        string
+	PasswordHash  string
+	PepperVersion *uint32
+	TokenID       string
+	TokenHash     string
+	Email         string
+}
+
 // UserRepository stores user accounts and credentials.
 type UserRepository interface {
 	UserAuthenticationLocker
@@ -88,12 +99,11 @@ type UserRepository interface {
 	CountByDay(ctx context.Context, filter UserFilter) ([]api.DailyCount, error)
 	// SetPasswordAndVerify atomically consumes a set-password code and sets the
 	// password in one transaction. The token claim is conditional on the
-	// token still being unused and is checked before the password write, so
-	// two concurrent confirms cannot both consume the code. Returns false
-	// when the code was already consumed or the user acquired a password
-	// concurrently. A false result leaves the code and password untouched;
-	// true means the password was set.
-	SetPasswordAndVerify(ctx context.Context, userID string, passwordHash string, pepperVersion *uint32, tokenID string) (bool, error)
+	// token's ID, hash, user, set-password purpose, unused state and current
+	// expiry. Lock the user before sampling time and claiming the code, and
+	// join an existing transaction. False leaves both rows untouched when the
+	// code is no longer usable, the user's email changed, or a password exists.
+	SetPasswordAndVerify(ctx context.Context, input SetPasswordAndVerifyInput) (bool, error)
 	SetBanStatus(ctx context.Context, userID string, isBanned bool, bannedAt *time.Time, updatedAt time.Time) error
 	UpdateLastLoginAt(ctx context.Context, userID string, t time.Time) error
 	SetTwoFactorEnabled(ctx context.Context, userID string, enabled bool, updatedAt time.Time) error
