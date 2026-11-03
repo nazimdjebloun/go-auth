@@ -67,9 +67,10 @@ func TestFixedOrgInvitesRequireCurrentAuthority(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if tc.revoke == "demote" {
+			switch tc.revoke {
+			case "demote":
 				err = orgSvc.UpdateMemberRole(ctx, api.UpdateMemberRoleInput{OrgID: org.ID, UserID: f.userID, ActorID: ids["owner"], NewRole: domain.OrgRoleMember})
-			} else if tc.revoke == "remove" {
+			case "remove":
 				err = orgSvc.RemoveMember(ctx, api.RemoveMemberInput{OrgID: org.ID, UserID: f.userID, ActorID: ids["owner"]})
 			}
 			if err != nil {
