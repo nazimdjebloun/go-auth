@@ -107,6 +107,9 @@ func (s *AppPermissionsService) DeletePermission(ctx context.Context, input api.
 		if p.IsSystem {
 			return domain.ErrProtectedAppPermission
 		}
+		if err := s.delegation(ctx, input.Actor, "", []string{p.Key}); err != nil {
+			return err
+		}
 		if p.Revision != input.ExpectedRevision {
 			return domain.ErrAppAuthorizationConflict
 		}
