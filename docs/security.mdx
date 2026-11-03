@@ -230,6 +230,14 @@ When enabled, security-critical transactional paths (registration, successful lo
 
 Password reset and password change also invalidate unused email 2FA login challenges in the same transaction as the password and session changes.
 
+Both operations also delete unused password-reset tokens in that transaction.
+A reset link issued before a completed password change cannot replace the new
+password, even when the caller keeps its current session. Reset-token issuance
+locks and rechecks the password/pepper/email snapshot before storing a link;
+issuance that loses a concurrent credential change sends nothing. Reset redemption
+takes the user lock before claiming its token, preserving the credential flows'
+user-before-token lock order. Delivery after commit cannot recreate a revoked link.
+
 Admin bans commit the ban, session deletion, and audit record together; unbanning and disabling 2FA commit their state change and audit record together. Enabling 2FA commits the enabled flag, any requested deletion of other sessions, and its audit record together. A failed revocation rolls back the state change. A failed audit write rolls it back only when the event's `EnqueueFailureMode` is fail-closed; the default fail-open policy logs/counts the failure and permits the change.
 
 ## Secrets

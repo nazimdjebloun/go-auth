@@ -102,6 +102,10 @@ func (s *PasswordService) sendPasswordReset(ctx context.Context, input api.Forgo
 		s.burnForgotPasswordDummy(ctx)
 		return nil
 	}
+	// Preserve the lookup snapshot across token generation and lock acquisition.
+	expectedHash := *user.PasswordHash
+	expectedPepper := passwordPepperVersionValue(user.PasswordPepperVersion)
+	expectedEmail := user.Email
 
 	raw, err := s.gen.Generate()
 	if err != nil {
@@ -120,11 +124,24 @@ func (s *PasswordService) sendPasswordReset(ctx context.Context, input api.Forgo
 		ExpiresAt: now.Add(s.config.TokenTTL),
 	}
 
+	issued := false
 	if err := s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		current, err := s.users.GetByIDForUpdate(txCtx, user.ID)
+		if err != nil {
+			return err
+		}
+		if current == nil || !current.HasPassword() || *current.PasswordHash != expectedHash ||
+			passwordPepperVersionValue(current.PasswordPepperVersion) != expectedPepper || current.Email != expectedEmail {
+			return nil
+		}
+		issued = true
 		return s.writePasswordResetToken(txCtx, user.ID, token)
 	}); err != nil {
 		s.log.Error("failed to replace reset token", "err", err, "user_id", user.ID)
 		return err
+	}
+	if !issued {
+		return nil
 	}
 
 	url := s.config.BaseURL + "/reset-password?token=" + raw
@@ -266,6 +283,12 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 
 	now := time.Now().UTC()
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+		// All credential flows lock the user before tokens. Claiming first
+		// would invert reset issuance/change's lock order and permit deadlocks.
+		if _, err := s.users.GetByIDForUpdate(txCtx, user.ID); err != nil {
+			return err
+		}
+		now = time.Now().UTC()
 		// Reassert every security predicate while claiming the token. The
 		// earlier read only classifies friendly errors; this guarded UPDATE is
 		// the authority that serializes concurrent reset requests.
@@ -298,6 +321,9 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 		}
 		if err := s.tokens.DeleteUnusedByUserAndType(txCtx, user.ID, domain.TokenTwoFactor); err != nil {
 			return fmt.Errorf("revoking pending two-factor challenges after password reset: %w", err)
+		}
+		if err := s.tokens.DeleteUnusedByUserAndType(txCtx, user.ID, domain.TokenResetPass); err != nil {
+			return fmt.Errorf("revoking other password reset tokens: %w", err)
 		}
 		if s.audit != nil {
 			if err := s.audit.Record(txCtx, audit.NewPasswordResetCompletedEvent(user.ID, nil, "")); err != nil {
@@ -537,6 +563,9 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input api.ChangePa
 		}
 		if err := s.tokens.DeleteUnusedByUserAndType(txCtx, input.UserID, domain.TokenTwoFactor); err != nil {
 			return fmt.Errorf("revoking pending two-factor challenges after password change: %w", err)
+		}
+		if err := s.tokens.DeleteUnusedByUserAndType(txCtx, input.UserID, domain.TokenResetPass); err != nil {
+			return fmt.Errorf("revoking password reset tokens after password change: %w", err)
 		}
 		// Inside the transaction: the record commits with the password
 		// change it describes, so a crash cannot leave a rotated credential

@@ -138,6 +138,8 @@ the public API origin in `WithBrowser`. See [deployment](docs/guides/deployment.
 - Password hashing defaults to bcrypt at cost 12. Argon2id and versioned password
   peppering are opt-in. Passwords default to 8–128 Unicode code points with a
   letter and a digit; the selected algorithm's input limit also applies.
+- Password changes invalidate outstanding reset links. Reset completion also
+  invalidates any other outstanding reset links for that account.
 - Admin accounts require email 2FA by default. User 2FA can be optional or required.
 - When email verification is required, unverified accounts must verify before
   accessing protected routes, including through an existing session.
