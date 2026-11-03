@@ -2,6 +2,7 @@
   "title": "Client",
   "pages": [
     "index",
+    "security-basics",
     "authentication",
     "user-management",
     "sessions",

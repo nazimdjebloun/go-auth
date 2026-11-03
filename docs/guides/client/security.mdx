@@ -8,6 +8,10 @@ icon: "ShieldHalf"
 
 Wraps every endpoint from the [Security](../security.mdx) guide into `securityApi`, built on the [`apiRequest`](./index.mdx) helper. Account deletion lives on [User management](./user-management.mdx).
 
+<Callout type="info" title="Protect the surrounding application too">
+  Read [Before you ship](./security-basics.mdx) for permission boundaries, recovery-link handling, browser headers, and production configuration mistakes to avoid.
+</Callout>
+
 <Callout type="info" title="UI components">
   All UI examples on this page use [shadcn/ui](https://ui.shadcn.com) with the default base variant. Only layout and styling change between projects — the component API stays the same. Install with `npx shadcn@latest add button input card label alert`.
 </Callout>
@@ -218,7 +222,7 @@ export function ForgotPasswordForm() {
 
 ## Reset password
 
-Public page — user lands here from the emailed link. The `code` comes from the URL query params.
+Public page — user lands here from the emailed link. The default email uses the URL query parameter `token`; send its value as the API's JSON field `code`. See [emailed-link handling](./security-basics.mdx#treat-emailed-links-as-credentials) for referrer, history, and logging precautions.
 
 ```tsx
 // components/reset-password-form.tsx
@@ -236,7 +240,7 @@ import { getSecurityErrorMessage } from "../lib/security-errors";
 
 export function ResetPasswordForm() {
   const searchParams = useSearchParams();
-  const code = searchParams.get("code") ?? "";
+  const code = searchParams.get("token") ?? "";
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);

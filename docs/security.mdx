@@ -189,6 +189,11 @@ non-delegable. Delegated role management is bounded by the actor's currently
 held keys and blocks self role editing/assignment and protected-admin transitions.
 Permission checks do not replace resource ownership or organization membership.
 
+Business-permission deletion also checks the actor's held-key delegation bound
+and refuses definitions referenced by any role. An unused definition needs a
+protected administrator for deletion; delegated definition-delete access alone
+does not authorize deleting arbitrary unused keys.
+
 The schema binds `app_permissions.is_system` to the exact lowercase `goauth.app.`
 key prefix with a CHECK constraint. Direct inserts and updates cannot mark a
 library key as business-owned or a business key as library-owned. The service

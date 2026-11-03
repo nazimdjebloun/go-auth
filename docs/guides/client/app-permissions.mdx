@@ -829,6 +829,10 @@ Mount edit forms with a key such as `permission.id + ":" + permission.revision` 
 
 Remove the key from every role before deleting its definition. Disabled grants still count as references. `permission_in_use` means cleanup is required, not that the browser should cascade the deletion. Library definitions use the protected removal endpoint instead.
 
+<Callout type="info" title="Use a protected administrator for unused definitions">
+  Delegated deletion also requires currently holding the target business key. A held key has a role grant that blocks deletion; clearing that grant removes the delegate's authority. Show this control to a protected administrator, and still handle server-side denials if access changes while the dialog is open. See [delegation boundaries](./security-basics.mdx#delegation-has-more-than-one-requirement).
+</Callout>
+
 ### Delete confirmation
 
 ```tsx
@@ -838,12 +842,12 @@ Remove the key from every role before deleting its definition. Disabled grants s
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { appPermissionsApi, type AppPermission } from "../lib/api/app-permissions";
+import { appPermissionsApi, type AppAccess, type AppPermission } from "../lib/api/app-permissions";
 import { getPermissionErrorMessage, permissionErrorCode } from "../lib/app-permission-errors";
 import { PermissionError } from "./app-permission-ui";
 
-export function DeleteAppPermission({ permission, onDeleted, onReload }: {
-  permission: AppPermission; onDeleted: () => void; onReload: () => void;
+export function DeleteAppPermission({ permission, access, onDeleted, onReload }: {
+  permission: AppPermission; access: AppAccess; onDeleted: () => void; onReload: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -862,21 +866,21 @@ export function DeleteAppPermission({ permission, onDeleted, onReload }: {
   }
 
   return <Dialog open={open} onOpenChange={(next) => { if (!loading) setOpen(next); }}>
-    <DialogTrigger asChild><Button variant="destructive" disabled={permission.isSystem}>Delete business definition</Button></DialogTrigger>
+    <DialogTrigger asChild><Button variant="destructive" disabled={permission.isSystem || !access.isFullAccess}>Delete business definition</Button></DialogTrigger>
     <DialogContent>
       <DialogHeader><DialogTitle>Delete {permission.key}?</DialogTitle><DialogDescription>Delete revision {permission.revision}. Every role grant must already be removed.</DialogDescription></DialogHeader>
       <PermissionError message={error} />
       <DialogFooter>
         <Button variant="outline" disabled={loading} onClick={() => setOpen(false)}>Cancel</Button>
         {stale && <Button variant="outline" disabled={loading} onClick={() => { setOpen(false); onReload(); }}>Reload before reviewing again</Button>}
-        <Button variant="destructive" disabled={loading || stale} onClick={remove}>{loading ? "Deleting..." : "Delete definition"}</Button>
+        <Button variant="destructive" disabled={loading || stale || !access.isFullAccess} onClick={remove}>{loading ? "Deleting..." : "Delete definition"}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>;
 }
 ```
 
-`onReload` should refresh the selected definition and remount this dialog with its new ID/revision key. `onDeleted` removes it from client state and refreshes access. The shared request wrapper handles the empty `204`; do not parse a JSON success object.
+Pass current `AppAccess` as `access` for UI feedback; the backend independently checks the authenticated actor. `onReload` should refresh the selected definition and remount this dialog with its new ID/revision key. `onDeleted` removes it from client state and refreshes access. The shared request wrapper handles the empty `204`; do not parse a JSON success object.
 
 ---
 

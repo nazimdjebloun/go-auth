@@ -8,6 +8,10 @@ icon: "Plug"
 
 Every **Client** section across the guides — and every named method on the wrapped clients in this folder (`authApi`, and whatever gets added alongside future guides) — is built on one small `fetch` wrapper. It's defined once here rather than repeated in every guide.
 
+<Callout type="info" title="Taking an example into production?">
+  Start with [Before you ship](./security-basics.mdx): practical cards and examples for tenant isolation, delegated permissions, browser credentials, recovery, and deployment settings.
+</Callout>
+
 It has to do two things a plain `fetch` call doesn't: send cookies on every request, and attach the CSRF header on every state-changing request. Both are mandatory — the double-submit token layer is mandatory, so a `POST` without the header is a `403` before it reaches a handler.
 
 ```ts

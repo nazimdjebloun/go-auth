@@ -211,6 +211,12 @@ Protected-admin transitions remain protected-admin-only. A delegated business
 permission updater must hold the key it updates; it cannot re-enable a disabled
 key to regain its own access.
 
+Business-permission deletion also enforces the held-key bound before checking
+references. An unused definition therefore needs a protected administrator to
+delete it: a delegate holding that key has a role grant that prevents deletion,
+and removing that grant removes its held-key authority. See the
+[client security guide](./client/security-basics.mdx#delegation-has-more-than-one-requirement).
+
 ## Check access on the backend
 
 The optional service capability is exposed through

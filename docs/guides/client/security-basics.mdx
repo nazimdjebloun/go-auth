@@ -1,0 +1,206 @@
+---
+title: "Before you ship"
+description: "Practical browser, permission, tenant, and deployment mistakes to avoid, with examples and recovery steps."
+icon: "ShieldCheck"
+---
+
+# Before you ship
+
+Use this guide when turning an example client into a real application. go-auth checks authentication and the permissions you configure; your frontend, application queries, and deployment still have security responsibilities.
+
+<Cards>
+  <Card title="Protect application data" href="#protect-application-data">
+    Keep actor identity on the server and scope every tenant-owned query.
+  </Card>
+  <Card title="Handle browser credentials" href="#handle-browser-credentials">
+    Use HttpOnly cookies, CSRF protection, and separate app/admin clients.
+  </Card>
+  <Card title="Recover safely" href="#recover-safely">
+    Handle expired sessions, one-time codes, conflicts, and uncertain writes.
+  </Card>
+  <Card title="Prepare deployment" href="#prepare-deployment">
+    Remove demo conveniences, set document headers, and review dependencies.
+  </Card>
+</Cards>
+
+## Protect application data
+
+### A visible button does not grant access
+
+<Callout type="warn" title="The server makes the decision">
+  A caller can change JavaScript, edit a request, or call the API without your UI. Hiding a button improves the interface; it cannot authorize the operation. Access responses are snapshots, and an administrator may revoke a grant while the page stays open.
+</Callout>
+
+Use [application route protection](../application-routes.mdx) and the appropriate permission or organization guard on your own endpoints. Derive the actor from the authenticated request. A JSON `userId`, `actor`, role name, or custom identity header is not proof of who made the request.
+
+For example, a viewer who sends a task-delete request directly must still be denied by the API. After a permission denial, refresh access and explain the missing permission. Do not assume every `403` means the user must log out.
+
+### Keep the tenant in every query
+
+<Callout type="warn" title="An authenticated resource ID is not an ownership check">
+  Suppose a member of Beta learns an Alpha task ID. A query using only that task ID can expose or change Alpha's data even though the caller has valid permissions in Beta. go-auth cannot add predicates to SQL issued by your application.
+</Callout>
+
+For tenant-owned handlers, use `RequireOrgPermissionScope` or `RequireActiveOrgPermissionScope`. Pass the complete authorized `goauth.OrgScope` to the repository. This PostgreSQL example belongs in your application's task repository:
+
+```go
+func (r *TaskRepository) Delete(ctx context.Context, scope goauth.OrgScope, taskID string) (bool, error) {
+    result, err := r.db.ExecContext(ctx,
+        "DELETE FROM tasks WHERE id = $1 AND org_id = $2",
+        taskID, scope.OrgID,
+    )
+    if err != nil {
+        return false, err
+    }
+    count, err := result.RowsAffected()
+    return count > 0, err
+}
+```
+
+Apply the same tenant predicate to reads, updates, completion toggles, counts, and exports. Map a zero-row result to your application's not-found response without disclosing whether another organization owns the ID. See [application route protection](../application-routes.mdx).
+
+### Delegation has more than one requirement
+
+<Callout type="info" title="Management permission does not mean unrestricted management">
+  `goauth.app.permissions.delete` alone does not authorize deleting an arbitrary business definition. Delegated deletion also checks the target key against the actor's current effective grants. Deletion separately refuses definitions referenced by any role.
+</Callout>
+
+These rules mean an unused business definition must be deleted by a protected administrator: a delegate holding the key necessarily has a role grant referencing it. Removing that grant also removes the delegate's held-key authority. Do not build a client flow that clears its own grant and expects to keep deletion rights.
+
+Example: an operator holding definition-management keys but not `app.reports.export` receives `403 forbidden` when trying to update or delete that definition. An administrator must review the deletion, remove all role grants, reload the current definition revision, and confirm it. Library definitions use the separate protected catalog operation. See [app permission deletion](./app-permissions.mdx#delete-a-business-permission).
+
+## Handle browser credentials
+
+### Keep authentication tokens in HttpOnly cookies
+
+Use the [shared request helper](./index.mdx), which sends `credentials: "include"`, obtains the CSRF token through `GET /auth/csrf-token`, and attaches `X-CSRF-Token` to mutations. The authentication and CSRF cookies are HttpOnly; browser JavaScript does not need to read them.
+
+<Callout type="warn" title="Do not move sessions into localStorage">
+  Do not copy session, refresh, or 2FA binding tokens into localStorage, query strings, analytics, or error reports. HttpOnly cookies reduce direct token reading by injected JavaScript; they do not make XSS harmless. Render untrusted names, titles, and descriptions as text, and avoid raw HTML sinks.
+</Callout>
+
+Use ordinary React interpolation for user content:
+
+```tsx
+<p>{task.title}</p>
+```
+
+That keeps an input such as `<img src=x onerror=...>` as text. Rich HTML content needs a separate, deliberately designed sanitization policy.
+
+### Keep app and admin clients separate
+
+The app client uses the default session context. The [admin client](../../admin-client-config.mdx#the-fetch-wrapper) sends `X-GoAuth-Session: admin` on every request, including CSRF bootstrap and login. Each client keeps its own in-memory CSRF token cache. A shared API URL does not mean the contexts share a login.
+
+<Callout type="info" title="CORS and CSRF protect different boundaries">
+  Allow only the frontend origins you actually serve, including the correct scheme and port. Do not disable CSRF checks to fix a frontend integration error. A credentialed request still needs the matching browser/session CSRF token and an allowed origin; CORS alone does not authorize a write.
+</Callout>
+
+## Recover safely
+
+### Use the server's next step
+
+A password response with `step: "two_factor"` is a pending challenge, not an authenticated login. Keep the challenge in the same browser context and use the original binding cookie. A `verify_email` step is also restricted; do not show protected data based on the presence of a user object alone. Follow the [authentication client](./authentication.mdx).
+
+| Response | What the client should do |
+|---|---|
+| `401`, or `403 user_banned` | Clear cached identity and protected data through the shared wrapper. |
+| Ordinary `403 forbidden` / `org_forbidden` | Explain the denial and refresh current access; keep unrelated signed-in state. |
+| `403 two_factor_required` | Start a new sign-in flow and complete its second factor. |
+| `409 authorization_conflict` / `org_authorization_conflict` | Reload the affected record and let the operator review it before submitting again. |
+| `429 rate_limit_exceeded` | Show the `Retry-After` delay; stop repeated submissions. |
+| Used, expired, or revoked credential | Restart the relevant recovery or sign-in flow; do not keep replaying it. |
+
+Only the reserved pre-handler CSRF errors in the shared helper trigger its single bootstrap-and-retry. Do not retry every `403`, automatically increase a stale revision, or assume a failed network request means a write rolled back. Reload the affected resource before retrying an uncertain mutation.
+
+Coordinate refreshes within a client rather than letting every failed request start a competing refresh. Replaying a previous refresh token after the grace window revokes that session. The browser must then sign in again; copying the old token back is not recovery. See [sessions](./sessions.mdx).
+
+### Treat emailed links as credentials
+
+The default password-reset email opens `/reset-password?token=...`; the confirmation request sends that value in the JSON field named `code`. Keep raw links and codes out of telemetry and application logs, and avoid third-party scripts on recovery pages.
+
+```ts
+// Run in the browser when the recovery page initializes.
+const url = new URL(window.location.href);
+const code = url.searchParams.get("token") ?? "";
+url.searchParams.delete("token");
+window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+
+// Keep code in component memory until the user submits a new password.
+// await securityApi.resetPassword(code, newPassword);
+```
+
+<Callout type="info" title="Removing a token from the address bar has limits">
+  This reduces later copying and history exposure. It does not erase the initial request from server/proxy logs or undo an earlier leak. Redact credential-bearing URLs at those layers, and send `Referrer-Policy: no-referrer` on the recovery page.
+</Callout>
+
+Forgot-password confirmation should remain account-independent. Show a message such as “If an eligible account exists, check your email”; do not add an account-existence lookup for a more specific success message.
+
+## Prepare deployment
+
+### Leave lab conveniences in the lab
+
+<Callout type="warn" title="A working demo is not a production configuration">
+  Remove known demo accounts and passwords from the deployed database and disable demo account provisioning. Hiding shortcuts in a production frontend does not revoke accounts already created in the backend.
+</Callout>
+
+| Local example convenience | Production responsibility |
+|---|---|
+| HTTP with `EnvironmentDev` | Use `EnvironmentProd`, public HTTPS API/frontend origins, and Secure cookies. |
+| Default admin 2FA disabled for switching accounts | Retain the normal admin second-factor requirement and provide working, controlled email delivery. |
+| Mailbox files containing login/recovery codes | Use a real mail adapter and restrict access to delivery systems and logs. |
+| Shared example database password or generated local secret | Provision separate credentials and application secrets for each environment. |
+| In-memory request limits | Use a shared store when multiple API instances must enforce a common limit. |
+| Arbitrary forwarded IP headers | Trust only your actual proxy peers; do not accept client-supplied forwarding claims directly. |
+
+Public frontend environment variables are bundled into browser JavaScript. A `NEXT_PUBLIC_API_URL` can be public; an auth secret, database DSN, mail credential, or API bearer credential cannot. See [deployment](../deployment.mdx) and [rate limiting](../rate-limiting.mdx).
+
+### Protect the frontend document
+
+go-auth cannot set headers on HTML served by a separate frontend. For a frontend that must never be embedded, this Next.js configuration supplies a narrow framing policy and reduces referrer leakage:
+
+```ts
+// next.config.ts — merge with your existing configuration.
+import type { NextConfig } from "next";
+
+const config: NextConfig = {
+  async headers() {
+    return [{
+      source: "/:path*",
+      headers: [
+        { key: "Content-Security-Policy", value: "frame-ancestors 'none'; object-src 'none'; base-uri 'self'" },
+        { key: "X-Frame-Options", value: "DENY" },
+        { key: "X-Content-Type-Options", value: "nosniff" },
+        { key: "Referrer-Policy", value: "no-referrer" },
+      ],
+    }];
+  },
+};
+export default config;
+```
+
+<Callout type="info" title="Choose a policy for your application">
+  This example blocks framing but does not define a full script-source CSP. If embedding is required, design an explicit `frame-ancestors` allowlist instead. Test the actual served production document, redirects, proxy behavior, and any separate admin frontend. Configure HTTPS/HSTS at your deployment boundary; a CSP header does not supply transport encryption.
+</Callout>
+
+### Check dependencies and prove the boundaries
+
+Keep your frontend framework and transitive dependencies patched. Review both runtime and development tooling:
+
+```sh
+npm audit --omit=dev
+npm audit
+govulncheck ./...
+```
+
+A clean runtime audit does not clear development-tool alerts. Review their reachability and compatible upstream fixes; do not silence them by downgrading an entire framework or forcing incompatible transitive versions. Do not run a component generator against an untrusted registry without assessing the code and configuration it will import.
+
+Before release, test with two ordinary accounts in different organizations: cross-tenant IDs must fail, removing a grant must affect existing sessions, revoked credentials must stay rejected, and a competing one-time-code redemption must not issue two sessions. Exercise the real frontend/API origins and production proxy. These checks support a release decision; they cannot establish that every attack path has been eliminated.
+
+## Continue with the implementation guides
+
+<Cards>
+  <Card title="Browser request helper" href="./index.mdx">Cookie delivery, CSRF bootstrap, and reserved retry handling.</Card>
+  <Card title="App role management" href="./app-permissions.mdx">Delegation, revision conflicts, and definition deletion.</Card>
+  <Card title="Organization permissions" href="./org-permissions.mdx">Current membership, grants, and organization switching.</Card>
+  <Card title="Deployment" href="../deployment.mdx">Origins, HTTPS, cookies, and proxy configuration.</Card>
+</Cards>
