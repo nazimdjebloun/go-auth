@@ -80,6 +80,10 @@ func TestFixedOrgInvitesRequireCurrentAuthority(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			beforeInvite, err := invites.GetByID(ctx, invite.ID)
+			if err != nil || beforeInvite == nil {
+				t.Fatalf("read persisted invitation before request: %+v, %v", beforeInvite, err)
+			}
 			if tc.accept {
 				err = svc.AcceptInvite(ctx, api.AcceptInviteInput{UserID: ids["recipient"], RawCode: invite.RawCode})
 			} else {
@@ -90,7 +94,7 @@ func TestFixedOrgInvitesRequireCurrentAuthority(t *testing.T) {
 					t.Fatalf("delegation error=%v, want org_forbidden", err)
 				}
 				stored, err := invites.GetByID(ctx, invite.ID)
-				if err != nil || stored == nil || stored.CodeHash != invite.CodeHash || !stored.ExpiresAt.Equal(invite.ExpiresAt) {
+				if err != nil || stored == nil || stored.CodeHash != beforeInvite.CodeHash || !stored.ExpiresAt.Equal(beforeInvite.ExpiresAt) {
 					t.Fatalf("denied request changed invitation: %+v, %v", stored, err)
 				}
 				member, err := orgs.GetMembership(ctx, org.ID, ids["recipient"])
