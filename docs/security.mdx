@@ -330,6 +330,13 @@ This library handles auth-specific correctness. It does not, and cannot, cover:
 
 ## Organization permission boundaries
 
+Fixed-role organization invitations also retain their issuer's authority as a
+live requirement. Creation, renewal and acceptance check current membership
+under transaction locks. Renewing an Owner invitation requires an Owner; renewal
+and acceptance reject an issuer who can no longer grant the proposed role.
+Delete and recreate that invitation under a currently authorized issuer.
+Email delivery occurs after the mutation transaction commits.
+
 Org permissions are separately opt-in. Backend checks load the current user,
 membership, role, definition and grants for the requested organization. Missing
 membership remains `org_member_not_found`; denied role/grant access is

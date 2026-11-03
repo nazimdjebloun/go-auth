@@ -315,6 +315,10 @@ POST /auth/orgs/invites/accept
 
 Accepts an invite with the emailed code. `Auth:` Session.
 
+In fixed-role mode, the original issuer must still be an org Admin, or an Owner
+for an Owner invitation. Lost issuer authority rejects acceptance with
+`403 org_forbidden`; delete and recreate the invitation under a current issuer.
+
 **Request body:**
 
 ```json
@@ -378,6 +382,10 @@ Total for the list above. `Auth:` Session, org admin.
 POST /auth/orgs/\{orgID\}/invites/\{inviteID\}/resend
 
 Mails a fresh code for the invite. `Auth:` Session, org admin. No body.
+
+In fixed-role mode, only an Owner can renew an Owner invitation. The original
+issuer must also retain authority to grant the invitation's role; otherwise
+renewal returns `403 org_forbidden` without rotating the code or extending expiry.
 
 With org permissions enabled, the caller needs `goauth.org.invites.resend`.
 For invitations with a saved role link, the original inviter must still have

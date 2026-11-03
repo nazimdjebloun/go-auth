@@ -175,7 +175,12 @@ func (s *OrgInviteService) CreateOrgInvite(ctx context.Context, input api.Create
 		CreatedAt: now,
 	}
 
-	if err := s.orgInvites.Create(ctx, invite); err != nil {
+	if err := s.withFixedInviteMutation(ctx, func(ctx context.Context) error {
+		if err := s.requireFixedInviteAuthority(ctx, input.OrgID, input.InvitedBy, input.Role); err != nil {
+			return err
+		}
+		return s.orgInvites.Create(ctx, invite)
+	}); err != nil {
 		s.log.Error("failed to create org invite", "err", err, "org_id", input.OrgID, "email", input.Email)
 		return nil, err
 	}
@@ -217,7 +222,20 @@ func (s *OrgInviteService) AcceptInvite(ctx context.Context, input api.AcceptInv
 	if s.orgPermissions != nil {
 		return s.acceptPermissionInvite(ctx, input, invite, codeHash)
 	}
-	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
+	err = s.withFixedInviteMutation(ctx, func(txCtx context.Context) error {
+		current, err := s.users.GetByIDForUpdate(txCtx, input.UserID)
+		if err != nil {
+			return err
+		}
+		if current == nil || current.IsBanned {
+			return domain.ErrForbidden
+		}
+		if !strings.EqualFold(current.Email, invite.Email) {
+			return domain.ErrOrgInviteEmailMismatch
+		}
+		if err := s.requireFixedInviteAuthority(txCtx, invite.OrgID, invite.InvitedBy, invite.Role); err != nil {
+			return err
+		}
 		// The claim asserts the exact code hash looked up above, not just
 		// the invite ID: an admin resend rotates code_hash, so an old code
 		// that was validated before the rotation must not redeem after it.
@@ -389,11 +407,34 @@ func (s *OrgInviteService) ResendOrgInviteEmail(ctx context.Context, input api.R
 		return domain.ErrInternal
 	}
 
-	invite.CodeHash = hashToken(raw)
-	invite.RawCode = raw
-	invite.ExpiresAt = time.Now().UTC().Add(s.inviteTTL)
-
-	if err := s.orgInvites.Update(ctx, invite); err != nil {
+	if err := s.withFixedInviteMutation(ctx, func(ctx context.Context) error {
+		// Re-read after acquiring the guard; no decision from the preflight
+		// lookup may renew a delegation after its issuer lost authority.
+		current, err := s.orgInvites.GetByID(ctx, input.InviteID)
+		if err != nil {
+			return err
+		}
+		if current == nil || current.OrgID != input.OrgID {
+			return domain.ErrInviteNotFound
+		}
+		// Both checks use the account guard to serialize opposing membership
+		// changes, even when the two memberships have different IDs.
+		if err := s.requireFixedInviteAuthority(ctx, input.OrgID, input.ActorID, current.Role); err != nil {
+			return err
+		}
+		if err := s.requireFixedInviteAuthority(ctx, input.OrgID, current.InvitedBy, current.Role); err != nil {
+			return err
+		}
+		updated := *current
+		updated.CodeHash = hashToken(raw)
+		updated.RawCode = raw
+		updated.ExpiresAt = time.Now().UTC().Add(s.inviteTTL)
+		if err := s.orgInvites.Update(ctx, &updated); err != nil {
+			return err
+		}
+		invite = &updated
+		return nil
+	}); err != nil {
 		s.log.Error("failed to update org invite for resend", "err", err, "invite_id", input.InviteID)
 		return err
 	}
