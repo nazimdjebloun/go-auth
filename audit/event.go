@@ -29,6 +29,8 @@ const (
 
 // EventLoginSuccess and the following constants identify audit event types.
 const (
+	EventEmailChangeRequested EventType = "email.change.requested"
+	EventEmailChanged         EventType = "email.changed"
 	// EventLoginSuccess and the following values identify authentication events.
 	EventLoginSuccess      EventType = "login.success"
 	EventLoginFailed       EventType = "login.failed"

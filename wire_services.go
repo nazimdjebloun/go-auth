@@ -101,6 +101,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	}
 
 	serviceCfg := service.Config{
+		EmailChanges:               sqlstore.NewEmailChangeRepository(sqlDB),
 		CommonConfig:               commonCfg,
 		InviteOnly:                 !cfg.registration.AllowPublic,
 		EmailPassword:              cfg.registration.EmailPassword,
@@ -174,9 +175,14 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	// registration (record-iff-commit).
 	authSvc := service.NewAuthService(sqlDB, userRepo, sessionRepo, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepo, sqlDB, serviceCfg)
+	recoveryRepo := sqlstore.NewRecoveryRepository(sqlDB)
+	var emailSvc *service.EmailService
+	if cfg.security.AllowEmailChange {
+		emailSvc = service.NewEmailService(sqlDB, userRepo, sessionRepo, sqlstore.NewEmailChangeRepository(sqlDB), recoveryRepo, sessSvc, twoFactorSvc, hasherImpl, mailer, serviceCfg)
+	}
 	var recoveryWorker *service.RecoveryWorker
 	if mailer != nil {
-		recoveryWorker = service.NewRecoveryWorker(sqlstore.NewRecoveryRepository(sqlDB), passSvc, verifySvc, cfg.logger)
+		recoveryWorker = service.NewRecoveryWorker(recoveryRepo, passSvc, verifySvc, cfg.logger)
 	}
 	inviteSvc := service.NewInviteService(userRepo, sessionRepo, inviteRepo, hasherImpl, genImpl, mailer, sqlDB, serviceCfg, sessSvc, twoFactorSvc)
 	// Unbanning must commit its audit record with the state change; bans and
@@ -262,7 +268,8 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 
 	return serviceWiring{
 		services: serviceSet{
-			Auth: authSvc, Password: passSvc, Session: sessSvc,
+			Email: emailSvc,
+			Auth:  authSvc, Password: passSvc, Session: sessSvc,
 			Verify: verifySvc, Invite: inviteSvc, Admin: adminSvc,
 			OAuth: oauthSvc, Org: orgSvc, OrgInvite: orgInviteSvc,
 			TwoFactor: twoFactorSvc, AuditLog: auditLogRepo,

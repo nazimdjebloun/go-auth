@@ -73,6 +73,29 @@ CREATE TABLE IF NOT EXISTS users (
     FOREIGN KEY (app_role_id) REFERENCES app_roles(id) ON DELETE RESTRICT
 );
 
+CREATE TABLE IF NOT EXISTS email_change_requests (
+    user_id UUID PRIMARY KEY,
+    id VARCHAR(36) NOT NULL,
+    session_id VARCHAR(36) NOT NULL,
+    scope VARCHAR(10) NOT NULL,
+    current_email VARCHAR(255) NOT NULL,
+    new_email VARCHAR(255) NOT NULL,
+    current_code_hash VARCHAR(64) NOT NULL,
+    new_code_hash VARCHAR(64) NOT NULL,
+    identity_hash VARCHAR(64) NOT NULL,
+    status VARCHAR(16) NOT NULL,
+    created_at BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL,
+    budget_started_at BIGINT NOT NULL,
+    current_sent_at BIGINT NOT NULL,
+    new_sent_at BIGINT NOT NULL,
+    starts INTEGER NOT NULL,
+    attempts INTEGER NOT NULL,
+    current_resends INTEGER NOT NULL,
+    new_resends INTEGER NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_users_password_pepper_version ON users(password_pepper_version);
 
 CREATE INDEX IF NOT EXISTS idx_users_app_role ON users(app_role_id, id);

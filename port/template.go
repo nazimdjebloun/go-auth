@@ -7,6 +7,8 @@ type EmailTemplateType string
 
 // TemplatePasswordReset and the following values identify built-in email templates.
 const (
+	TemplateEmailChange   EmailTemplateType = "email_change"
+	TemplateEmailChanged  EmailTemplateType = "email_changed"
 	TemplatePasswordReset EmailTemplateType = "password_reset"
 	TemplateSetPassword   EmailTemplateType = "set_password"
 	TemplateVerification  EmailTemplateType = "verification"
@@ -21,6 +23,24 @@ const (
 	// attacker who intercepts it.
 	TemplateTwoFactorSuspicious EmailTemplateType = "2fa_suspicious"
 )
+
+// EmailChangeData supplies a proof for one of the two mailbox destinations.
+type EmailChangeData struct {
+	AppName     string
+	Code        string
+	NewEmail    string
+	Destination string
+	ExpiresIn   time.Duration
+}
+
+// Template selects the dual-address confirmation template.
+func (d EmailChangeData) Template() EmailTemplateType { return TemplateEmailChange }
+
+// EmailChangedData supplies the code-free account security notice.
+type EmailChangedData struct{ AppName string }
+
+// Template selects the completed-change notification template.
+func (d EmailChangedData) Template() EmailTemplateType { return TemplateEmailChanged }
 
 // TemplateData is implemented by every template data struct.
 // The Template method tells the renderer which template to use.

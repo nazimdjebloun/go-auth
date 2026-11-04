@@ -8,6 +8,10 @@ package httperr
 import "net/http"
 
 var byCode = map[string]int{
+	"email_change_unavailable":            http.StatusConflict,
+	"email_change_invalid":                http.StatusBadRequest,
+	"email_change_expired":                http.StatusGone,
+	"email_change_disabled":               http.StatusForbidden,
 	"invalid_session_context":             http.StatusBadRequest,
 	"org_permissions_disabled":            http.StatusServiceUnavailable,
 	"org_permissions_not_initialized":     http.StatusServiceUnavailable,

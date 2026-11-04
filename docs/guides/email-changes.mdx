@@ -1,0 +1,72 @@
+---
+title: "Email changes"
+description: "Confirm both mailboxes before replacing an account login and recovery address."
+---
+
+Enable the optional workflow with a configured mailer:
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{AllowEmailChange: true})
+```
+
+Apply auth migration revision 4 before starting this version. Startup does not
+migrate automatically. The migration adds a table and preserves existing data.
+
+1. While signed in, send `newEmail` and your current password to
+   `POST /auth/email/change/request`. OAuth-only users and accounts whose password
+   method is disabled do not supply a password. The response contains only
+   `requestId` and `expiresAt`. The old address stays active.
+2. Read the separate eight-character codes sent to the current and new addresses.
+   Both proofs are required. Complete the flow in the initiating session/context.
+3. Send `requestId`, `currentEmailCode` and `newEmailCode` to
+   `POST /auth/email/change/confirm`. A successful transaction replaces and
+   verifies the email, invalidates existing account-bound credentials, revokes
+   every app/admin session, and returns `step: sign_in`.
+4. Sign in with the new address, or through the same linked OAuth provider.
+   The account ID, password, provider subject links and memberships are preserved.
+   Both addresses receive a code-free completion notice through durable delivery.
+
+All requests use normal CSRF/origin protections and an authenticated session.
+Current verification and required MFA policy still apply. The new address uses
+the library's existing trim/lowercase normalization and email validator.
+
+Use `POST /auth/email/change/resend` with `requestId` and `destination`, either
+`current` or `new`, to rotate just that code. A request expires after ten minutes
+in total; resends never extend it. Five wrong confirmation attempts exhaust it.
+Each mailbox permits three resends, at least one minute apart. Replacing or
+cancelling a request does not refund the three-starts-per-account hourly budget.
+Route-level IP limits apply in addition to these persisted account limits.
+
+Exhausting the guess budget erases both code hashes. The mail worker also
+clears expired hashes during its minute-based maintenance pass, up to 100
+requests per pass. Cleanup retains start budgets and protects replacements.
+
+`DELETE /auth/email/change/{requestID}` cancels a request without changing the
+email. A replacement request has a new ID and invalidates the old one. Password
+or relevant authentication-state changes invalidate pending proofs even when a
+session survives. Delivery failure cancels only the exact undelivered version;
+request new codes when needed. A duplicate target is rejected at confirmation
+with `email_change_unavailable`, without consuming the request on failed commit.
+
+Direct Go callers use the same methods on `Auth` or `auth.Services().Email`:
+
+```go
+pending, err := auth.RequestEmailChange(ctx, api.RequestEmailChangeInput{
+    Actor: api.EmailChangeActor{UserID: user.ID, SessionID: session.ID},
+    NewEmail: newEmail,
+    Password: currentPassword,
+})
+```
+
+The actor comes from trusted backend authentication. Custom transports must
+enforce browser protections and clear browser credentials after success. The
+Go capability is nil when disabled; facade methods return `email_change_disabled`.
+
+Custom template providers must support `port.EmailChangeData` and
+`port.EmailChangedData` when the workflow is enabled. Codes are sent only through
+the mailer and their HMACs are stored. Completion notices contain no code; their
+destination and fixed kind fit the existing recovery queue. Delivery is at least
+once, with five attempts, exponential backoff and the queue's existing retention.
+
+This workflow requires access to the old mailbox. Account recovery after losing
+that mailbox is a separate application support process.

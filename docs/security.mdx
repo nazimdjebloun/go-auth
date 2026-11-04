@@ -399,3 +399,49 @@ Access response flags are informational. The library cannot authorize individual
 application resources without the application's own tenant/resource predicates.
 
 For application HTTP routes, prefer `Auth.Protect(pattern, handler)`, which combines the configured rate limiter with mandatory browser CSRF, session authentication and email-verification enforcement. Put ownership or role/permission checks inside it. `RequireAuth` alone only applies authentication and verification; see [application routes](./guides/application-routes.mdx).
+
+## Email-address replacement
+
+Enable with `WithSecurity(SecurityConfig{AllowEmailChange: true})`. The flag
+defaults to false and requires a configured mailer when enabled.
+
+Opt-in email replacement requires a live initiating session and current
+verification/MFA policy, both mailbox codes, and the current password when it
+is an enabled method for the account. Requests are tied to exact account,
+current email, session/context and a credential/authentication fingerprint.
+Password replacement and 2FA preference changes also cancel proofs inside their
+transactions, including kept-session and same-password changes. Restoring an
+old preference cannot revive an earlier proof.
+
+Proofs use request/destination-separated inputs to the OTP HMAC primitives and
+constant-time comparison. Ten-minute total validity, five persisted failed
+guesses, three starts/account/hour, and three resends/mailbox with a one-minute
+cooldown bound abuse. Replacement preserves the hourly budget; resends preserve
+guesses and expiry. Route/IP limits remain additional controls.
+
+Exhausting the attempt budget clears both proof hashes immediately. With the
+mail worker running, its minute-based maintenance pass clears expired hashes
+in batches of up to 100 requests, retaining the account's hourly start budget.
+Each cleanup write checks the request ID and expiry so it cannot erase a newer
+replacement. Expiry itself is enforced immediately, independently of cleanup.
+
+Completion locks user, initiating session and request before rechecking expiry.
+The transaction updates only email/verification timestamps, consumes proofs,
+revokes all app/admin sessions and deletes account-bound verification tokens,
+including reset, set-password, deletion, 2FA and OAuth linking proofs. Public
+OAuth state without an account ID continues through the existing current-policy
+flow; provider subject links and memberships remain unchanged. Reset redemption
+additionally reasserts the proved address under the user lock.
+
+The transaction enqueues code-free notices to both addresses independently of
+audit enablement. The existing leased recovery worker delivers them at least
+once with five attempts and its documented backoff/retention. Delivery cannot
+undo a committed email change. Audit events are `email.change.requested` and
+`email.changed`; enqueue failures retain the configured audit policy. Proof
+emails are sent after commit, outside SQL locks. Failed rendering/delivery
+conditionally cancels that exact proof version and preserves newer requests.
+
+Target occupancy is checked only after both proofs, using the unique write and
+`email_change_unavailable`. This workflow requires access to the existing
+mailbox; there is no lost-mailbox recovery or admin bypass. Custom transports
+supply browser protections and trusted actor/session attribution.

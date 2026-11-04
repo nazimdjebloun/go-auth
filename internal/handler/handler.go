@@ -19,6 +19,7 @@ type Deps struct {
 	RequireEmailVerification bool
 	AppPermissions           *service.AppPermissionsService
 	OrgPermissions           *service.OrgPermissionsService
+	Email                    *service.EmailService
 	Auth                     *service.AuthService
 	Password                 *service.PasswordService
 	Session                  *service.SessionService

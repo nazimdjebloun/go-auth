@@ -18,3 +18,11 @@ func discardUndeliveredToken(ctx context.Context, tokens port.TokenRepository, i
 	}
 	return nil
 }
+
+func sendEmailChangedNotice(ctx context.Context, mailer port.Mailer, templates port.TemplateProvider, appName, email string) error {
+	message, err := templates.Render(port.EmailChangedData{AppName: appName})
+	if err != nil {
+		return err
+	}
+	return mailer.Send(ctx, email, message.Subject, message.HTML, message.Text)
+}

@@ -10,6 +10,7 @@ type RecoveryKind string
 
 // RecoveryPasswordReset and RecoveryVerification select supported deliveries.
 const (
+	RecoveryEmailChanged  RecoveryKind = "email_changed"
 	RecoveryPasswordReset RecoveryKind = "password_reset"
 	RecoveryVerification  RecoveryKind = "verification"
 )

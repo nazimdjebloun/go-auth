@@ -50,6 +50,7 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 		RequireEmailVerification: cfg.registration.RequireEmailVerification,
 		AppPermissions:           svc.AppPermissions,
 		OrgPermissions:           svc.OrgPermissions,
+		Email:                    svc.Email,
 		Auth:                     svc.Auth,
 		Password:                 svc.Password,
 		Session:                  sessSvc,
@@ -113,6 +114,7 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 	orgAdminMW := middleware.RequireOrgRole(domain.OrgRoleAdmin)
 	orgOwnerMW := middleware.RequireOrgRole(domain.OrgRoleOwner)
 	routes := httproutes.Build(httproutes.Features{
+		EmailChange:    cfg.security.AllowEmailChange,
 		AppPermissions: cfg.appPermissions.Enable,
 		OrgPermissions: cfg.orgPermissions.Enable, OrgPermissionManagement: cfg.orgPermissions.EnableManagementHTTP,
 		AppPermissionManagement: cfg.appPermissions.EnableManagementHTTP,

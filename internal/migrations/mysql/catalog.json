@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "release": "v0.5.3",
+  "release": "v0.6.0",
   "dialect": "mysql",
-  "targetRevision": 3,
+  "targetRevision": 4,
   "bootstrapRevision": 1,
   "migrations": [
     {
@@ -33,6 +33,16 @@
       "transactional": false,
       "schema": "schema_000003.sql",
       "schemaChecksum": "925aefa70a1186fa797f74661f50c8ff76b9b65ddc0009b21da39f9e459fcb66",
+      "checks": []
+    },
+    {
+      "id": 4,
+      "file": "000004_v0.6.0_001.sql",
+      "checksum": "8f166167aac6915438f47d96852af1fc9e1b86acbd01d09c3f6d32603e7236e9",
+      "kind": "upgrade",
+      "transactional": false,
+      "schema": "schema_000004.sql",
+      "schemaChecksum": "1e85d1126534962cca9c76a4c446b52e2c3e8e3d8bb7e6d96ceb1bd6aa9707fa",
       "checks": []
     }
   ]

@@ -65,6 +65,7 @@ func (s *AuthService) AttachAccountDeletion(d *AccountDeletion) {
 type Config struct {
 	CommonConfig
 	AppPermissions *AppPermissionsService
+	EmailChanges   port.EmailChangeInvalidator
 
 	InviteOnly                 bool
 	EmailPassword              bool

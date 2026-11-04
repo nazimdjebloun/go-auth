@@ -111,6 +111,8 @@ func (w *RecoveryWorker) ProcessOne(ctx context.Context) (bool, error) {
 		switch request.Kind {
 		case port.RecoveryPasswordReset:
 			err = w.password.sendPasswordReset(deliveryCtx, api.ForgotPasswordInput{Email: request.Email})
+		case port.RecoveryEmailChanged:
+			err = sendEmailChangedNotice(deliveryCtx, w.password.mailer, w.password.templates, w.password.config.AppName, request.Email)
 		case port.RecoveryVerification:
 			err = w.verify.sendVerificationByEmail(deliveryCtx, request.Email, request.Attempts > 1)
 		default:

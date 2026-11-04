@@ -254,3 +254,9 @@ resend and logout remain available. After successful verification, the retained
 session resumes protected access without another login. Signup that never
 received a session still signs in after verification. Disabling the requirement
 restores access for unverified sessions too. Refresh cannot bypass the gate.
+
+## Change the login email
+
+Enable `WithSecurity(SecurityConfig{AllowEmailChange: true})` and follow
+[email changes](./email-changes.mdx). Email replacement is a confirmed security
+workflow, separate from the ordinary display-name update.

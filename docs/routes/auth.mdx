@@ -613,3 +613,26 @@ Alternatively submit `{ "challengeId": "...", "code": "123456" }` after requesti
 
 - [Sessions](./sessions.mdx): refresh, list, revoke, CSRF token
 - [OAuth](./oauth.mdx): login, callback, link, unlink
+
+## Email changes
+
+When enabled with `WithSecurity(SecurityConfig{AllowEmailChange: true})`, all four
+routes require a session, current verification/MFA policy, CSRF and an allowed
+origin. Disabled routes are absent. Inputs are flat JSON objects limited to
+4 KiB; duplicate, unknown, case-variant, null and non-string fields are rejected.
+
+- `POST /auth/email/change/request`: `{"newEmail":"new@example.com","password":"current password"}`.
+  Password is required when the account has an enabled password method. Returns
+  `200 {"requestId":"...","expiresAt":"..."}` after sending separate proofs to
+  both mailboxes. The old address stays active. Occupancy is checked after proof.
+- `POST /auth/email/change/confirm`: `{"requestId":"...","currentEmailCode":"ABCD2345","newEmailCode":"WXYZ6789"}`.
+  Both codes must match the request and initiating session/context. Success
+  returns `200 {"step":"sign_in","message":"Email changed. Sign in again."}`
+  after committing the verified address, credential revocation and notices.
+- `POST /auth/email/change/resend`: `{"requestId":"...","destination":"current"}`.
+  Destination is only `current` or `new`. Returns the same request ID and expiry
+  after rotating that mailbox's code. It does not reset failed guesses.
+- `DELETE /auth/email/change/{requestID}`: cancels the initiating session's
+  pending request and returns 204. It does not refund the hourly start budget.
+
+See [email changes](../guides/email-changes.mdx) for limits and Go APIs.

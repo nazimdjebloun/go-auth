@@ -1,0 +1,4 @@
+Your account email was changed
+
+The login email for your {{.AppName}} account was changed. All previous sessions have been signed out.
+If you did not request this change, contact the application's support team immediately.

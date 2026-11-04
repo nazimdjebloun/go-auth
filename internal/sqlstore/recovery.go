@@ -84,7 +84,7 @@ func (r *RecoveryRepository) Complete(ctx context.Context, request port.Recovery
 	return err
 }
 
-// Prune enforces pending and dead-letter retention while preserving live leases.
+// Prune enforces recovery retention and clears expired email-change proofs.
 func (r *RecoveryRepository) Prune(ctx context.Context, now time.Time) error {
 	// Keep failed requests for seven days as operational evidence. Undelivered
 	// requests stop being eligible after one day, so a restart cannot send an
@@ -92,5 +92,8 @@ func (r *RecoveryRepository) Prune(ctx context.Context, now time.Time) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM recovery_requests WHERE lease_until <= $1
 		AND ((dead_lettered = 0 AND created_at <= $2) OR (dead_lettered = 1 AND created_at <= $3))`,
 		now.Unix(), now.Add(-24*time.Hour).Unix(), now.Add(-7*24*time.Hour).Unix())
-	return err
+	if err != nil {
+		return err
+	}
+	return NewEmailChangeRepository(r.db).PruneExpired(ctx, now)
 }

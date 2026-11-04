@@ -1519,3 +1519,20 @@ runtime, so none of this leaks into application code.
 
 - [Configuration](./configuration.mdx): every option, field by field
 - [Architecture](./architecture.mdx): how the storage layer fits together
+
+## `email_change_requests`
+
+Revision 4 adds an account slot keyed by `user_id`, with a cascading user FK.
+It stores request ID, initiating session/scope, old/new addresses, HMAC code
+hashes, an HMAC credential-state fingerprint, status and abuse counters.
+`created_at`, `expires_at`, `budget_started_at`, `current_sent_at` and
+`new_sent_at` are UTC Unix microseconds. There are no raw confirmation codes or
+password verifiers in this table. PostgreSQL uses a UUID user key; MySQL uses
+VARCHAR(36); SQLite uses TEXT.
+
+Replacement uses a fresh request ID while preserving the hourly start budget.
+Used/cancelled slots clear their code hashes. Slots remain until replacement or
+account deletion; redemption enforces expiry. Revoking a session does not remove
+its account's budget. The additive migration preserves existing account data.
+Completion enqueues two `email_changed` items in `recovery_requests`, each with
+only its destination and fixed kind, and no raw credential.

@@ -628,6 +628,11 @@ func (s *TwoFactorService) Enable(ctx context.Context, input api.TwoFactorEnable
 		if err := s.users.SetTwoFactorEnabled(txCtx, user.ID, true, s.now().UTC()); err != nil {
 			return err
 		}
+		if s.config.EmailChanges != nil {
+			if err := s.config.EmailChanges.CancelForUser(txCtx, user.ID); err != nil {
+				return err
+			}
+		}
 		if !input.KeepOtherSessions && input.CallerSessionID != "" {
 			if err := s.sessions.DeleteAllForUserExcept(txCtx, user.ID, input.CallerSessionID); err != nil {
 				return err
@@ -652,6 +657,11 @@ func (s *TwoFactorService) Disable(ctx context.Context, input api.TwoFactorDisab
 		}
 		if err := s.users.SetTwoFactorEnabled(txCtx, user.ID, false, s.now().UTC()); err != nil {
 			return err
+		}
+		if s.config.EmailChanges != nil {
+			if err := s.config.EmailChanges.CancelForUser(txCtx, user.ID); err != nil {
+				return err
+			}
 		}
 		if s.audit != nil {
 			return s.audit.Record(txCtx, audit.NewTwoFactorDisabledEvent(user.ID))

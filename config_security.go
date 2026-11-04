@@ -14,10 +14,14 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-// SecurityConfig groups password, email-link, and OTP pepper rotation policy.
+// SecurityConfig groups password, email-change, email-link, and OTP rotation policy.
 // Browser transport belongs to BrowserConfig; two-factor policy to TwoFactorConfig.
 type SecurityConfig struct {
 	PasswordPolicy domain.PasswordPolicy // zero value = 8..128 characters, RequireLetter and RequireDigit
+
+	// AllowEmailChange enables self-service email changes with confirmation
+	// from both mailboxes. Disabled by default; a configured mailer is required.
+	AllowEmailChange bool
 
 	// AllowHTTPURLs permits http:// links in rendered emails. It governs
 	// template rendering, not transport, so it applies to every mailer.
@@ -130,7 +134,7 @@ func WithBcryptCost(cost int) Option {
 	}
 }
 
-// WithSecurity groups password and email-link settings. A zero-valued
+// WithSecurity groups password, email-change, and email-link settings. A zero-valued
 // PasswordPolicy keeps its default — see applyDefaults. Two-factor options are
 // separate: see WithTwoFactor.
 func WithSecurity(cfg SecurityConfig) Option {

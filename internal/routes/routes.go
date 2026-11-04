@@ -6,6 +6,10 @@ package routes
 
 // Register and the following constants define the routes mounted by go-auth.
 const (
+	RequestEmailChange          = "POST /auth/email/change/request"
+	ConfirmEmailChange          = "POST /auth/email/change/confirm"
+	ResendEmailChange           = "POST /auth/email/change/resend"
+	CancelEmailChange           = "DELETE /auth/email/change/{requestID}"
 	OrgAccess                   = "GET /auth/orgs/{orgID}/access"
 	OrgLibraryPermissions       = "GET /auth/orgs/{orgID}/authorization/library-permissions"
 	UpdateOrgLibraryPermissions = "PATCH /auth/orgs/{orgID}/authorization/library-permissions"

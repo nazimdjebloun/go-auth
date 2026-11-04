@@ -43,8 +43,8 @@ func TestNewRejectsInvalidRecordedHistoryByDefault(t *testing.T) {
 		sql  string
 		want error
 	}{
-		{"pending upgrade", "DELETE FROM goauth_migrations WHERE migration_id=3", ErrIncompatibleSchema},
-		{"checksum changed", "UPDATE goauth_migrations SET checksum='invalid' WHERE migration_id=3", ErrMigrationChecksum},
+		{"pending upgrade", "DELETE FROM goauth_migrations WHERE migration_id=(SELECT MAX(migration_id) FROM goauth_migrations)", ErrIncompatibleSchema},
+		{"checksum changed", "UPDATE goauth_migrations SET checksum='invalid' WHERE migration_id=(SELECT MAX(migration_id) FROM goauth_migrations)", ErrMigrationChecksum},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := newHasherTestDB(t)

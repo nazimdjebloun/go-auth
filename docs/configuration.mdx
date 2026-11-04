@@ -251,7 +251,7 @@ The JSON bootstrap works unchanged for proxied apps and sibling subdomains. Diff
 
 ## `WithSecurity`: Optional
 
-Password policy, email-link transport policy, and the OTP pepper rotation timestamp remain separate from browser transport.
+Password policy, optional email changes, email-link transport policy, and the OTP pepper rotation timestamp remain separate from browser transport.
 
 ```go
 goauth.WithSecurity(goauth.SecurityConfig{
@@ -273,6 +273,26 @@ An entirely zero password policy selects 8..128 Unicode code points with a lette
 The selected hasher may impose an additional byte bound. Unpeppered bcrypt accepts at most 72 input bytes and reports excess as `weak_password`; Argon2id has no bcrypt-derived bound. With password peppering, that algorithm bound applies to the derived 44-byte representation, not the raw password. A minimum that cannot fit a known unpeppered hasher limit fails startup. Custom hashers can declare their bound with `port.PasswordInputLimiter`; the construction probe stays within that bound. Typed-nil hashers and negative bounds are rejected. These checks govern new password writes, not verification of existing credentials.
 
 `AllowHTTPURLs` defaults to true in development and false elsewhere and governs rendered email links only. `PepperRotatedAt` defaults to zero; see [secret rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp).
+
+### Email changes
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{AllowEmailChange: true})
+```
+
+`AllowEmailChange` defaults to false. Enabling requires a configured mailer and mounts
+four authenticated email-change routes. The `Services().Email` capability is
+nil when disabled; facade calls return `email_change_disabled`.
+
+Include this field alongside your other settings in the same `WithSecurity`
+call. Each call replaces the whole `SecurityConfig` section.
+
+Confirmation requires both mailbox codes in the initiating session. Fixed
+limits are ten minutes total, five failed confirmation attempts, three starts
+per account per hour, and three resends per mailbox with a one-minute cooldown.
+Replacement and cancellation preserve the hourly start budget. Route-level IP
+limits apply in addition; see [email changes](./guides/email-changes.mdx).
+Apply auth migration revision 4 before starting this library version.
 
 ## `WithPasswordHasher` / `WithBcryptCost`: Optional
 

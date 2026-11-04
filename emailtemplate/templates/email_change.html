@@ -1,0 +1,8 @@
+<!doctype html><html><body>
+<h1>Confirm your email change</h1>
+<p>An email change to {{.NewEmail}} was requested for your {{.AppName}} account.</p>
+<p>Use this code to confirm access to the email address that received this message:</p>
+<p><strong>{{.Code}}</strong></p>
+<p>The request expires in {{formatDuration .ExpiresIn}}. Both mailbox codes are required.</p>
+<p>If you did not request this change, do not share this code and secure your account.</p>
+</body></html>

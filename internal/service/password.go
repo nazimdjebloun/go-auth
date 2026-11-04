@@ -285,8 +285,12 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 	err = s.txManager.WithTx(ctx, func(txCtx context.Context) error {
 		// All credential flows lock the user before tokens. Claiming first
 		// would invert reset issuance/change's lock order and permit deadlocks.
-		if _, err := s.users.GetByIDForUpdate(txCtx, user.ID); err != nil {
+		current, err := s.users.GetByIDForUpdate(txCtx, user.ID)
+		if err != nil {
 			return err
+		}
+		if current == nil || current.Email != token.Email {
+			return domain.ErrResetTokenInvalid
 		}
 		now = time.Now().UTC()
 		// Reassert every security predicate while claiming the token. The
@@ -316,6 +320,11 @@ func (s *PasswordService) ResetPassword(ctx context.Context, input api.ResetPass
 
 		// Session deletion participates in the same transaction, so a reset
 		// cannot commit while a stolen pre-reset session remains valid.
+		if s.config.EmailChanges != nil {
+			if err := s.config.EmailChanges.CancelForUser(txCtx, user.ID); err != nil {
+				return err
+			}
+		}
 		if err := s.sessions.DeleteAllForUser(txCtx, user.ID); err != nil {
 			return fmt.Errorf("revoking sessions after password reset: %w", err)
 		}
@@ -557,6 +566,11 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input api.ChangePa
 			return domain.ErrPasswordUpdateConflict
 		}
 
+		if s.config.EmailChanges != nil {
+			if err := s.config.EmailChanges.CancelForUser(txCtx, user.ID); err != nil {
+				return err
+			}
+		}
 		if input.ExceptSessionID != "" {
 			if err := s.sessions.DeleteAllForUserExcept(txCtx, input.UserID, input.ExceptSessionID); err != nil {
 				return fmt.Errorf("revoking other sessions after password change: %w", err)

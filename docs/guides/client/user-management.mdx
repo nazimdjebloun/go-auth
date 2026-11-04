@@ -464,3 +464,17 @@ export function DeleteAccountOAuth() {
 
 - [Setup](./index.mdx) — the `apiRequest` helper this is built on
 - [User management](../user-management.mdx) — full request/response/error reference for each of these endpoints
+
+## Email changes
+
+Send `newEmail` and the current password to `POST /auth/email/change/request`
+with the normal CSRF/credential handling. Collect both mailbox codes, then send
+`requestId`, `currentEmailCode` and `newEmailCode` to
+`POST /auth/email/change/confirm` in the same session/context.
+
+On `step: sign_in`, clear frontend identity, organization and permission state,
+and show sign-in using the new address. Other tabs lose their old sessions too.
+Resends use `destination: "current"` or `"new"`, respect the one-minute cooldown,
+and preserve expiry/attempts. Offer cancellation through
+`DELETE /auth/email/change/{requestID}`. Never store passwords or codes in browser
+storage. See the [workflow](../email-changes.mdx).

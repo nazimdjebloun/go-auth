@@ -179,6 +179,9 @@ func (c *Config) validateProviders() []error {
 // no configured feature sends email, so the mailer is genuinely optional.
 func (c *Config) mailerReasons() []string {
 	var reasons []string
+	if c.security.AllowEmailChange {
+		reasons = append(reasons, "email changes")
+	}
 	if c.registration.InviteSignup {
 		reasons = append(reasons, "InviteSignup")
 	}

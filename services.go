@@ -12,6 +12,7 @@ import (
 
 // Services groups the configured programmatic capabilities.
 type Services struct {
+	Email          EmailOperations
 	Auth           AuthOperations
 	Password       PasswordOperations
 	Session        SessionOperations
@@ -26,6 +27,17 @@ type Services struct {
 	AppPermissions AppPermissionsOperations
 	OrgPermissions OrgPermissionsOperations
 }
+
+// EmailOperations is available only when SecurityConfig.AllowEmailChange is enabled.
+// Transports supply trusted account/session attribution in every input.
+type EmailOperations interface {
+	RequestEmailChange(context.Context, api.RequestEmailChangeInput) (*api.EmailChangeResult, error)
+	ConfirmEmailChange(context.Context, api.ConfirmEmailChangeInput) error
+	ResendEmailChange(context.Context, api.ResendEmailChangeInput) (*api.EmailChangeResult, error)
+	CancelEmailChange(context.Context, api.CancelEmailChangeInput) error
+}
+
+var _ EmailOperations = (*service.EmailService)(nil)
 
 // AppPermissionsOperations is available only with WithAppPermissions enabled.
 // Actor identity must come from trusted backend authentication.

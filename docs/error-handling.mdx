@@ -289,3 +289,18 @@ requirement. Fetch the full profile after successful verification.
 OAuth callback or signup invitation is completed after its method/path was
 disabled. Optional 2FA email confirmations use `two_factor_code_invalid` for an
 invalid, expired, wrong-session or wrong-action proof.
+
+## Email-change errors
+
+- `email_change_disabled` (403): the optional capability is disabled.
+- `email_change_unavailable` (409): unchanged or unavailable target address;
+  occupancy is checked only after both mailbox proofs.
+- `email_change_invalid` (400): incorrect codes, consumed/cancelled/replaced
+  request, wrong initiating session/context, or exhausted guesses.
+- `email_change_expired` (410): expiry or a request predating OTP pepper rotation.
+
+Existing authentication, verification and MFA failures remain applicable.
+Wrong passwords return `invalid_credentials` (401); limits return
+`rate_limit_exceeded` (429); proof-email delivery failures return `email_failed`
+(500). Infrastructure failures retain the generic `internal_error` envelope.
+Completion-notice failures are retried outside the successful transaction.

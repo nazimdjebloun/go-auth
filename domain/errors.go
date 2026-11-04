@@ -30,6 +30,11 @@ func NewError(code string, msg string) *AuthError {
 
 // ErrInternal and the following values are reusable API errors.
 var (
+	ErrEmailChangeUnavailable       = NewError("email_change_unavailable", "This email change is unavailable")
+	ErrEmailChangeInvalid           = NewError("email_change_invalid", "Invalid email change request or confirmation codes")
+	ErrEmailChangeExpired           = NewError("email_change_expired", "Email change request has expired")
+	ErrEmailChangeDisabled          = NewError("email_change_disabled", "Email changes are disabled")
+	ErrEmailFailed                  = NewError("email_failed", "Failed to send email")
 	ErrInvalidSessionContext        = NewError("invalid_session_context", "Invalid browser session context")
 	ErrInternal                     = NewError("internal_error", "Internal server error")
 	ErrAppPermissionsDisabled       = NewError("app_permissions_disabled", "Application permissions are disabled")

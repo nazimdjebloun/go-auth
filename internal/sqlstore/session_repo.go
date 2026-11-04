@@ -126,6 +126,27 @@ func (r *SessionRepository) GetByID(ctx context.Context, id string) (*domain.Ses
 	return s, nil
 }
 
+// LockByID holds an initiating session through an account credential mutation.
+// The caller must first lock the owning user, keeping credential lock order.
+func (r *SessionRepository) LockByID(ctx context.Context, id string) (*domain.Session, error) {
+	if _, ok := txFromContext(ctx); !ok {
+		return nil, fmt.Errorf("session lock requires a transaction")
+	}
+	query := "SELECT " + sessionCols + " FROM sessions WHERE id=$1"
+	if r.db.Driver() != "sqlite" && r.db.Driver() != "sqlite3" {
+		query += " FOR UPDATE"
+	}
+	s := &domain.Session{}
+	err := scanSession(s, r.db.QueryRowContext(ctx, query, id))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
 // Create stores a session.
 func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error {
 	_, err := r.db.ExecContext(ctx, sessionCreateQuery,

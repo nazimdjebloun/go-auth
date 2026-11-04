@@ -16,6 +16,7 @@ type Entry struct {
 
 // Features selects the route groups enabled by the validated configuration.
 type Features struct {
+	EmailChange             bool
 	OrgPermissions          bool
 	OrgPermissionManagement bool
 	AppPermissions          bool
@@ -119,6 +120,10 @@ func Build(features Features, h *handler.Handler, oauthHandlers *handler.OAuthHa
 		{routes.BulkRevokeUserSessions, corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(operation("goauth.app.sessions.revoke")(http.HandlerFunc(h.BulkRevokeUserSessions)))))))},
 	}
 
+	if features.EmailChange {
+		write := func(fn http.HandlerFunc) http.Handler { return corsMW(rateLimitMW(csrfTokenMW(csrfMW(authMW(fn))))) }
+		entries = append(entries, Entry{routes.RequestEmailChange, write(h.RequestEmailChange)}, Entry{routes.ConfirmEmailChange, write(h.ConfirmEmailChange)}, Entry{routes.ResendEmailChange, write(h.ResendEmailChange)}, Entry{routes.CancelEmailChange, write(h.CancelEmailChange)})
+	}
 	if features.AppPermissions {
 		entries = append(entries, Entry{routes.AppAccess, corsMW(rateLimitMW(authMW(http.HandlerFunc(h.AppAccess))))})
 	}

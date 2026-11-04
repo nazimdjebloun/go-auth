@@ -89,6 +89,10 @@ func DefaultRateLimitConfig() *Config {
 		IPv6Subnet: 64,
 		Default:    Rate{Requests: 60, Window: time.Minute},
 		Routes: map[string]Rate{
+			routes.RequestEmailChange: {Requests: 3, Window: time.Hour},
+			routes.ConfirmEmailChange: {Requests: 10, Window: time.Minute},
+			routes.ResendEmailChange:  {Requests: 6, Window: time.Minute},
+			routes.CancelEmailChange:  {Requests: 10, Window: time.Minute},
 			// Login / register
 			routes.Login:      {Requests: 5, Window: time.Minute},
 			routes.AdminLogin: {Requests: 3, Window: time.Minute},

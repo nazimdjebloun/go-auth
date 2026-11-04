@@ -6,7 +6,7 @@ icon: "ShieldCheck"
 
 # Security
 
-`BrowserConfig` holds browser origins and cookie delivery; `SecurityConfig` holds password and email-link policy. CSRF protection is mandatory. This page covers that config, then every endpoint an authenticated user calls to manage their own account: changing their name or password, setting a password on an OAuth-only account, the public forgot/reset flow, re-sending email verification, and deleting the account.
+`BrowserConfig` holds browser origins and cookie delivery; `SecurityConfig` holds password, optional email-change, and email-link policy. CSRF protection is mandatory. This page covers that config, then every endpoint an authenticated user calls to manage their own account: changing their name or password, setting a password on an OAuth-only account, the public forgot/reset flow, re-sending email verification, and deleting the account.
 
 For the initial registration verification step (not the resend covered here), see [Authentication → Verifying the email](./authentication.mdx#verifying-the-email). For why login timing is constant and how sessions are hashed, see [Security concepts](../security.mdx).
 
@@ -16,7 +16,7 @@ The curl mutation examples use `jq` to read the mandatory CSRF bootstrap JSON. K
 
 Browser origins and cookies live in [WithBrowser](../configuration.mdx#withbrowser-required-allowedorigins). CSRF double-submit, strict origin checking, and 2FA challenge binding are mandatory. Bootstrap with `GET /auth/csrf-token`, read the JSON token, and echo it in `X-CSRF-Token` with credentials. All cookies are HttpOnly; sibling subdomains do not need a shared cookie domain. See [Deployment](./deployment.mdx).
 
-`WithSecurity` retains password and email-link policy:
+`WithSecurity` retains password, optional email-change, and email-link policy:
 
 ```go
 goauth.WithSecurity(goauth.SecurityConfig{

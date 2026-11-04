@@ -25,6 +25,8 @@ operations through Go service APIs.
 - Session and refresh-token rotation, idle expiry, and absolute lifetime limits
 - Password recovery for accounts with an existing password, password changes,
   and OAuth-only account password setup after sign-in
+- Optional [email-address changes](docs/guides/email-changes.mdx) with dual-mailbox
+  confirmation, enabled through `WithSecurity(SecurityConfig{AllowEmailChange: true})`
 - Optional email 2FA and mandatory admin-account 2FA by default
 - Multi-tenant organizations, roles, invitations, and active-organization sessions
 - Administrative user, session, organization, invitation, and audit-log APIs

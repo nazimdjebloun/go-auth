@@ -7,6 +7,7 @@
     "authentication",
     "authentication-outcomes",
     "user-management",
+    "email-changes",
     "sessions",
     "organizations",
     "security",

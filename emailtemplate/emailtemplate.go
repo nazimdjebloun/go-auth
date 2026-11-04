@@ -25,6 +25,8 @@ type emailTemplates struct {
 
 // templateFiles maps each email type to its base filename.
 var templateFiles = map[port.EmailTemplateType]string{
+	port.TemplateEmailChange:         "email_change",
+	port.TemplateEmailChanged:        "email_changed",
 	port.TemplatePasswordReset:       "password_reset",
 	port.TemplateSetPassword:         "set_password",
 	port.TemplateVerification:        "verification",
@@ -37,6 +39,8 @@ var templateFiles = map[port.EmailTemplateType]string{
 
 // subjects holds the default subject line prefix for each email type.
 var subjects = map[port.EmailTemplateType]string{
+	port.TemplateEmailChange:         "Confirm your email change",
+	port.TemplateEmailChanged:        "Your account email was changed",
 	port.TemplatePasswordReset:       "Reset your password",
 	port.TemplateSetPassword:         "Set your password",
 	port.TemplateVerification:        "Verify your email",
@@ -169,6 +173,10 @@ func appNameFromData(data port.TemplateData) string {
 	}
 	// Fallback: type switch for all known types
 	switch d := data.(type) {
+	case port.EmailChangeData:
+		return d.AppName
+	case port.EmailChangedData:
+		return d.AppName
 	case port.PasswordResetData:
 		return d.AppName
 	case port.SetPasswordData:
