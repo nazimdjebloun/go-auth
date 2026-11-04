@@ -11,6 +11,15 @@ spec.loader.exec_module(runner)
 
 
 class BackendEvidenceTests(unittest.TestCase):
+    def test_email_change_tests_are_required_in_full_and_stress(self):
+        email_tests = {key for key in runner.REQUIRED if key[1].startswith("TestEmailChange")}
+        self.assertTrue(email_tests)
+        for backend in ["sqlite", "postgres", "mysql"]:
+            for stress in [False, True]:
+                self.assertTrue(email_tests <= runner.required_tests(backend, stress))
+        for _, name in email_tests:
+            self.assertRegex(name, runner.STRESS_PATTERN)
+
     def test_published_catalog_prefixes_are_required_only_in_full_mode(self):
         key = (runner.MODULE + "internal/migrations", "TestSelectedBackendPublishedCatalogUpgradePrefixes")
         self.assertNotRegex(key[1], runner.STRESS_PATTERN)
