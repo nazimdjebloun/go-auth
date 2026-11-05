@@ -88,6 +88,7 @@ Organization membership middleware returns `org_member_not_found` (404) for a no
 | Code | Status | Message |
 |---|---|---|
 | `internal_error` | 500 | Internal server error |
+| `password_work_busy` | 503 | Password processing is busy; try again later |
 | `invalid_json` | 400 | Invalid request body (malformed JSON on any endpoint that decodes one) |
 | `invalid_input` | 400 | Generic input validation failure (exact message varies, e.g. `sessionIds must not be empty`) |
 | `forbidden` | 403 | You do not have permission |
@@ -96,6 +97,12 @@ Organization membership middleware returns `org_member_not_found` (404) for a no
 | `method_disabled` | 405 | This registration method is not available |
 
 `internal_error` always means: something failed that the caller cannot fix by changing their request (a database error, a failed hash, etc.). It is logged server-side with detail; the client only ever sees the generic message. This includes auth-middleware failures: when session validation, transparent refresh, or the post-rotation user lookup fails because the database is unavailable (or the request context is canceled), the middleware responds `500 internal_error` — never a misleading `401`. A refresh that has already rotated the session's tokens still delivers the new `Set-Cookie` headers before that 500, so a client retry uses the current credentials instead of the pre-rotation ones.
+
+`password_work_busy` means the shared password-work concurrency limit is full;
+the KDF was not started. It applies to password hashing and verification across
+HTTP and direct service calls. Use `errors.Is(err, domain.ErrPasswordWorkBusy)`
+in Go and retry later with backoff. Login dummy checks propagate the same error;
+optional rehashing after successful verification may be skipped instead.
 
 ## Authentication (register, login, session cookie)
 

@@ -22,6 +22,29 @@ Argon2id is available as the built-in `hasher/argon2id` package but is not the d
 
 Argon2id's `Memory` is a real KiB allocation for every concurrent hash or comparison. More memory raises attacker cost and login-server capacity needs. `DefaultOptions` implements [RFC 9106 section 4's memory-constrained recommendation](https://www.rfc-editor.org/rfc/rfc9106.html#section-4): 64 MiB, 3 iterations, parallelism 4, a 16-byte salt, and a 32-byte tag. Benchmark the intended concurrency; the [Go Argon2 documentation](https://pkg.go.dev/golang.org/x/crypto/argon2) explains the parameter trade-offs.
 
+### Password-work capacity
+
+Password hashing and verification share a limiter that allows four active
+operations per `Auth` by default. Registry callers can share a
+`hasher.WorkLimiter` through `registry.NewWithWorkLimiter`.
+This applies to bcrypt, Argon2id, custom hashers, legacy verification, real-KDF
+dummy checks and startup probes. HTTP and direct service calls use the same
+registry. Standalone calls to a hasher bypass the registry's protection.
+
+Saturated work is rejected immediately with `password_work_busy` (HTTP 503),
+including missing-email and passwordless-account login attempts. Overload is
+propagated separately from incorrect credentials. Overloaded password writes leave
+credentials and one-time tokens unchanged; optional rehashing can be skipped
+after successful login verification. The limiter does not queue requests or
+cancel an already-running KDF. Capacity remains held until the KDF finishes.
+
+The cap bounds active operations, not total RAM or total requests. Four default
+Argon2id operations need roughly 256 MiB of working memory, with additional
+headroom for the application and garbage collection. Verification honors stored
+parameters, so budget for older hashes with higher costs too. Multiple private
+limiters and replicas have independent budgets. Keep route/IP rate limiting and
+edge protection in place. See [password work limits](./configuration.mdx#password-work-limits).
+
 ### Compatibility and migration
 
 Character policy is separate from algorithm limits. Bcrypt's **72-byte** bound is checked before hashing and excess input returns `weak_password`. It does not constrain Argon2id. With password peppering, the bound applies after preprocessing, to the fixed 44-byte HMAC/base64 representation. Custom hashers can declare a bound through `port.PasswordInputLimiter`; the startup probe respects it. Typed-nil hashers and negative input limits fail configuration instead of being invoked. Startup rejects a minimum that cannot fit a known unpeppered input limit, or a hasher too narrow for the pepper representation. Login verification never applies the current write policy to existing hashes; a legacy Argon2id password can still log in after switching new writes to bcrypt, even when it cannot be rehashed into bcrypt.

@@ -544,7 +544,7 @@ func (s *PasswordService) ChangePassword(ctx context.Context, input api.ChangePa
 		return domain.NewError("no_password", "No password set. Use set-password instead.")
 	}
 	if err := comparePassword(s.hasher, input.OldPassword, *user.PasswordHash, user.PasswordPepperVersion); err != nil {
-		return domain.NewError("wrong_password", "Current password is incorrect")
+		return passwordCompareError(err, domain.NewError("wrong_password", "Current password is incorrect"))
 	}
 
 	if err := s.config.PasswordPolicy.Validate(input.NewPassword); err != nil {

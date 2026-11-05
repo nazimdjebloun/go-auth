@@ -115,7 +115,9 @@ func (h *PasswordHasher) compareVersioned(password, stored string, version *uint
 	}
 	key, ok := h.keys[*version]
 	if !ok || *version == 0 {
-		h.registry.BurnDummy(stored)
+		if err := h.registry.BurnDummy(stored); err != nil {
+			return err
+		}
 		return fmt.Errorf("%w: %d", errUnsupportedPepperVersion, *version)
 	}
 	return h.registry.Compare(pepperPassword(password, key), stored)
@@ -165,10 +167,19 @@ func hashPassword(h port.Hasher, password string) (string, *uint32, error) {
 }
 
 func passwordHashError(err error) error {
-	if errors.Is(err, domain.ErrWeakPassword) {
+	if errors.Is(err, domain.ErrWeakPassword) || errors.Is(err, domain.ErrPasswordWorkBusy) {
 		return err
 	}
 	return fmt.Errorf("%w: password hashing failed: %w", domain.ErrInternal, err)
+}
+
+// passwordCompareError preserves overload independently of credential validity.
+// Callers retain their existing public error for actual verification failures.
+func passwordCompareError(err, invalid error) error {
+	if errors.Is(err, domain.ErrPasswordWorkBusy) {
+		return domain.ErrPasswordWorkBusy
+	}
+	return invalid
 }
 
 func comparePassword(h port.Hasher, password, stored string, version *uint32) error {

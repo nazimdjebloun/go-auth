@@ -6,6 +6,11 @@ icon: "LogIn"
 
 # Authentication
 
+Routes that hash or verify a password may return `503 password_work_busy` when
+the shared password-work limit is full. Excess work is rejected without
+queuing; retry later with backoff. This includes dummy login checks for unknown
+emails and passwordless accounts. See [password work limits](../configuration.mdx#password-work-limits).
+
 Successful authentication responses use one explicit [`step`](../guides/authentication-outcomes.mdx); the old `requires*` flags are removed.
 
 Identity and credential flows. `Auth` is either `Public` (no session needed) or `Session` (the session cookie is required; without it the route answers `401 {"error": ..., "message": ...}`). Cookie names below are the defaults (`goauth_session`, `goauth_refresh`); see `WithBrowser` on [Configuration](../configuration.mdx). Session credentials travel in cookies, never in bodies: on direct login and register the handler sets both cookies and omits token fields from JSON. User examples show the default disabled app-permissions mode; enabled mode omits `role` and returns app-role identity/assignment fields. All error responses use the `{"error": code, "message": ...}` envelope; see [Error handling](../error-handling.mdx).

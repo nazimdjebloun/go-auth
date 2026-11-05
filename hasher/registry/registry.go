@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/hasher/argon2id"
 	"github.com/nazimdjebloun/go-auth/port"
 	"golang.org/x/crypto/bcrypt"
@@ -39,8 +40,9 @@ var ErrUnsupportedHashFormat = errUnsupportedHashFormat
 // Build it through goauth.New (WithPasswordHasher / WithBcryptCost); the
 // constructor is exported for direct service wiring and tests.
 type Registry struct {
-	current   port.Hasher
-	forVerify map[string]port.Hasher
+	workLimiter *hasher.WorkLimiter
+	current     port.Hasher
+	forVerify   map[string]port.Hasher
 
 	currentPrefix     string
 	currentParameters string
@@ -138,12 +140,40 @@ func hashParameterFingerprint(hash string) string {
 // every pre-migration row, so that combination is a construction error, not a
 // silent fail-closed-at-login.
 //
-// Errors are returned only at construction time, where a bad hasher is
-// cheapest to catch: current whose Hash fails, whose output carries no
+// Hasher configuration errors are caught at construction time: current whose
+// Hash fails, whose output carries no
 // identifying prefix (a hash format the registry itself cannot recognize
 // cannot be dispatched even against the hasher that produced it), or that
 // claims a bcrypt prefix with unparseable cost parameters.
 func New(current port.Hasher, legacyForVerify ...port.Hasher) (*Registry, error) {
+	return NewWithWorkLimiter(current, nil, legacyForVerify...)
+}
+
+// NewWithWorkLimiter builds a registry sharing the supplied password-work
+// limiter. Nil selects a private limiter with the default concurrency. Startup
+// probes, Hash, Compare and dummy verification all consume the same capacity.
+func NewWithWorkLimiter(current port.Hasher, limiter *hasher.WorkLimiter, legacyForVerify ...port.Hasher) (*Registry, error) {
+	if limiter == nil {
+		var err error
+		limiter, err = hasher.NewWorkLimiter(0)
+		if err != nil {
+			return nil, err
+		}
+	}
+	var r *Registry
+	err := limiter.Do(func() error {
+		var err error
+		r, err = newRegistry(current, legacyForVerify...)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	r.workLimiter = limiter
+	return r, nil
+}
+
+func newRegistry(current port.Hasher, legacyForVerify ...port.Hasher) (*Registry, error) {
 	if isNilHasher(current) {
 		return nil, fmt.Errorf("hasher registry: current hasher is nil")
 	}
@@ -265,12 +295,18 @@ func isNilHasher(h port.Hasher) bool {
 
 // Hash always uses current — new and re-hashed passwords are written under
 // the configured algorithm, never under whatever produced the row being
-// replaced.
+// replaced. Saturation returns domain.ErrPasswordWorkBusy without invoking it.
 func (r *Registry) Hash(password string) (string, error) {
 	if limit := r.MaxPasswordBytes(); limit > 0 && len(password) > limit {
 		return "", domain.NewError("weak_password", fmt.Sprintf("Password exceeds the selected hasher's %d-byte input limit", limit))
 	}
-	return r.current.Hash(password)
+	var hash string
+	err := r.workLimiter.Do(func() error {
+		var err error
+		hash, err = r.current.Hash(password)
+		return err
+	})
+	return hash, err
 }
 
 // MaxPasswordBytes reports the current algorithm's declared input bound.
@@ -286,13 +322,16 @@ func (r *Registry) MaxPasswordBytes() int {
 // separator — fails closed with errUnsupportedHashFormat: no fallback
 // to current, no panic, no guessing. This is the fail-closed contract: a
 // hash this deployment cannot recognize cannot be safely verified by
-// anything.
+// anything. Saturation returns domain.ErrPasswordWorkBusy before dispatch so
+// overload does not distinguish an unsupported format from a real credential.
 func (r *Registry) Compare(password, stored string) error {
-	h, ok := r.forVerify[hashFormatPrefix(stored)]
-	if !ok || h == nil {
-		return errUnsupportedHashFormat
-	}
-	return h.Compare(password, stored)
+	return r.workLimiter.Do(func() error {
+		h, ok := r.forVerify[hashFormatPrefix(stored)]
+		if !ok || h == nil {
+			return errUnsupportedHashFormat
+		}
+		return h.Compare(password, stored)
+	})
 }
 
 // DummyHash returns a hash in current's exact format for the user-not-found
@@ -307,14 +346,21 @@ func (r *Registry) DummyHash() string {
 // BurnDummy performs real password-KDF work for a row that cannot be checked
 // because its pepper version is unavailable. A well-formed known hash runs
 // with its own embedded parameters. If the format is unknown or malformed,
-// the current probe guarantees one full comparison at the current cost.
-func (r *Registry) BurnDummy(stored string) {
+// the current probe performs a full comparison at the current cost when
+// capacity is available. Overload is returned without trying another verifier.
+func (r *Registry) BurnDummy(stored string) error {
 	const candidate = "goauth-unsupported-pepper-version-dummy"
 	err := r.Compare(candidate, stored)
-	if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) || errors.Is(err, argon2id.ErrPasswordMismatch) {
-		return
+	if errors.Is(err, domain.ErrPasswordWorkBusy) {
+		return err
 	}
-	_ = r.Compare(candidate, r.probe)
+	if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) || errors.Is(err, argon2id.ErrPasswordMismatch) {
+		return nil
+	}
+	if err := r.Compare(candidate, r.probe); errors.Is(err, domain.ErrPasswordWorkBusy) {
+		return err
+	}
+	return nil
 }
 
 // NeedsRehash reports whether a just-verified stored hash is due for an

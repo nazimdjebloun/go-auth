@@ -148,7 +148,7 @@ func (s *EmailService) RequestEmailChange(ctx context.Context, input api.Request
 	}
 	if expected.HasPassword() && !s.config.PasswordAuthenticationDisabled {
 		if err := comparePassword(s.hasher, input.Password, *expected.PasswordHash, expected.PasswordPepperVersion); err != nil {
-			return nil, domain.ErrInvalidCredentials
+			return nil, passwordCompareError(err, domain.ErrInvalidCredentials)
 		}
 	}
 	currentCode, err := s.code()

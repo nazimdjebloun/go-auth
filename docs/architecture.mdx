@@ -134,6 +134,9 @@ validation together. `config_defaults.go` preserves defaulting order, while
 `New(in *Config) (*Auth, error)` in `auth.go` is the composition root. Its setup helpers are grouped in `wire_secrets.go`, `wire_database.go`, `wire_adapters.go`, `wire_services.go`, and `wire_http.go`. In order, it:
 
 1. Clones and checks the config, derives keys, and builds the password hasher.
+   Its registry limits hashing, prefix-selected verification, dummy checks and
+   startup probes to four active operations per `Auth` by default. Excess work
+   returns `password_work_busy` without waiting.
 2. Opens (or adopts) the database connection based on `DatabaseConfig` and wraps it in `internal/sqlstore.DB`, which implements `port.TxManager`.
 3. Checks database connectivity and recorded schema compatibility for every database source before any services/workers start. It never runs migrations.
 4. Constructs the repositories, mailer, template provider, audit service, and dependent services in that order.

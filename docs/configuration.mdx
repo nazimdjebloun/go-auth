@@ -330,6 +330,18 @@ type Hasher interface {
 
 The stored string identifies the verifier. `Hash` must return a salted, one-way password hash whose first format field is stable for the algorithm, and `Compare` must parse and verify that algorithm's stored parameters. By default the implementation receives the caller's password directly. For a versioned pepper row it receives the base64-encoded HMAC-SHA256 representation selected by `users.password_pepper_version`; a `NULL` version receives the raw password. go-auth always retains bcrypt and Argon2id verifiers for rows written before an algorithm switch. See [Security → Password hashing and hasher migration](./security.mdx#password-hashing-and-hasher-migration) for the dispatch and rehash guarantees.
 
+### Password work limits
+
+Password hashing and verification share a default cap of four active operations
+per `Auth`. Excess work returns `password_work_busy` (HTTP 503) immediately,
+without queuing. Dummy login checks and startup probes use the same capacity;
+optional rehashing can be skipped after successful verification.
+
+The cap bounds active work, not total RAM. Four 64 MiB Argon2id operations need
+roughly 256 MiB of KDF memory, plus application and garbage-collection headroom.
+Stored hashes retain their own costs. Standalone KDF calls bypass the registry.
+Keep request rate limits in place. See [password-work capacity](./security.mdx#password-work-capacity).
+
 ## `WithTwoFactor`: Optional
 
 Email two-factor settings are separate from browser transport and password policy. Challenge binding is mandatory; its cookie name lives at `BrowserConfig.Cookies.ChallengeName`.

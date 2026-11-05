@@ -362,13 +362,11 @@ func (s *AuthService) authenticate(ctx context.Context, input api.LoginInput) (*
 		// work matches the configured hasher — a bcrypt dummy under an
 		// argon2id deployment would leave the not-found path measurably
 		// different from the wrong-password path.
-		s.burnDummyPasswordVerification(input.Password)
-		return nil, false, domain.ErrInvalidCredentials
+		return nil, false, s.burnDummyPasswordVerification(input.Password)
 	}
 
 	if !user.HasPassword() {
-		s.burnDummyPasswordVerification(input.Password)
-		return nil, false, domain.ErrInvalidCredentials
+		return nil, false, s.burnDummyPasswordVerification(input.Password)
 	}
 	// Preserve the credential snapshot even with a repository returning shared
 	// objects; rehash may update this copy only after a successful CAS.
@@ -377,6 +375,9 @@ func (s *AuthService) authenticate(ctx context.Context, input api.LoginInput) (*
 
 	err = comparePassword(s.hasher, input.Password, *user.PasswordHash, user.PasswordPepperVersion)
 	if err != nil {
+		if errors.Is(err, domain.ErrPasswordWorkBusy) {
+			return nil, false, domain.ErrPasswordWorkBusy
+		}
 		// Unknown formats fail closed inside the registry, but the client
 		// still gets the same invalid_credentials response as every other
 		// failed comparison. Returning a distinct status here would turn a
@@ -428,6 +429,9 @@ func (s *AuthService) rehashIfNeeded(ctx context.Context, user *domain.User, pas
 	}
 	newHash, newPepperVersion, err := hashPassword(s.hasher, password)
 	if err != nil {
+		if errors.Is(err, domain.ErrPasswordWorkBusy) {
+			return
+		}
 		s.log.Error("rehash-on-login: failed to rehash password", "err", err, "user_id", user.ID)
 		return
 	}
@@ -450,8 +454,9 @@ func (s *AuthService) rehashIfNeeded(ctx context.Context, user *domain.User, pas
 // login attempts that have no stored password to verify. It always delegates
 // to the live password pipeline and its current-format probe, so bcrypt and
 // Argon2id deployments burn their configured KDF rather than a fixed stand-in.
-func (s *AuthService) burnDummyPasswordVerification(password string) {
-	_ = s.hasher.Compare(password, s.dummyHashForTiming())
+func (s *AuthService) burnDummyPasswordVerification(password string) error {
+	err := s.hasher.Compare(password, s.dummyHashForTiming())
+	return passwordCompareError(err, domain.ErrInvalidCredentials)
 }
 
 // dummyHashForTiming returns a hash in the current hasher's format for the
@@ -727,7 +732,7 @@ func (s *AuthService) DeleteAccount(ctx context.Context, input api.DeleteAccount
 	verified := *user
 	user = &verified
 	if err := comparePassword(s.hasher, input.Password, *user.PasswordHash, user.PasswordPepperVersion); err != nil {
-		return domain.NewError("wrong_password", "Password is incorrect")
+		return passwordCompareError(err, domain.NewError("wrong_password", "Password is incorrect"))
 	}
 
 	// Account deletion requires the coordinator: one transaction unwinding

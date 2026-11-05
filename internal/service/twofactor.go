@@ -701,7 +701,7 @@ func (s *TwoFactorService) authorizeChange(ctx context.Context, userID, password
 		return nil, domain.ErrTwoFactorPasswordRequired
 	}
 	if err := comparePassword(s.hasher, password, *user.PasswordHash, user.PasswordPepperVersion); err != nil {
-		return nil, domain.ErrInvalidCredentials
+		return nil, passwordCompareError(err, domain.ErrInvalidCredentials)
 	}
 	return user, nil
 }
