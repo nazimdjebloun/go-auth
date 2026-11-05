@@ -97,7 +97,11 @@ func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditCon
 	if len(auditOptions) > 0 {
 		auditCfg = auditOptions[0]
 	}
-	cfg, err := goauth.NewConfig(
+	return newTestAuthWithOptions(db, mailer, goauth.WithAudit(auditCfg))
+}
+
+func newTestAuthWithOptions(db *sql.DB, mailer port.Mailer, options ...goauth.Option) (*goauth.Auth, error) {
+	defaults := []goauth.Option{
 		goauth.WithPasswordHashing(goauth.PasswordHashingConfig{BcryptCost: 4}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
@@ -131,18 +135,19 @@ func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditCon
 
 		goauth.WithMailer(mailer),
 		goauth.WithSecret("0123456789abcdef0123456789abcdef"),
-		goauth.WithAudit(auditCfg),
-	)
+		goauth.WithAudit(goauth.AuditConfig{Enabled: true}),
+	}
+	cfg, err := goauth.NewConfig(append(defaults, options...)...)
 	if err != nil {
 		return nil, err
 	}
 	return goauth.New(cfg)
 }
 
-func openAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
+func openAuth(t *testing.T, db *sql.DB, mailer port.Mailer, options ...goauth.Option) *goauth.Auth {
 	t.Helper()
 	migrateDB(t, db, testdb.Driver(db))
-	a, err := newTestAuth(db, mailer)
+	a, err := newTestAuthWithOptions(db, mailer, options...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1847,16 +1852,20 @@ func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
 // email_already_exists — this asserts the fix against the real SQLite
 // repository, not a mock.
 func TestRegister_ConcurrentSameEmail_OneWinsOneGetsEmailAlreadyExists(t *testing.T) {
+	const n = 10
 	db, closeDB := newTestDB(t)
 	defer closeDB()
 	mailer := &testMailer{}
-	a := openAuth(t, db, mailer)
+	// Exercise the database uniqueness race without the independent hashing
+	// capacity limit rejecting requests before they reach the repository.
+	a := openAuth(t, db, mailer, goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
+		BcryptCost: 4, Concurrency: n,
+	}))
 	defer a.Close()
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
 	var succeeded, duplicates, other int32
-	n := 10
 	for range n {
 		wg.Add(1)
 		go func() {
