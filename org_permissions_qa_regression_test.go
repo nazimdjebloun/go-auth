@@ -39,8 +39,8 @@ func TestOrgPermissionsHTTPBusinessDeletionDelegation(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := "/auth/orgs/" + f.actor.OrgID + "/authorization/permissions/" + p.ID
-	f.request(t, "PATCH", path, `{"expectedRevision":1,"name":"Changed"}`, f.memberToken, 403)
-	f.request(t, "DELETE", path+"?expectedRevision=1", "", f.memberToken, 403)
+	f.requestRevision(t, "PATCH", path, `{"name":"Changed"}`, f.memberToken, 403, 1)
+	f.requestRevision(t, "DELETE", path, "", f.memberToken, 403, 1)
 	var revisionAfter uint64
 	if err := f.db.QueryRowContext(t.Context(),
 		`SELECT revision FROM org_authorization_state WHERE org_id=$1`, f.actor.OrgID,
@@ -63,7 +63,7 @@ func TestOrgPermissionsHTTPBusinessDeletionDelegation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	w := f.request(t, "DELETE", path+"?expectedRevision=1", "", f.memberToken, 409)
+	w := f.requestRevision(t, "DELETE", path, "", f.memberToken, 409, 1)
 	if !strings.Contains(w.Body.String(), `"error":"org_permission_in_use"`) {
 		t.Fatalf("referenced permission deletion: %s", w.Body.String())
 	}
@@ -72,7 +72,7 @@ func TestOrgPermissionsHTTPBusinessDeletionDelegation(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	f.request(t, "DELETE", path+"?expectedRevision=1", "", f.token, 204)
+	f.requestRevision(t, "DELETE", path, "", f.token, 204, 1)
 	decision, err = svc.CheckPermission(t.Context(), api.CheckOrgPermissionInput{Actor: f.actor, PermissionKey: p.Key})
 	if err != nil || decision.Allowed {
 		t.Fatalf("owner's deletion did not remove definition: %+v error=%v", decision, err)
@@ -254,8 +254,8 @@ func TestOrgPermissionsHTTPStaleInvitationRecovery(t *testing.T) {
 			).Scan(&memberships); err != nil || memberships != 0 {
 				t.Fatalf("stale acceptance created membership: %d error=%v", memberships, err)
 			}
-			w := f.request(t, "PATCH", base+"/authorization/roles/"+f.role.ID,
-				`{"expectedRevision":1,"name":"Stale write"}`, f.token, 409,
+			w := f.requestRevision(t, "PATCH", base+"/authorization/roles/"+f.role.ID,
+				`{"name":"Stale write"}`, f.token, 412, 1,
 			)
 			if !strings.Contains(w.Body.String(), `"error":"org_authorization_conflict"`) {
 				t.Fatal("ordinary optimistic conflict changed its error code:", w.Body.String())

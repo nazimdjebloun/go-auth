@@ -137,6 +137,12 @@ logins. The app uses the default context; the panel sends
 `X-GoAuth-Session: admin` on every request. Configure both frontend origins and
 the public API origin in `WithBrowser`. See [deployment](docs/guides/deployment.mdx).
 
+Permission/role HTTP updates, grant replacement and deletion now require
+`If-Match: "<revision>"`; the former `expectedRevision` body/query transports
+are rejected. Stale tags return 412. Assignment operations retain their two
+JSON revision fields. See the [app](docs/routes/authorization.mdx) and
+[org](docs/routes/org-authorization.mdx) route references for migration details.
+
 ## Security and defaults
 
 - Signup is closed by default. Enable the signup methods you need separately

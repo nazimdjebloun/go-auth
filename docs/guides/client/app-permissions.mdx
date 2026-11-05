@@ -14,6 +14,13 @@ Application roles are separate from organization roles. Each account has one app
   The examples follow the other client guides: React, TypeScript, and local [shadcn/ui](https://ui.shadcn.com) components. The dialog and select examples use the [Radix component APIs](https://ui.shadcn.com/docs/components/radix/dialog), including `asChild`. In an initialized shadcn project, install with `npx shadcn@latest add button input textarea card label alert dialog select table badge checkbox`.
 </Callout>
 
+
+Guarded metadata updates, grant replacement and deletion send the observed
+resource revision as `If-Match: "<revision>"`. The wrapper's `expectedRevision`
+argument stays client-side; it is removed from JSON. Missing/malformed tags
+return 400, and stale tags return 412 with the existing conflict code. Assignment
+operations still send their distinct role and assignment revisions in JSON.
+
 ## Before using the client
 
 Both authorization modes are supported. Without `WithAppPermissions`, or with
@@ -121,6 +128,11 @@ function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   return apiRequest(API_BASE, method, path, body) as Promise<T>;
 }
 
+// Keep the client-side revision argument out of the JSON body.
+function guardedRequest<T>(method: string, path: string, expectedRevision: number, body?: unknown): Promise<T> {
+  return apiRequest(API_BASE, method, path, body, { expectedRevision });
+}
+
 export const appPermissionsApi = {
   myAccess: () => request<AppAccess>("GET", "/auth/access"),
 
@@ -136,11 +148,11 @@ export const appPermissionsApi = {
   createPermission: (input: { key: string; name: string; description?: string }) =>
     request<AppPermission>("POST", `${ROOT}/permissions`, input),
 
-  updatePermission: (permissionId: string, input: MetadataUpdate) =>
-    request<AppPermission>("PATCH", `${ROOT}/permissions/${encodeURIComponent(permissionId)}`, input),
+  updatePermission: (permissionId: string, { expectedRevision, ...body }: MetadataUpdate) =>
+    guardedRequest<AppPermission>("PATCH", `${ROOT}/permissions/${encodeURIComponent(permissionId)}`, expectedRevision, body),
 
   deletePermission: (permissionId: string, expectedRevision: number) =>
-    request<void>("DELETE", `${ROOT}/permissions/${encodeURIComponent(permissionId)}?${new URLSearchParams({ expectedRevision: String(expectedRevision) })}`),
+    guardedRequest<void>("DELETE", `${ROOT}/permissions/${encodeURIComponent(permissionId)}`, expectedRevision),
 
   listRoles: (page: Page = {}) =>
     request<{ roles: AppRole[] }>("GET", `${ROOT}/roles?${pageQuery(page)}`),
@@ -148,14 +160,14 @@ export const appPermissionsApi = {
   createRole: (input: { slug: string; name: string; description?: string; permissionKeys: string[] }) =>
     request<AppRole>("POST", `${ROOT}/roles`, input),
 
-  updateRole: (roleId: string, input: MetadataUpdate) =>
-    request<AppRole>("PATCH", `${ROOT}/roles/${encodeURIComponent(roleId)}`, input),
+  updateRole: (roleId: string, { expectedRevision, ...body }: MetadataUpdate) =>
+    guardedRequest<AppRole>("PATCH", `${ROOT}/roles/${encodeURIComponent(roleId)}`, expectedRevision, body),
 
-  setRolePermissions: (roleId: string, input: { expectedRevision: number; permissionKeys: string[] }) =>
-    request<AppRole>("PUT", `${ROOT}/roles/${encodeURIComponent(roleId)}/permissions`, input),
+  setRolePermissions: (roleId: string, { expectedRevision, ...body }: { expectedRevision: number; permissionKeys: string[] }) =>
+    guardedRequest<AppRole>("PUT", `${ROOT}/roles/${encodeURIComponent(roleId)}/permissions`, expectedRevision, body),
 
   deleteRole: (roleId: string, expectedRevision: number) =>
-    request<void>("DELETE", `${ROOT}/roles/${encodeURIComponent(roleId)}?${new URLSearchParams({ expectedRevision: String(expectedRevision) })}`),
+    guardedRequest<void>("DELETE", `${ROOT}/roles/${encodeURIComponent(roleId)}`, expectedRevision),
 
   getUserRole: (userId: string) =>
     request<AppUserRole>("GET", `${ROOT}/users/${encodeURIComponent(userId)}/role`),
@@ -269,7 +281,7 @@ export function getPermissionErrorMessage(error: unknown): string {
 }
 ```
 
-`authorization_conflict` is a `409`, not a signal to increment a revision locally or retry automatically. Reload the affected record and let the operator review it. Permission edits/deletes use the definition revision; role edits/grant replacements/deletes use the role revision; assignment needs both the selected role revision and target assignment revision. The global `AppAccess.revision` is informational and is never an `expectedRevision` value.
+`authorization_conflict` uses 412 for `If-Match` writes and 409 for assignment conflicts. Neither is a signal to increment a revision locally or retry automatically. Reload the affected record and let the operator review it. Permission edits/deletes use the definition revision; role edits/grant replacements/deletes use the role revision; assignment needs both the selected role revision and target assignment revision. The global `AppAccess.revision` is informational and is never an `expectedRevision` value.
 
 On `401` or `user_banned`, let the shared wrapper clear authentication state. Do not sign out on every `403`: it may be an ordinary permission denial or an MFA requirement. After a denial, refresh current access and hide unavailable controls. A `429` from the shared wrapper includes `retryAfter` in seconds; display a retry delay rather than automatically looping a write. JSON validation and infrastructure errors are covered in [Error handling](../../error-handling.mdx#app-authorization).
 
@@ -742,7 +754,7 @@ The browser checks improve feedback; server validation is still authoritative. A
 
 ## Update, disable, or enable a business permission
 
-`PATCH /admin/authorization/permissions/{permissionID}` with `{expectedRevision,name?,description?,isEnabled?}` → the updated definition, `200`. Requires `goauth.app.permissions.update`.
+`PATCH /admin/authorization/permissions/{permissionID}` with `{name?,description?,isEnabled?}` and `If-Match: "N"` → the updated definition, `200`. Requires `goauth.app.permissions.update`.
 
 Omitting an optional field preserves it; `description: ""` clears the description, and `isEnabled: false` disables the key. Use the revision of the definition being edited. A delegate must also currently hold that business key. Once it is disabled, the delegate cannot re-enable it to regain access; protected admin can.
 
@@ -825,7 +837,7 @@ Mount edit forms with a key such as `permission.id + ":" + permission.revision` 
 
 ## Delete a business permission
 
-`DELETE /admin/authorization/permissions/{permissionID}?expectedRevision=N` → `204`. Requires `goauth.app.permissions.delete`.
+`DELETE /admin/authorization/permissions/{permissionID}` with `If-Match: "N"` → `204`. Requires `goauth.app.permissions.delete`.
 
 Remove the key from every role before deleting its definition. Disabled grants still count as references. `permission_in_use` means cleanup is required, not that the browser should cascade the deletion. Library definitions use the protected removal endpoint instead.
 
@@ -1009,7 +1021,7 @@ Pass current access from `myAccess`, and reload it after a denial. This selector
 
 ## Update, disable, or enable a custom role
 
-`PATCH /admin/authorization/roles/{roleID}` with `{expectedRevision,name?,description?,isEnabled?}` → the updated role, `200`. Requires `goauth.app.roles.update`.
+`PATCH /admin/authorization/roles/{roleID}` with `{name?,description?,isEnabled?}` and `If-Match: "N"` → the updated role, `200`. Requires `goauth.app.roles.update`.
 
 Protected `admin` and `user` roles cannot be customized, even by protected admin. The configured default role cannot be disabled. Disabling another custom role denies permission checks for its assigned accounts; it does not ban those accounts or revoke ordinary authenticated account operations. Re-enabling retains the existing grant set.
 
@@ -1090,7 +1102,7 @@ Use a parent key of `role.id + ":" + role.revision` when changing the selected s
 
 ## Replace a role's permissions
 
-`PUT /admin/authorization/roles/{roleID}/permissions` with `{expectedRevision,permissionKeys:[...]}` → the updated role, `200`. Requires `goauth.app.roles.update`.
+`PUT /admin/authorization/roles/{roleID}/permissions` with `{permissionKeys:[...]}` and `If-Match: "N"` → the updated role, `200`. Requires `goauth.app.roles.update`.
 
 This replaces the **entire** explicit set. Sending only the newly checked keys also removes all omitted keys. Send `[]` to clear; an omitted or `null` `permissionKeys` is invalid. At most 256 distinct installed, enabled keys are accepted.
 
@@ -1220,7 +1232,7 @@ As with deletion dialogs, reload and remount with a fresh revision after a confl
 
 ## Delete a custom role
 
-`DELETE /admin/authorization/roles/{roleID}?expectedRevision=N` → `204`. Requires `goauth.app.roles.delete`.
+`DELETE /admin/authorization/roles/{roleID}` with `If-Match: "N"` → `204`. Requires `goauth.app.roles.delete`.
 
 The role must be custom, unassigned, and different from the configured default. Reassign its accounts first. The server does not move them to a fallback role. A delegate must hold all existing keys and cannot delete its own role. Deleting a role does not delete its permission definitions.
 

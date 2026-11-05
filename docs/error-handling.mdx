@@ -36,7 +36,7 @@ This page covers **runtime** errors from mounted HTTP handlers. For configuratio
 | `role_not_found` | 404 | Target/configured role is missing or unavailable. |
 | `role_exists` | 409 | Role slug already exists. |
 | `role_in_use` | 409 | Role is assigned or is the configured default. |
-| `authorization_conflict` | 409 | Expected definition/role/assignment revision is stale. |
+| `authorization_conflict` | 412 for If-Match writes; otherwise 409 | Expected definition/role/assignment revision is stale. |
 | `protected_role` | 403 | Attempt to customize a built-in role. |
 | `protected_permission` | 403 | Library definitions require protected install/remove rather than business CRUD. |
 
@@ -223,7 +223,7 @@ Callback errors do not arrive as JSON. See [HTTP contract and redirect exception
 | `org_role_exists` | 409 | The org already has this role slug. |
 | `org_role_in_use` | 409 | A member or invitation references the role. |
 | `protected_org_role` | 403 | Built-in org roles cannot be edited or deleted. |
-| `org_authorization_conflict` | 409 | A role/definition/assignment revision changed; refresh the resource before retrying the write. |
+| `org_authorization_conflict` | 412 for If-Match writes; otherwise 409 | A role/definition/assignment revision changed; refresh the resource before retrying the write. |
 | `org_invite_role_changed` | 409 | The invitation's saved role changed or is disabled; an authorized inviter must delete and recreate it. Retrying or resending cannot refresh its saved revision. |
 
 Fixed-role and membership errors also apply:

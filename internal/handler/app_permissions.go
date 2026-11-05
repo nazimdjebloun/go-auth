@@ -64,15 +64,6 @@ func (h *Handler) appPage(w http.ResponseWriter, r *http.Request) (int, int, boo
 	return values[0], values[1], true
 }
 
-func (h *Handler) appExpectedRevision(w http.ResponseWriter, r *http.Request) (uint64, bool) {
-	v, err := strconv.ParseUint(r.URL.Query().Get("expectedRevision"), 10, 64)
-	if err != nil || v == 0 {
-		h.writeError(w, domain.NewError("invalid_input", "expectedRevision must be positive"))
-		return 0, false
-	}
-	return v, true
-}
-
 // AppLibraryPermissions returns only the fixed catalog; it never queries definitions.
 func (h *Handler) AppLibraryPermissions(w http.ResponseWriter, r *http.Request) {
 	if err := h.services.AppPermissions.RequireProtectedAdmin(r.Context(), appRequestActor(r)); err != nil {
@@ -133,18 +124,22 @@ func (h *Handler) CreateAppPermission(w http.ResponseWriter, r *http.Request) {
 
 // UpdateAppPermission changes business metadata or enabled state using a revision.
 func (h *Handler) UpdateAppPermission(w http.ResponseWriter, r *http.Request) {
+	revision, ok := h.expectedRevision(w, r)
+	if !ok {
+		return
+	}
+
 	var body struct {
-		ExpectedRevision uint64  `json:"expectedRevision"`
-		Name             *string `json:"name"`
-		Description      *string `json:"description"`
-		IsEnabled        *bool   `json:"isEnabled"`
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		IsEnabled   *bool   `json:"isEnabled"`
 	}
 	if !h.decodeAppJSON(w, r, &body) {
 		return
 	}
-	result, err := h.services.AppPermissions.UpdatePermission(r.Context(), api.UpdateAppPermissionInput{Actor: appRequestActor(r), PermissionID: r.PathValue("permissionID"), ExpectedRevision: body.ExpectedRevision, Name: body.Name, Description: body.Description, IsEnabled: body.IsEnabled})
+	result, err := h.services.AppPermissions.UpdatePermission(r.Context(), api.UpdateAppPermissionInput{Actor: appRequestActor(r), PermissionID: r.PathValue("permissionID"), ExpectedRevision: revision, Name: body.Name, Description: body.Description, IsEnabled: body.IsEnabled})
 	if err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, result)
@@ -152,12 +147,12 @@ func (h *Handler) UpdateAppPermission(w http.ResponseWriter, r *http.Request) {
 
 // DeleteAppPermission refuses referenced and library definitions.
 func (h *Handler) DeleteAppPermission(w http.ResponseWriter, r *http.Request) {
-	revision, ok := h.appExpectedRevision(w, r)
+	revision, ok := h.expectedRevision(w, r)
 	if !ok {
 		return
 	}
 	if err := h.services.AppPermissions.DeletePermission(r.Context(), api.DeleteAppPermissionInput{Actor: appRequestActor(r), PermissionID: r.PathValue("permissionID"), ExpectedRevision: revision}); err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -198,18 +193,22 @@ func (h *Handler) CreateAppRole(w http.ResponseWriter, r *http.Request) {
 
 // UpdateAppRole changes custom metadata or enabled state.
 func (h *Handler) UpdateAppRole(w http.ResponseWriter, r *http.Request) {
+	revision, ok := h.expectedRevision(w, r)
+	if !ok {
+		return
+	}
+
 	var body struct {
-		ExpectedRevision uint64  `json:"expectedRevision"`
-		Name             *string `json:"name"`
-		Description      *string `json:"description"`
-		IsEnabled        *bool   `json:"isEnabled"`
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		IsEnabled   *bool   `json:"isEnabled"`
 	}
 	if !h.decodeAppJSON(w, r, &body) {
 		return
 	}
-	result, err := h.services.AppPermissions.UpdateRole(r.Context(), api.UpdateAppRoleInput{Actor: appRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: body.ExpectedRevision, Name: body.Name, Description: body.Description, IsEnabled: body.IsEnabled})
+	result, err := h.services.AppPermissions.UpdateRole(r.Context(), api.UpdateAppRoleInput{Actor: appRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: revision, Name: body.Name, Description: body.Description, IsEnabled: body.IsEnabled})
 	if err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, result)
@@ -217,9 +216,13 @@ func (h *Handler) UpdateAppRole(w http.ResponseWriter, r *http.Request) {
 
 // SetAppRolePermissions replaces the complete grant set, including an empty set.
 func (h *Handler) SetAppRolePermissions(w http.ResponseWriter, r *http.Request) {
+	revision, ok := h.expectedRevision(w, r)
+	if !ok {
+		return
+	}
+
 	var body struct {
-		ExpectedRevision uint64    `json:"expectedRevision"`
-		PermissionKeys   *[]string `json:"permissionKeys"`
+		PermissionKeys *[]string `json:"permissionKeys"`
 	}
 	if !h.decodeAppJSON(w, r, &body) {
 		return
@@ -228,9 +231,9 @@ func (h *Handler) SetAppRolePermissions(w http.ResponseWriter, r *http.Request) 
 		h.writeError(w, domain.NewError("invalid_input", "permissionKeys must be an array; use [] to clear grants"))
 		return
 	}
-	result, err := h.services.AppPermissions.SetRolePermissions(r.Context(), api.SetAppRolePermissionsInput{Actor: appRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: body.ExpectedRevision, PermissionKeys: *body.PermissionKeys})
+	result, err := h.services.AppPermissions.SetRolePermissions(r.Context(), api.SetAppRolePermissionsInput{Actor: appRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: revision, PermissionKeys: *body.PermissionKeys})
 	if err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, result)
@@ -238,12 +241,12 @@ func (h *Handler) SetAppRolePermissions(w http.ResponseWriter, r *http.Request) 
 
 // DeleteAppRole refuses protected, default and assigned roles.
 func (h *Handler) DeleteAppRole(w http.ResponseWriter, r *http.Request) {
-	revision, ok := h.appExpectedRevision(w, r)
+	revision, ok := h.expectedRevision(w, r)
 	if !ok {
 		return
 	}
 	if err := h.services.AppPermissions.DeleteRole(r.Context(), api.DeleteAppRoleInput{Actor: appRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: revision}); err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

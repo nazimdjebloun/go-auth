@@ -25,16 +25,26 @@ The exact operation keys listed below start with `goauth.org.`.
 | `PATCH BASE/library-permissions` | Protected owner | `{create:[keys],delete:[keys]}`; atomic result `{created,deleted,unchanged}` |
 | `GET BASE/permissions` | `permissions.read` | `limit`, `offset`; `{permissions:[...]}` |
 | `POST BASE/permissions` | `permissions.create` | `{key,name,description?}`; definition, 201 |
-| `PATCH BASE/permissions/{permissionID}` | `permissions.update` | `{expectedRevision,name?,description?,isEnabled?}`; business definition only |
-| `DELETE BASE/permissions/{permissionID}` | `permissions.delete` | Required `expectedRevision` query; 204 |
+| `PATCH BASE/permissions/{permissionID}` | `permissions.update` | If-Match header; `{name?,description?,isEnabled?}`; business definition only |
+| `DELETE BASE/permissions/{permissionID}` | `permissions.delete` | Required `If-Match` header; 204 |
 | `GET BASE/roles` | `roles.read` | `limit`, `offset`; `{roles:[...]}` |
 | `POST BASE/roles` | `roles.create` | `{slug,name,description?,permissionKeys?}`; role, 201 |
-| `PATCH BASE/roles/{roleID}` | `roles.update` | `{expectedRevision,name?,description?,isEnabled?}` |
-| `PUT BASE/roles/{roleID}/permissions` | `roles.update` | `{expectedRevision,permissionKeys:[...]}`; replaces grants, `[]` clears |
-| `DELETE BASE/roles/{roleID}` | `roles.delete` | Required `expectedRevision` query; 204 |
+| `PATCH BASE/roles/{roleID}` | `roles.update` | If-Match header; `{name?,description?,isEnabled?}` |
+| `PUT BASE/roles/{roleID}/permissions` | `roles.update` | If-Match header; `{permissionKeys:[...]}`; replaces grants, `[]` clears |
+| `DELETE BASE/roles/{roleID}` | `roles.delete` | Required `If-Match` header; 204 |
 | `GET BASE/members/{userID}/role` | `roles.read`, including for self | `{role,assignmentRevision}` |
 | `GET BASE/members/{userID}/access` | `roles.read` for another member | Target member's effective access |
 | `PUT BASE/members/{userID}/role` | `roles.assign` | `{roleId,expectedRoleRevision,expectedAssignmentRevision}`; assignment |
+
+Guarded permission/role PATCH, grant-replacement PUT and DELETE requests all
+require one strong revision tag in `If-Match`, for example `If-Match: "3"`, from
+that resource's `revision`. Do not send `expectedRevision` in JSON or the query
+string; these former transports are rejected. Missing/malformed headers return
+`400 invalid_input`; weak tags, wildcards and tag lists are unsupported. Stale
+preconditions return 412 with the existing authorization conflict code. Other
+business conflicts still return 409. Role assignment retains the two JSON fields
+`expectedRoleRevision` and `expectedAssignmentRevision`, because it checks two
+separate records. Direct Go service inputs retain `ExpectedRevision`.
 
 Other successful reads/updates return 200. Authorization IDs are lowercase,
 hyphenated UUIDs. Management JSON is limited to 64 KiB and rejects unknown fields

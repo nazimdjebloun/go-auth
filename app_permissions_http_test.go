@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -79,7 +80,7 @@ func newAppHTTPFixture(t *testing.T, management, requireMFA bool, options ...Opt
 	return appHTTPFixture{a: a, db: db, users: users, admin: api.AppPermissionActor{UserID: id, SessionID: session.Session.ID}, token: session.SessionToken, mux: mux}
 }
 
-func (f appHTTPFixture) request(t *testing.T, method, path, body, token string, want int) *httptest.ResponseRecorder {
+func (f appHTTPFixture) request(t *testing.T, method, path, body, token string, want int, headers ...http.Header) *httptest.ResponseRecorder {
 	t.Helper()
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
 	adminContext := path == "/auth/admin/login" || sessioncontext.Of(token) == sessioncontext.Admin
@@ -88,6 +89,13 @@ func (f appHTTPFixture) request(t *testing.T, method, path, body, token string, 
 	}
 	r.Header.Set("Origin", "http://localhost")
 	r.Header.Set("Content-Type", "application/json")
+	for _, header := range headers {
+		for key, values := range header {
+			for _, value := range values {
+				r.Header.Add(key, value)
+			}
+		}
+	}
 	if token != "" {
 		name := f.a.cfg.browser.Cookies.Name
 		if adminContext {
@@ -119,6 +127,11 @@ func (f appHTTPFixture) request(t *testing.T, method, path, body, token string, 
 		t.Fatalf("%s %s status=%d want=%d: %s", method, path, w.Code, want, w.Body.String())
 	}
 	return w
+}
+
+func (f appHTTPFixture) requestRevision(t *testing.T, method, path, body, token string, want int, revision uint64) *httptest.ResponseRecorder {
+	t.Helper()
+	return f.request(t, method, path, body, token, want, http.Header{"If-Match": {`"` + strconv.FormatUint(revision, 10) + `"`}})
 }
 
 func TestAppPermissionsHTTPUserRoleJSON(t *testing.T) {
@@ -592,8 +605,8 @@ func TestAppPermissionsHTTPBusinessGuardAndProtectedRolePayloads(t *testing.T) {
 	f.request(t, "GET", "/admin/users", "", account.SessionToken, 403)
 	f.request(t, "POST", "/admin/users", `{"email":"evil@example.com","name":"Evil","password":"Passw0rd!","role":"admin"}`, f.token, 400)
 	f.request(t, "PATCH", "/admin/users/"+account.User.ID+"/role", `{"role":"admin"}`, f.token, 400)
-	f.request(t, "PUT", "/admin/authorization/roles/"+r.ID+"/permissions", `{"expectedRevision":1}`, f.token, 400)
-	f.request(t, "PATCH", "/admin/authorization/roles/not-a-uuid", `{"expectedRevision":1,"name":"x"}`, f.token, 400)
+	f.requestRevision(t, "PUT", "/admin/authorization/roles/"+r.ID+"/permissions", `{}`, f.token, 400, 1)
+	f.requestRevision(t, "PATCH", "/admin/authorization/roles/not-a-uuid", `{"name":"x"}`, f.token, 400, 1)
 	disabled := false
 	if _, err := permissions.UpdatePermission(ctx, api.UpdateAppPermissionInput{Actor: f.admin, PermissionID: p.ID, ExpectedRevision: p.Revision, IsEnabled: &disabled}); err != nil {
 		t.Fatal(err)

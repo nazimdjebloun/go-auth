@@ -23,16 +23,26 @@ to direct Go service inputs.
 | `PATCH /admin/authorization/library-permissions` | Protected admin plus required MFA | `{create:[keys],delete:[keys]}`; 1–100 total, atomic |
 | `GET /admin/authorization/permissions` | `goauth.app.permissions.read` | Optional `limit`, `offset` query; `{permissions:[...]}` |
 | `POST /admin/authorization/permissions` | `goauth.app.permissions.create` | `{key,name,description}`; returns definition, 201 |
-| `PATCH /admin/authorization/permissions/{permissionID}` | `goauth.app.permissions.update` | `{expectedRevision,name?,description?,isEnabled?}`; business only |
-| `DELETE /admin/authorization/permissions/{permissionID}` | `goauth.app.permissions.delete` | Required `expectedRevision` query; 204 |
+| `PATCH /admin/authorization/permissions/{permissionID}` | `goauth.app.permissions.update` | If-Match header; `{name?,description?,isEnabled?}`; business only |
+| `DELETE /admin/authorization/permissions/{permissionID}` | `goauth.app.permissions.delete` | Required `If-Match` header; 204 |
 | `GET /admin/authorization/roles` | `goauth.app.roles.read` | Optional `limit`, `offset` query; `{roles:[...]}` with explicit keys |
 | `POST /admin/authorization/roles` | `goauth.app.roles.create` | `{slug,name,description?,permissionKeys?}`; returns role, 201 |
-| `PATCH /admin/authorization/roles/{roleID}` | `goauth.app.roles.update` | `{expectedRevision,name?,description?,isEnabled?}` |
-| `PUT /admin/authorization/roles/{roleID}/permissions` | `goauth.app.roles.update` | `{expectedRevision,permissionKeys:[...]}`; replaces entire grant set |
-| `DELETE /admin/authorization/roles/{roleID}` | `goauth.app.roles.delete` | Required `expectedRevision` query; 204 |
+| `PATCH /admin/authorization/roles/{roleID}` | `goauth.app.roles.update` | If-Match header; `{name?,description?,isEnabled?}` |
+| `PUT /admin/authorization/roles/{roleID}/permissions` | `goauth.app.roles.update` | If-Match header; `{permissionKeys:[...]}`; replaces entire grant set |
+| `DELETE /admin/authorization/roles/{roleID}` | `goauth.app.roles.delete` | Required `If-Match` header; 204 |
 | `GET /admin/authorization/users/{id}/role` | `goauth.app.roles.read` | None; `{role,assignmentRevision}` |
 | `GET /admin/authorization/users/{id}/access` | `goauth.app.roles.read` | None; target account's `{role,isFullAccess,permissionKeys,assignmentRevision,revision}` |
 | `PUT /admin/authorization/users/{id}/role` | `goauth.app.roles.assign` | `{roleId,expectedRoleRevision,expectedAssignmentRevision}`; returns assignment |
+
+Guarded permission/role PATCH, grant-replacement PUT and DELETE requests all
+require one strong revision tag in `If-Match`, for example `If-Match: "3"`, from
+that resource's `revision`. Do not send `expectedRevision` in JSON or the query
+string; these former transports are rejected. Missing/malformed headers return
+`400 invalid_input`; weak tags, wildcards and tag lists are unsupported. Stale
+preconditions return 412 with the existing authorization conflict code. Other
+business conflicts still return 409. Role assignment retains the two JSON fields
+`expectedRoleRevision` and `expectedAssignmentRevision`, because it checks two
+separate records. Direct Go service inputs retain `ExpectedRevision`.
 
 All other successful reads/updates return 200. Optional description defaults
 to empty. Management JSON rejects unknown fields and trailing documents and is

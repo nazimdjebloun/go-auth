@@ -170,7 +170,7 @@ required, at most 120 characters; descriptions are at most 4096 bytes.
 
 Grant replacement uses
 `PUT /admin/authorization/roles/ROLE_ID/permissions` with
-`{"expectedRevision":1,"permissionKeys":[...]}`. An empty array clears grants.
+`{"permissionKeys":[...]}` with `If-Match: "1"`. An empty array clears grants.
 At most 256 distinct installed, enabled keys can be supplied. Read the latest
 role revision before editing or assigning; stale updates return
 `authorization_conflict`. A changed assignment replaces the sole previous role
@@ -345,3 +345,14 @@ its disabled-mode `role: admin|user` behavior is unchanged.
 See the [authorization route reference](../routes/authorization.mdx) for methods,
 request bodies and the [error reference](../error-handling.mdx#app-authorization)
 for failure codes.
+
+## HTTP revision preconditions
+
+Permission/role metadata updates, grant replacement and deletion all send the
+observed resource revision through `If-Match: "<revision>"`. This replaces both
+`expectedRevision` JSON fields and DELETE query parameters. Missing/malformed
+headers return 400; stale tags return `412 authorization_conflict`. Reload and
+review the current record before resubmitting. Assignment operations retain
+`expectedRoleRevision` and `expectedAssignmentRevision` in JSON and use 409 for
+stale assignments. Direct Go service inputs retain `ExpectedRevision`. See the
+[route reference](../routes/authorization.mdx) and [client wrappers](./client/app-permissions.mdx).

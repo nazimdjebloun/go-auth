@@ -81,11 +81,17 @@ export async function apiRequest<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
-  options: { signal?: AbortSignal } = {}
+  options: { signal?: AbortSignal; expectedRevision?: number } = {}
 ): Promise<T> {
   const state = stateFor(baseUrl)
   const headers: Record<string, string> = {}
   if (body !== undefined) headers["Content-Type"] = "application/json"
+  if (options.expectedRevision !== undefined) {
+    if (!Number.isSafeInteger(options.expectedRevision) || options.expectedRevision <= 0) {
+      throw new Error("expectedRevision must be a positive safe integer")
+    }
+    headers["If-Match"] = `"${options.expectedRevision}"`
+  }
 
   const write = !["GET", "HEAD", "OPTIONS"].includes(method.toUpperCase())
   if (write) headers["X-CSRF-Token"] = await getCSRFToken(baseUrl)

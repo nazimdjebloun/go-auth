@@ -30,8 +30,8 @@ func TestAppPermissionsUUIDInputsHTTP(t *testing.T) {
 	// and writes, rather than merely satisfying the validator.
 	f.request(t, "GET", "/admin/authorization/users/"+f.admin.UserID+"/role", "", f.token, 200)
 	f.request(t, "GET", "/admin/authorization/users/"+f.admin.UserID+"/access", "", f.token, 200)
-	f.request(t, "PATCH", "/admin/authorization/roles/"+role.ID, `{"expectedRevision":1,"name":"Updated"}`, f.token, 200)
-	f.request(t, "PATCH", "/admin/authorization/permissions/"+permission.ID, `{"expectedRevision":1,"name":"Updated"}`, f.token, 200)
+	f.requestRevision(t, "PATCH", "/admin/authorization/roles/"+role.ID, `{"name":"Updated"}`, f.token, 200, 1)
+	f.requestRevision(t, "PATCH", "/admin/authorization/permissions/"+permission.ID, `{"name":"Updated"}`, f.token, 200, 1)
 
 	const id = "abcdefab-1234-4234-8234-abcdefabcdef"
 	for _, test := range []struct {
@@ -52,13 +52,13 @@ func TestAppPermissionsUUIDInputsHTTP(t *testing.T) {
 			}{
 				{"user_role", "GET", "/admin/authorization/users/" + pathID + "/role", ""},
 				{"user_access", "GET", "/admin/authorization/users/" + pathID + "/access", ""},
-				{"role", "PATCH", "/admin/authorization/roles/" + pathID, `{"expectedRevision":1,"name":"Rejected"}`},
-				{"permission", "PATCH", "/admin/authorization/permissions/" + pathID, `{"expectedRevision":1,"name":"Rejected"}`},
+				{"role", "PATCH", "/admin/authorization/roles/" + pathID, `{"name":"Rejected"}`},
+				{"permission", "PATCH", "/admin/authorization/permissions/" + pathID, `{"name":"Rejected"}`},
 				{"assignment_role", "PUT", "/admin/authorization/users/" + f.admin.UserID + "/role", fmt.Sprintf(`{"roleId":%q,"expectedRoleRevision":1,"expectedAssignmentRevision":1}`, test.id)},
 				{"role_filter", "GET", "/admin/users?appRoleId=" + url.QueryEscape(test.id), ""},
 			} {
 				t.Run(request.name, func(t *testing.T) {
-					w := f.request(t, request.method, request.path, request.body, f.token, 400)
+					w := f.requestRevision(t, request.method, request.path, request.body, f.token, 400, 1)
 					var result struct {
 						Error string `json:"error"`
 					}

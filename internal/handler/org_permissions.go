@@ -84,18 +84,22 @@ func (h *Handler) CreateOrgPermission(w http.ResponseWriter, r *http.Request) {
 
 // UpdateOrgPermission changes business metadata or enabled state using a revision.
 func (h *Handler) UpdateOrgPermission(w http.ResponseWriter, r *http.Request) {
+	revision, ok := h.expectedRevision(w, r)
+	if !ok {
+		return
+	}
+
 	var body struct {
-		ExpectedRevision uint64  `json:"expectedRevision"`
-		Name             *string `json:"name"`
-		Description      *string `json:"description"`
-		IsEnabled        *bool   `json:"isEnabled"`
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		IsEnabled   *bool   `json:"isEnabled"`
 	}
 	if !h.decodeAppJSON(w, r, &body) {
 		return
 	}
-	result, err := h.services.OrgPermissions.UpdatePermission(r.Context(), api.UpdateOrgPermissionInput{Actor: orgRequestActor(r), PermissionID: r.PathValue("permissionID"), ExpectedRevision: body.ExpectedRevision, Name: body.Name, Description: body.Description, IsEnabled: body.IsEnabled})
+	result, err := h.services.OrgPermissions.UpdatePermission(r.Context(), api.UpdateOrgPermissionInput{Actor: orgRequestActor(r), PermissionID: r.PathValue("permissionID"), ExpectedRevision: revision, Name: body.Name, Description: body.Description, IsEnabled: body.IsEnabled})
 	if err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, result)
@@ -103,12 +107,12 @@ func (h *Handler) UpdateOrgPermission(w http.ResponseWriter, r *http.Request) {
 
 // DeleteOrgPermission refuses referenced and library definitions.
 func (h *Handler) DeleteOrgPermission(w http.ResponseWriter, r *http.Request) {
-	revision, ok := h.appExpectedRevision(w, r)
+	revision, ok := h.expectedRevision(w, r)
 	if !ok {
 		return
 	}
 	if err := h.services.OrgPermissions.DeletePermission(r.Context(), api.DeleteOrgPermissionInput{Actor: orgRequestActor(r), PermissionID: r.PathValue("permissionID"), ExpectedRevision: revision}); err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -149,18 +153,22 @@ func (h *Handler) CreateOrgRole(w http.ResponseWriter, r *http.Request) {
 
 // UpdateOrgRole changes custom metadata or enabled state.
 func (h *Handler) UpdateOrgRole(w http.ResponseWriter, r *http.Request) {
+	revision, ok := h.expectedRevision(w, r)
+	if !ok {
+		return
+	}
+
 	var body struct {
-		ExpectedRevision uint64  `json:"expectedRevision"`
-		Name             *string `json:"name"`
-		Description      *string `json:"description"`
-		IsEnabled        *bool   `json:"isEnabled"`
+		Name        *string `json:"name"`
+		Description *string `json:"description"`
+		IsEnabled   *bool   `json:"isEnabled"`
 	}
 	if !h.decodeAppJSON(w, r, &body) {
 		return
 	}
-	result, err := h.services.OrgPermissions.UpdateRole(r.Context(), api.UpdateOrgRoleInput{Actor: orgRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: body.ExpectedRevision, Name: body.Name, Description: body.Description, IsEnabled: body.IsEnabled})
+	result, err := h.services.OrgPermissions.UpdateRole(r.Context(), api.UpdateOrgRoleInput{Actor: orgRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: revision, Name: body.Name, Description: body.Description, IsEnabled: body.IsEnabled})
 	if err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, result)
@@ -168,9 +176,13 @@ func (h *Handler) UpdateOrgRole(w http.ResponseWriter, r *http.Request) {
 
 // SetOrgRolePermissions replaces the complete grant set, including an empty set.
 func (h *Handler) SetOrgRolePermissions(w http.ResponseWriter, r *http.Request) {
+	revision, ok := h.expectedRevision(w, r)
+	if !ok {
+		return
+	}
+
 	var body struct {
-		ExpectedRevision uint64    `json:"expectedRevision"`
-		PermissionKeys   *[]string `json:"permissionKeys"`
+		PermissionKeys *[]string `json:"permissionKeys"`
 	}
 	if !h.decodeAppJSON(w, r, &body) {
 		return
@@ -179,9 +191,9 @@ func (h *Handler) SetOrgRolePermissions(w http.ResponseWriter, r *http.Request) 
 		h.writeError(w, domain.NewError("invalid_input", "permissionKeys must be an array; use [] to clear grants"))
 		return
 	}
-	result, err := h.services.OrgPermissions.SetRolePermissions(r.Context(), api.SetOrgRolePermissionsInput{Actor: orgRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: body.ExpectedRevision, PermissionKeys: *body.PermissionKeys})
+	result, err := h.services.OrgPermissions.SetRolePermissions(r.Context(), api.SetOrgRolePermissionsInput{Actor: orgRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: revision, PermissionKeys: *body.PermissionKeys})
 	if err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	h.writeJSON(w, http.StatusOK, result)
@@ -189,12 +201,12 @@ func (h *Handler) SetOrgRolePermissions(w http.ResponseWriter, r *http.Request) 
 
 // DeleteOrgRole refuses protected, default and assigned roles.
 func (h *Handler) DeleteOrgRole(w http.ResponseWriter, r *http.Request) {
-	revision, ok := h.appExpectedRevision(w, r)
+	revision, ok := h.expectedRevision(w, r)
 	if !ok {
 		return
 	}
 	if err := h.services.OrgPermissions.DeleteRole(r.Context(), api.DeleteOrgRoleInput{Actor: orgRequestActor(r), RoleID: r.PathValue("roleID"), ExpectedRevision: revision}); err != nil {
-		h.writeError(w, err)
+		h.writeRevisionError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

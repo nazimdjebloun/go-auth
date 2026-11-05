@@ -31,6 +31,13 @@ the task endpoints and database belong to your application.
   configuration from [Setup](./index.mdx) and [Deployment](../deployment.mdx).
 </Callout>
 
+
+Guarded metadata updates, grant replacement and deletion send the observed
+resource revision as `If-Match: "<revision>"`. The wrapper's `expectedRevision`
+argument stays client-side; it is removed from JSON. Missing/malformed tags
+return 400, and stale tags return 412 with the existing conflict code. Assignment
+operations still send their distinct role and assignment revisions in JSON.
+
 ## Enable and initialize
 
 Add these options to the server's existing `NewConfig` call:
@@ -151,6 +158,11 @@ function call<T>(method: string, path: string, body?: unknown, signal?: AbortSig
   return apiRequest(API_BASE, method, path, body, { signal });
 }
 
+// Keep the client-side revision argument out of the JSON body.
+function guardedCall<T>(method: string, path: string, expectedRevision: number, body?: unknown): Promise<T> {
+  return apiRequest(API_BASE, method, path, body, { expectedRevision });
+}
+
 export const orgPermissionsApi = {
   getAccess: (orgId: string, signal?: AbortSignal) =>
     call<OrgAccess>("GET", `${orgPath(orgId)}/access`, undefined, signal),
@@ -164,20 +176,20 @@ export const orgPermissionsApi = {
     call<{ permissions: OrgPermission[] }>("GET", `${root(orgId)}/permissions${pageQuery(page)}`, undefined, signal),
   createPermission: (orgId: string, input: { key: string; name: string; description?: string }) =>
     call<OrgPermission>("POST", `${root(orgId)}/permissions`, input),
-  updatePermission: (orgId: string, permissionId: string, input: MetadataUpdate) =>
-    call<OrgPermission>("PATCH", `${root(orgId)}/permissions/${id(permissionId)}`, input),
+  updatePermission: (orgId: string, permissionId: string, { expectedRevision, ...body }: MetadataUpdate) =>
+    guardedCall<OrgPermission>("PATCH", `${root(orgId)}/permissions/${id(permissionId)}`, expectedRevision, body),
   deletePermission: (orgId: string, permissionId: string, expectedRevision: number) =>
-    call<void>("DELETE", `${root(orgId)}/permissions/${id(permissionId)}?expectedRevision=${expectedRevision}`),
+    guardedCall<void>("DELETE", `${root(orgId)}/permissions/${id(permissionId)}`, expectedRevision),
   listRoles: (orgId: string, page: Page = {}, signal?: AbortSignal) =>
     call<{ roles: OrgRole[] }>("GET", `${root(orgId)}/roles${pageQuery(page)}`, undefined, signal),
   createRole: (orgId: string, input: { slug: string; name: string; description?: string; permissionKeys?: string[] }) =>
     call<OrgRole>("POST", `${root(orgId)}/roles`, input),
-  updateRole: (orgId: string, roleId: string, input: MetadataUpdate) =>
-    call<OrgRole>("PATCH", `${root(orgId)}/roles/${id(roleId)}`, input),
-  setRolePermissions: (orgId: string, roleId: string, input: { expectedRevision: number; permissionKeys: string[] }) =>
-    call<OrgRole>("PUT", `${root(orgId)}/roles/${id(roleId)}/permissions`, input),
+  updateRole: (orgId: string, roleId: string, { expectedRevision, ...body }: MetadataUpdate) =>
+    guardedCall<OrgRole>("PATCH", `${root(orgId)}/roles/${id(roleId)}`, expectedRevision, body),
+  setRolePermissions: (orgId: string, roleId: string, { expectedRevision, ...body }: { expectedRevision: number; permissionKeys: string[] }) =>
+    guardedCall<OrgRole>("PUT", `${root(orgId)}/roles/${id(roleId)}/permissions`, expectedRevision, body),
   deleteRole: (orgId: string, roleId: string, expectedRevision: number) =>
-    call<void>("DELETE", `${root(orgId)}/roles/${id(roleId)}?expectedRevision=${expectedRevision}`),
+    guardedCall<void>("DELETE", `${root(orgId)}/roles/${id(roleId)}`, expectedRevision),
   getMemberRole: (orgId: string, userId: string, signal?: AbortSignal) =>
     call<OrgMemberRole>("GET", `${root(orgId)}/members/${id(userId)}/role`, undefined, signal),
   getMemberAccess: (orgId: string, userId: string, signal?: AbortSignal) =>

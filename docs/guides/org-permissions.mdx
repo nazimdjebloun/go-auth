@@ -301,3 +301,15 @@ permissions are hidden the same way. The count route exposes no org-owned
 fields.
 
 See the [route reference](../routes/org-authorization.mdx) for the full HTTP surface.
+
+## HTTP revision preconditions
+
+Permission/role metadata updates, grant replacement and deletion all send the
+observed resource revision through `If-Match: "<revision>"`. This replaces both
+`expectedRevision` JSON fields and DELETE query parameters. Missing/malformed
+headers return 400; stale tags return `412 org_authorization_conflict`. Reload
+and review the current record before resubmitting. Assignment operations retain
+`expectedRoleRevision` and `expectedAssignmentRevision` in JSON and use 409 for
+stale assignments. Invitation conflicts retain `409 org_invite_role_changed`.
+Direct Go service inputs retain `ExpectedRevision`. See the
+[route reference](../routes/org-authorization.mdx) and [client wrappers](./client/org-permissions.mdx).
