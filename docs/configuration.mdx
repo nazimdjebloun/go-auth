@@ -1,62 +1,88 @@
 ---
 title: "Configuration"
-description: "Every configuration option, field by field: required vs optional, defaults, and the exact validation errors each one can produce."
+description: "Setup-first reference for application, browser, authentication, password hashing, permissions, and operations."
 icon: "Settings2"
 ---
 
 # Configuration
 
-All configuration goes through `NewConfig(opts ...Option)`: apply every option you want, and it fills in defaults for anything you left unset, validates the result, and returns a value that `New` accepts. Options can be passed in any order, with one exception: a later `WithRateLimit` replaces the whole rate-limit table, discarding any earlier `WithRateLimitRoute` tweak. Set narrow options after the broad one.
+Build the required application, secret, browser and email settings first. Then
+choose authentication and signup behavior, tune passwords and sessions, and
+enable optional features as needed.
 
-`NewConfig` returns every problem it finds at once, joined into a single error. Not just the first one. Each section below lists the exact error text and what causes it. `New` clones the configuration, reapplies defaults, and validates the complete result before deriving keys or initializing services. Options applied after `NewConfig` are therefore also checked; startup does not modify the caller's configuration.
+- [Required setup](#required-setup): application/database, root secret, browser origins and email delivery.
+- [Authentication and sessions](#authentication-and-sessions): login methods, signup, OAuth providers, lifetimes and 2FA.
+- [Passwords and security](#passwords-and-security): password policy, hashing, pepper keys and concurrency.
+- [Request protection](#request-protection): rate limits and trusted proxy configuration.
+- [Organizations and permissions](#organizations-and-permissions): optional organizations, app roles and organization roles.
+- [Operations and customization](#operations-and-customization): logging, audit, cleanup and email templates.
 
-## `WithAppPermissions`: Optional
+## Build a configuration
 
-```go
-goauth.WithAppPermissions(goauth.AppPermissionsConfig{
-    Enable:               true,
-    EnableManagementHTTP: true,
-    DefaultRoleSlug:      "user",
-})
-```
+All settings go through `NewConfig(opts ...Option)`. It applies options in the
+order supplied, fills defaults and returns all validation problems joined into
+one error. Pass the result to `New` to initialize go-auth.
 
-| Field | Default | Meaning |
-|---|---|---|
-| `Enable` | `false` | Use one SQL app role per account and current permission checks for library administrative actions. |
-| `EnableManagementHTTP` | `false` | Mount role/permission/catalog management endpoints; requires `Enable:true`. |
-| `DefaultRoleSlug` | `"user"` | Enabled non-admin role for new accounts; lowercase identifier of 1–80 characters. |
-
-The default slug starts with a letter and then permits letters, digits and
-hyphens; `admin` is forbidden. Startup validates its syntax without querying
-role records. Account creation resolves the role in its transaction and fails
-if authorization is uninitialized or that role is absent/disabled. There is no
-startup initialization or automatic permission seeding. See the
-[app permission guide](./guides/app-permissions.mdx) for bootstrap and delegation.
-
-## `WithOrgPermissions`: Optional
+This production example configures the required sections. It uses the default
+bcrypt hasher and password login; signup remains closed until you explicitly
+configure [`WithRegistration`](#withregistration-optional-replaces-wholesale).
 
 ```go
-goauth.WithOrgPermissions(goauth.OrgPermissionsConfig{
-    Enable:               true,
-    EnableManagementHTTP: true,
-})
+cfg, err := goauth.NewConfig(
+    goauth.WithApp(goauth.AppConfig{
+        Name:    "MyApp",
+        BaseURL: "https://app.example.com",
+        Database: goauth.DatabaseConfig{
+            Driver: goauth.DriverPostgres,
+            URL:    os.Getenv("DATABASE_URL"),
+        },
+        Environment: goauth.EnvironmentProd,
+    }),
+    goauth.WithSecret(os.Getenv("AUTH_SECRET")),
+    goauth.WithBrowser(goauth.BrowserConfig{
+        APIURL:         "https://api.example.com",
+        AllowedOrigins: []string{"https://app.example.com"},
+    }),
+    goauth.WithEmail(goauth.EmailConfig{
+        Host: os.Getenv("SMTP_HOST"),
+        Port: 587,
+        From: "auth@example.com",
+        User: os.Getenv("SMTP_USER"),
+        Pass: os.Getenv("SMTP_PASS"),
+        TLS:  goauth.TLSStart,
+    }),
+)
+if err != nil {
+    return err
+}
 ```
 
-Both flags default to false. `Enable` requires `OrganizationConfig.Enable`.
-`EnableManagementHTTP` mounts initialization, catalog, permission, role, grant and
-assignment endpoints and requires `Enable`. The Go capability and self-access
-route are available with `Enable` alone. App permissions are configured separately.
-Disabling enforcement preserves assignments; subsequent fixed-role changes still
-reset affected assignments to their selected built-in roles before re-enabling.
+The snippet uses `os` and
+`goauth "github.com/nazimdjebloun/go-auth"`. Supply a database URL, a persistent
+root secret of at least 32 bytes, and SMTP settings through the environment.
+Apply [auth migrations](./migrations.mdx) before calling `New`; construction
+checks migration compatibility but never applies migrations. See
+[Installation](./installation.mdx) for database driver registration and
+[first working application](./guides/onboarding.mdx) for a complete server.
 
-Validation errors are `org_permissions: requires organizations` and
-`org_permissions: management HTTP requires Enable`. Apply migration revision 2
-before enabling; startup creates no authorization records. New organizations
-initialize protected roles in their creation transaction. Existing organizations
-require owner-authorized `InitializeOrgPermissions` before permission-protected
-operations. See the [org permission guide](./guides/org-permissions.mdx).
+### Defaults, replacement and option order
 
-## `WithApp`: Required
+- Omit optional sections to keep their defaults. Required fields and validation
+  errors are listed in the reference below.
+- Options that assign a grouped configuration, including `WithSecurity`,
+  `WithPasswordHashing`, `WithAuthentication` and `WithRegistration`, replace
+  that entire group. Put all intended fields for a group in one call; a later
+  call resets omitted fields according to that group's defaults.
+- Apply broad configuration before narrow overrides. For example, call
+  `WithRateLimit` before `WithRateLimitRoute`; a later broad call replaces the
+  earlier rate-limit table.
+- `New` clones the configuration, reapplies defaults and validates the complete
+  result before deriving keys or initializing services. Options applied after
+  `NewConfig` are checked again; startup does not modify the caller's config.
+
+## Required setup
+
+### `WithApp`: Required
 
 App identity, the database connection, and the deployment environment.
 
@@ -123,7 +149,7 @@ Run [auth migrations](./migrations.mdx) explicitly with deployment credentials. 
 - `database: one of URL, DB, or Pool is required`: none of the three connection fields were set.
 - `environment must be one of dev, staging, or prod, got "..."`: `Environment` was set to something other than the recognized values. Leaving it blank is fine (`prod` default).
 
-## `WithSecret`: Required
+### `WithSecret`: Required
 
 The app-wide root secret from which purpose-specific cryptographic keys are derived.
 
@@ -146,7 +172,7 @@ When rotating the root secret, set `SecretRotatedAt` in your existing [WithSecur
 - `secret: signing secret is required`: nothing was passed.
 - `secret: signing secret must be at least 32 bytes for HMAC-SHA256`: shorter than 32 bytes.
 
-## `WithBrowser`: Required (`AllowedOrigins`)
+### `WithBrowser`: Required (`AllowedOrigins`)
 
 Configure the public API origin, exact frontend origins, and browser cookie delivery together. Session lifetimes stay in `WithSession`; password and email-link policy stay in `WithSecurity`.
 
@@ -191,7 +217,7 @@ Import `net/http` when setting `SameSite`. All cookie fields can be omitted.
 
 All these cookies are HttpOnly. Both contexts inherit the same Domain, Path, SameSite, Secure, and session lifetime policy. CSRF cookies (`_csrf` and `_goauth_admin_csrf`), anonymous browser binding cookies, and challenge binding cookies are always host-only at `/`; they do not inherit `Cookies.Domain`. All six configurable names must be valid and distinct and must not collide with reserved CSRF/binding names. Cookie prefix requirements are validated.
 
-### Independent app and admin sessions
+#### Independent app and admin sessions
 
 Both frontends can call one API host directly in the same browser. Ordinary requests select the app context by default. The admin client sends `X-GoAuth-Session: admin` on **every** request, including CSRF bootstrap, login, 2FA, reads, refresh, and logout. The built-in admin login route always selects admin; follow-up requests still need the header. Explicit `app` is also accepted; unknown or multiple selector values return `400 invalid_session_context`, as does explicit `app` on admin login.
 
@@ -199,7 +225,7 @@ The selector chooses a cookie and CSRF context; it grants no permissions. Role, 
 
 Staging and production require HTTPS API/frontend origins and secure cookies. HTTP development remains supported with Lax cookies. `SameSite=None` requires secure cookies **including in development**; use local HTTPS for genuinely cross-site development. Allowing HTTP links in email is a separate `WithSecurity` setting.
 
-### Mandatory CSRF contract
+#### Mandatory CSRF contract
 
 There is no switch to disable double-submit, origin checking, or 2FA browser binding, and no application-level CSRF token overrides. Ordinary unsafe built-in HTTP routes and `Auth.RequireCSRF` require both:
 
@@ -210,419 +236,7 @@ There is no switch to disable double-submit, origin checking, or 2FA browser bin
 
 The JSON bootstrap works unchanged for proxied apps and sibling subdomains. Different sites additionally need `SameSite=None` and HTTPS, and remain subject to browser third-party-cookie restrictions. See [Deployment](./guides/deployment.mdx) and [Client setup](./guides/client/index.mdx).
 
-## `WithSecurity`: Optional
-
-Password policy, optional email changes, email-link transport policy, and application-secret rotation metadata remain separate from browser transport.
-
-```go
-goauth.WithSecurity(goauth.SecurityConfig{
-    PasswordPolicy: domain.PasswordPolicy{ // optional; all-zero policy selects defaults
-        MinLength:        12,    // optional, default 8
-        MaxLength:        128,   // optional, default 128
-        RequireLetter:    true,  // optional; default true for an all-zero policy
-        RequireUppercase: true,  // optional; default false for an all-zero policy
-        RequireDigit:     true,  // optional; default true for an all-zero policy
-        RequireSpecial:   false, // optional; default false for an all-zero policy
-    },
-    AllowEmailChange: false, // optional, default false; enabling requires a mailer
-    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(), // optional, default nil: derive from environment
-    SecretRotatedAt: time.Time{}, // optional, default zero: no rotation timestamp recorded
-    // On a WithSecret rotation, set SecretRotatedAt to when the new secret became active (UTC).
-    // This metadata does not rotate a key and is unrelated to password-pepper versions.
-})
-```
-
-An entirely zero password policy selects 8..128 Unicode code points with a letter and a digit. A nonzero policy preserves every boolean literally; for example, `PasswordPolicy{MinLength: 12}` is length-only, with no implicit letter or digit rule. Zero lengths resolve to 8 and 128. Negative lengths, inverted ranges and maxima too short for the required character classes fail configuration validation.
-
-The selected hasher may impose an additional byte bound. Unpeppered bcrypt accepts at most 72 input bytes and reports excess as `weak_password`; Argon2id has no bcrypt-derived bound. With password peppering, that algorithm bound applies to the derived 44-byte representation, not the raw password. A minimum that cannot fit a known unpeppered hasher limit fails startup. Custom hashers can declare their bound with `port.PasswordInputLimiter`; the construction probe stays within that bound. Typed-nil hashers and negative bounds are rejected. These checks govern new password writes, not verification of existing credentials.
-
-`AllowHTTPURLs` defaults to true in development and false elsewhere and governs rendered email links only. `SecretRotatedAt` defaults to zero; see [secret rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp). Each `WithSecurity` call replaces this whole group: include the timestamp alongside your other security settings in one call.
-
-### Email changes
-
-```go
-goauth.WithSecurity(goauth.SecurityConfig{AllowEmailChange: true})
-```
-
-`AllowEmailChange` defaults to false. Enabling requires a configured mailer and mounts
-four authenticated email-change routes. The `Services().Email` capability is
-nil when disabled; facade calls return `email_change_disabled`.
-
-Include this field alongside your other settings in the same `WithSecurity`
-call. Each call replaces the whole `SecurityConfig` section.
-
-Confirmation requires both mailbox codes in the initiating session. Fixed
-limits are ten minutes total, five failed confirmation attempts, three starts
-per account per hour, and three resends per mailbox with a one-minute cooldown.
-Replacement and cancellation preserve the hourly start budget. Route-level IP
-limits apply in addition; see [email changes](./guides/email-changes.mdx).
-Apply auth migration revision 4 before starting this library version.
-
-## `WithPasswordHashing`: Optional
-
-Password hashing defaults to bcrypt at cost 12. `WithPasswordHashing` groups the algorithm, bcrypt cost, optional password pepper and resource limits. `Hasher` replaces bcrypt for new writes and rehash-on-login; `BcryptCost` only applies when `Hasher` is nil. Password policy stays in `WithSecurity`.
-
-The following example shows every hashing field, including optional values and
-the complete Argon2id profile. Argon2id itself is optional; when constructing an
-explicit `argon2id.Options`, all five fields must be valid. Omitted fields in
-that struct are **not** filled from `DefaultOptions()`.
-
-```go
-goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
-    // Optional; default nil selects built-in bcrypt.
-    // This example opts into Argon2id using the DefaultOptions profile.
-    Hasher: argon2id.New(argon2id.Options{
-        Memory:      65536, // required for explicit Options; profile: 65536 KiB (64 MiB)
-        Iterations:  3,     // required for explicit Options; profile: 3 passes
-        Parallelism: 4,     // required for explicit Options; profile: 4 lanes
-        SaltLength:  16,    // required for explicit Options; profile: 16 bytes
-        KeyLength:   32,    // required for explicit Options; profile: 32 bytes
-    }),
-    BcryptCost: 12, // optional, default 12; ignored while Hasher is non-nil
-
-    // Optional; the zero-valued group leaves new passwords unpeppered.
-    Pepper: goauth.PasswordPepperConfig{
-        CurrentVersion: 0,   // optional, default 0: no pepper for new writes
-        Keys:           nil, // optional, default nil; retain keys needed by stored versions
-    },
-
-    Concurrency: 4,   // optional, default 4; 0 also selects 4; ignored with WorkLimiter
-    WorkLimiter: nil, // optional, default nil: a private limiter per Auth
-})
-```
-
-Import it as `github.com/nazimdjebloun/go-auth/hasher/argon2id`. `DefaultOptions` exactly matches RFC 9106 section 4's memory-constrained recommendation: 64 MiB, 3 iterations, parallelism 4, a 16-byte random salt, and a 32-byte derived key. Argon2id's memory is consumed per concurrent hash or comparison, so benchmark and capacity-plan on the deployment hardware before enabling it.
-
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `Hasher` | `port.Hasher` | `nil` (built-in bcrypt) | Used by registration, password changes, resets and rehash-on-login. `Hash` output must carry a stable identifying prefix such as `$argon2id$`; `New` rejects a hasher whose output cannot self-identify. Use `argon2id.New(argon2id.DefaultOptions())` for the built-in Argon2id choice. |
-| `BcryptCost` | `int` | `12` | Zero selects 12. Existing bcrypt rows retain their own verification cost; a successful login upgrades stale parameters. Ignored when `Hasher` is non-nil. |
-| `Pepper` | `PasswordPepperConfig` | disabled (`CurrentVersion: 0`) | Optional versioned HMAC layer before the selected KDF. Its fields are `CurrentVersion uint32` and `Keys map[uint32]string`. See [password pepper](#password-pepper-optional) for rollout and rotation. |
-| `Concurrency` | `int` | `4` active operations | Zero selects four; negative values fail validation even with a shared limiter. Capacity is private to each `Auth` unless `WorkLimiter` is supplied. |
-| `WorkLimiter` | `*hasher.WorkLimiter` | `nil` | Shares capacity across `Auth` instances. A non-nil limiter takes precedence over `Concurrency`. Construct it with `hasher.NewWorkLimiter`. |
-
-An omitted or zero-valued hashing group selects bcrypt cost 12, no password pepper, and a private four-operation limiter. Each `WithPasswordHashing` call replaces the whole group: include all intended fields in one call. The pepper map is copied when the option is applied and when configuration is cloned; live `Hasher` and `WorkLimiter` objects retain their identity.
-
-This replaces the removed `WithPasswordHasher`, `WithBcryptCost`, `WithPasswordPepper`, `WithPasswordConcurrency` and `WithPasswordWorkLimiter` options. Move their arguments into the corresponding fields in one `WithPasswordHashing` call. Splitting fields over multiple calls would reset earlier fields to defaults. Hash formats, stored parameter verification, pepper derivation, rehashing and overload behavior are unchanged by this grouping.
-
-**Expected error**
-
-- `bcrypt_cost N exceeds bcrypt.MaxCost (31)`: `BcryptCost` was set above bcrypt's supported maximum while no custom hasher was configured.
-
-`port.Hasher` deliberately remains a two-method interface:
-
-```go
-type Hasher interface {
-    Hash(password string) (string, error)
-    Compare(password, hash string) error
-}
-```
-
-The stored string identifies the verifier. `Hash` must return a salted, one-way password hash whose first format field is stable for the algorithm, and `Compare` must parse and verify that algorithm's stored parameters. By default the implementation receives the caller's password directly. For a versioned pepper row it receives the base64-encoded HMAC-SHA256 representation selected by `users.password_pepper_version`; a `NULL` version receives the raw password. go-auth always retains bcrypt and Argon2id verifiers for rows written before an algorithm switch. See [Security → Password hashing and hasher migration](./security.mdx#password-hashing-and-hasher-migration) for the dispatch and rehash guarantees.
-
-### Password work limits
-
-Every `Auth` shares one limiter across password hashing, verification, dummy
-verification and startup probes. The default allows four active operations.
-`PasswordHashingConfig{Concurrency: 2}` lowers that to two; zero selects four and negative
-values fail `NewConfig` and startup validation. There is no waiting queue:
-excess work returns `domain.ErrPasswordWorkBusy`, exposed by HTTP as
-`503 {"error":"password_work_busy","message":"Password processing is busy; try again later"}`.
-The caller can retry later with backoff. Existing route/IP rate limits still apply.
-
-The limit covers HTTP and programmatic service calls, bcrypt, Argon2id, custom
-hashers and legacy algorithms selected from stored hashes. Capacity is held
-until the underlying synchronous operation finishes, including when the request
-has been canceled. Optional rehash-on-login skips an overloaded upgrade after
-successful verification, leaving login usable and the credential unchanged.
-
-Reusing one `Config` creates independent limiters. To share one process budget
-across multiple `Auth` instances, import
-`github.com/nazimdjebloun/go-auth/hasher`, construct a limiter once, and supply the
-same pointer to each instance:
-
-```go
-limiter, err := hasher.NewWorkLimiter(4)
-if err != nil {
-    return err
-}
-// Include this complete hashing group when building each instance's config.
-// Reuse the same limiter pointer across those instances.
-option := goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
-    // Optional; default nil selects built-in bcrypt. Argon2id is selected here.
-    Hasher: argon2id.New(argon2id.Options{
-        Memory:      65536, // required for explicit Options; profile: 65536 KiB (64 MiB)
-        Iterations:  3,     // required for explicit Options; profile: 3 passes
-        Parallelism: 4,     // required for explicit Options; profile: 4 lanes
-        SaltLength:  16,    // required for explicit Options; profile: 16 bytes
-        KeyLength:   32,    // required for explicit Options; profile: 32 bytes
-    }),
-    BcryptCost: 12, // optional, default 12; ignored while Hasher is non-nil
-
-    // Optional; these values leave new passwords unpeppered.
-    Pepper: goauth.PasswordPepperConfig{
-        CurrentVersion: 0,   // optional, default 0: no pepper for new writes
-        Keys:           nil, // optional, default nil; retain keys needed by stored versions
-    },
-
-    Concurrency: 4,        // optional, default 4; ignored because WorkLimiter is supplied
-    WorkLimiter: limiter, // optional, default nil; supplied limiter owns the shared capacity
-})
-```
-
-`NewWorkLimiter(0)` selects four; negative values are rejected. A zero-value
-`hasher.WorkLimiter` is invalid. A nil `WorkLimiter` selects private capacity;
-`Auth.Close` does not close a shared limiter. The budget is local to the process,
-not distributed across replicas. Direct calls to a standalone KDF, such as
-`argon2id.New(...).Hash`, are outside the `Auth` registry and its limit.
-
-This bounds active operations, not process RAM. At 64 MiB per Argon2id operation,
-four active operations need roughly 256 MiB of KDF working memory. Stored hashes
-use their own parameters and may cost more. Leave headroom for the application,
-garbage collection and completed allocations awaiting reclamation; benchmark
-with the largest stored memory cost you accept before choosing a concurrency.
-
-### Password pepper: Optional
-
-Password peppering is off by default. Enable it with independently managed secret material:
-
-```go
-goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
-    Hasher:     nil, // optional, default nil: built-in bcrypt
-    BcryptCost: 12,  // optional, default 12; used because Hasher is nil
-
-    // Optional; this example enables peppering for new password writes.
-    Pepper: goauth.PasswordPepperConfig{
-        CurrentVersion: 1, // optional, default 0 (off); select a key version to enable
-        // Optional when peppering is off; must contain the selected active version.
-        // Default nil. Keep every version still referenced by stored passwords.
-        Keys: map[uint32]string{
-            1: os.Getenv("AUTH_PASSWORD_PEPPER_V1"), // at least 32 bytes of independent secret material
-        },
-    },
-
-    Concurrency: 4,   // optional, default 4; 0 also selects 4
-    WorkLimiter: nil, // optional, default nil: a private limiter using Concurrency
-})
-```
-
-`CurrentVersion` selects the key used by every new password write. Version `0` is reserved for unpeppered rows: omitting this option leaves `CurrentVersion` at zero and skips HMAC entirely, so the selected KDF receives the password directly. Each non-zero key must be at least 32 bytes, identical on every application instance, and stored separately from the password database (preferably in a secrets manager). The option copies the map; later caller mutations do not change live configuration.
-
-For a versioned row, go-auth derives that version's HMAC key with HKDF purpose `goauth-password-pepper-v1`, computes `base64(HMAC-SHA256(derivedKey, password))`, and passes the result to bcrypt or Argon2id. The nullable `users.password_pepper_version` column selects exactly one key during verification; the library never tries every configured key. Existing `NULL` rows verify as ordinary unpeppered passwords and upgrade to `CurrentVersion` through guarded rehash-on-login.
-
-Rotate without downtime in phases:
-
-1. Deploy the old `CurrentVersion` everywhere with both the old and next keys in `Keys`.
-2. After every instance has the next key, deploy the next `CurrentVersion` while retaining both keys. Successful logins upgrade old rows lazily.
-3. Remove the old key only after no database row references its version. `New()` queries the distinct stored versions whenever a keyring is configured and refuses startup if any referenced version is missing. Its database ping and this query share a 10-second startup deadline.
-
-Preloading is supported even before first opt-in: use `CurrentVersion: 0` with future keys. During a rolling deployment an older node can verify a row written with a preloaded newer version. Login rehash skips that row, while password change and reset continue hashing at the stored higher version. If the higher key was not preloaded, change/reset fail closed rather than writing the older current version. All three replacement paths use the same hash-and-version compare-and-swap, and the database independently rejects a lower new version. A lost race returns `password_update_conflict` for change/reset. Reset atomically claims its still-valid token, replaces the password, and deletes all sessions in one database transaction; change-password atomically combines its password replacement with its configured session revocation. Derivation is deterministic, so there is no password rotation-timestamp field; all instances only need the same version-to-secret mapping.
-
-Never replace a secret in place under the same version. Add a new version instead. Losing a still-referenced key makes those accounts unverifiable; a compromised pepper may also require forced password resets because an attacker who obtained both the database and old pepper can continue offline guessing even while lazy upgrades proceed. `SecurityConfig.SecretRotatedAt` records application-secret rotation time for short-lived codes; it cannot recover password key material.
-
-**Expected errors**
-
-- `password_pepper: current version N has no configured key`: the active version is missing, commonly because a map entry was omitted.
-- `password_pepper: key version N must be at least 32 bytes`: an empty or short environment value was supplied. This fails during `NewConfig`, and `New()` revalidates after cloning; there is no runtime fallback to unpeppered hashing.
-- `password_pepper: key version 0 is reserved for unpeppered passwords`: use `CurrentVersion: 0`, not a key at index zero, to keep new writes unpeppered.
-- `database contains password pepper versions with no configured key`: startup found a stored version the configured keyring cannot verify.
-
-## `WithTwoFactor`: Optional
-
-Email two-factor settings are separate from browser transport and password policy. Challenge binding is mandatory; its cookie name lives at `BrowserConfig.Cookies.ChallengeName`.
-
-```go
-goauth.WithTwoFactor(goauth.TwoFactorConfig{
-    RequireEmail2FA:       false,             // optional, default false
-    DefaultEnabled:         false,             // optional, default false
-    CodeTTL:                5 * time.Minute,  // optional, default 5m
-    DisableAdminTwoFactor:  false,             // optional, default false
-})
-```
-
-| Field | Type | Default | Notes |
-|---|---|---|---|
-| `RequireEmail2FA` | `bool` | `false` | Makes email 2FA mandatory for password and OAuth authentication, including signup completion where email verification does not take precedence. |
-| `DefaultEnabled` | `bool` | `false` | Seeds `User.TwoFactorEnabled` for new password, invitation, and OAuth accounts; users may still opt out. Does not update existing accounts. |
-| `CodeTTL` | `time.Duration` | `5m` | Lifetime of a 2FA login code. |
-| `DisableAdminTwoFactor` | `bool` | `false` | Opts out of mandatory admin-account 2FA across password/OAuth login and admin HTTP access. Global/per-user requirements still apply. |
-
-With app permissions enabled, admin-account 2FA applies only to the protected
-admin role. Custom roles use non-admin settings even when they have delegated
-administrative permissions. `RequireEmail2FA` and per-user `TwoFactorEnabled`
-also require session assurance for their library administrative actions.
-
-**Expected errors**
-
-- `two_factor: code_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `5m`.
-
-## `WithSession`: Optional
-
-Session and refresh-token lifetimes.
-
-```go
-goauth.WithSession(goauth.SessionConfig{
-    TTL:             30 * 24 * time.Hour,        // optional, default 30d
-    IdleTTL:         7 * 24 * time.Hour,         // optional, default 7d
-    RefreshTokenTTL: 30 * 24 * time.Hour,        // optional, default 30d
-    TokenTTL:        time.Hour,                   // optional, default 1h
-    MaxLifetime:     0,                          // optional, default 0 (no limit)
-    GraceWindow:     goauth.Duration(10 * time.Second), // optional, default 5s
-    TouchDebounce:   goauth.Duration(0),          // optional, default 5m (0 turns it off)
-})
-```
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `TTL` | `time.Duration` | Optional | `30d` | Absolute hard expiry. |
-| `IdleTTL` | `time.Duration` | Optional | `7d` | Timeout since last activity. Must not exceed `TTL`. |
-| `RefreshTokenTTL` | `time.Duration` | Optional | `30d` | Must not be less than `TTL`. |
-| `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
-| `MaxLifetime` | `time.Duration` | Optional | `0` (no limit) | If set, must be `>= TTL`. |
-| `GraceWindow` | `*time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh do not log the user out. `nil` (the zero value; leave the field out) means "use the default"; a non-nil pointer is used exactly as given, including `goauth.Duration(0)` to turn it off. Set it with `goauth.Duration(...)`, since Go cannot take the address of a duration literal directly. |
-| `TouchDebounce` | `*time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes. Same `nil`-vs-pointer rule as `GraceWindow`; `goauth.Duration(0)` writes on every authenticated request. |
-
-`GraceWindow` and `TouchDebounce` are pointers specifically so "left unset" and "explicitly zero" cannot collide. With a plain `time.Duration` field, `GraceWindow: 0` and simply not mentioning `GraceWindow` at all are the same struct, so one of the two meanings would always win by accident. A `*time.Duration` field can be `nil` (unset, uses the default) or point at `0` (off) as two different values.
-
-**Expected errors**
-
-- `session_ttl must be positive`
-- `session_idle_ttl must be positive`
-- `session_idle_ttl must not exceed session_ttl`
-- `refresh_token_ttl must be positive`
-- `refresh_token_ttl must not be less than session_ttl`
-- `session token_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `1h`.
-- `session grace_window must not be negative (use goauth.Duration(0) to turn it off)`: a negative duration was passed.
-- `session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)`: same.
-- `session max_lifetime must not be negative (0 = no limit)`
-- `session max_lifetime must not be less than session_ttl`: only checked when `MaxLifetime` is set above zero.
-
-
-
-## `WithAuthentication`: Optional, replaces wholesale
-
-Select which methods can authenticate existing and new accounts. Omit this
-section for email/password authentication only. Supplying it selects both
-booleans exactly as written; there are no pointer booleans or `goauth.Bool` helpers.
-
-```go
-goauth.WithAuthentication(goauth.AuthenticationConfig{
-    EmailPassword: true,  // default when the section is omitted
-    OAuth:         false, // default
-})
-```
-
-| Field | Type | Default | Effect |
-|---|---|---|---|
-| `EmailPassword` | `bool` | `true` | Allows password login, including admin login, password setup/change/reset, and password-based administrative account creation. |
-| `OAuth` | `bool` | `false` | Allows login and account linking through configured providers. Requires at least one `WithProvider`. |
-
-Disabling a method retains accounts and credentials. It does not revoke existing
-sessions. Completion checks use the current policy: outstanding password reset
-or setup tokens cannot complete with password authentication disabled, and an
-OAuth callback cannot complete with OAuth authentication disabled.
-
-Both methods disabled is invalid. A signup method also needs its corresponding
-authentication method. Registering a provider does not enable OAuth by itself.
-
-## `WithRegistration`: Optional, replaces wholesale
-
-Select how new accounts can be created. Registration is closed by default.
-Authentication for existing accounts is controlled separately by
-`WithAuthentication`; the email-verification requirement also applies to
-existing unverified accounts and sessions.
-
-```go
-goauth.WithRegistration(goauth.RegistrationConfig{
-    AllowPublic:              false,
-    EmailPassword:            false,
-    OAuth:                    false,
-    InviteSignup:             false,
-    RequireEmailVerification: false,
-
-    InviteTTL:                  7 * 24 * time.Hour,
-    VerificationCodeTTL:        15 * time.Minute,
-    VerificationResendInterval: time.Minute,
-})
-```
-
-| Field | Type | Default | Effect |
-|---|---|---|---|
-| `AllowPublic` | `bool` | `false` | Opens signup without an account invitation. |
-| `EmailPassword` | `bool` | `false` | Allows password account creation through public signup or signup invitations. |
-| `OAuth` | `bool` | `false` | Allows provider account creation through public signup or signup invitations. |
-| `InviteSignup` | `bool` | `false` | Enables account-creation invitations. Organization membership invitations remain independent. Requires email delivery. |
-| `RequireEmailVerification` | `bool` | `false` | Requires verified email before login or protected access, including existing sessions. Requires email delivery. |
-| `InviteTTL` | `time.Duration` | `7d` | Account invitation lifetime. |
-| `VerificationCodeTTL` | `time.Duration` | `15m` | Email verification code lifetime. |
-| `VerificationResendInterval` | `time.Duration` | `60s` | Minimum resend interval. A throttled resend returns `codeSent: false`. Negative disables the minimum. |
-
-Each supplied boolean is literal. Omitted booleans are false; durations left at
-zero use their documented defaults. Public or invitation signup requires at
-least one signup method, and that method must be enabled for authentication.
-Closing signup does not prevent an already-created account from finishing
-email verification.
-
-For existing password accounts with OAuth-only public signup, enable both
-methods in `WithAuthentication`, then set registration `AllowPublic: true`,
-`OAuth: true`, and `EmailPassword: false`. Configure a provider explicitly.
-For strict OAuth-only access, disable authentication `EmailPassword` too.
-
-### Email verification for existing sessions
-
-Enabling `RequireEmailVerification` affects every unverified account, regardless
-of when it was created. An existing session is retained but protected requests
-return `403 {"error":"email_not_verified","message":"Please verify your email first"}`.
-`GET /auth/me` instead returns only `id`, `email`, `isVerified: false`, and
-`step: "verify_email"`. Use that response to show the signup verification
-screen before rendering protected content. Verification, resend and logout
-remain available. Refresh does not grant access around the verification check.
-`POST /auth/refresh` still rotates cookies but returns only
-`step: "verify_email"` and the email while verification is pending; no
-session object is included. After verification, the retained session can access
-protected routes again.
-Disabling the requirement removes the restriction for all accounts without
-erasing their stored verification status. Already-verified users are not asked
-to verify again. Page loads do not automatically send another email.
-
-**Expected startup errors**
-
-- `authentication: enable EmailPassword or OAuth`.
-- `authentication: OAuth requires at least one WithProvider`.
-- `registration: EmailPassword requires authentication.EmailPassword`.
-- `registration: OAuth requires authentication.OAuth`.
-- Public or invitation signup without any registration method.
-- `registration: invite_ttl must be positive` and
-  `registration: verification_code_ttl must be positive` for negative values.
-- `email: Mailer or Email config required — enabled features need it: <reasons>`.
-  The reasons identify `InviteSignup`, `RequireEmailVerification`,
-  `RequireEmail2FA`, `DefaultEnabled`, or default admin two-factor policy.
-  Development supplies the log mailer when no mailer or SMTP is configured.
-
-## `WithOrganizations`: Optional
-
-Multi-tenant organizations. Disabled by default. When disabled, no organization routes are mounted at all.
-
-```go
-goauth.WithOrganizations(goauth.OrganizationConfig{
-    Enable:         true,               // optional, default false
-    MaxOrgsPerUser: 10,                 // optional, default 0 (built-in cap of 100)
-    InviteTTL:      7 * 24 * time.Hour, // optional, default 7d
-})
-```
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `Enable` | `bool` | Optional | `false` | |
-| `MaxOrgsPerUser` | `int` | Optional | `0` (built-in cap of 100) | Only checked when `Enable` is true. |
-| `InviteTTL` | `time.Duration` | Optional | `7d` | Only checked when `Enable` is true. |
-
-**Expected errors** (only reachable when `Enable: true`)
-
-- `organizations.max_orgs_per_user must be between 0 and 100 (0 = default 100)`.
-- `organizations.invite_ttl must be positive`: only reachable via an explicit negative value.
-
-## `WithMailer` / `WithEmail` / `WithTemplates`: required unless every email feature is off
+### `WithMailer` / `WithEmail` / `WithTemplates`: required unless every email feature is off
 
 A mailer is required whenever some configured feature actually sends email: `InviteSignup`, `RequireEmailVerification`, `TwoFactorConfig.RequireEmail2FA`, `TwoFactorConfig.DefaultEnabled`, or mandatory admin-account two-factor authentication (on by default; see [Admin login](./guides/admin.mdx#admin-login) and [Security](./security.mdx#two-factor-authentication)). Set `TwoFactorConfig.DisableAdminTwoFactor` to drop the last one; with all five off, an API-only deployment needs no mailer at all. `NewConfig`'s validation error names exactly which enabled feature is still requiring one.
 
@@ -684,6 +298,650 @@ Public password-reset and verification-resend requests are delivered by the dura
 - `email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got N`
 - `email: TLSNone is only allowed in EnvironmentDev — use TLSStart or TLSImplicit outside development`
 - `mailer: mailer.Log cannot be used outside EnvironmentDev — codes and reset links would be written to application logs instead of delivered`: an explicit log mailer was configured in a non-dev environment.
+
+## Authentication and sessions
+
+### `WithAuthentication`: Optional, replaces wholesale
+
+Select which methods can authenticate existing and new accounts. Omit this
+section for email/password authentication only. Supplying it selects both
+booleans exactly as written; there are no pointer booleans or `goauth.Bool` helpers.
+
+```go
+goauth.WithAuthentication(goauth.AuthenticationConfig{
+    EmailPassword: true,  // default when the section is omitted
+    OAuth:         false, // default
+})
+```
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `EmailPassword` | `bool` | `true` | Allows password login, including admin login, password setup/change/reset, and password-based administrative account creation. |
+| `OAuth` | `bool` | `false` | Allows login and account linking through configured providers. Requires at least one `WithProvider`. |
+
+Disabling a method retains accounts and credentials. It does not revoke existing
+sessions. Completion checks use the current policy: outstanding password reset
+or setup tokens cannot complete with password authentication disabled, and an
+OAuth callback cannot complete with OAuth authentication disabled.
+
+Both methods disabled is invalid. A signup method also needs its corresponding
+authentication method. Registering a provider does not enable OAuth by itself.
+
+### `WithRegistration`: Optional, replaces wholesale
+
+Select how new accounts can be created. Registration is closed by default.
+Authentication for existing accounts is controlled separately by
+`WithAuthentication`; the email-verification requirement also applies to
+existing unverified accounts and sessions.
+
+```go
+goauth.WithRegistration(goauth.RegistrationConfig{
+    AllowPublic:              false,
+    EmailPassword:            false,
+    OAuth:                    false,
+    InviteSignup:             false,
+    RequireEmailVerification: false,
+
+    InviteTTL:                  7 * 24 * time.Hour,
+    VerificationCodeTTL:        15 * time.Minute,
+    VerificationResendInterval: time.Minute,
+})
+```
+
+| Field | Type | Default | Effect |
+|---|---|---|---|
+| `AllowPublic` | `bool` | `false` | Opens signup without an account invitation. |
+| `EmailPassword` | `bool` | `false` | Allows password account creation through public signup or signup invitations. |
+| `OAuth` | `bool` | `false` | Allows provider account creation through public signup or signup invitations. |
+| `InviteSignup` | `bool` | `false` | Enables account-creation invitations. Organization membership invitations remain independent. Requires email delivery. |
+| `RequireEmailVerification` | `bool` | `false` | Requires verified email before login or protected access, including existing sessions. Requires email delivery. |
+| `InviteTTL` | `time.Duration` | `7d` | Account invitation lifetime. |
+| `VerificationCodeTTL` | `time.Duration` | `15m` | Email verification code lifetime. |
+| `VerificationResendInterval` | `time.Duration` | `60s` | Minimum resend interval. A throttled resend returns `codeSent: false`. Negative disables the minimum. |
+
+Each supplied boolean is literal. Omitted booleans are false; durations left at
+zero use their documented defaults. Public or invitation signup requires at
+least one signup method, and that method must be enabled for authentication.
+Closing signup does not prevent an already-created account from finishing
+email verification.
+
+For existing password accounts with OAuth-only public signup, enable both
+methods in `WithAuthentication`, then set registration `AllowPublic: true`,
+`OAuth: true`, and `EmailPassword: false`. Configure a provider explicitly.
+For strict OAuth-only access, disable authentication `EmailPassword` too.
+
+#### Email verification for existing sessions
+
+Enabling `RequireEmailVerification` affects every unverified account, regardless
+of when it was created. An existing session is retained but protected requests
+return `403 {"error":"email_not_verified","message":"Please verify your email first"}`.
+`GET /auth/me` instead returns only `id`, `email`, `isVerified: false`, and
+`step: "verify_email"`. Use that response to show the signup verification
+screen before rendering protected content. Verification, resend and logout
+remain available. Refresh does not grant access around the verification check.
+`POST /auth/refresh` still rotates cookies but returns only
+`step: "verify_email"` and the email while verification is pending; no
+session object is included. After verification, the retained session can access
+protected routes again.
+Disabling the requirement removes the restriction for all accounts without
+erasing their stored verification status. Already-verified users are not asked
+to verify again. Page loads do not automatically send another email.
+
+**Expected startup errors**
+
+- `authentication: enable EmailPassword or OAuth`.
+- `authentication: OAuth requires at least one WithProvider`.
+- `registration: EmailPassword requires authentication.EmailPassword`.
+- `registration: OAuth requires authentication.OAuth`.
+- Public or invitation signup without any registration method.
+- `registration: invite_ttl must be positive` and
+  `registration: verification_code_ttl must be positive` for negative values.
+- `email: Mailer or Email config required — enabled features need it: <reasons>`.
+  The reasons identify `InviteSignup`, `RequireEmailVerification`,
+  `RequireEmail2FA`, `DefaultEnabled`, or default admin two-factor policy.
+  Development supplies the log mailer when no mailer or SMTP is configured.
+
+### `WithProvider`: Optional
+
+Registers an OAuth provider. Call it once per provider and enable
+`AuthenticationConfig.OAuth` explicitly. Registration `OAuth` independently
+controls whether the provider may create new accounts.
+
+```go
+goauth.WithProvider(github.New(github.Config{
+    ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
+    ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
+    RedirectURL:  "https://myapp.com/auth/oauth/github/callback",
+}))
+```
+
+| Requirement | Notes |
+|---|---|
+| Non-nil | A nil provider is rejected. |
+| Non-empty `Name()` | Each provider reports its own name. |
+| Unique `Name()` | Registering two providers under the same name is rejected. |
+
+**Expected errors**
+
+- `provider: nil provider registered via WithProvider`.
+- `provider: provider with empty name`.
+- `provider: duplicate provider "..."`.
+- `provider "...": client_id is required`: the provider's OAuth2 config has no client ID.
+- `provider "...": client_secret is required`: the provider's OAuth2 config has no client secret.
+
+### `WithSession`: Optional
+
+Session and refresh-token lifetimes.
+
+```go
+goauth.WithSession(goauth.SessionConfig{
+    TTL:             30 * 24 * time.Hour,        // optional, default 30d
+    IdleTTL:         7 * 24 * time.Hour,         // optional, default 7d
+    RefreshTokenTTL: 30 * 24 * time.Hour,        // optional, default 30d
+    TokenTTL:        time.Hour,                   // optional, default 1h
+    MaxLifetime:     0,                          // optional, default 0 (no limit)
+    GraceWindow:     goauth.Duration(10 * time.Second), // optional, default 5s
+    TouchDebounce:   goauth.Duration(0),          // optional, default 5m (0 turns it off)
+})
+```
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `TTL` | `time.Duration` | Optional | `30d` | Absolute hard expiry. |
+| `IdleTTL` | `time.Duration` | Optional | `7d` | Timeout since last activity. Must not exceed `TTL`. |
+| `RefreshTokenTTL` | `time.Duration` | Optional | `30d` | Must not be less than `TTL`. |
+| `TokenTTL` | `time.Duration` | Optional | `1h` | Lifetime of email verification and password reset tokens. |
+| `MaxLifetime` | `time.Duration` | Optional | `0` (no limit) | If set, must be `>= TTL`. |
+| `GraceWindow` | `*time.Duration` | Optional | `5s` | Window a just-rotated refresh token is still accepted, so two requests racing to refresh do not log the user out. `nil` (the zero value; leave the field out) means "use the default"; a non-nil pointer is used exactly as given, including `goauth.Duration(0)` to turn it off. Set it with `goauth.Duration(...)`, since Go cannot take the address of a duration literal directly. |
+| `TouchDebounce` | `*time.Duration` | Optional | `5m` | Minimum interval between `last_active_at` writes. Same `nil`-vs-pointer rule as `GraceWindow`; `goauth.Duration(0)` writes on every authenticated request. |
+
+`GraceWindow` and `TouchDebounce` are pointers specifically so "left unset" and "explicitly zero" cannot collide. With a plain `time.Duration` field, `GraceWindow: 0` and simply not mentioning `GraceWindow` at all are the same struct, so one of the two meanings would always win by accident. A `*time.Duration` field can be `nil` (unset, uses the default) or point at `0` (off) as two different values.
+
+**Expected errors**
+
+- `session_ttl must be positive`
+- `session_idle_ttl must be positive`
+- `session_idle_ttl must not exceed session_ttl`
+- `refresh_token_ttl must be positive`
+- `refresh_token_ttl must not be less than session_ttl`
+- `session token_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `1h`.
+- `session grace_window must not be negative (use goauth.Duration(0) to turn it off)`: a negative duration was passed.
+- `session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)`: same.
+- `session max_lifetime must not be negative (0 = no limit)`
+- `session max_lifetime must not be less than session_ttl`: only checked when `MaxLifetime` is set above zero.
+
+### `WithTwoFactor`: Optional
+
+Email two-factor settings are separate from browser transport and password policy. Challenge binding is mandatory; its cookie name lives at `BrowserConfig.Cookies.ChallengeName`.
+
+```go
+goauth.WithTwoFactor(goauth.TwoFactorConfig{
+    RequireEmail2FA:       false,             // optional, default false
+    DefaultEnabled:         false,             // optional, default false
+    CodeTTL:                5 * time.Minute,  // optional, default 5m
+    DisableAdminTwoFactor:  false,             // optional, default false
+})
+```
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `RequireEmail2FA` | `bool` | `false` | Makes email 2FA mandatory for password and OAuth authentication, including signup completion where email verification does not take precedence. |
+| `DefaultEnabled` | `bool` | `false` | Seeds `User.TwoFactorEnabled` for new password, invitation, and OAuth accounts; users may still opt out. Does not update existing accounts. |
+| `CodeTTL` | `time.Duration` | `5m` | Lifetime of a 2FA login code. |
+| `DisableAdminTwoFactor` | `bool` | `false` | Opts out of mandatory admin-account 2FA across password/OAuth login and admin HTTP access. Global/per-user requirements still apply. |
+
+With app permissions enabled, admin-account 2FA applies only to the protected
+admin role. Custom roles use non-admin settings even when they have delegated
+administrative permissions. `RequireEmail2FA` and per-user `TwoFactorEnabled`
+also require session assurance for their library administrative actions.
+
+**Expected errors**
+
+- `two_factor: code_ttl must be positive`: only reachable via an explicit negative value; an omitted one defaults to `5m`.
+
+## Passwords and security
+
+### `WithSecurity`: Optional
+
+Password policy, optional email changes, email-link transport policy, and application-secret rotation metadata remain separate from browser transport.
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{
+    PasswordPolicy: domain.PasswordPolicy{ // optional; all-zero policy selects defaults
+        MinLength:        12,    // optional, default 8
+        MaxLength:        128,   // optional, default 128
+        RequireLetter:    true,  // optional; default true for an all-zero policy
+        RequireUppercase: true,  // optional; default false for an all-zero policy
+        RequireDigit:     true,  // optional; default true for an all-zero policy
+        RequireSpecial:   false, // optional; default false for an all-zero policy
+    },
+    AllowEmailChange: false, // optional, default false; enabling requires a mailer
+    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(), // optional, default nil: derive from environment
+    SecretRotatedAt: time.Time{}, // optional, default zero: no rotation timestamp recorded
+    // On a WithSecret rotation, set SecretRotatedAt to when the new secret became active (UTC).
+    // This metadata does not rotate a key and is unrelated to password-pepper versions.
+})
+```
+
+An entirely zero password policy selects 8..128 Unicode code points with a letter and a digit. A nonzero policy preserves every boolean literally; for example, `PasswordPolicy{MinLength: 12}` is length-only, with no implicit letter or digit rule. Zero lengths resolve to 8 and 128. Negative lengths, inverted ranges and maxima too short for the required character classes fail configuration validation.
+
+The selected hasher may impose an additional byte bound. Unpeppered bcrypt accepts at most 72 input bytes and reports excess as `weak_password`; Argon2id has no bcrypt-derived bound. With password peppering, that algorithm bound applies to the derived 44-byte representation, not the raw password. A minimum that cannot fit a known unpeppered hasher limit fails startup. Custom hashers can declare their bound with `port.PasswordInputLimiter`; the construction probe stays within that bound. Typed-nil hashers and negative bounds are rejected. These checks govern new password writes, not verification of existing credentials.
+
+`AllowHTTPURLs` defaults to true in development and false elsewhere and governs rendered email links only. `SecretRotatedAt` defaults to zero; see [secret rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp). Each `WithSecurity` call replaces this whole group: include the timestamp alongside your other security settings in one call.
+
+#### Email changes
+
+```go
+goauth.WithSecurity(goauth.SecurityConfig{AllowEmailChange: true})
+```
+
+`AllowEmailChange` defaults to false. Enabling requires a configured mailer and mounts
+four authenticated email-change routes. The `Services().Email` capability is
+nil when disabled; facade calls return `email_change_disabled`.
+
+Include this field alongside your other settings in the same `WithSecurity`
+call. Each call replaces the whole `SecurityConfig` section.
+
+Confirmation requires both mailbox codes in the initiating session. Fixed
+limits are ten minutes total, five failed confirmation attempts, three starts
+per account per hour, and three resends per mailbox with a one-minute cooldown.
+Replacement and cancellation preserve the hourly start budget. Route-level IP
+limits apply in addition; see [email changes](./guides/email-changes.mdx).
+Apply auth migration revision 4 before starting this library version.
+
+### `WithPasswordHashing`: Optional
+
+Password hashing defaults to bcrypt at cost 12. `WithPasswordHashing` groups the algorithm, bcrypt cost, optional password pepper and resource limits. `Hasher` replaces bcrypt for new writes and rehash-on-login; `BcryptCost` only applies when `Hasher` is nil. Password policy stays in `WithSecurity`.
+
+The following example shows every hashing field, including optional values and
+the complete Argon2id profile. Argon2id itself is optional; when constructing an
+explicit `argon2id.Options`, all five fields must be valid. Omitted fields in
+that struct are **not** filled from `DefaultOptions()`.
+
+```go
+goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
+    // Optional; default nil selects built-in bcrypt.
+    // This example opts into Argon2id using the DefaultOptions profile.
+    Hasher: argon2id.New(argon2id.Options{
+        Memory:      65536, // required for explicit Options; profile: 65536 KiB (64 MiB)
+        Iterations:  3,     // required for explicit Options; profile: 3 passes
+        Parallelism: 4,     // required for explicit Options; profile: 4 lanes
+        SaltLength:  16,    // required for explicit Options; profile: 16 bytes
+        KeyLength:   32,    // required for explicit Options; profile: 32 bytes
+    }),
+    BcryptCost: 12, // optional, default 12; ignored while Hasher is non-nil
+
+    // Optional; the zero-valued group leaves new passwords unpeppered.
+    Pepper: goauth.PasswordPepperConfig{
+        CurrentVersion: 0,   // optional, default 0: no pepper for new writes
+        Keys:           nil, // optional, default nil; retain keys needed by stored versions
+    },
+
+    Concurrency: 4,   // optional, default 4; 0 also selects 4; ignored with WorkLimiter
+    WorkLimiter: nil, // optional, default nil: a private limiter per Auth
+})
+```
+
+Import it as `github.com/nazimdjebloun/go-auth/hasher/argon2id`. `DefaultOptions` exactly matches RFC 9106 section 4's memory-constrained recommendation: 64 MiB, 3 iterations, parallelism 4, a 16-byte random salt, and a 32-byte derived key. Argon2id's memory is consumed per concurrent hash or comparison, so benchmark and capacity-plan on the deployment hardware before enabling it.
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `Hasher` | `port.Hasher` | `nil` (built-in bcrypt) | Used by registration, password changes, resets and rehash-on-login. `Hash` output must carry a stable identifying prefix such as `$argon2id$`; `New` rejects a hasher whose output cannot self-identify. Use `argon2id.New(argon2id.DefaultOptions())` for the built-in Argon2id choice. |
+| `BcryptCost` | `int` | `12` | Zero selects 12. Existing bcrypt rows retain their own verification cost; a successful login upgrades stale parameters. Ignored when `Hasher` is non-nil. |
+| `Pepper` | `PasswordPepperConfig` | disabled (`CurrentVersion: 0`) | Optional versioned HMAC layer before the selected KDF. Its fields are `CurrentVersion uint32` and `Keys map[uint32]string`. See [password pepper](#password-pepper-optional) for rollout and rotation. |
+| `Concurrency` | `int` | `4` active operations | Zero selects four; negative values fail validation even with a shared limiter. Capacity is private to each `Auth` unless `WorkLimiter` is supplied. |
+| `WorkLimiter` | `*hasher.WorkLimiter` | `nil` | Shares capacity across `Auth` instances. A non-nil limiter takes precedence over `Concurrency`. Construct it with `hasher.NewWorkLimiter`. |
+
+An omitted or zero-valued hashing group selects bcrypt cost 12, no password pepper, and a private four-operation limiter. Each `WithPasswordHashing` call replaces the whole group: include all intended fields in one call. The pepper map is copied when the option is applied and when configuration is cloned; live `Hasher` and `WorkLimiter` objects retain their identity.
+
+This replaces the removed `WithPasswordHasher`, `WithBcryptCost`, `WithPasswordPepper`, `WithPasswordConcurrency` and `WithPasswordWorkLimiter` options. Move their arguments into the corresponding fields in one `WithPasswordHashing` call. Splitting fields over multiple calls would reset earlier fields to defaults. Hash formats, stored parameter verification, pepper derivation, rehashing and overload behavior are unchanged by this grouping.
+
+**Expected error**
+
+- `bcrypt_cost N exceeds bcrypt.MaxCost (31)`: `BcryptCost` was set above bcrypt's supported maximum while no custom hasher was configured.
+
+`port.Hasher` deliberately remains a two-method interface:
+
+```go
+type Hasher interface {
+    Hash(password string) (string, error)
+    Compare(password, hash string) error
+}
+```
+
+The stored string identifies the verifier. `Hash` must return a salted, one-way password hash whose first format field is stable for the algorithm, and `Compare` must parse and verify that algorithm's stored parameters. By default the implementation receives the caller's password directly. For a versioned pepper row it receives the base64-encoded HMAC-SHA256 representation selected by `users.password_pepper_version`; a `NULL` version receives the raw password. go-auth always retains bcrypt and Argon2id verifiers for rows written before an algorithm switch. See [Security → Password hashing and hasher migration](./security.mdx#password-hashing-and-hasher-migration) for the dispatch and rehash guarantees.
+
+#### Password work limits
+
+Every `Auth` shares one limiter across password hashing, verification, dummy
+verification and startup probes. The default allows four active operations.
+`PasswordHashingConfig{Concurrency: 2}` lowers that to two; zero selects four and negative
+values fail `NewConfig` and startup validation. There is no waiting queue:
+excess work returns `domain.ErrPasswordWorkBusy`, exposed by HTTP as
+`503 {"error":"password_work_busy","message":"Password processing is busy; try again later"}`.
+The caller can retry later with backoff. Existing route/IP rate limits still apply.
+
+The limit covers HTTP and programmatic service calls, bcrypt, Argon2id, custom
+hashers and legacy algorithms selected from stored hashes. Capacity is held
+until the underlying synchronous operation finishes, including when the request
+has been canceled. Optional rehash-on-login skips an overloaded upgrade after
+successful verification, leaving login usable and the credential unchanged.
+
+Reusing one `Config` creates independent limiters. To share one process budget
+across multiple `Auth` instances, import
+`github.com/nazimdjebloun/go-auth/hasher`, construct a limiter once, and supply the
+same pointer to each instance:
+
+```go
+limiter, err := hasher.NewWorkLimiter(4)
+if err != nil {
+    return err
+}
+// Include this complete hashing group when building each instance's config.
+// Reuse the same limiter pointer across those instances.
+option := goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
+    // Optional; default nil selects built-in bcrypt. Argon2id is selected here.
+    Hasher: argon2id.New(argon2id.Options{
+        Memory:      65536, // required for explicit Options; profile: 65536 KiB (64 MiB)
+        Iterations:  3,     // required for explicit Options; profile: 3 passes
+        Parallelism: 4,     // required for explicit Options; profile: 4 lanes
+        SaltLength:  16,    // required for explicit Options; profile: 16 bytes
+        KeyLength:   32,    // required for explicit Options; profile: 32 bytes
+    }),
+    BcryptCost: 12, // optional, default 12; ignored while Hasher is non-nil
+
+    // Optional; these values leave new passwords unpeppered.
+    Pepper: goauth.PasswordPepperConfig{
+        CurrentVersion: 0,   // optional, default 0: no pepper for new writes
+        Keys:           nil, // optional, default nil; retain keys needed by stored versions
+    },
+
+    Concurrency: 4,        // optional, default 4; ignored because WorkLimiter is supplied
+    WorkLimiter: limiter, // optional, default nil; supplied limiter owns the shared capacity
+})
+```
+
+`NewWorkLimiter(0)` selects four; negative values are rejected. A zero-value
+`hasher.WorkLimiter` is invalid. A nil `WorkLimiter` selects private capacity;
+`Auth.Close` does not close a shared limiter. The budget is local to the process,
+not distributed across replicas. Direct calls to a standalone KDF, such as
+`argon2id.New(...).Hash`, are outside the `Auth` registry and its limit.
+
+This bounds active operations, not process RAM. At 64 MiB per Argon2id operation,
+four active operations need roughly 256 MiB of KDF working memory. Stored hashes
+use their own parameters and may cost more. Leave headroom for the application,
+garbage collection and completed allocations awaiting reclamation; benchmark
+with the largest stored memory cost you accept before choosing a concurrency.
+
+#### Password pepper: Optional
+
+Password peppering is off by default. Enable it with independently managed secret material:
+
+```go
+goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
+    Hasher:     nil, // optional, default nil: built-in bcrypt
+    BcryptCost: 12,  // optional, default 12; used because Hasher is nil
+
+    // Optional; this example enables peppering for new password writes.
+    Pepper: goauth.PasswordPepperConfig{
+        CurrentVersion: 1, // optional, default 0 (off); select a key version to enable
+        // Optional when peppering is off; must contain the selected active version.
+        // Default nil. Keep every version still referenced by stored passwords.
+        Keys: map[uint32]string{
+            1: os.Getenv("AUTH_PASSWORD_PEPPER_V1"), // at least 32 bytes of independent secret material
+        },
+    },
+
+    Concurrency: 4,   // optional, default 4; 0 also selects 4
+    WorkLimiter: nil, // optional, default nil: a private limiter using Concurrency
+})
+```
+
+`CurrentVersion` selects the key used by every new password write. Version `0` is reserved for unpeppered rows: omitting this option leaves `CurrentVersion` at zero and skips HMAC entirely, so the selected KDF receives the password directly. Each non-zero key must be at least 32 bytes, identical on every application instance, and stored separately from the password database (preferably in a secrets manager). The option copies the map; later caller mutations do not change live configuration.
+
+For a versioned row, go-auth derives that version's HMAC key with HKDF purpose `goauth-password-pepper-v1`, computes `base64(HMAC-SHA256(derivedKey, password))`, and passes the result to bcrypt or Argon2id. The nullable `users.password_pepper_version` column selects exactly one key during verification; the library never tries every configured key. Existing `NULL` rows verify as ordinary unpeppered passwords and upgrade to `CurrentVersion` through guarded rehash-on-login.
+
+Rotate without downtime in phases:
+
+1. Deploy the old `CurrentVersion` everywhere with both the old and next keys in `Keys`.
+2. After every instance has the next key, deploy the next `CurrentVersion` while retaining both keys. Successful logins upgrade old rows lazily.
+3. Remove the old key only after no database row references its version. `New()` queries the distinct stored versions whenever a keyring is configured and refuses startup if any referenced version is missing. Its database ping and this query share a 10-second startup deadline.
+
+Preloading is supported even before first opt-in: use `CurrentVersion: 0` with future keys. During a rolling deployment an older node can verify a row written with a preloaded newer version. Login rehash skips that row, while password change and reset continue hashing at the stored higher version. If the higher key was not preloaded, change/reset fail closed rather than writing the older current version. All three replacement paths use the same hash-and-version compare-and-swap, and the database independently rejects a lower new version. A lost race returns `password_update_conflict` for change/reset. Reset atomically claims its still-valid token, replaces the password, and deletes all sessions in one database transaction; change-password atomically combines its password replacement with its configured session revocation. Derivation is deterministic, so there is no password rotation-timestamp field; all instances only need the same version-to-secret mapping.
+
+Never replace a secret in place under the same version. Add a new version instead. Losing a still-referenced key makes those accounts unverifiable; a compromised pepper may also require forced password resets because an attacker who obtained both the database and old pepper can continue offline guessing even while lazy upgrades proceed. `SecurityConfig.SecretRotatedAt` records application-secret rotation time for short-lived codes; it cannot recover password key material.
+
+**Expected errors**
+
+- `password_pepper: current version N has no configured key`: the active version is missing, commonly because a map entry was omitted.
+- `password_pepper: key version N must be at least 32 bytes`: an empty or short environment value was supplied. This fails during `NewConfig`, and `New()` revalidates after cloning; there is no runtime fallback to unpeppered hashing.
+- `password_pepper: key version 0 is reserved for unpeppered passwords`: use `CurrentVersion: 0`, not a key at index zero, to keep new writes unpeppered.
+- `database contains password pepper versions with no configured key`: startup found a stored version the configured keyring cannot verify.
+
+## Request protection
+
+### `WithRateLimit` and its narrower variants: Optional, on by default
+
+Rate limiting is **enabled by default** with an in-memory store and a built-in table of per-route limits on sensitive endpoints (login, register, password reset, etc.). `WithRateLimit` replaces that whole table. The narrower options adjust one aspect of it without disturbing the rest: each one lazily starts from the same defaults if you have not called `WithRateLimit` first.
+
+```go
+// Replace the whole table:
+goauth.WithRateLimit(ratelimit.Config{
+    Enabled: true,                                            // optional, default true
+    Default: ratelimit.Rate{Requests: 60, Window: time.Minute}, // optional, default 60/min
+    Routes: map[string]ratelimit.Rate{ // optional, default: a built-in table of sensitive routes
+        "POST /auth/login": {Requests: 10, Window: time.Minute},
+    },
+    Store:           nil,                        // optional, default: a bounded in-memory store
+    DisabledRoutes:  nil,                        // optional, default none
+    TrustedIPs:      []string{"10.0.0.0/8"},     // optional, default none (required if IPAddressHeader is set)
+    IPv6Subnet:      64,                         // optional, default 64
+    IPAddressHeader: "CF-Connecting-IP",         // optional, default "" (trusts RemoteAddr only)
+})
+
+// Or adjust one route without touching the rest:
+goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
+    Requests: 10, Window: time.Minute,
+})
+```
+
+| Option | Adjusts |
+|---|---|
+| `WithRateLimit(ratelimit.Config)` | The entire configuration (see fields below). |
+| `WithRateLimitEnabled(bool)` | Just `Enabled`. |
+| `WithRateLimitDefault(ratelimit.Rate)` | Just the fallback rate for routes not listed in `Routes`. |
+| `WithRateLimitRoute(pattern, ratelimit.Rate)` | Adds or overrides one route's rate without replacing the table. |
+| `WithRateLimitStore(ratelimit.Store)` | Swaps the backing store (e.g. a Redis-backed one) without touching rates. |
+| `WithTrustedIPs([]string)` | Just `TrustedIPs`. |
+| `WithIPv6Subnet(int)` | Just `IPv6Subnet`. |
+| `WithIPAddressHeader(string)` | Just `IPAddressHeader`. |
+
+**`ratelimit.Config`**
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `Enabled` | `bool` | Optional | `true` | Disabling it logs a warning at startup: it is flagged as insecure for production. |
+| `Default` | `ratelimit.Rate` | Optional | `60 requests / minute` | Fallback for any route not in `Routes`. |
+| `Routes` | `map[string]ratelimit.Rate` | Optional | a built-in table covering login, register, password reset, verification, invites, etc. | Keyed by `"METHOD /path"`. A `Rate{Requests: 0}` entry disables limiting for that one route. |
+| `Store` | `ratelimit.Store` | Optional | a bounded in-memory store | Left `nil`, each successful `New` creates its own store when rate limiting is enabled; `Auth.Close()` stops it. `NewConfig` creates no store or background work. Supply one to share a distributed store (Redis, etc.) across instances. A supplied store is yours to close. |
+| `DisabledRoutes` | `[]string` | Optional | none | ServeMux patterns exempt from rate counting; replaces `DisabledPaths`. |
+| `TrustedIPs` | `[]string` | Optional | none | IPs/CIDRs. Required if `IPAddressHeader` is set. |
+| `IPv6Subnet` | `int` | Optional | `64` | Subnet prefix length used to bucket IPv6 clients. Must be 1–128. |
+| `IPAddressHeader` | `string` | Optional | `""` (trusts `RemoteAddr` only) | The header is only honored from a peer in `TrustedIPs`; otherwise it is ignored, since an untrusted client could spoof it to pick its own rate-limit key. |
+
+<Callout type="info" title="These two fields describe your proxy setup, not just your rate limiter">
+  `TrustedIPs` and `IPAddressHeader` live under `WithRateLimit` for historical reasons, but three subsystems read them: the rate limiter (to key counters), the CSRF origin check (to recover the original scheme/host from `X-Forwarded-*`), and **the address recorded on sessions and audit events**.
+
+  If go-auth sits behind a reverse proxy and you leave these unset, every session and every audit row records the *proxy's* address. The session list and the audit log, whose whole job is to show an operator where a login came from, would show the same address for every user. Setting them once fixes all three. Rate limiting does not need to be `Enabled` for the other two to read them.
+</Callout>
+
+**Expected errors** (only reachable when `Enabled: true`)
+
+- `rate_limit: route "..." requests must be positive, got N` / `... window must be positive, got ...`: from `Default` or any entry in `Routes`. A `Routes` entry may be exactly `0` (the per-route opt-out); `Default` may not.
+- `rate_limit: ipv6_subnet must be between 1 and 128, got N`.
+- `rate_limit: trusted_ips contains invalid IP/CIDR "..."`.
+- `rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can be spoofed to bypass rate limiting`: call `WithTrustedIPs` alongside `WithIPAddressHeader`.
+
+Route keys and exemptions use Go ServeMux patterns: `POST /widgets/{id}`, `GET /files/{rest...}`, and methodless paths for all methods. Invalid or ambiguous patterns fail configuration validation. Replace old `*` globs with named parameters and rename `DisabledPaths` to `DisabledRoutes`. See [rate matching](./guides/rate-limiting.mdx#how-a-request-is-matched-to-a-limit).
+
+## Organizations and permissions
+
+### `WithOrganizations`: Optional
+
+Multi-tenant organizations. Disabled by default. When disabled, no organization routes are mounted at all.
+
+```go
+goauth.WithOrganizations(goauth.OrganizationConfig{
+    Enable:         true,               // optional, default false
+    MaxOrgsPerUser: 10,                 // optional, default 0 (built-in cap of 100)
+    InviteTTL:      7 * 24 * time.Hour, // optional, default 7d
+})
+```
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `Enable` | `bool` | Optional | `false` | |
+| `MaxOrgsPerUser` | `int` | Optional | `0` (built-in cap of 100) | Only checked when `Enable` is true. |
+| `InviteTTL` | `time.Duration` | Optional | `7d` | Only checked when `Enable` is true. |
+
+**Expected errors** (only reachable when `Enable: true`)
+
+- `organizations.max_orgs_per_user must be between 0 and 100 (0 = default 100)`.
+- `organizations.invite_ttl must be positive`: only reachable via an explicit negative value.
+
+### `WithAppPermissions`: Optional
+
+```go
+goauth.WithAppPermissions(goauth.AppPermissionsConfig{
+    Enable:               true,
+    EnableManagementHTTP: true,
+    DefaultRoleSlug:      "user",
+})
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Enable` | `false` | Use one SQL app role per account and current permission checks for library administrative actions. |
+| `EnableManagementHTTP` | `false` | Mount role/permission/catalog management endpoints; requires `Enable:true`. |
+| `DefaultRoleSlug` | `"user"` | Enabled non-admin role for new accounts; lowercase identifier of 1–80 characters. |
+
+The default slug starts with a letter and then permits letters, digits and
+hyphens; `admin` is forbidden. Startup validates its syntax without querying
+role records. Account creation resolves the role in its transaction and fails
+if authorization is uninitialized or that role is absent/disabled. There is no
+startup initialization or automatic permission seeding. See the
+[app permission guide](./guides/app-permissions.mdx) for bootstrap and delegation.
+
+### `WithOrgPermissions`: Optional
+
+```go
+goauth.WithOrgPermissions(goauth.OrgPermissionsConfig{
+    Enable:               true,
+    EnableManagementHTTP: true,
+})
+```
+
+Both flags default to false. `Enable` requires `OrganizationConfig.Enable`.
+`EnableManagementHTTP` mounts initialization, catalog, permission, role, grant and
+assignment endpoints and requires `Enable`. The Go capability and self-access
+route are available with `Enable` alone. App permissions are configured separately.
+Disabling enforcement preserves assignments; subsequent fixed-role changes still
+reset affected assignments to their selected built-in roles before re-enabling.
+
+Validation errors are `org_permissions: requires organizations` and
+`org_permissions: management HTTP requires Enable`. Apply migration revision 2
+before enabling; startup creates no authorization records. New organizations
+initialize protected roles in their creation transaction. Existing organizations
+require owner-authorized `InitializeOrgPermissions` before permission-protected
+operations. See the [org permission guide](./guides/org-permissions.mdx).
+
+## Operations and customization
+
+### `WithLogger`: Optional
+
+```go
+goauth.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+```
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `logger` | `*slog.Logger` | Optional | `slog.Default()` | Used throughout: sessions, CSRF, rate limiting, audit, admin actions. |
+
+No validation errors: any non-nil logger is accepted as-is.
+
+### `WithAudit` / `WithAuditSink`: Optional
+
+```go
+goauth.WithAudit(goauth.AuditConfig{
+    Enabled:       true,                    // optional, default false
+    FailureMode:   audit.FailureOpen,   // optional, default fail-open (or audit.FailureClosed)
+    RetentionDays: 0,                       // optional, default 0 (keep forever)
+    Workers:       3,                        // optional, default 3 — outbox dispatcher workers
+    BatchSize:     50,                       // optional, default 50 — outbox claim/delivery batch size
+    FlushInterval: 100 * time.Millisecond,   // optional, default 100ms — dispatch poll interval
+    MaxAttempts:   10,                       // optional, default 10
+    ClaimLease:    10 * time.Minute,         // optional, default 10m (floor 1m)
+    OutboxMaxAge:  7 * 24 * time.Hour,       // optional, default 7d (negative disables)
+    DeadLetterTTL: 7 * 24 * time.Hour,       // optional, default 7d (negative keeps forever)
+    OutboxMaxRows: 100000,                   // optional, default 100000 (negative = unbounded)
+    Sinks:         []audit.EventSink{myKafkaSink}, // optional, default none
+    // EnqueueFailureMode: func(audit.Event) audit.FailureMode — optional, nil = fail-open everywhere
+})
+goauth.WithAuditSink(myOtherSink) // optional: adds one more sink at a time
+```
+
+| Field | Type | Required | Default | Notes |
+|---|---|---|---|---|
+| `Enabled` | `bool` | Optional | `false` | |
+| `FailureMode` | `audit.FailureMode` | Optional | fail-open | Delivery fan-out across sinks within one dispatch batch. |
+| `EnqueueFailureMode` | `func(audit.Event) audit.FailureMode` | Optional | nil (fail-open) | Per-event: whether a failed durable write blocks the triggering operation (only where a transaction can roll back). |
+| `RetentionDays` | `int` | Optional | `0` (keep forever) | When positive, must exceed `max(OutboxMaxAge, retryWindow + DeadLetterTTL)` — rejected otherwise. |
+| `ClaimLease` | `time.Duration` | Optional | `10m` | Must exceed every sink's declared worst-case batch delivery time; also rejected below `1m`. |
+| `Workers` | `int` | Optional | `3` | Outbox dispatcher workers; only started when sinks are configured. |
+| `BatchSize` | `int` | Optional | `50` | |
+| `FlushInterval` | `time.Duration` | Optional | `100ms` | |
+| `MaxAttempts` | `int` | Optional | `10` | |
+| `OutboxMaxAge` | `time.Duration` | Optional | `7d` | |
+| `DeadLetterTTL` | `time.Duration` | Optional | `7d` | |
+| `OutboxMaxRows` | `int` | Optional | `100000` | |
+| `Sinks` | `[]audit.EventSink` | Optional | none | Additional destinations: Kafka, NATS, a webhook. Each external sink must also implement `audit.BatchDeliveryTimeBounder`. |
+
+`WithAuditSink` appends one sink at a time and only takes effect when audit logging is enabled via `WithAudit`. Calling `WithAudit` more than once does not duplicate previously-added sinks. They are merged once, not accumulated per call.
+
+Construction fails when `ClaimLease` is below `1m`, does not exceed a sink's declared maximum batch time, or a sink cannot declare a finite bound. When `RetentionDays` is positive, both outbox clocks must be finite and retention must exceed `max(OutboxMaxAge, retryWindow + DeadLetterTTL)`. Construction also fails when an external sink is configured before the `audit_outbox` migration exists; the application never starts in a state that promises delivery but cannot enqueue or drain it.
+
+### `WithMaintenance`: Optional, on by default
+
+Background cleanup removes already-expired sessions and verification/reset tokens
+in bounded batches. A session must be past both its session and refresh expiry,
+plus the grace period, before it is eligible. This worker does not replace schema
+migrations or the separate audit and recovery queue cleanup.
+
+```go
+goauth.WithMaintenance(goauth.MaintenanceConfig{
+    Disable:   false,
+    Interval:  time.Hour,
+    BatchSize: 1000,
+    Grace:     24 * time.Hour,
+    Timeout:   30 * time.Second,
+    // Logger: slog.Default(),
+})
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Disable` | `false` | Stop background cleanup; `Auth.RunMaintenance(ctx)` remains available. |
+| `Interval` | `1h` | Time between passes. |
+| `BatchSize` | `1000` | Maximum rows deleted per table per pass. |
+| `Grace` | `24h` | Required time past expiry before deletion. |
+| `Timeout` | `30s` | Deadline for each table's delete operation. |
+| `Logger` | `slog.Default()` | Cleanup diagnostics. |
+
+Zero tuning values select these defaults; they do not disable a limit. Negative
+values are rejected even when `Disable` is true, with `maintenance interval must
+not be negative`, `maintenance batch_size must not be negative`, `maintenance
+grace must not be negative`, or `maintenance timeout must not be negative`.
+`Auth.Close` stops the worker.
 
 ### Custom email templates
 
@@ -774,184 +1032,6 @@ func (t *myTemplates) Render(data port.TemplateData) (port.TemplateResult, error
 ```
 
 `emailtemplate.New` takes the same `*port.URLValidator` you would otherwise build yourself: construct one with `&port.URLValidator{AllowHTTP: ...}` matching your `SecurityConfig.AllowHTTPURLs` policy, since the fallback provider still enforces `ValidateURLs` even though your own override does not.
-
-## `WithRateLimit` and its narrower variants: Optional, on by default
-
-Rate limiting is **enabled by default** with an in-memory store and a built-in table of per-route limits on sensitive endpoints (login, register, password reset, etc.). `WithRateLimit` replaces that whole table. The narrower options adjust one aspect of it without disturbing the rest: each one lazily starts from the same defaults if you have not called `WithRateLimit` first.
-
-```go
-// Replace the whole table:
-goauth.WithRateLimit(ratelimit.Config{
-    Enabled: true,                                            // optional, default true
-    Default: ratelimit.Rate{Requests: 60, Window: time.Minute}, // optional, default 60/min
-    Routes: map[string]ratelimit.Rate{ // optional, default: a built-in table of sensitive routes
-        "POST /auth/login": {Requests: 10, Window: time.Minute},
-    },
-    Store:           nil,                        // optional, default: a bounded in-memory store
-    DisabledRoutes:  nil,                        // optional, default none
-    TrustedIPs:      []string{"10.0.0.0/8"},     // optional, default none (required if IPAddressHeader is set)
-    IPv6Subnet:      64,                         // optional, default 64
-    IPAddressHeader: "CF-Connecting-IP",         // optional, default "" (trusts RemoteAddr only)
-})
-
-// Or adjust one route without touching the rest:
-goauth.WithRateLimitRoute("POST /auth/login", ratelimit.Rate{
-    Requests: 10, Window: time.Minute,
-})
-```
-
-| Option | Adjusts |
-|---|---|
-| `WithRateLimit(ratelimit.Config)` | The entire configuration (see fields below). |
-| `WithRateLimitEnabled(bool)` | Just `Enabled`. |
-| `WithRateLimitDefault(ratelimit.Rate)` | Just the fallback rate for routes not listed in `Routes`. |
-| `WithRateLimitRoute(pattern, ratelimit.Rate)` | Adds or overrides one route's rate without replacing the table. |
-| `WithRateLimitStore(ratelimit.Store)` | Swaps the backing store (e.g. a Redis-backed one) without touching rates. |
-| `WithTrustedIPs([]string)` | Just `TrustedIPs`. |
-| `WithIPv6Subnet(int)` | Just `IPv6Subnet`. |
-| `WithIPAddressHeader(string)` | Just `IPAddressHeader`. |
-
-**`ratelimit.Config`**
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `Enabled` | `bool` | Optional | `true` | Disabling it logs a warning at startup: it is flagged as insecure for production. |
-| `Default` | `ratelimit.Rate` | Optional | `60 requests / minute` | Fallback for any route not in `Routes`. |
-| `Routes` | `map[string]ratelimit.Rate` | Optional | a built-in table covering login, register, password reset, verification, invites, etc. | Keyed by `"METHOD /path"`. A `Rate{Requests: 0}` entry disables limiting for that one route. |
-| `Store` | `ratelimit.Store` | Optional | a bounded in-memory store | Left `nil`, each successful `New` creates its own store when rate limiting is enabled; `Auth.Close()` stops it. `NewConfig` creates no store or background work. Supply one to share a distributed store (Redis, etc.) across instances. A supplied store is yours to close. |
-| `DisabledRoutes` | `[]string` | Optional | none | ServeMux patterns exempt from rate counting; replaces `DisabledPaths`. |
-| `TrustedIPs` | `[]string` | Optional | none | IPs/CIDRs. Required if `IPAddressHeader` is set. |
-| `IPv6Subnet` | `int` | Optional | `64` | Subnet prefix length used to bucket IPv6 clients. Must be 1–128. |
-| `IPAddressHeader` | `string` | Optional | `""` (trusts `RemoteAddr` only) | The header is only honored from a peer in `TrustedIPs`; otherwise it is ignored, since an untrusted client could spoof it to pick its own rate-limit key. |
-
-<Callout type="info" title="These two fields describe your proxy setup, not just your rate limiter">
-  `TrustedIPs` and `IPAddressHeader` live under `WithRateLimit` for historical reasons, but three subsystems read them: the rate limiter (to key counters), the CSRF origin check (to recover the original scheme/host from `X-Forwarded-*`), and **the address recorded on sessions and audit events**.
-
-  If go-auth sits behind a reverse proxy and you leave these unset, every session and every audit row records the *proxy's* address. The session list and the audit log, whose whole job is to show an operator where a login came from, would show the same address for every user. Setting them once fixes all three. Rate limiting does not need to be `Enabled` for the other two to read them.
-</Callout>
-
-**Expected errors** (only reachable when `Enabled: true`)
-
-- `rate_limit: route "..." requests must be positive, got N` / `... window must be positive, got ...`: from `Default` or any entry in `Routes`. A `Routes` entry may be exactly `0` (the per-route opt-out); `Default` may not.
-- `rate_limit: ipv6_subnet must be between 1 and 128, got N`.
-- `rate_limit: trusted_ips contains invalid IP/CIDR "..."`.
-- `rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can be spoofed to bypass rate limiting`: call `WithTrustedIPs` alongside `WithIPAddressHeader`.
-
-Route keys and exemptions use Go ServeMux patterns: `POST /widgets/{id}`, `GET /files/{rest...}`, and methodless paths for all methods. Invalid or ambiguous patterns fail configuration validation. Replace old `*` globs with named parameters and rename `DisabledPaths` to `DisabledRoutes`. See [rate matching](./guides/rate-limiting.mdx#how-a-request-is-matched-to-a-limit).
-
-## `WithMaintenance`: Optional, on by default
-
-Background cleanup removes already-expired sessions and verification/reset tokens
-in bounded batches. A session must be past both its session and refresh expiry,
-plus the grace period, before it is eligible. This worker does not replace schema
-migrations or the separate audit and recovery queue cleanup.
-
-```go
-goauth.WithMaintenance(goauth.MaintenanceConfig{
-    Disable:   false,
-    Interval:  time.Hour,
-    BatchSize: 1000,
-    Grace:     24 * time.Hour,
-    Timeout:   30 * time.Second,
-    // Logger: slog.Default(),
-})
-```
-
-| Field | Default | Meaning |
-|---|---|---|
-| `Disable` | `false` | Stop background cleanup; `Auth.RunMaintenance(ctx)` remains available. |
-| `Interval` | `1h` | Time between passes. |
-| `BatchSize` | `1000` | Maximum rows deleted per table per pass. |
-| `Grace` | `24h` | Required time past expiry before deletion. |
-| `Timeout` | `30s` | Deadline for each table's delete operation. |
-| `Logger` | `slog.Default()` | Cleanup diagnostics. |
-
-Zero tuning values select these defaults; they do not disable a limit. Negative
-values are rejected even when `Disable` is true, with `maintenance interval must
-not be negative`, `maintenance batch_size must not be negative`, `maintenance
-grace must not be negative`, or `maintenance timeout must not be negative`.
-`Auth.Close` stops the worker.
-
-## `WithProvider`: Optional
-
-Registers an OAuth provider. Call it once per provider and enable
-`AuthenticationConfig.OAuth` explicitly. Registration `OAuth` independently
-controls whether the provider may create new accounts.
-
-```go
-goauth.WithProvider(github.New(github.Config{
-    ClientID:     os.Getenv("GITHUB_CLIENT_ID"),
-    ClientSecret: os.Getenv("GITHUB_CLIENT_SECRET"),
-    RedirectURL:  "https://myapp.com/auth/oauth/github/callback",
-}))
-```
-
-| Requirement | Notes |
-|---|---|
-| Non-nil | A nil provider is rejected. |
-| Non-empty `Name()` | Each provider reports its own name. |
-| Unique `Name()` | Registering two providers under the same name is rejected. |
-
-**Expected errors**
-
-- `provider: nil provider registered via WithProvider`.
-- `provider: provider with empty name`.
-- `provider: duplicate provider "..."`.
-- `provider "...": client_id is required`: the provider's OAuth2 config has no client ID.
-- `provider "...": client_secret is required`: the provider's OAuth2 config has no client secret.
-
-## `WithLogger`: Optional
-
-```go
-goauth.WithLogger(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
-```
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `logger` | `*slog.Logger` | Optional | `slog.Default()` | Used throughout: sessions, CSRF, rate limiting, audit, admin actions. |
-
-No validation errors: any non-nil logger is accepted as-is.
-
-## `WithAudit` / `WithAuditSink`: Optional
-
-```go
-goauth.WithAudit(goauth.AuditConfig{
-    Enabled:       true,                    // optional, default false
-    FailureMode:   audit.FailureOpen,   // optional, default fail-open (or audit.FailureClosed)
-    RetentionDays: 0,                       // optional, default 0 (keep forever)
-    Workers:       3,                        // optional, default 3 — outbox dispatcher workers
-    BatchSize:     50,                       // optional, default 50 — outbox claim/delivery batch size
-    FlushInterval: 100 * time.Millisecond,   // optional, default 100ms — dispatch poll interval
-    MaxAttempts:   10,                       // optional, default 10
-    ClaimLease:    10 * time.Minute,         // optional, default 10m (floor 1m)
-    OutboxMaxAge:  7 * 24 * time.Hour,       // optional, default 7d (negative disables)
-    DeadLetterTTL: 7 * 24 * time.Hour,       // optional, default 7d (negative keeps forever)
-    OutboxMaxRows: 100000,                   // optional, default 100000 (negative = unbounded)
-    Sinks:         []audit.EventSink{myKafkaSink}, // optional, default none
-    // EnqueueFailureMode: func(audit.Event) audit.FailureMode — optional, nil = fail-open everywhere
-})
-goauth.WithAuditSink(myOtherSink) // optional: adds one more sink at a time
-```
-
-| Field | Type | Required | Default | Notes |
-|---|---|---|---|---|
-| `Enabled` | `bool` | Optional | `false` | |
-| `FailureMode` | `audit.FailureMode` | Optional | fail-open | Delivery fan-out across sinks within one dispatch batch. |
-| `EnqueueFailureMode` | `func(audit.Event) audit.FailureMode` | Optional | nil (fail-open) | Per-event: whether a failed durable write blocks the triggering operation (only where a transaction can roll back). |
-| `RetentionDays` | `int` | Optional | `0` (keep forever) | When positive, must exceed `max(OutboxMaxAge, retryWindow + DeadLetterTTL)` — rejected otherwise. |
-| `ClaimLease` | `time.Duration` | Optional | `10m` | Must exceed every sink's declared worst-case batch delivery time; also rejected below `1m`. |
-| `Workers` | `int` | Optional | `3` | Outbox dispatcher workers; only started when sinks are configured. |
-| `BatchSize` | `int` | Optional | `50` | |
-| `FlushInterval` | `time.Duration` | Optional | `100ms` | |
-| `MaxAttempts` | `int` | Optional | `10` | |
-| `OutboxMaxAge` | `time.Duration` | Optional | `7d` | |
-| `DeadLetterTTL` | `time.Duration` | Optional | `7d` | |
-| `OutboxMaxRows` | `int` | Optional | `100000` | |
-| `Sinks` | `[]audit.EventSink` | Optional | none | Additional destinations: Kafka, NATS, a webhook. Each external sink must also implement `audit.BatchDeliveryTimeBounder`. |
-
-`WithAuditSink` appends one sink at a time and only takes effect when audit logging is enabled via `WithAudit`. Calling `WithAudit` more than once does not duplicate previously-added sinks. They are merged once, not accumulated per call.
-
-Construction fails when `ClaimLease` is below `1m`, does not exceed a sink's declared maximum batch time, or a sink cannot declare a finite bound. When `RetentionDays` is positive, both outbox clocks must be finite and retention must exceed `max(OutboxMaxAge, retryWindow + DeadLetterTTL)`. Construction also fails when an external sink is configured before the `audit_outbox` migration exists; the application never starts in a state that promises delivery but cannot enqueue or drain it.
 
 ## Next
 
