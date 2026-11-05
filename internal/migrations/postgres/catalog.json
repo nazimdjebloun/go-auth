@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "release": "v0.6.0",
+  "release": "v0.5.4",
   "dialect": "postgres",
   "targetRevision": 4,
   "bootstrapRevision": 1,

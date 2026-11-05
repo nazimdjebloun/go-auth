@@ -1,0 +1,199 @@
+---
+title: "v0.5.4"
+description: "Password-work limits, email changes, credential-race fixes, delegation checks, dependency updates, and client-security guidance."
+date: "2026-11-04"
+---
+
+## New features
+
+### Password-work limits
+
+Password hashing and verification now share a default cap of four active
+operations per `Auth`, preventing login bursts from starting unbounded KDF work.
+`PasswordHashingConfig.Concurrency` configures the cap; `WorkLimiter` accepts
+a limiter constructed with `hasher.NewWorkLimiter` and shared across `Auth` instances.
+Zero selects the default and negative limits fail configuration validation.
+
+Excess work is rejected immediately as `password_work_busy` (HTTP 503), using
+the existing two-field error envelope. HTTP and direct service calls, custom
+hashers, legacy Argon2id verification under bcrypt, dummy checks and startup
+probes all use the same capacity. Overload stays distinct from wrong-password
+errors. Optional rehashing can be skipped after successful verification;
+overloaded reset and setup attempts preserve their credentials, tokens and
+sessions for retry. `hasher/registry.Registry.BurnDummy` now returns an error
+so callers can propagate overload.
+
+The cap limits active operations, not process RAM. Stored Argon2id hashes retain
+their own memory costs; deployments must leave application/GC headroom and size
+the limit for their stored parameters. Private limiters and replicas have
+independent budgets. See [password work limits](../configuration.mdx#password-work-limits).
+
+Regression tests cover concurrency, rejection and capacity release after errors
+or panics, shared and independent instances, legacy verification, overload
+propagation across credential services, HTTP envelopes, optional rehashing, and
+preserving reset/setup credentials for retry.
+
+### Email-address changes
+
+Optional email-address replacement is enabled through
+`WithSecurity(SecurityConfig{AllowEmailChange: true})`, `Services().Email` and
+matching facade methods. Four authenticated routes support request, confirm,
+resend and cancellation. See [email changes](../guides/email-changes.mdx).
+
+Both mailbox codes and an initiating live session are required. Password-bearing
+accounts also prove the enabled password method. The atomic completion verifies
+the new address, revokes app/admin sessions and outstanding account-bound tokens,
+and enqueues notices to both destinations. The account ID, password, provider
+subject links and memberships are preserved. The feature defaults to disabled
+and requires a configured mailer when enabled.
+
+Requests are bound to their initiating session/context and credential state.
+Password changes and MFA preference changes cancel pending proofs, including
+when the current session survives or settings return to their prior values.
+Password reset redemption additionally rechecks the code's proved email under
+the user lock. Confirmation checks both proofs and commits its state changes,
+session/token revocation and queued notices atomically.
+
+Ten-minute expiry, five failed attempts, three starts per account per hour,
+and three resends per mailbox with a one-minute cooldown bound the workflow.
+Resends rotate the selected code without extending expiry or resetting failed
+attempts. Codes for the two mailboxes are distinct; a resend cannot reuse the
+selected mailbox's current code or match the other mailbox's current code.
+Replacement and cancellation preserve the hourly start budget.
+
+The HTTP handlers reject unknown, duplicate, case-variant and non-string JSON
+fields and retain authentication, verification/MFA, CSRF/origin and rate-limit
+protections. Confirmation clears the browser credentials and returns
+`step: sign_in`. Failed proof delivery cancels only its exact request version,
+protecting replacements and newer resends.
+
+Exhausted proofs are erased immediately; the mail worker clears expired proofs
+in bounded maintenance batches while retaining account start budgets. Default
+proof-email wording is independent of internal destination identifiers. Backend
+stress selection includes the email-change HTTP contract and other feature tests.
+
+## Fixes
+
+### Credential and authorization fixes since `v0.5.3`
+
+- Fixed-role organization invitation creation, resend and acceptance recheck
+  current authority under the account/membership guards. A removed or demoted
+  issuer cannot continue delegating through an old invitation. Acceptance also
+  rechecks the recipient's current email and account access.
+- Password reset issuance rechecks the password hash, pepper version and email
+  under the user lock. Password change/reset revokes other unused reset tokens;
+  credential flows use the user-before-token lock order.
+- Password-authenticated account deletion rechecks the exact credential
+  snapshot under the account/user guards after password verification, preventing
+  deletion authorized by a stale password during a concurrent change or ban.
+- Set-password confirmation claims the exact token hash, user, purpose, email,
+  unused state and expiry before installing the password. The repository joins
+  an existing transaction. PostgreSQL/MySQL wait for both the user and token
+  locks before sampling expiry, including time spent waiting on a token writer.
+- Business app-permission deletion applies the held-key delegation check before
+  revision and reference checks. Delegates cannot delete an unused definition
+  whose key they do not hold.
+
+## Configuration changes
+
+### Grouped password hashing configuration
+
+`WithPasswordHashing(PasswordHashingConfig{...})` replaces the separate
+`WithPasswordHasher`, `WithBcryptCost`, `WithPasswordPepper`,
+`WithPasswordConcurrency` and `WithPasswordWorkLimiter` options. Move their
+arguments into `Hasher`, `BcryptCost`, `Pepper`, `Concurrency` and `WorkLimiter`
+in one call. Argon2id remains configurable through
+`Hasher: argon2id.New(argon2id.Options{...})`.
+
+Each call replaces the whole group, so omitted fields return to defaults.
+`Hasher` overrides `BcryptCost`; a supplied `WorkLimiter` overrides `Concurrency`.
+The pepper key map is copied on application and cloning; the live hasher and
+shared limiter retain their identity. Password policy stays in `WithSecurity`.
+
+This grouping changes the configuration API only. Defaults, validation,
+stored-hash formats, algorithm dispatch, pepper derivation and rotation,
+rehash-on-login, credential transactions and the limiter behavior below remain
+unchanged. Regression coverage includes zero-value configuration, complete-group
+replacement, security-policy independence and key-map ownership.
+
+### Application-secret rotation configuration
+
+Renamed `SecurityConfig.PepperRotatedAt` to `SecretRotatedAt` and removed
+`WithPepperRotatedAt`. Move the timestamp into your existing
+`WithSecurity(SecurityConfig{SecretRotatedAt: rotationTime, ...})` call alongside
+your other security settings; each call replaces the whole group.
+
+This optional timestamp records when the current `WithSecret` value became
+active, using the same UTC value on every instance. Zero leaves timestamp-based
+expiry classification disabled. The timestamp does not rotate any key.
+Password peppering remains independently configured through
+`WithPasswordHashing`'s versioned `Pepper` keys and has no rotation timestamp.
+
+This is a configuration API rename and setter removal only. Service wiring and
+regression tests use the new name; key derivation, stale-code comparisons,
+error handling, password hashing and stored formats are unchanged.
+
+## Tests, dependencies and documentation
+
+### Tests
+
+- Organization invitation authority scenarios use explicit demotion/removal
+  branches and compare denied requests against persisted timestamps, avoiding
+  assumptions about database timestamp precision.
+- Email-change regressions cover strict HTTP inputs, disabled configuration,
+  mailbox/session/context binding, attempt/resend limits, delivery failures,
+  rollback, concurrent confirmation/reset, credential changes, code rotation,
+  expiry cleanup and replacement races. Backend full/stress evidence gates
+  require the feature tests.
+
+### Dependencies
+
+- Dependency cleanup updates `golang.org/x/crypto`, `x/term`, `x/sync`, `x/sys`
+  and `x/text`. The exact module revisions are recorded in `go.mod` and `go.sum`.
+
+### Documentation
+
+- The configuration reference now starts with a production setup example and
+  groups required settings, authentication, password security, request protection,
+  optional permissions and operations. Existing option anchors and examples are
+  preserved; template customization follows the core setup reference.
+- Hashing, shared-work-limit and pepper examples list every hashing field with
+  optional/default comments. Explicit Argon2id options show all five parameters
+  and explain that omitted fields do not inherit `DefaultOptions` values.
+- The new [Before you ship](../guides/client/security-basics.mdx) guide covers
+  backend authorization, tenant scoping, browser credentials, recovery,
+  deployment headers and dependency review. App-permission examples explain
+  the protected-administrator workflow for deleting unused definitions.
+
+## Upgrade
+
+Migration revision 4 adds `email_change_requests` on PostgreSQL, MySQL and SQLite.
+Apply matching migrations before startup even when the optional workflow is off.
+Earlier migration identities and checksums are preserved. Existing users,
+credentials, sessions, provider links and permissions survive the upgrade.
+
+`port.UserRepository.SetPasswordAndVerify` now takes
+`port.SetPasswordAndVerifyInput`, including the exact token hash and email,
+instead of the previous positional arguments.
+
+All three migration catalogs declare release `v0.5.4`. Revision 4 retains its
+original `000004_v0.6.0_001.sql` filename: migration identities, SQL and
+checksums are preserved. Use the matching release's migration runner rather
+than renaming migration files.
+
+## Commits covered since the last tag
+
+The two test-only commits are included in this inventory.
+
+| Commit | Change |
+| --- | --- |
+| `3725f97` | Recheck authority for fixed-role organization invitations. |
+| `39bf2ff` | Revoke reset links on credential replacement. |
+| `d8e1527` | Recheck password identity before account deletion. |
+| `019503b` | Claim the exact live setup code before password installation. |
+| `9fa3662` | Simplify invitation authority test scenarios. |
+| `1806785` | Check setup-code expiry after token lock waits. |
+| `0fcc71c` | Compare persisted invitation timestamps in regressions. |
+| `40ee614` | Enforce delegation when deleting app-permission definitions. |
+| `596f052` | Update cryptography and companion module dependencies. |
+| `c8e7427` | Add practical client-hardening guidance and deletion examples. |
