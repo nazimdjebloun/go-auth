@@ -84,6 +84,11 @@ func newTestOrgInviteService() (*OrgService, *OrgInviteService) {
 	orgs := testutil.NewMockOrgRepo()
 	invites := testutil.NewMockOrgInviteRepo()
 	users := testutil.NewMockUserRepo()
+	for _, id := range []string{"owner-1", "owner", "admin"} {
+		if err := users.Create(context.Background(), &domain.User{ID: id, Email: id + "@example.com", Role: domain.RoleUser}); err != nil {
+			panic(err)
+		}
+	}
 	orgs.SetUsers(users)
 	sessions := testutil.NewMockSessionRepo()
 	tx := &testutil.MockTxManager{}

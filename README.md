@@ -161,7 +161,7 @@ the public API origin in `WithBrowser`. See [deployment](docs/guides/deployment.
 - When email verification is required, unverified accounts must verify before
   accessing protected routes, including through an existing session.
 - Fixed-role invitations recheck the issuer's current authority at acceptance
-  and renewal. Only an Owner can renew an Owner invitation.
+  and renewal, including account bans. Only an Owner can renew an Owner invitation.
 
 See [configuration](docs/configuration.mdx) for every default and
 [security](docs/security.mdx) for the guarantees and deployment requirements.

@@ -25,6 +25,10 @@ func TestFixedOrgInvitesRequireCurrentAuthority(t *testing.T) {
 		{name: "owner cannot renew demoted issuer delegation", role: domain.OrgRoleOwner, actor: "owner", revoke: "demote", denied: true},
 		{name: "accept rejects demoted owner issuer", role: domain.OrgRoleOwner, revoke: "demote", accept: true, denied: true},
 		{name: "accept rejects removed issuer", role: domain.OrgRoleMember, revoke: "remove", accept: true, denied: true},
+		{name: "accept rejects banned owner issuer", role: domain.OrgRoleOwner, revoke: "ban", accept: true, denied: true},
+		{name: "accept rejects banned member-invite issuer", role: domain.OrgRoleMember, revoke: "ban", accept: true, denied: true},
+		{name: "owner cannot renew banned issuer delegation", role: domain.OrgRoleOwner, actor: "owner", revoke: "ban", denied: true},
+		{name: "logged-out issuer delegation remains valid", role: domain.OrgRoleOwner, revoke: "logout", accept: true},
 		{name: "admin renews member invite", role: domain.OrgRoleMember, actor: "admin", expired: true},
 		{name: "owner renews owner invite", role: domain.OrgRoleOwner, actor: "owner", expired: true},
 		{name: "current owner delegation accepts", role: domain.OrgRoleOwner, accept: true},
@@ -72,6 +76,16 @@ func TestFixedOrgInvitesRequireCurrentAuthority(t *testing.T) {
 				err = orgSvc.UpdateMemberRole(ctx, api.UpdateMemberRoleInput{OrgID: org.ID, UserID: f.userID, ActorID: ids["owner"], NewRole: domain.OrgRoleMember})
 			case "remove":
 				err = orgSvc.RemoveMember(ctx, api.RemoveMemberInput{OrgID: org.ID, UserID: f.userID, ActorID: ids["owner"]})
+			case "ban":
+				const platformID = "00000000-0000-4000-8000-000000000204"
+				if err := f.users.Create(ctx, &domain.User{ID: platformID, Email: "platform@example.com", Name: "Platform Admin", Role: domain.RoleAdmin, CreatedAt: now, UpdatedAt: now}); err != nil {
+					t.Fatal(err)
+				}
+				sessions := NewSessionService(f.db, f.sessions, nil, DefaultSessionConfig())
+				admin := NewAdminService(f.db, f.users, f.sessions, nil, nil, f.hasher, defaultTestConfig(), sessions)
+				err = admin.BanUser(ctx, api.BanUserInput{UserID: f.userID, ActorID: platformID})
+			case "logout":
+				err = f.sessions.DeleteAllForUser(ctx, f.userID)
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -120,19 +134,27 @@ func TestFixedOrgInvitesRequireCurrentAuthority(t *testing.T) {
 }
 
 func TestFixedOrgInviteCreationRechecksAuthority(t *testing.T) {
-	orgSvc, svc := newTestOrgInviteService()
-	ctx := t.Context()
-	org, err := orgSvc.CreateOrg(ctx, api.CreateOrgInput{Name: "Authority", Slug: "authority", OwnerID: "owner"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := orgSvc.AddMember(ctx, api.AddMemberInput{OrgID: org.ID, UserID: "admin", Role: domain.OrgRoleAdmin, ActorID: "owner"}); err != nil {
-		t.Fatal(err)
-	}
-	svc.txManager = &orgAuthorizationTxBoundary{TxManager: svc.txManager, before: func() error {
-		return orgSvc.UpdateMemberRole(ctx, api.UpdateMemberRoleInput{OrgID: org.ID, UserID: "admin", ActorID: "owner", NewRole: domain.OrgRoleMember})
-	}}
-	if _, err := svc.CreateOrgInvite(ctx, api.CreateOrgInviteInput{OrgID: org.ID, InvitedBy: "admin", Email: "recipient@example.com", Role: domain.OrgRoleMember}); !errors.Is(err, domain.ErrOrgForbidden) {
-		t.Fatalf("stale authority issued invite: %v", err)
+	for _, change := range []string{"demote", "ban"} {
+		t.Run(change, func(t *testing.T) {
+			orgSvc, svc := newTestOrgInviteService()
+			ctx := t.Context()
+			org, err := orgSvc.CreateOrg(ctx, api.CreateOrgInput{Name: "Authority", Slug: "authority", OwnerID: "owner"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := orgSvc.AddMember(ctx, api.AddMemberInput{OrgID: org.ID, UserID: "admin", Role: domain.OrgRoleAdmin, ActorID: "owner"}); err != nil {
+				t.Fatal(err)
+			}
+			svc.txManager = &orgAuthorizationTxBoundary{TxManager: svc.txManager, before: func() error {
+				if change == "ban" {
+					now := time.Now().UTC()
+					return svc.users.SetBanStatus(ctx, "admin", true, &now, now)
+				}
+				return orgSvc.UpdateMemberRole(ctx, api.UpdateMemberRoleInput{OrgID: org.ID, UserID: "admin", ActorID: "owner", NewRole: domain.OrgRoleMember})
+			}}
+			if _, err := svc.CreateOrgInvite(ctx, api.CreateOrgInviteInput{OrgID: org.ID, InvitedBy: "admin", Email: "recipient@example.com", Role: domain.OrgRoleMember}); !errors.Is(err, domain.ErrOrgForbidden) {
+				t.Fatalf("stale authority issued invite: %v", err)
+			}
+		})
 	}
 }

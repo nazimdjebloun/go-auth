@@ -404,8 +404,10 @@ This library handles auth-specific correctness. It does not, and cannot, cover:
 ## Organization permission boundaries
 
 Fixed-role organization invitations also retain their issuer's authority as a
-live requirement. Creation, renewal and acceptance check current membership
-under transaction locks. Renewing an Owner invitation requires an Owner; renewal
+live requirement. Creation, renewal and acceptance check that the issuer still
+exists and is not banned, then check current membership under transaction locks.
+The issuer's original session need not remain alive. Renewing an Owner
+invitation requires an Owner; renewal
 and acceptance reject an issuer who can no longer grant the proposed role.
 Delete and recreate that invitation under a currently authorized issuer.
 Email delivery occurs after the mutation transaction commits.

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/nazimdjebloun/go-auth/domain"
 )
@@ -17,6 +18,13 @@ func (s *OrgInviteService) withFixedInviteMutation(ctx context.Context, fn func(
 
 func (s *OrgInviteService) requireFixedInviteAuthority(ctx context.Context, orgID, actorID string, role domain.OrgRole) error {
 	if actorID == "" || !role.IsValid() {
+		return domain.ErrOrgForbidden
+	}
+	user, err := s.users.GetByIDForUpdate(ctx, actorID)
+	if err != nil {
+		return fmt.Errorf("loading fixed invitation issuer: %w", err)
+	}
+	if user == nil || user.IsBanned {
 		return domain.ErrOrgForbidden
 	}
 	member, err := s.orgs.LockMembership(ctx, orgID, actorID)
