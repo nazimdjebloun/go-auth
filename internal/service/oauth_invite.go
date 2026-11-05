@@ -119,7 +119,7 @@ func (s *OAuthService) VerifyInviteEmail(ctx context.Context, input api.OAuthInv
 	if err != nil {
 		return nil, err
 	}
-	if token == nil || token.Type != domain.TokenInviteVerify || token.UserID != nil || token.UsedAt != nil || !token.ExpiresAt.After(time.Now().UTC()) || stalePepper(token.CreatedAt, s.twoFactorSvc.config.PepperRotatedAt) {
+	if token == nil || token.Type != domain.TokenInviteVerify || token.UserID != nil || token.UsedAt != nil || !token.ExpiresAt.After(time.Now().UTC()) || stalePepper(token.CreatedAt, s.twoFactorSvc.config.SecretRotatedAt) {
 		return nil, domain.ErrVerificationCodeInvalid
 	}
 	if !verifyOTP(input.Code, token.TokenHash, s.twoFactorSvc.config.OTPPepper) {

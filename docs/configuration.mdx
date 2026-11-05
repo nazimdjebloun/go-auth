@@ -135,16 +135,11 @@ goauth.WithSecret(os.Getenv("AUTH_SECRET"))
 |---|---|---|---|---|
 | `secret` | `string` | Required | none | Minimum 32 bytes. HKDF derives separate CSRF, 2FA-binding, OAuth-encryption, and OTP-pepper keys from it. Source it from the environment; never commit it. Password peppering uses a separate opt-in secret. |
 
-If you rotate the root secret, rotate the OTP-pepper timestamp with it:
+When rotating the root secret, set `SecretRotatedAt` in your existing [WithSecurity](#withsecurity-optional) configuration to the UTC moment the new `WithSecret` value became active. There is one rotation timestamp; it records an operator action and does not rotate keys itself.
 
-```go
-goauth.WithSecret(os.Getenv("AUTH_SECRET")),
-goauth.WithPepperRotatedAt(rotationTime), // UTC moment the new secret went live
-```
+`SecurityConfig.SecretRotatedAt` is optional and defaults to unset (zero): timestamp-based expiry classification stays disabled and verification is purely by HMAC. Set it to the same UTC value on every instance when you rotate the secret. Pre-rotation 2FA, set-password, and delete-account codes then fail with their expiry error rather than their invalid-code error. Email verification instead looks up the code using the current pepper; a code hashed under the old pepper returns `code_invalid`. Request a new code in either case. Source the timestamp like the secret itself: one shared environment variable or secrets-manager entry, never the instance's boot time or per-instance files that can drift.
 
-`WithPepperRotatedAt` is optional and defaults to unset (zero): the rotation-stale branch stays dormant and verification is purely by HMAC. Set it, to the same UTC value on every instance, exactly when you rotate the secret. Pre-rotation 2FA, set-password, and delete-account codes then fail with their expiry error rather than their invalid-code error. Email verification instead looks up the code using the current pepper; a code hashed under the old pepper returns `code_invalid`. Request a new code in either case. Source it like the secret itself: one shared env var or secrets-manager entry, never per-instance files that can drift. Instances holding different timestamps disagree per-request about which codes are stale.
-
-`WithPepperRotatedAt` governs OTP/code expiry only. Password peppering is independent, so rotating `WithSecret` does not invalidate password hashes. See [Security → OTP pepper rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp).
+`SecretRotatedAt` governs short-lived code expiry classification only. Password peppering is independent and uses versions and keys under `WithPasswordHashing`; it has no rotation timestamp. Rotating `WithSecret` does not invalidate password hashes. See [secret rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp).
 
 **Expected errors**
 
@@ -217,20 +212,23 @@ The JSON bootstrap works unchanged for proxied apps and sibling subdomains. Diff
 
 ## `WithSecurity`: Optional
 
-Password policy, optional email changes, email-link transport policy, and the OTP pepper rotation timestamp remain separate from browser transport.
+Password policy, optional email changes, email-link transport policy, and application-secret rotation metadata remain separate from browser transport.
 
 ```go
 goauth.WithSecurity(goauth.SecurityConfig{
-    PasswordPolicy: domain.PasswordPolicy{
-        MinLength:        12,
-        MaxLength:        128,
-        RequireLetter:    true,
-        RequireUppercase: true,
-        RequireDigit:     true,
-        RequireSpecial:   false,
+    PasswordPolicy: domain.PasswordPolicy{ // optional; all-zero policy selects defaults
+        MinLength:        12,    // optional, default 8
+        MaxLength:        128,   // optional, default 128
+        RequireLetter:    true,  // optional; default true for an all-zero policy
+        RequireUppercase: true,  // optional; default false for an all-zero policy
+        RequireDigit:     true,  // optional; default true for an all-zero policy
+        RequireSpecial:   false, // optional; default false for an all-zero policy
     },
-    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(),
-    PepperRotatedAt: time.Time{}, // use WithPepperRotatedAt for a secret rotation
+    AllowEmailChange: false, // optional, default false; enabling requires a mailer
+    AllowHTTPURLs: goauth.RequireHTTPSEmailLinks(), // optional, default nil: derive from environment
+    SecretRotatedAt: time.Time{}, // optional, default zero: no rotation timestamp recorded
+    // On a WithSecret rotation, set SecretRotatedAt to when the new secret became active (UTC).
+    // This metadata does not rotate a key and is unrelated to password-pepper versions.
 })
 ```
 
@@ -238,7 +236,7 @@ An entirely zero password policy selects 8..128 Unicode code points with a lette
 
 The selected hasher may impose an additional byte bound. Unpeppered bcrypt accepts at most 72 input bytes and reports excess as `weak_password`; Argon2id has no bcrypt-derived bound. With password peppering, that algorithm bound applies to the derived 44-byte representation, not the raw password. A minimum that cannot fit a known unpeppered hasher limit fails startup. Custom hashers can declare their bound with `port.PasswordInputLimiter`; the construction probe stays within that bound. Typed-nil hashers and negative bounds are rejected. These checks govern new password writes, not verification of existing credentials.
 
-`AllowHTTPURLs` defaults to true in development and false elsewhere and governs rendered email links only. `PepperRotatedAt` defaults to zero; see [secret rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp).
+`AllowHTTPURLs` defaults to true in development and false elsewhere and governs rendered email links only. `SecretRotatedAt` defaults to zero; see [secret rotation](./security.mdx#secret-rotation-and-the-otp-pepper-timestamp). Each `WithSecurity` call replaces this whole group: include the timestamp alongside your other security settings in one call.
 
 ### Email changes
 
@@ -420,7 +418,7 @@ Rotate without downtime in phases:
 
 Preloading is supported even before first opt-in: use `CurrentVersion: 0` with future keys. During a rolling deployment an older node can verify a row written with a preloaded newer version. Login rehash skips that row, while password change and reset continue hashing at the stored higher version. If the higher key was not preloaded, change/reset fail closed rather than writing the older current version. All three replacement paths use the same hash-and-version compare-and-swap, and the database independently rejects a lower new version. A lost race returns `password_update_conflict` for change/reset. Reset atomically claims its still-valid token, replaces the password, and deletes all sessions in one database transaction; change-password atomically combines its password replacement with its configured session revocation. Derivation is deterministic, so there is no password rotation-timestamp field; all instances only need the same version-to-secret mapping.
 
-Never replace a secret in place under the same version. Add a new version instead. Losing a still-referenced key makes those accounts unverifiable; a compromised pepper may also require forced password resets because an attacker who obtained both the database and old pepper can continue offline guessing even while lazy upgrades proceed. `SecurityConfig.PepperRotatedAt` records application-secret rotation time for short-lived codes; it cannot recover password key material.
+Never replace a secret in place under the same version. Add a new version instead. Losing a still-referenced key makes those accounts unverifiable; a compromised pepper may also require forced password resets because an attacker who obtained both the database and old pepper can continue offline guessing even while lazy upgrades proceed. `SecurityConfig.SecretRotatedAt` records application-secret rotation time for short-lived codes; it cannot recover password key material.
 
 **Expected errors**
 

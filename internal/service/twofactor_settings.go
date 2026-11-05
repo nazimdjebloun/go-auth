@@ -83,7 +83,7 @@ func (s *TwoFactorService) RequestSettingsChallenge(ctx context.Context, input a
 			return err
 		}
 		contextHash := hashToken(session.ID)
-		if token != nil && token.UsedAt == nil && token.Email == user.Email && token.ContextHash == contextHash && token.ExpiresAt.After(s.now().UTC()) && !stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+		if token != nil && token.UsedAt == nil && token.Email == user.Email && token.ContextHash == contextHash && token.ExpiresAt.After(s.now().UTC()) && !stalePepper(token.CreatedAt, s.config.SecretRotatedAt) {
 			return nil
 		}
 		if s.mailer == nil {
@@ -143,7 +143,7 @@ func (s *TwoFactorService) authorizeSettingChange(ctx context.Context, userID, p
 	if err != nil {
 		return nil, err
 	}
-	if token == nil || token.Type != kind || token.UserID == nil || *token.UserID != userID || token.ContextHash != hashToken(session.ID) || token.Email != user.Email || token.UsedAt != nil || !token.ExpiresAt.After(s.now().UTC()) || stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+	if token == nil || token.Type != kind || token.UserID == nil || *token.UserID != userID || token.ContextHash != hashToken(session.ID) || token.Email != user.Email || token.UsedAt != nil || !token.ExpiresAt.After(s.now().UTC()) || stalePepper(token.CreatedAt, s.config.SecretRotatedAt) {
 		return nil, domain.ErrTwoFactorCodeInvalid
 	}
 	if !verifyOTP(code, token.TokenHash, s.config.OTPPepper) {

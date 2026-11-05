@@ -217,7 +217,7 @@ func (s *EmailService) pending(ctx context.Context, actor api.EmailChangeActor, 
 	if v == nil || v.ID != requestID || v.Status != "pending" || v.SessionID != actor.SessionID || v.Scope != string(sessioncontext.Current(ctx)) || v.CurrentEmail != u.Email || v.IdentityHash != s.identity(u) {
 		return nil, domain.ErrEmailChangeInvalid
 	}
-	if !s.now().UTC().Before(v.ExpiresAt) || stalePepper(v.CreatedAt, s.config.PepperRotatedAt) {
+	if !s.now().UTC().Before(v.ExpiresAt) || stalePepper(v.CreatedAt, s.config.SecretRotatedAt) {
 		return nil, domain.ErrEmailChangeExpired
 	}
 	if v.Attempts >= emailChangeAttempts {

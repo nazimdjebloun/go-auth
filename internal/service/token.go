@@ -34,11 +34,11 @@ func hashOTP(code string, pepper []byte) string {
 // judge. Callers must return an expired-style error on true WITHOUT running
 // the HMAC comparison (the outcome is unknowable either way) and WITHOUT
 // touching any attempt/rate-limit counter (the user did nothing wrong).
-func stalePepper(issuedAt, pepperRotatedAt time.Time) bool {
-	if issuedAt.IsZero() || pepperRotatedAt.IsZero() {
+func stalePepper(issuedAt, secretRotatedAt time.Time) bool {
+	if issuedAt.IsZero() || secretRotatedAt.IsZero() {
 		return false
 	}
-	return issuedAt.Before(pepperRotatedAt)
+	return issuedAt.Before(secretRotatedAt)
 }
 
 // verifyOTP recomputes the HMAC of a supplied low-entropy code and compares

@@ -282,7 +282,7 @@ Rotating `WithSecret` invalidates every outstanding CSRF token and 2FA challenge
 
 Password peppering is optional defense in depth against a database-only disclosure; bcrypt or Argon2id remains mandatory underneath it. Enable it with `WithPasswordHashing(PasswordHashingConfig{Pepper: PasswordPepperConfig{...}})`, using at least 32 bytes of independently generated secret material per version, stored outside the password database and separately from `WithSecret`. Omitting `Pepper` leaves passwords unpeppered and skips the HMAC operation entirely. Selecting a current version whose key is missing or empty fails configuration at startup, so an unset environment variable cannot silently weaken a deployment that intended to opt in.
 
-All instances must receive the same version-to-secret mapping. Key derivation is pure and deterministic and introduces no boot time or other per-process state, so password peppering has no rotation-timestamp field. `SecurityConfig.PepperRotatedAt` instead records when the current application secret (`WithSecret`) became active. It classifies older short-lived codes and has no role in password verification.
+All instances must receive the same version-to-secret mapping. Key derivation is pure and deterministic and introduces no boot time or other per-process state, so password peppering has no rotation-timestamp field. `SecurityConfig.SecretRotatedAt` instead records when the current application secret (`WithSecret`) became active. It classifies older short-lived codes and has no role in password verification.
 
 New registration, invite registration, set-password, and admin-created users pass through the same password pipeline and persist its current version beside the hash. Password change and reset normally use that version too, but an older rolling-deploy node preserves the row's higher version when it has the preloaded key; if that key is unavailable, hashing fails closed instead of falling back to a lower version. Existing `NULL` rows verify unpeppered and then use the same guarded rehash path described under [Password hashing and hasher migration](#password-hashing-and-hasher-migration). Versioned rows select one exact historical key; verification never loops over the keyring.
 
@@ -300,7 +300,7 @@ authentication-state change that wins that race rejects the stale deletion as
 all membership, counter, session and user deletion writes and their audit event.
 
 
-`New()` validates distinct stored versions whenever a keyring is configured. The database ping and stored-version query share a 10-second startup deadline, so an unavailable database fails construction instead of leaving startup blocked indefinitely. Never replace key material under an existing version. Losing a referenced key locks out those rows; if a pepper is compromised, forced password resets may still be appropriate because rotating it cannot revoke an attacker's copy of the leaked database and old key. `SecurityConfig.PepperRotatedAt` cannot solve that: a timestamp can classify a short-lived OTP as stale but cannot recreate password-verification key material. See [OWASP's password pepper guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#peppering) before opting in.
+`New()` validates distinct stored versions whenever a keyring is configured. The database ping and stored-version query share a 10-second startup deadline, so an unavailable database fails construction instead of leaving startup blocked indefinitely. Never replace key material under an existing version. Losing a referenced key locks out those rows; if a pepper is compromised, forced password resets may still be appropriate because rotating it cannot revoke an attacker's copy of the leaked database and old key. `SecurityConfig.SecretRotatedAt` cannot solve that: a timestamp can classify a short-lived OTP as stale but cannot recreate password-verification key material. See [OWASP's password pepper guidance](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#peppering) before opting in.
 
 Set-password confirmation also requires the stored password hash to be NULL when writing. If a distinct live code or another credential write installed a password first, the losing confirmation rolls back its code claim and leaves that password unchanged.
 
@@ -313,15 +313,26 @@ including an existing caller transaction; outer rollback restores both rows.
 
 ## Secret rotation and the OTP pepper timestamp
 
-Codes issued before a rotation were hashed with an HMAC under a pepper that no longer exists, so they can never verify without special handling and would otherwise fail as `invalid_code`, indistinguishable from a typo. Pair every secret rotation with `WithPepperRotatedAt`, set to the moment the new secret went live:
+Rotating `WithSecret` changes its derived OTP pepper. Codes hashed under the old pepper can no longer verify. Record the UTC moment the new application secret became active in `SecurityConfig.SecretRotatedAt`. Include it in your existing `WithSecurity` call alongside your other settings; each call replaces the whole group. For example, these options use the default security policy and record a rotation:
 
 ```go
-goauth.NewConfig(
-    goauth.WithSecret(os.Getenv("AUTH_SECRET")),
-    goauth.WithPepperRotatedAt(time.Date(2026, 9, 11, 18, 0, 0, 0, time.UTC)),
-    // ...
-)
+goauth.WithSecret(os.Getenv("AUTH_SECRET")),
+goauth.WithSecurity(goauth.SecurityConfig{
+    PasswordPolicy: domain.PasswordPolicy{ // optional; all-zero selects defaults
+        MinLength:        8,     // optional, default 8
+        MaxLength:        128,   // optional, default 128
+        RequireLetter:    true,  // optional; default true for an all-zero policy
+        RequireUppercase: false, // optional; default false for an all-zero policy
+        RequireDigit:     true,  // optional; default true for an all-zero policy
+        RequireSpecial:   false, // optional; default false for an all-zero policy
+    },
+    AllowEmailChange: false, // optional, default false
+    AllowHTTPURLs: nil,      // optional, default nil: allow HTTP only in development
+    SecretRotatedAt: time.Date(2026, 9, 11, 18, 0, 0, 0, time.UTC), // optional, default zero
+}),
 ```
+
+`SecretRotatedAt` is metadata: setting it does not rotate any key. There is no separate OTP-pepper timestamp or password-pepper timestamp. Password pepper rotation uses `WithPasswordHashing`'s versioned `Pepper` keys independently of `WithSecret`.
 
 Pre-rotation 2FA codes return `two_factor_code_expired`; set-password and
 delete-account codes return their expiry errors. Those flows locate the stored

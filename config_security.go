@@ -14,7 +14,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
-// SecurityConfig groups password, email-change, email-link, and OTP rotation policy.
+// SecurityConfig groups password, email-change, email-link, and secret rotation policy.
 // Browser transport belongs to BrowserConfig; two-factor policy to TwoFactorConfig.
 type SecurityConfig struct {
 	PasswordPolicy domain.PasswordPolicy // zero value = 8..128 characters, RequireLetter and RequireDigit
@@ -32,23 +32,17 @@ type SecurityConfig struct {
 	// RequireHTTPSEmailLinks to enforce https:// even in development.
 	AllowHTTPURLs *bool
 
-	// PepperRotatedAt records when the current WithSecret value went live, as
-	// a wall-clock time in UTC. The library HMAC-peppers low-entropy codes
-	// (2FA, verification, set-password, delete-account) with a subkey derived
-	// from the secret; a code issued before this timestamp was hashed under a
-	// previous secret and can never verify, so it is answered expired-style
-	// ("resend, don't retry") instead of invalid.
+	// SecretRotatedAt records the UTC time the current WithSecret value became
+	// active. Set it in WithSecurity when rotating that secret, using the same
+	// value on every instance, never each instance's boot time.
 	//
-	// Set it — via WithPepperRotatedAt — exactly when you rotate the secret,
-	// to the moment the new secret went live, on every instance alike. It is
-	// deliberately operator-set rather than derived at boot: every instance
-	// behind a load balancer must agree on one value, and a boot-stamped
-	// timestamp would make rolling deploys disagree per-request about which
-	// codes are stale. Zero (the default, fixed epoch) disables the stale
-	// branch: codes are then verified purely by HMAC, and a rotated pepper
-	// surfaces as invalid_code rather than expired. Slight future skew is
-	// self-correcting — codes read stale only until the timestamp passes.
-	PepperRotatedAt time.Time
+	// It classifies older low-entropy codes as stale before HMAC comparison
+	// where the flow can locate the stored challenge. Email verification first
+	// looks up the submitted code's current-pepper hash, so an old-secret code
+	// still returns code_invalid. Zero (the default) disables timestamp-based
+	// expiry classification. This metadata does not rotate any key and is
+	// unrelated to versioned password peppering.
+	SecretRotatedAt time.Time
 }
 
 // PasswordPepperConfig configures optional, versioned password peppering.
@@ -93,9 +87,9 @@ type TwoFactorConfig struct {
 	DisableAdminTwoFactor bool
 }
 
-// WithSecurity groups password, email-change, and email-link settings. A zero-valued
+// WithSecurity groups password, email-change, email-link and secret-rotation settings. A zero-valued
 // PasswordPolicy keeps its default — see applyDefaults. Two-factor options are
-// separate: see WithTwoFactor.
+// separate: see WithTwoFactor. Each call replaces the whole security group.
 func WithSecurity(cfg SecurityConfig) Option {
 	return func(c *Config) {
 		c.security = cfg
@@ -117,24 +111,15 @@ func WithTwoFactor(cfg TwoFactorConfig) Option {
 // it with PasswordHashingConfig.Pepper. Do not commit secrets to source control; supply
 // them from the environment or a secrets manager.
 //
-// When rotating the secret, also set WithPepperRotatedAt to the moment the
-// new secret went live, or in-flight low-entropy codes fail as invalid_code
-// instead of expired.
+// When rotating the secret, also set SecurityConfig.SecretRotatedAt in
+// WithSecurity to the moment the new secret became active. See that field for
+// how the timestamp classifies in-flight low-entropy codes.
 func WithSecret(secret string) Option {
 	return func(c *Config) {
 		c.secret = secret
 	}
 }
 
-// WithPepperRotatedAt records when the current WithSecret value went live
-// (UTC) — set it exactly when you rotate the secret, to the same value on
-// every instance. See SecurityConfig.PepperRotatedAt. Surgical on purpose:
-// rotation must not require restating the rest of SecurityConfig.
-func WithPepperRotatedAt(t time.Time) Option {
-	return func(c *Config) {
-		c.security.PepperRotatedAt = t
-	}
-}
 func (c *Config) validateSecurity() []error {
 	var errs []error
 	if err := c.security.PasswordPolicy.ValidateConfig(); err != nil {

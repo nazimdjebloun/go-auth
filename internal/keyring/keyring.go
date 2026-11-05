@@ -23,7 +23,7 @@ type Keys struct {
 // Derive is pure: the same secret always yields the same keys, on every
 // instance and every boot. It deliberately stamps no timestamps — a
 // wall-clock-at-boot rotation marker here would disagree across instances
-// during a rolling deploy (see SecurityConfig.PepperRotatedAt, which is
+// during a rolling deploy (see SecurityConfig.SecretRotatedAt, which is
 // operator-set precisely so every instance shares one value).
 func Derive(secret []byte) Keys {
 	return Keys{

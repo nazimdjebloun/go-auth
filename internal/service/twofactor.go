@@ -203,7 +203,7 @@ func (s *TwoFactorService) challenge(ctx context.Context, userID string, expecte
 			s.now().UTC().Before(existing.ExpiresAt) &&
 			existing.Attempts < maxAttemptsPerChallenge &&
 			existing.ResendCount < maxCodeRefreshesPerChallenge &&
-			!stalePepper(existing.CreatedAt, s.config.PepperRotatedAt) {
+			!stalePepper(existing.CreatedAt, s.config.SecretRotatedAt) {
 			result = &api.ChallengeResult{
 				ID: existing.ID, Sent: false, ExpiresAt: existing.ExpiresAt,
 				BindingToken: s.bindingToken(existing.ID),
@@ -370,7 +370,7 @@ func (s *TwoFactorService) Verify(ctx context.Context, input api.TwoFactorVerify
 	// the old pepper is gone, so running the HMAC couldn't distinguish right
 	// from wrong anyway. Answer expired (resend, don't retry) without burning
 	// attempt budget or recording a failure: the user did nothing wrong.
-	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+	if stalePepper(token.CreatedAt, s.config.SecretRotatedAt) {
 		return nil, domain.ErrTwoFactorCodeExpired
 	}
 	if !verifyOTP(input.Code, strings.TrimPrefix(token.TokenHash, "ga-admin."), s.config.OTPPepper) {

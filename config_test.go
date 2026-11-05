@@ -900,34 +900,34 @@ func TestNew_RejectsPasswordPepperMutatedAfterValidation(t *testing.T) {
 	}
 }
 
-func TestWithPepperRotatedAt_SetsTimestamp(t *testing.T) {
+func TestSecuritySecretRotatedAt_SetsTimestamp(t *testing.T) {
 	var cfg Config
 	rotatedAt := time.Date(2026, 9, 11, 18, 0, 0, 0, time.UTC)
-	WithPepperRotatedAt(rotatedAt)(&cfg)
-	if !cfg.security.PepperRotatedAt.Equal(rotatedAt) {
-		t.Fatalf("expected PepperRotatedAt %v, got %v", rotatedAt, cfg.security.PepperRotatedAt)
+	WithSecurity(SecurityConfig{SecretRotatedAt: rotatedAt})(&cfg)
+	if !cfg.security.SecretRotatedAt.Equal(rotatedAt) {
+		t.Fatalf("expected SecretRotatedAt %v, got %v", rotatedAt, cfg.security.SecretRotatedAt)
 	}
 }
 
-func TestWithPepperRotatedAt_DefaultIsZero(t *testing.T) {
+func TestSecuritySecretRotatedAt_DefaultIsZero(t *testing.T) {
 	// Never configured: the fixed-epoch zero default keeps the stale-pepper
 	// branch dormant rather than stamping boot time (which would disagree
 	// across instances behind a load balancer).
 	var cfg Config
-	if !cfg.security.PepperRotatedAt.IsZero() {
-		t.Fatalf("expected zero PepperRotatedAt by default, got %v", cfg.security.PepperRotatedAt)
+	if !cfg.security.SecretRotatedAt.IsZero() {
+		t.Fatalf("expected zero SecretRotatedAt by default, got %v", cfg.security.SecretRotatedAt)
 	}
 }
 
-func TestWithPepperRotatedAt_SurvivesClone(t *testing.T) {
+func TestSecuritySecretRotatedAt_SurvivesClone(t *testing.T) {
 	// Rotation metadata must reach New() identically for every Auth built
 	// from one Config — clone() must not drop it.
 	cfg := validTestConfig()
 	rotatedAt := time.Date(2026, 9, 11, 18, 0, 0, 0, time.UTC)
-	WithPepperRotatedAt(rotatedAt)(&cfg)
+	WithSecurity(SecurityConfig{SecretRotatedAt: rotatedAt})(&cfg)
 	cloned := cfg.clone()
-	if !cloned.security.PepperRotatedAt.Equal(rotatedAt) {
-		t.Fatalf("expected cloned PepperRotatedAt %v, got %v", rotatedAt, cloned.security.PepperRotatedAt)
+	if !cloned.security.SecretRotatedAt.Equal(rotatedAt) {
+		t.Fatalf("expected cloned SecretRotatedAt %v, got %v", rotatedAt, cloned.security.SecretRotatedAt)
 	}
 }
 

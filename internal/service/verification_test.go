@@ -543,7 +543,7 @@ func TestVerifyEmail_StalePepperReturnsExpired(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	cfg.PepperRotatedAt = time.Now().UTC()
+	cfg.SecretRotatedAt = time.Now().UTC()
 	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "stale@example.com")
@@ -578,7 +578,7 @@ func TestSendVerification_ReplacesStaleLiveCode(t *testing.T) {
 	gen := &testutil.MockTokenGen{Length: 32}
 	mailer := &testutil.MockMailer{}
 	cfg := newVerificationConfig()
-	cfg.PepperRotatedAt = time.Now().UTC()
+	cfg.SecretRotatedAt = time.Now().UTC()
 	svc := service.NewVerificationService(users, tokens, gen, mailer, &testutil.MockTxManager{}, cfg)
 
 	user := createUnverifiedUser(users, "stale-reuse@example.com")

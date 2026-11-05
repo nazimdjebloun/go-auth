@@ -94,7 +94,7 @@ func (s *VerificationService) VerifyEmail(ctx context.Context, code string) (*do
 	// from wrong anyway. Answer expired (resend, don't retry) without running
 	// it. code_expired vs code_invalid is the client's resend-vs-retype
 	// branch, so the two must stay distinct here.
-	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+	if stalePepper(token.CreatedAt, s.config.SecretRotatedAt) {
 		return nil, domain.ErrVerificationCodeExpired
 	}
 
@@ -203,7 +203,7 @@ func (s *VerificationService) sendVerification(ctx context.Context, user *domain
 				// VerifyEmail can only answer expired to. Clear it and fall
 				// through to the mint below instead of stacking a second
 				// row or throttling against a deleted one.
-				if stalePepper(last.CreatedAt, s.config.PepperRotatedAt) {
+				if stalePepper(last.CreatedAt, s.config.SecretRotatedAt) {
 					if derr := s.tokens.DeleteUnusedByUserAndType(ctx, user.ID, domain.TokenVerifyEmail); derr != nil {
 						s.log.Error("failed to clear rotation-stale verification token", "err", derr, "user_id", user.ID)
 						return nil, domain.ErrInternal

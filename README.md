@@ -145,6 +145,10 @@ the public API origin in `WithBrowser`. See [deployment](docs/guides/deployment.
   `503 password_work_busy`. See [password work limits](docs/configuration.mdx#password-work-limits).
 - Password changes invalidate outstanding reset links. Reset completion also
   invalidates any other outstanding reset links for that account.
+- Record application-secret rotations with `WithSecurity`'s optional
+  `SecretRotatedAt` timestamp (renamed from `PepperRotatedAt`;
+  `WithPepperRotatedAt` was removed). Password-pepper rotation uses independent
+  versioned keys. See [secret rotation](docs/security.mdx#secret-rotation-and-the-otp-pepper-timestamp).
 - Password-confirmed account deletion rechecks the verified credential inside
   its transaction before removing account data.
 - Password setup rechecks the exact code's purpose, ownership, hash, expiry and

@@ -1035,7 +1035,7 @@ func TestConfirmSetPassword_StalePepperReturnsExpired(t *testing.T) {
 	sessions := testutil.NewMockSessionRepo()
 	cfg := defaultTestConfig()
 	cfg.PasswordPolicy = domain.PasswordPolicy{MinLength: 8, RequireDigit: true, RequireUppercase: true}
-	cfg.PepperRotatedAt = time.Now().UTC()
+	cfg.SecretRotatedAt = time.Now().UTC()
 	svc := NewPasswordService(users, tokens, hasher, gen, mailer, sessions, &testutil.MockTxManager{}, cfg)
 	checkTestErrors(t).noError(users.Create(context.Background(), &domain.User{
 		ID:        "oauth-user",

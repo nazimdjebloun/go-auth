@@ -156,7 +156,7 @@ func TestEmailChangeRejectsInvalidProofAndIdentity(t *testing.T) {
 			case "expired":
 				f.clock = r.ExpiresAt
 			case "pepper rotation":
-				f.svc.config.PepperRotatedAt = f.clock.Add(time.Second)
+				f.svc.config.SecretRotatedAt = f.clock.Add(time.Second)
 			case "password replaced":
 				query = "UPDATE users SET password_hash=$1 WHERE id=$2"
 				args = []any{"changed-hash", f.userID}

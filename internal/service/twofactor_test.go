@@ -46,12 +46,12 @@ func newTwoFactorSvcWithRotation(
 	users *testutil.MockUserRepo,
 	tokens *testutil.MockTokenRepo,
 	mailer *testutil.MockMailer,
-	pepperRotatedAt time.Time,
+	secretRotatedAt time.Time,
 ) *service.TwoFactorService {
 	cfg := newTwoFactorConfig()
 	cfg.DisableTwoFactorChallengeBinding = true
 	cfg.OTPPepper = []byte("test-otp-pepper-32-bytes-long!!!")
-	cfg.PepperRotatedAt = pepperRotatedAt
+	cfg.SecretRotatedAt = secretRotatedAt
 	sessions := testutil.NewMockSessionRepo()
 	sessSvc := service.NewSessionService(&testutil.MockTxManager{}, sessions, &testutil.MockTokenGen{Length: 32}, service.DefaultSessionConfig())
 	return service.NewTwoFactorService(&testutil.MockTxManager{},

@@ -120,7 +120,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		TwoFactorCodeTTL:                 cfg.twoFactor.CodeTTL,
 		TwoFactorBindingKey:              keys.TwoFactor,
 		OTPPepper:                        keys.OTPPepper,
-		PepperRotatedAt:                  cfg.security.PepperRotatedAt,
+		SecretRotatedAt:                  cfg.security.SecretRotatedAt,
 		DisableTwoFactorChallengeBinding: false,
 		TwoFactorChallengeCookieName:     cfg.browser.Cookies.ChallengeName,
 		DisableAdminTwoFactor:            cfg.twoFactor.DisableAdminTwoFactor,

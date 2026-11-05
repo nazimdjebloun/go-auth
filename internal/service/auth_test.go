@@ -760,7 +760,7 @@ func TestConfirmDeleteAccount_StalePepperReturnsExpired(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	mailer := &testutil.MockMailer{}
 	cfg := defaultTestConfig()
-	cfg.PepperRotatedAt = time.Now().UTC()
+	cfg.SecretRotatedAt = time.Now().UTC()
 
 	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, nil)
 
@@ -803,7 +803,7 @@ func TestRequestDeleteAccount_ReplacesStaleLiveCode(t *testing.T) {
 	sessSvc := newTestSessionService(sessions, gen)
 	mailer := &testutil.MockMailer{}
 	cfg := defaultTestConfig()
-	cfg.PepperRotatedAt = time.Now().UTC()
+	cfg.SecretRotatedAt = time.Now().UTC()
 
 	svc := NewAuthService(&testutil.MockTxManager{}, users, sessions, tokens, hasher, gen, mailer, cfg, sessSvc, nil, nil)
 	svc.AttachAccountDeletion(NewAccountDeletion(&testutil.MockTxManager{}, nil, sessions, users))

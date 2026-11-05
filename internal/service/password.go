@@ -491,7 +491,7 @@ func (s *PasswordService) ConfirmSetPassword(ctx context.Context, input api.Conf
 	// A rotation-stale code predates the live pepper and can never verify.
 	// Answer expired (request a new code, don't retry) without running the
 	// HMAC — the old pepper is gone, so the outcome is unknowable either way.
-	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+	if stalePepper(token.CreatedAt, s.config.SecretRotatedAt) {
 		return domain.ErrResetTokenExpired
 	}
 

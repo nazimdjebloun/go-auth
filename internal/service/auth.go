@@ -107,16 +107,16 @@ type Config struct {
 	// (session, reset, invite, OAuth state) do not use it; see token.go.
 	OTPPepper []byte
 
-	// PepperRotatedAt is when the current OTPPepper became live, operator-set
-	// via WithPepperRotatedAt to the same UTC value on every instance (see
-	// SecurityConfig.PepperRotatedAt). A stored code issued before it was
+	// SecretRotatedAt is when the current application secret became live,
+	// operator-set via WithSecurity to the same UTC value on every instance (see
+	// SecurityConfig.SecretRotatedAt). A stored code issued before it was
 	// hashed under a gone pepper and can never verify, so verifiers answer
 	// expired-style (resend, don't retry) without running the HMAC or burning
 	// attempt budget — see stalePepper. Zero (never configured) disables the
 	// stale branch: verification is purely by HMAC. It must be operator-set
 	// rather than boot-stamped so instances behind a load balancer agree —
 	// per-process timestamps would disagree during rolling deploys.
-	PepperRotatedAt time.Time
+	SecretRotatedAt time.Time
 }
 
 // AuditPublisher records audit events.
@@ -797,7 +797,7 @@ func (s *AuthService) RequestDeleteAccount(ctx context.Context, userID string) e
 		}
 		if last == nil || last.UsedAt != nil ||
 			time.Now().UTC().After(last.ExpiresAt) ||
-			!stalePepper(last.CreatedAt, s.config.PepperRotatedAt) {
+			!stalePepper(last.CreatedAt, s.config.SecretRotatedAt) {
 			return nil
 		}
 		if derr := s.tokens.DeleteUnusedByUserAndType(ctx, userID, domain.TokenDeleteAccount); derr != nil {
@@ -898,7 +898,7 @@ func (s *AuthService) ConfirmDeleteAccount(ctx context.Context, input api.Confir
 	// A rotation-stale code predates the live pepper and can never verify.
 	// Answer expired (request a new code, don't retry) without running the
 	// HMAC — the old pepper is gone, so the outcome is unknowable either way.
-	if stalePepper(token.CreatedAt, s.config.PepperRotatedAt) {
+	if stalePepper(token.CreatedAt, s.config.SecretRotatedAt) {
 		return domain.ErrDeleteCodeExpired
 	}
 
