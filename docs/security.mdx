@@ -105,6 +105,10 @@ Ordinary logout only revokes and clears the selected current session. Session li
 
 ## OAuth
 
+Callbacks parse GET queries and bounded URL-encoded POST forms explicitly. POST
+bodies are limited to 64 KiB; multipart and other representations are rejected
+before state consumption. Callback parsing never creates multipart temporary files.
+
 Unlinking a provider deletes all of that user's identities under the selected provider name. The last-method guard counts only a password or identities under other provider names, so multiple identities under one provider cannot bypass it.
 
 Google and GitHub reject non-success profile HTTP responses and missing subject IDs. The shared callback also rejects nil profiles, blank subject IDs, and provider names that do not match the requested provider before any identity lookup or linking. A new OAuth account requires a valid email address. A previously linked identity can still authenticate when its current profile omits email. Invalid profiles return the generic `provider_error`.

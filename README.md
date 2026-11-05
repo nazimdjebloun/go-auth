@@ -135,6 +135,8 @@ the public API origin in `WithBrowser`. See [deployment](docs/guides/deployment.
   from the methods allowed for login.
 - Browser routes require signed double-submit CSRF protection and origin checks.
   Clients obtain a token from `GET /auth/csrf-token` and send it on mutations.
+- OAuth callbacks accept GET queries or URL-encoded POST bodies up to 64 KiB;
+  multipart uploads are rejected before consuming state.
 - HTTPS and secure cookies are required outside development. HTTP is supported
   in `EnvironmentDev`; use a real mailer for deployed applications.
 - Password hashing defaults to bcrypt at cost 12. Argon2id and versioned password

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"net/url"
 	"time"
@@ -122,6 +123,23 @@ func (h *OAuthHandlers) setOAuthStateCookie(w http.ResponseWriter, state string,
 	http.SetCookie(w, h.oauthStateCookie(state, maxAge))
 }
 
+// Parse only OAuth's supported representations. FormValue implicitly accepts
+// multipart uploads whose temporary files belong to a copied middleware request.
+func parseOAuthCallback(w http.ResponseWriter, r *http.Request) (url.Values, error) {
+	if r.Method != http.MethodPost {
+		return url.ParseQuery(r.URL.RawQuery)
+	}
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/x-www-form-urlencoded" {
+		return nil, errors.New("unsupported oauth callback content type")
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
+	if err := r.ParseForm(); err != nil {
+		return nil, err
+	}
+	return r.Form, nil
+}
+
 // Callback completes an OAuth login or provider link.
 // GET /auth/oauth/{provider}/callback, POST /auth/oauth/{provider}/callback
 func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
@@ -130,11 +148,12 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	provider := r.PathValue("provider")
-	code := r.FormValue("code")
-	state := r.FormValue("state")
+	form, parseErr := parseOAuthCallback(w, r)
+	code := form.Get("code")
+	state := form.Get("state")
 	r = r.WithContext(sessioncontext.With(r.Context(), sessioncontext.Of(state)))
 
-	if code == "" || state == "" {
+	if parseErr != nil || code == "" || state == "" {
 		redirectURL := h.baseURL + "/auth/callback?error=invalid_request&provider=" + url.QueryEscape(provider)
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return

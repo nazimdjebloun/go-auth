@@ -32,7 +32,7 @@ Starts a login. Returns the provider authorization URL as JSON and sets a short-
 
 GET /auth/oauth/\{provider\}/callback, POST /auth/oauth/\{provider\}/callback
 
-Provider redirect target (redirect URI ends here). Reads `code` and `state` from the form values, so both methods work. The callback requires the matching browser state cookie and clears it. A provider-link callback also requires the same live session that started the link. No JSON responses: every outcome is a redirect or an HTML page. `Auth:` Public, with the extra session requirement for links.
+Provider redirect target (redirect URI ends here). GET reads `code` and `state` from the query without parsing a body. POST accepts `application/x-www-form-urlencoded` with a maximum 64 KiB body; body values take precedence over query values. Multipart uploads, other content types, malformed forms and oversized bodies redirect with `invalid_request` before consuming state. The callback requires the matching browser state cookie and clears it. A provider-link callback also requires the same live session that started the link. No JSON responses: every outcome is a redirect or an HTML page. `Auth:` Public, with the extra session requirement for links.
 
 The state cookie uses `SameSite=None; Secure` when secure cookies are enabled so cross-site form POST callbacks can return it. When secure cookies are disabled for local HTTP development, it uses `SameSite=Lax`, which supports top-level GET callbacks; use HTTPS to test a cross-site POST callback.
 
