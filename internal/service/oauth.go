@@ -256,6 +256,7 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 	if time.Now().UTC().After(stateToken.ExpiresAt) {
 		return nil, domain.NewError("state_expired", "OAuth state token has expired")
 	}
+	var linkSessionID string
 	if stateToken.UserID != nil {
 		if input.SessionToken == "" || stateToken.Email == "" || subtle.ConstantTimeCompare([]byte(hashToken(input.SessionToken)), []byte(stateToken.Email)) != 1 {
 			return nil, domain.NewError("unauthorized", "Authentication required")
@@ -273,6 +274,7 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 		if s.config.RequireEmailVerification && !user.IsVerified {
 			return nil, domain.ErrEmailNotVerified
 		}
+		linkSessionID = session.ID
 	}
 
 	claimed, markErr := s.tokenRepo.MarkUsedIfUnused(ctx, stateToken.ID)
@@ -337,15 +339,14 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 			return nil, domain.ErrProviderAccountExists
 		}
 
-		_, linkErr := s.createProviderAccount(ctx, *userID, info)
+		linkErr := s.finalizeLink(ctx, input, stateToken, linkSessionID, info)
 		if linkErr != nil {
 			return nil, linkErr
 		}
 		s.log.Info("provider linked", "user_id", *userID, "provider", input.Provider)
 		if s.audit != nil {
-			// attachOAuthLink is a non-transactional helper: the record
-			// autocommits. Fail-closed degrades to fail-open here (nothing
-			// to roll back), so this cannot fail the link.
+			// The link has already committed. This audit call autocommits,
+			// so fail-closed degrades to fail-open here (nothing to roll back).
 			if err := s.audit.Record(ctx, audit.NewOAuthEvent(audit.EventOAuthLinked, *userID, input.Provider, net.ParseIP(input.IP), input.UserAgent)); err != nil {
 				s.log.Error("oauth link audit record failed", "err", err, "user_id", *userID)
 			}

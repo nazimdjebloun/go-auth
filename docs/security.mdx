@@ -117,6 +117,14 @@ OAuth uses **PKCE** (S256) on every provider, including ones that do not strictl
 
 An OAuth-provided email is only treated as verified when the provider guarantees it. For GitHub, a non-empty public profile email specifically, since GitHub only allows verified addresses to be set as public. Linking a new provider to an existing account requires that account to already be authenticated (`unauthorized` otherwise), and unlinking is blocked (`cannot_unlink_last_provider`) if it would leave the account with no way to log in at all, with no password and no remaining linked provider.
 
+Provider-link finalization rechecks the current user, exact initiating session
+token and already-claimed state's bindings and expiry after provider exchange.
+The user and session stay locked through the provider-account insert in one
+transaction. A reset, email replacement or session revocation that commits first
+therefore prevents an in-flight callback from adding a new authentication method.
+The provider request itself does not hold database locks. The link audit event
+retains its existing post-commit, non-transactional delivery behavior.
+
 **The OAuth callback is the one HTML response in an otherwise all-JSON API.** It sets cookies via `Set-Cookie` (unreliable on cross-origin 302 redirects in some browsers) and then redirects client-side via a small inline script. This HTML response sets `X-Content-Type-Options: nosniff` and `Content-Security-Policy`. Built-in JSON responses set their content type, error writers also set `nosniff`, and the CSRF-token endpoint sets `Cache-Control: no-store`; the host application supplies any additional headers.
 
 ## Two-factor authentication

@@ -68,6 +68,9 @@ type SessionFilter struct {
 
 // SessionReader covers session lookups and listing — no mutation.
 type SessionReader interface {
+	// LockByID holds a session until the caller's transaction ends. The caller
+	// must lock its owning user first, preserving credential mutation order.
+	LockByID(ctx context.Context, id string) (*domain.Session, error)
 	GetByTokenHash(ctx context.Context, tokenHash string) (*domain.Session, error)
 	// GetByTokenHashWithUser returns a session together with its owning user
 	// in a single query. AuthMiddleware runs on every authenticated request

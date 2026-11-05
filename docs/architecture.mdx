@@ -93,6 +93,11 @@ below describes the default mode; opt-in custom roles use explicit operation gra
 
 ## Package map
 
+OAuth link finalization uses `port.SessionReader.LockByID` inside a transaction,
+after acquiring the owning user lock. The SQL row lock stays held through the
+provider insert; session-repository test doubles must implement this capability.
+Provider exchange runs before the finalization transaction.
+
 `port.UserRepository.SetPasswordAndVerify` accepts
 `port.SetPasswordAndVerifyInput`, carrying the user, new hash/pepper version,
 token ID/hash and proved email. SQL implementations lock the user and token, sample the

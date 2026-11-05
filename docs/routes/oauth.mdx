@@ -58,6 +58,12 @@ POST /auth/oauth/\{provider\}/link
 
 Starts linking a provider to the logged-in account. Returns the authorization URL as JSON and sets the browser state cookie. The callback must carry this cookie and the same live session. `Auth:` Session.
 
+After provider exchange, finalization locks the user and initiating session and
+rechecks the exact session token, account eligibility and claimed state's current
+existence, bindings and expiry in the transaction that saves the link. A reset,
+email replacement, revocation or token rotation that wins before finalization
+prevents the link. The provider request runs outside those database locks.
+
 **Path params:**
 
 | Param | Type | Required | Notes |
