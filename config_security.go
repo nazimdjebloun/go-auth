@@ -93,47 +93,6 @@ type TwoFactorConfig struct {
 	DisableAdminTwoFactor bool
 }
 
-// WithPasswordHasher selects the implementation used for new password hashes.
-// The library dispatches verification by the stored hash's format prefix and
-// retains built-in bcrypt and Argon2id verifiers. A custom implementation must
-// produce a self-identifying hash and verify its own output; it does not need
-// to implement the built-in legacy algorithms. See rehash-on-login below.
-func WithPasswordHasher(h port.Hasher) Option {
-	return func(c *Config) {
-		c.passwordHasher = h
-	}
-}
-
-// WithPasswordPepper configures optional, versioned password peppering.
-// CurrentVersion selects the key used for new writes; zero keeps new writes
-// unpeppered. Keys may include future versions for a safe rolling rollout.
-// Every configured secret must contain at least 32 bytes of independently
-// managed key material. The map is copied when the option is applied.
-func WithPasswordPepper(cfg PasswordPepperConfig) Option {
-	return func(c *Config) {
-		c.passwordPepper = cfg
-		if cfg.Keys != nil {
-			c.passwordPepper.Keys = make(map[uint32]string, len(cfg.Keys))
-			for version, secret := range cfg.Keys {
-				c.passwordPepper.Keys[version] = secret
-			}
-		}
-	}
-}
-
-// WithBcryptCost is the narrow sugar for "stay on bcrypt, just change the
-// cost" — no WithPasswordHasher(hasher.New(14)) call needed for a one-int
-// tweak. Existing rows hashed at a different cost keep verifying (Compare
-// reads the cost from each stored hash, not from the hasher), and a
-// successful login against them re-hashes the password at the new cost —
-// see rehash-on-login. WithPasswordHasher, being the more specific option,
-// takes precedence over this one regardless of call order.
-func WithBcryptCost(cost int) Option {
-	return func(c *Config) {
-		c.bcryptCost = cost
-	}
-}
-
 // WithSecurity groups password, email-change, and email-link settings. A zero-valued
 // PasswordPolicy keeps its default — see applyDefaults. Two-factor options are
 // separate: see WithTwoFactor.
@@ -155,7 +114,7 @@ func WithTwoFactor(cfg TwoFactorConfig) Option {
 // WithSecret sets the app-wide root secret from which CSRF, OAuth, two-factor,
 // and OTP keys are derived. It is required and must be at least 32 bytes for
 // HMAC-SHA256. The optional password pepper is deliberately separate; enable
-// it with WithPasswordPepper. Do not commit secrets to source control; supply
+// it with PasswordHashingConfig.Pepper. Do not commit secrets to source control; supply
 // them from the environment or a secrets manager.
 //
 // When rotating the secret, also set WithPepperRotatedAt to the moment the
@@ -236,8 +195,13 @@ func (c *Config) validateTwoFactor() []error {
 // behavior.
 func (c *Config) validatePasswordHasher() []error {
 	var errs []error
-	// WithPasswordHasher is more specific and makes WithBcryptCost inert,
-	// regardless of option order.
+	if c.passwordConcurrency < 0 {
+		errs = append(errs, errors.New("password_concurrency must be nonnegative"))
+	}
+	if c.passwordWorkLimiter != nil && c.passwordWorkLimiter.Limit() == 0 {
+		errs = append(errs, errors.New("password_work_limiter must be constructed with hasher.NewWorkLimiter"))
+	}
+	// A custom Hasher makes PasswordHashingConfig.BcryptCost inert.
 	if c.passwordHasher == nil && c.bcryptCost > bcrypt.MaxCost {
 		errs = append(errs, fmt.Errorf("bcrypt_cost %d exceeds bcrypt.MaxCost (%d)", c.bcryptCost, bcrypt.MaxCost))
 	}

@@ -27,7 +27,7 @@ func benchAuth(b *testing.B, auditEnabled ...bool) *Auth {
 		b.Fatal(err)
 	}
 	opts := []Option{
-		WithBcryptCost(4),
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}),
 		WithApp(AppConfig{
 			Name: "bench", BaseURL: "https://example.com",
 			Database: DatabaseConfig{Driver: DriverSQLite, DB: db},

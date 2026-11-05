@@ -104,9 +104,7 @@ Pass option functions to `NewConfig(opts ...Option)`. The table maps each option
 | `WithMailer` | A custom mailer implementation |
 | `WithEmail` | The built-in SMTP mailer |
 | `WithTemplates` | Custom email templates |
-| `WithPasswordHasher` | A self-identifying password hasher, including the built-in Argon2id implementation |
-| `WithBcryptCost` | Keep bcrypt and change its cost |
-| `WithPasswordPepper` | Configure opt-in, versioned password peppering and rotation keys |
+| `WithPasswordHashing` | Password algorithm (including Argon2id), bcrypt cost, optional versioned pepper keys, concurrency and shared work limiter |
 | `WithRateLimit` and its narrower variants | Per-route rate limiting |
 | `WithProvider` | Register an OAuth provider |
 | `WithLogger` | Structured logging |

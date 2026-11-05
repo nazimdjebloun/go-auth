@@ -331,7 +331,7 @@ func TestHasherRegistry_NilCurrentIsError(t *testing.T) {
 }
 
 func TestHasherRegistry_BcryptCostChangeTriggersRehash(t *testing.T) {
-	// WithBcryptCost's contract: same algorithm, different cost — the row
+	// BcryptCost's contract: same algorithm, different cost — the row
 	// upgrades on next login. Verified at the registry level: cost-12 row
 	// under a cost-14 current needs rehash; cost-14 row does not.
 	reg14, err := New(hasher.New(14), nil)

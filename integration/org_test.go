@@ -22,7 +22,7 @@ func openOrgAuth(t *testing.T, db *sql.DB, mailer port.Mailer) *goauth.Auth {
 	t.Helper()
 	migrateDB(t, db, testdb.Driver(db))
 	cfg, err := goauth.NewConfig(
-		goauth.WithBcryptCost(4),
+		goauth.WithPasswordHashing(goauth.PasswordHashingConfig{BcryptCost: 4}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",

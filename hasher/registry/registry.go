@@ -29,7 +29,7 @@ var ErrUnsupportedHashFormat = errUnsupportedHashFormat
 // prefix and delegates.
 //
 // This is what makes switching hashers non-breaking: hashes written under a
-// previous hasher stay verifiable after WithPasswordHasher changes current,
+// previous hasher stay verifiable after PasswordHashingConfig.Hasher changes current,
 // because the registry keeps an entry for every algorithm that may still be
 // in the database — built-in bcrypt and Argon2id, plus current itself. A prefix that
 // matches no entry fails closed with errUnsupportedHashFormat rather
@@ -37,7 +37,7 @@ var ErrUnsupportedHashFormat = errUnsupportedHashFormat
 // didn't produce would at best burn a KDF round and at worst — with a
 // consumer hasher lax about malformed input — verify against garbage.
 //
-// Build it through goauth.New (WithPasswordHasher / WithBcryptCost); the
+// Build it through goauth.New (WithPasswordHashing); the
 // constructor is exported for direct service wiring and tests.
 type Registry struct {
 	workLimiter *hasher.WorkLimiter
@@ -269,7 +269,7 @@ func newRegistry(current port.Hasher, legacyForVerify ...port.Hasher) (*Registry
 
 	// current is a different algorithm: register it under its own prefix,
 	// and require a bcrypt verifier for the rows go-auth wrote before any
-	// WithPasswordHasher call.
+	// PasswordHashingConfig.Hasher selection.
 	if _, hasBcrypt := r.forVerify["$2a$"]; !hasBcrypt {
 		return nil, fmt.Errorf(
 			"hasher registry: current hasher is not bcrypt and no bcrypt legacy hasher was provided — " +
@@ -370,7 +370,7 @@ func (r *Registry) BurnDummy(stored string) error {
 // call on every successful login. Same algorithm and (for bcrypt) same cost
 // report false, so the steady state costs nothing.
 //
-// The bcrypt cost check is what makes WithBcryptCost(14) upgrade a cost-12
+// The bcrypt cost check is what makes BcryptCost: 14 upgrade a cost-12
 // database row by row as its owners log in — no batch migration job, no
 // forced reset. Minor-version differences within the bcrypt family ("$2b$"
 // stored, current writes "$2a$") deliberately do not trigger a rehash: the
@@ -403,7 +403,7 @@ func (r *Registry) NeedsRehash(stored string) bool {
 		return true
 	}
 	// Same bcrypt family; upgrade only when the cost differs. That's what
-	// makes WithBcryptCost(14) lift a cost-12 database row by row as its
+	// makes BcryptCost: 14 lift a cost-12 database row by row as its
 	// owners log in — no batch migration, no forced reset. Minor-version
 	// differences within the family ("$2b$" stored, current writes "$2a$")
 	// deliberately don't trigger a rehash: the family verifies

@@ -98,7 +98,7 @@ func newTestAuth(db *sql.DB, mailer port.Mailer, auditOptions ...goauth.AuditCon
 		auditCfg = auditOptions[0]
 	}
 	cfg, err := goauth.NewConfig(
-		goauth.WithBcryptCost(4),
+		goauth.WithPasswordHashing(goauth.PasswordHashingConfig{BcryptCost: 4}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",
@@ -172,7 +172,7 @@ func newTestAuth2FA(db *sql.DB, mailer port.Mailer, twoFactor goauth.TwoFactorCo
 	}
 
 	cfg, err := goauth.NewConfig(
-		goauth.WithBcryptCost(4),
+		goauth.WithPasswordHashing(goauth.PasswordHashingConfig{BcryptCost: 4}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
 			BaseURL: "http://localhost:8080",
@@ -752,7 +752,7 @@ func TestCheckSession_ExpiredSession(t *testing.T) {
 	defer closeDB()
 	migrateDB(t, db, testdb.Driver(db))
 	cfg, err := goauth.NewConfig(
-		goauth.WithBcryptCost(4),
+		goauth.WithPasswordHashing(goauth.PasswordHashingConfig{BcryptCost: 4}),
 		goauth.WithRegistration(goauth.RegistrationConfig{EmailPassword: true, AllowPublic: true}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",
@@ -932,7 +932,7 @@ func TestGetSession_ExpiredToken(t *testing.T) {
 	defer closeDB()
 	migrateDB(t, db, testdb.Driver(db))
 	cfg, err := goauth.NewConfig(
-		goauth.WithBcryptCost(4),
+		goauth.WithPasswordHashing(goauth.PasswordHashingConfig{BcryptCost: 4}),
 		goauth.WithRegistration(goauth.RegistrationConfig{EmailPassword: true, AllowPublic: true}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",

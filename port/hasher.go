@@ -1,7 +1,7 @@
 package port
 
 // Hasher hashes and verifies passwords. The default implementation is bcrypt;
-// the optional hasher/argon2id package is also built in. WithPasswordHasher
+// the optional hasher/argon2id package is also built in. PasswordHashingConfig.Hasher
 // replaces the current implementation for new hashes while the service
 // registry keeps legacy bcrypt and Argon2id hashes verifiable by prefix.
 //

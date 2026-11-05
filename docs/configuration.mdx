@@ -151,40 +151,6 @@ goauth.WithPepperRotatedAt(rotationTime), // UTC moment the new secret went live
 - `secret: signing secret is required`: nothing was passed.
 - `secret: signing secret must be at least 32 bytes for HMAC-SHA256`: shorter than 32 bytes.
 
-## `WithPasswordPepper`: Optional
-
-Password peppering is off by default. Enable it with independently managed secret material:
-
-```go
-goauth.WithPasswordPepper(goauth.PasswordPepperConfig{
-    CurrentVersion: 1,
-    Keys: map[uint32]string{
-        1: os.Getenv("AUTH_PASSWORD_PEPPER_V1"),
-    },
-})
-```
-
-`CurrentVersion` selects the key used by every new password write. Version `0` is reserved for unpeppered rows: omitting this option leaves `CurrentVersion` at zero and skips HMAC entirely, so the selected KDF receives the password directly. Each non-zero key must be at least 32 bytes, identical on every application instance, and stored separately from the password database (preferably in a secrets manager). The option copies the map; later caller mutations do not change live configuration.
-
-For a versioned row, go-auth derives that version's HMAC key with HKDF purpose `goauth-password-pepper-v1`, computes `base64(HMAC-SHA256(derivedKey, password))`, and passes the result to bcrypt or Argon2id. The nullable `users.password_pepper_version` column selects exactly one key during verification; the library never tries every configured key. Existing `NULL` rows verify as ordinary unpeppered passwords and upgrade to `CurrentVersion` through guarded rehash-on-login.
-
-Rotate without downtime in phases:
-
-1. Deploy the old `CurrentVersion` everywhere with both the old and next keys in `Keys`.
-2. After every instance has the next key, deploy the next `CurrentVersion` while retaining both keys. Successful logins upgrade old rows lazily.
-3. Remove the old key only after no database row references its version. `New()` queries the distinct stored versions whenever a keyring is configured and refuses startup if any referenced version is missing. Its database ping and this query share a 10-second startup deadline.
-
-Preloading is supported even before first opt-in: use `CurrentVersion: 0` with future keys. During a rolling deployment an older node can verify a row written with a preloaded newer version. Login rehash skips that row, while password change and reset continue hashing at the stored higher version. If the higher key was not preloaded, change/reset fail closed rather than writing the older current version. All three replacement paths use the same hash-and-version compare-and-swap, and the database independently rejects a lower new version. A lost race returns `password_update_conflict` for change/reset. Reset atomically claims its still-valid token, replaces the password, and deletes all sessions in one database transaction; change-password atomically combines its password replacement with its configured session revocation. Derivation is deterministic, so there is no password rotation-timestamp field; all instances only need the same version-to-secret mapping.
-
-Never replace a secret in place under the same version. Add a new version instead. Losing a still-referenced key makes those accounts unverifiable; a compromised pepper may also require forced password resets because an attacker who obtained both the database and old pepper can continue offline guessing even while lazy upgrades proceed. `WithPepperRotatedAt` is unrelated. It records OTP rotation time and cannot recover password key material.
-
-**Expected errors**
-
-- `password_pepper: current version N has no configured key`: the active version is missing, commonly because a map entry was omitted.
-- `password_pepper: key version N must be at least 32 bytes`: an empty or short environment value was supplied. This fails during `NewConfig`, and `New()` revalidates after cloning; there is no runtime fallback to unpeppered hashing.
-- `password_pepper: key version 0 is reserved for unpeppered passwords`: use `CurrentVersion: 0`, not a key at index zero, to keep new writes unpeppered.
-- `database contains password pepper versions with no configured key`: startup found a stored version the configured keyring cannot verify.
-
 ## `WithBrowser`: Required (`AllowedOrigins`)
 
 Configure the public API origin, exact frontend origins, and browser cookie delivery together. Session lifetimes stay in `WithSession`; password and email-link policy stay in `WithSecurity`.
@@ -294,30 +260,56 @@ Replacement and cancellation preserve the hourly start budget. Route-level IP
 limits apply in addition; see [email changes](./guides/email-changes.mdx).
 Apply auth migration revision 4 before starting this library version.
 
-## `WithPasswordHasher` / `WithBcryptCost`: Optional
+## `WithPasswordHashing`: Optional
 
-Password hashing defaults to bcrypt at cost 12. `WithPasswordHasher` replaces bcrypt for new writes and rehash-on-login; `WithBcryptCost` only changes bcrypt's work factor. go-auth includes an Argon2id implementation in `hasher/argon2id`. Argon2id is opt-in and does not change the default.
+Password hashing defaults to bcrypt at cost 12. `WithPasswordHashing` groups the algorithm, bcrypt cost, optional password pepper and resource limits. `Hasher` replaces bcrypt for new writes and rehash-on-login; `BcryptCost` only applies when `Hasher` is nil. Password policy stays in `WithSecurity`.
+
+The following example shows every hashing field, including optional values and
+the complete Argon2id profile. Argon2id itself is optional; when constructing an
+explicit `argon2id.Options`, all five fields must be valid. Omitted fields in
+that struct are **not** filled from `DefaultOptions()`.
 
 ```go
-cfg, err := goauth.NewConfig(
-    // ...required options...
-    goauth.WithPasswordHasher(argon2id.New(argon2id.DefaultOptions())),
-)
+goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
+    // Optional; default nil selects built-in bcrypt.
+    // This example opts into Argon2id using the DefaultOptions profile.
+    Hasher: argon2id.New(argon2id.Options{
+        Memory:      65536, // required for explicit Options; profile: 65536 KiB (64 MiB)
+        Iterations:  3,     // required for explicit Options; profile: 3 passes
+        Parallelism: 4,     // required for explicit Options; profile: 4 lanes
+        SaltLength:  16,    // required for explicit Options; profile: 16 bytes
+        KeyLength:   32,    // required for explicit Options; profile: 32 bytes
+    }),
+    BcryptCost: 12, // optional, default 12; ignored while Hasher is non-nil
+
+    // Optional; the zero-valued group leaves new passwords unpeppered.
+    Pepper: goauth.PasswordPepperConfig{
+        CurrentVersion: 0,   // optional, default 0: no pepper for new writes
+        Keys:           nil, // optional, default nil; retain keys needed by stored versions
+    },
+
+    Concurrency: 4,   // optional, default 4; 0 also selects 4; ignored with WorkLimiter
+    WorkLimiter: nil, // optional, default nil: a private limiter per Auth
+})
 ```
 
 Import it as `github.com/nazimdjebloun/go-auth/hasher/argon2id`. `DefaultOptions` exactly matches RFC 9106 section 4's memory-constrained recommendation: 64 MiB, 3 iterations, parallelism 4, a 16-byte random salt, and a 32-byte derived key. Argon2id's memory is consumed per concurrent hash or comparison, so benchmark and capacity-plan on the deployment hardware before enabling it.
 
-| Option | Type | Default | Notes |
+| Field | Type | Default | Notes |
 |---|---|---|---|
-| `WithPasswordHasher` | `port.Hasher` | bcrypt, cost 12 | Replaces the current hasher used by registration, password changes, resets, and rehash-on-login. `Hash` output must carry a stable identifying prefix such as `$argon2id$`; `New` rejects a hasher whose output cannot self-identify. Use `argon2id.New(argon2id.DefaultOptions())` for the built-in Argon2id choice. |
-| `WithBcryptCost` | `int` | `12` | Keeps bcrypt and changes only its cost. Existing bcrypt rows remain verifiable because their stored hashes carry their own cost; rows at another cost are upgraded after a successful login. |
-| `WithPasswordPepper` | `PasswordPepperConfig` | disabled (`CurrentVersion: 0`) | Adds the optional versioned HMAC layer before the selected KDF. See [WithPasswordPepper](#withpasswordpepper-optional) for rollout and rotation. |
+| `Hasher` | `port.Hasher` | `nil` (built-in bcrypt) | Used by registration, password changes, resets and rehash-on-login. `Hash` output must carry a stable identifying prefix such as `$argon2id$`; `New` rejects a hasher whose output cannot self-identify. Use `argon2id.New(argon2id.DefaultOptions())` for the built-in Argon2id choice. |
+| `BcryptCost` | `int` | `12` | Zero selects 12. Existing bcrypt rows retain their own verification cost; a successful login upgrades stale parameters. Ignored when `Hasher` is non-nil. |
+| `Pepper` | `PasswordPepperConfig` | disabled (`CurrentVersion: 0`) | Optional versioned HMAC layer before the selected KDF. Its fields are `CurrentVersion uint32` and `Keys map[uint32]string`. See [password pepper](#password-pepper-optional) for rollout and rotation. |
+| `Concurrency` | `int` | `4` active operations | Zero selects four; negative values fail validation even with a shared limiter. Capacity is private to each `Auth` unless `WorkLimiter` is supplied. |
+| `WorkLimiter` | `*hasher.WorkLimiter` | `nil` | Shares capacity across `Auth` instances. A non-nil limiter takes precedence over `Concurrency`. Construct it with `hasher.NewWorkLimiter`. |
 
-If both options are present, `WithPasswordHasher` is the more specific choice and wins regardless of option order. `WithBcryptCost` does not modify a custom hasher.
+An omitted or zero-valued hashing group selects bcrypt cost 12, no password pepper, and a private four-operation limiter. Each `WithPasswordHashing` call replaces the whole group: include all intended fields in one call. The pepper map is copied when the option is applied and when configuration is cloned; live `Hasher` and `WorkLimiter` objects retain their identity.
+
+This replaces the removed `WithPasswordHasher`, `WithBcryptCost`, `WithPasswordPepper`, `WithPasswordConcurrency` and `WithPasswordWorkLimiter` options. Move their arguments into the corresponding fields in one `WithPasswordHashing` call. Splitting fields over multiple calls would reset earlier fields to defaults. Hash formats, stored parameter verification, pepper derivation, rehashing and overload behavior are unchanged by this grouping.
 
 **Expected error**
 
-- `bcrypt_cost N exceeds bcrypt.MaxCost (31)`: `WithBcryptCost` was set above bcrypt's supported maximum while no custom hasher was configured.
+- `bcrypt_cost N exceeds bcrypt.MaxCost (31)`: `BcryptCost` was set above bcrypt's supported maximum while no custom hasher was configured.
 
 `port.Hasher` deliberately remains a two-method interface:
 
@@ -332,15 +324,110 @@ The stored string identifies the verifier. `Hash` must return a salted, one-way 
 
 ### Password work limits
 
-Password hashing and verification share a default cap of four active operations
-per `Auth`. Excess work returns `password_work_busy` (HTTP 503) immediately,
-without queuing. Dummy login checks and startup probes use the same capacity;
-optional rehashing can be skipped after successful verification.
+Every `Auth` shares one limiter across password hashing, verification, dummy
+verification and startup probes. The default allows four active operations.
+`PasswordHashingConfig{Concurrency: 2}` lowers that to two; zero selects four and negative
+values fail `NewConfig` and startup validation. There is no waiting queue:
+excess work returns `domain.ErrPasswordWorkBusy`, exposed by HTTP as
+`503 {"error":"password_work_busy","message":"Password processing is busy; try again later"}`.
+The caller can retry later with backoff. Existing route/IP rate limits still apply.
 
-The cap bounds active work, not total RAM. Four 64 MiB Argon2id operations need
-roughly 256 MiB of KDF memory, plus application and garbage-collection headroom.
-Stored hashes retain their own costs. Standalone KDF calls bypass the registry.
-Keep request rate limits in place. See [password-work capacity](./security.mdx#password-work-capacity).
+The limit covers HTTP and programmatic service calls, bcrypt, Argon2id, custom
+hashers and legacy algorithms selected from stored hashes. Capacity is held
+until the underlying synchronous operation finishes, including when the request
+has been canceled. Optional rehash-on-login skips an overloaded upgrade after
+successful verification, leaving login usable and the credential unchanged.
+
+Reusing one `Config` creates independent limiters. To share one process budget
+across multiple `Auth` instances, import
+`github.com/nazimdjebloun/go-auth/hasher`, construct a limiter once, and supply the
+same pointer to each instance:
+
+```go
+limiter, err := hasher.NewWorkLimiter(4)
+if err != nil {
+    return err
+}
+// Include this complete hashing group when building each instance's config.
+// Reuse the same limiter pointer across those instances.
+option := goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
+    // Optional; default nil selects built-in bcrypt. Argon2id is selected here.
+    Hasher: argon2id.New(argon2id.Options{
+        Memory:      65536, // required for explicit Options; profile: 65536 KiB (64 MiB)
+        Iterations:  3,     // required for explicit Options; profile: 3 passes
+        Parallelism: 4,     // required for explicit Options; profile: 4 lanes
+        SaltLength:  16,    // required for explicit Options; profile: 16 bytes
+        KeyLength:   32,    // required for explicit Options; profile: 32 bytes
+    }),
+    BcryptCost: 12, // optional, default 12; ignored while Hasher is non-nil
+
+    // Optional; these values leave new passwords unpeppered.
+    Pepper: goauth.PasswordPepperConfig{
+        CurrentVersion: 0,   // optional, default 0: no pepper for new writes
+        Keys:           nil, // optional, default nil; retain keys needed by stored versions
+    },
+
+    Concurrency: 4,        // optional, default 4; ignored because WorkLimiter is supplied
+    WorkLimiter: limiter, // optional, default nil; supplied limiter owns the shared capacity
+})
+```
+
+`NewWorkLimiter(0)` selects four; negative values are rejected. A zero-value
+`hasher.WorkLimiter` is invalid. A nil `WorkLimiter` selects private capacity;
+`Auth.Close` does not close a shared limiter. The budget is local to the process,
+not distributed across replicas. Direct calls to a standalone KDF, such as
+`argon2id.New(...).Hash`, are outside the `Auth` registry and its limit.
+
+This bounds active operations, not process RAM. At 64 MiB per Argon2id operation,
+four active operations need roughly 256 MiB of KDF working memory. Stored hashes
+use their own parameters and may cost more. Leave headroom for the application,
+garbage collection and completed allocations awaiting reclamation; benchmark
+with the largest stored memory cost you accept before choosing a concurrency.
+
+### Password pepper: Optional
+
+Password peppering is off by default. Enable it with independently managed secret material:
+
+```go
+goauth.WithPasswordHashing(goauth.PasswordHashingConfig{
+    Hasher:     nil, // optional, default nil: built-in bcrypt
+    BcryptCost: 12,  // optional, default 12; used because Hasher is nil
+
+    // Optional; this example enables peppering for new password writes.
+    Pepper: goauth.PasswordPepperConfig{
+        CurrentVersion: 1, // optional, default 0 (off); select a key version to enable
+        // Optional when peppering is off; must contain the selected active version.
+        // Default nil. Keep every version still referenced by stored passwords.
+        Keys: map[uint32]string{
+            1: os.Getenv("AUTH_PASSWORD_PEPPER_V1"), // at least 32 bytes of independent secret material
+        },
+    },
+
+    Concurrency: 4,   // optional, default 4; 0 also selects 4
+    WorkLimiter: nil, // optional, default nil: a private limiter using Concurrency
+})
+```
+
+`CurrentVersion` selects the key used by every new password write. Version `0` is reserved for unpeppered rows: omitting this option leaves `CurrentVersion` at zero and skips HMAC entirely, so the selected KDF receives the password directly. Each non-zero key must be at least 32 bytes, identical on every application instance, and stored separately from the password database (preferably in a secrets manager). The option copies the map; later caller mutations do not change live configuration.
+
+For a versioned row, go-auth derives that version's HMAC key with HKDF purpose `goauth-password-pepper-v1`, computes `base64(HMAC-SHA256(derivedKey, password))`, and passes the result to bcrypt or Argon2id. The nullable `users.password_pepper_version` column selects exactly one key during verification; the library never tries every configured key. Existing `NULL` rows verify as ordinary unpeppered passwords and upgrade to `CurrentVersion` through guarded rehash-on-login.
+
+Rotate without downtime in phases:
+
+1. Deploy the old `CurrentVersion` everywhere with both the old and next keys in `Keys`.
+2. After every instance has the next key, deploy the next `CurrentVersion` while retaining both keys. Successful logins upgrade old rows lazily.
+3. Remove the old key only after no database row references its version. `New()` queries the distinct stored versions whenever a keyring is configured and refuses startup if any referenced version is missing. Its database ping and this query share a 10-second startup deadline.
+
+Preloading is supported even before first opt-in: use `CurrentVersion: 0` with future keys. During a rolling deployment an older node can verify a row written with a preloaded newer version. Login rehash skips that row, while password change and reset continue hashing at the stored higher version. If the higher key was not preloaded, change/reset fail closed rather than writing the older current version. All three replacement paths use the same hash-and-version compare-and-swap, and the database independently rejects a lower new version. A lost race returns `password_update_conflict` for change/reset. Reset atomically claims its still-valid token, replaces the password, and deletes all sessions in one database transaction; change-password atomically combines its password replacement with its configured session revocation. Derivation is deterministic, so there is no password rotation-timestamp field; all instances only need the same version-to-secret mapping.
+
+Never replace a secret in place under the same version. Add a new version instead. Losing a still-referenced key makes those accounts unverifiable; a compromised pepper may also require forced password resets because an attacker who obtained both the database and old pepper can continue offline guessing even while lazy upgrades proceed. `SecurityConfig.PepperRotatedAt` records application-secret rotation time for short-lived codes; it cannot recover password key material.
+
+**Expected errors**
+
+- `password_pepper: current version N has no configured key`: the active version is missing, commonly because a map entry was omitted.
+- `password_pepper: key version N must be at least 32 bytes`: an empty or short environment value was supplied. This fails during `NewConfig`, and `New()` revalidates after cloning; there is no runtime fallback to unpeppered hashing.
+- `password_pepper: key version 0 is reserved for unpeppered passwords`: use `CurrentVersion: 0`, not a key at index zero, to keep new writes unpeppered.
+- `database contains password pepper versions with no configured key`: startup found a stored version the configured keyring cannot verify.
 
 ## `WithTwoFactor`: Optional
 

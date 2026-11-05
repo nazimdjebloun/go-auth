@@ -182,7 +182,7 @@ func TestRehashOnLogin_WrongPasswordDoesNotRehash(t *testing.T) {
 	}
 }
 
-// TestRehashOnLogin_CostChangeUpgradesRow: WithBcryptCost's end-to-end
+// TestRehashOnLogin_CostChangeUpgradesRow: BcryptCost's end-to-end
 // contract at the service level — same algorithm, higher cost, row upgraded
 // on login without any other action.
 func TestRehashOnLogin_CostChangeUpgradesRow(t *testing.T) {

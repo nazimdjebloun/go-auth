@@ -54,7 +54,7 @@ func TestAuthenticationRegistrationDefaultsAndValidation(t *testing.T) {
 
 func TestAuthenticationMethodsAndClosedSignupForExistingAccounts(t *testing.T) {
 	ctx := context.Background()
-	a := buildAuth(t, minimalOpts(WithBcryptCost(4))...)
+	a := buildAuth(t, minimalOpts(WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}))...)
 	defer a.Close()
 	registered, err := a.Register(ctx, api.RegisterInput{Email: "policy@example.com", Password: "Passw0rd!", Name: "Policy"})
 	if err != nil {
@@ -106,7 +106,7 @@ func TestAuthenticationMethodsAndClosedSignupForExistingAccounts(t *testing.T) {
 func TestVerificationPolicyRestrictsExistingSessionsAndRefresh(t *testing.T) {
 	ctx := context.Background()
 	mailer := &testutil.MockMailer{}
-	a := buildAuth(t, minimalOpts(WithBcryptCost(4), WithMailer(mailer))...)
+	a := buildAuth(t, minimalOpts(WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}), WithMailer(mailer))...)
 	defer a.Close()
 	reg, err := a.Register(ctx, api.RegisterInput{Email: "verify-policy@example.com", Password: "Passw0rd!", Name: "Verify"})
 	if err != nil {

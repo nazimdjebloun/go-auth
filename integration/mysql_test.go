@@ -26,7 +26,7 @@ func mysqlTestDSN() string {
 // drivers are compared on.
 func newMySQLTestAuth(db *sql.DB, mailer port.Mailer) (*goauth.Auth, error) {
 	cfg, err := goauth.NewConfig(
-		goauth.WithBcryptCost(4),
+		goauth.WithPasswordHashing(goauth.PasswordHashingConfig{BcryptCost: 4}),
 		goauth.WithRegistration(goauth.RegistrationConfig{EmailPassword: true, AllowPublic: true}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestAppMySQL",

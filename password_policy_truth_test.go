@@ -19,13 +19,13 @@ type nilPolicyHasher struct {
 func (h *nilPolicyHasher) MaxPasswordBytes() int { return h.limit }
 
 func TestPasswordPolicyTypedNilInputLimiterFailsConfiguration(t *testing.T) {
-	if _, err := NewConfig(minimalOpts(WithPasswordHasher((*nilPolicyHasher)(nil)))...); err == nil {
+	if _, err := NewConfig(minimalOpts(WithPasswordHashing(PasswordHashingConfig{Hasher: (*nilPolicyHasher)(nil)}))...); err == nil {
 		t.Fatal("typed-nil custom limiter accepted")
 	}
 }
 
 func TestPasswordPolicyExplicitFalseRulesReachRegistration(t *testing.T) {
-	a := buildAuth(t, minimalOpts(WithBcryptCost(4), WithSecurity(SecurityConfig{
+	a := buildAuth(t, minimalOpts(WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}), WithSecurity(SecurityConfig{
 		PasswordPolicy: domain.PasswordPolicy{MinLength: 8},
 	}))...)
 	defer a.Close()
@@ -44,15 +44,16 @@ func TestPasswordPolicyHasherSpecificInputBounds(t *testing.T) {
 	password := strings.Repeat("a", 99) + "1"
 	for _, name := range []string{"bcrypt", "peppered bcrypt", "argon2id"} {
 		t.Run(name, func(t *testing.T) {
-			opts := minimalOpts(WithBcryptCost(4))
+			hashing := PasswordHashingConfig{BcryptCost: 4}
 			switch name {
 			case "peppered bcrypt":
-				opts = append(opts, WithPasswordPepper(PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: strings.Repeat("k", 32)}}))
+				hashing.Pepper = PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: strings.Repeat("k", 32)}}
 			case "argon2id":
 				settings := argon2id.DefaultOptions()
 				settings.Memory, settings.Iterations, settings.Parallelism = 64, 1, 1
-				opts = append(opts, WithPasswordHasher(argon2id.New(settings)))
+				hashing.Hasher = argon2id.New(settings)
 			}
+			opts := minimalOpts(WithPasswordHashing(hashing))
 			a := buildAuth(t, opts...)
 			defer a.Close()
 			result, err := a.Register(t.Context(), api.RegisterInput{Email: "bounds@example.test", Name: "Bounds", Password: password})
@@ -71,7 +72,7 @@ func TestPasswordPolicyHasherSpecificInputBounds(t *testing.T) {
 			if name == "argon2id" {
 				// A stricter current write algorithm must not reject old credentials.
 				cfg := a.cfg.clone()
-				WithPasswordHasher(nil)(&cfg)
+				WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4})(&cfg)
 				b, err := New(&cfg)
 				if err != nil {
 					t.Fatal(err)

@@ -52,7 +52,7 @@ func newAppHTTPFixture(t *testing.T, management, requireMFA bool, options ...Opt
 	baseOptions := []Option{
 		WithApp(AppConfig{Name: "Permissions", BaseURL: "http://localhost", Environment: EnvironmentDev, Database: DatabaseConfig{DB: raw, Driver: driver}}),
 		WithSecret("0123456789abcdef0123456789abcdef"),
-		WithBcryptCost(4),
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}),
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))),
 		WithRegistration(RegistrationConfig{EmailPassword: true, AllowPublic: true, InviteSignup: true}), WithBrowser(BrowserConfig{AllowedOrigins: []string{"http://localhost"}}), WithSecurity(SecurityConfig{AllowHTTPURLs: AllowPlaintextEmailLinks()}),
 		WithTwoFactor(TwoFactorConfig{DisableAdminTwoFactor: !requireMFA}),

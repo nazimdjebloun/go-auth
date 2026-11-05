@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/audit"
+	"github.com/nazimdjebloun/go-auth/hasher"
 	"github.com/nazimdjebloun/go-auth/middleware"
 	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/ratelimit"
@@ -40,14 +41,16 @@ type Config struct {
 	passwordPepper PasswordPepperConfig // independent, versioned key material; zero value disables password peppering
 
 	// Live objects the consumer supplied, not data to snapshot.
-	mailer         port.Mailer
-	templates      port.TemplateProvider
-	providers      []port.OAuthProvider
-	auditSinks     []audit.EventSink
-	logger         *slog.Logger
-	rateLimit      *ratelimit.Config
-	passwordHasher port.Hasher // WithPasswordHasher; nil = bcrypt
-	bcryptCost     int         // WithBcryptCost; 0 = default 12
+	mailer              port.Mailer
+	templates           port.TemplateProvider
+	providers           []port.OAuthProvider
+	auditSinks          []audit.EventSink
+	logger              *slog.Logger
+	rateLimit           *ratelimit.Config
+	passwordHasher      port.Hasher // PasswordHashingConfig.Hasher; nil = bcrypt
+	bcryptCost          int         // PasswordHashingConfig.BcryptCost; 0 = default 12
+	passwordConcurrency int
+	passwordWorkLimiter *hasher.WorkLimiter
 
 	resolved resolved
 	set      sectionsSet
@@ -113,7 +116,8 @@ func NewConfig(opts ...Option) (*Config, error) {
 }
 
 // clone returns a deep copy of c that shares only live objects the consumer
-// owns (DB handles, mailer, templates, providers, logger, rate-limit store).
+// owns (DB handles, mailer, templates, providers, logger, rate-limit store,
+// password-work limiter).
 // Every value New() resolves defaults onto is copied, so reusing one *Config
 // for two New() calls cannot leak the first call's resolutions into the
 // second — notably browser slices/pointers and middleware dependencies,

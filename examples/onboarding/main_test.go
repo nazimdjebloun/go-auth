@@ -23,7 +23,7 @@ func TestOnboardingCompleteBrowserHTTPFlow(t *testing.T) {
 	server := httptest.NewUnstartedServer(nil)
 	baseURL := "http://" + server.Listener.Addr().String()
 	defer server.Close()
-	options := []goauth.Option{goauth.WithBcryptCost(4), goauth.WithMailer(mailer)}
+	options := []goauth.Option{goauth.WithPasswordHashing(goauth.PasswordHashingConfig{BcryptCost: 4}), goauth.WithMailer(mailer)}
 	if auth, _, err := newApplication(dsn, baseURL, secret, options...); err == nil {
 		auth.Close()
 		t.Fatal("example started before migration")

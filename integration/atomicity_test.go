@@ -826,7 +826,7 @@ func openOAuthAuth(t *testing.T, db *sql.DB, mailer port.Mailer, providers ...po
 	t.Helper()
 	migrateDB(t, db, testdb.Driver(db))
 	opts := []goauth.Option{
-		goauth.WithBcryptCost(4),
+		goauth.WithPasswordHashing(goauth.PasswordHashingConfig{BcryptCost: 4}),
 		goauth.WithAuthentication(goauth.AuthenticationConfig{EmailPassword: true, OAuth: len(providers) > 0}),
 		goauth.WithApp(goauth.AppConfig{
 			Name:    "TestApp",

@@ -819,40 +819,40 @@ func TestWithSecret_SetsSecret(t *testing.T) {
 	}
 }
 
-func TestWithPasswordPepper_IsOptIn(t *testing.T) {
+func TestPasswordHashingPepper_IsOptIn(t *testing.T) {
 	cfg, err := NewConfig(validConfigOpts()...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.passwordPepper.CurrentVersion != 0 || len(cfg.passwordPepper.Keys) != 0 {
-		t.Fatal("password pepper should be disabled when WithPasswordPepper is absent")
+		t.Fatal("password pepper should be disabled when PasswordHashingPepper is absent")
 	}
 
 	const pepper = "abcdef0123456789abcdef0123456789"
-	cfg, err = NewConfig(append(validConfigOpts(), WithPasswordPepper(PasswordPepperConfig{
+	cfg, err = NewConfig(append(validConfigOpts(), WithPasswordHashing(PasswordHashingConfig{Pepper: PasswordPepperConfig{
 		CurrentVersion: 1,
 		Keys:           map[uint32]string{1: pepper},
-	}))...)
+	}}))...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.passwordPepper.CurrentVersion != 1 || cfg.passwordPepper.Keys[1] != pepper {
-		t.Fatal("WithPasswordPepper did not preserve the configured secret")
+		t.Fatal("PasswordHashingPepper did not preserve the configured secret")
 	}
 }
 
-func TestWithPasswordPepper_CopiesKeyMap(t *testing.T) {
+func TestPasswordHashingPepper_CopiesKeyMap(t *testing.T) {
 	keys := map[uint32]string{1: "abcdef0123456789abcdef0123456789"}
-	cfg, err := NewConfig(append(validConfigOpts(), WithPasswordPepper(PasswordPepperConfig{
+	cfg, err := NewConfig(append(validConfigOpts(), WithPasswordHashing(PasswordHashingConfig{Pepper: PasswordPepperConfig{
 		CurrentVersion: 1,
 		Keys:           keys,
-	}))...)
+	}}))...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	keys[1] = "mutated-after-option"
 	if cfg.passwordPepper.Keys[1] != "abcdef0123456789abcdef0123456789" {
-		t.Fatal("WithPasswordPepper retained the caller's mutable map")
+		t.Fatal("PasswordHashingPepper retained the caller's mutable map")
 	}
 	clone := cfg.clone()
 	clone.passwordPepper.Keys[1] = "mutated-clone"
@@ -861,7 +861,7 @@ func TestWithPasswordPepper_CopiesKeyMap(t *testing.T) {
 	}
 }
 
-func TestWithPasswordPepper_RejectsMissingOrShortSecret(t *testing.T) {
+func TestPasswordHashingPepper_RejectsMissingOrShortSecret(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		cfg  PasswordPepperConfig
@@ -872,7 +872,7 @@ func TestWithPasswordPepper_RejectsMissingOrShortSecret(t *testing.T) {
 		{name: "reserved zero version", cfg: PasswordPepperConfig{Keys: map[uint32]string{0: "0123456789abcdef0123456789abcdef"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewConfig(append(validConfigOpts(), WithPasswordPepper(tc.cfg))...)
+			_, err := NewConfig(append(validConfigOpts(), WithPasswordHashing(PasswordHashingConfig{Pepper: tc.cfg}))...)
 			if err == nil || !strings.Contains(err.Error(), "password_pepper:") {
 				t.Fatalf("error = %v, want password pepper configuration error", err)
 			}
@@ -889,7 +889,7 @@ func TestNew_RejectsPasswordPepperMutatedAfterValidation(t *testing.T) {
 	// Option is callable because it is an exported function type. Simulate a
 	// missing environment value being applied after NewConfig validated cfg;
 	// New must still fail closed at the final construction boundary.
-	WithPasswordPepper(PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: ""}})(cfg)
+	WithPasswordHashing(PasswordHashingConfig{Pepper: PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: ""}}})(cfg)
 	auth, err := New(cfg)
 	if auth != nil {
 		auth.Close()

@@ -38,7 +38,7 @@ func liveBenchAuth(b *testing.B, driver Driver, envVar string) *Auth {
 		b.Skipf("%s not set — live %s benchmarks skipped", envVar, driver)
 	}
 	cfg, err := NewConfig(minimalOpts(
-		WithBcryptCost(4),
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}),
 		WithApp(AppConfig{
 			Name: "bench", BaseURL: "https://example.com",
 			Database: DatabaseConfig{URL: dsn, Driver: driver, MaxOpenConns: 8},

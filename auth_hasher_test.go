@@ -71,7 +71,7 @@ func newAuthWithHasherTestDB(t *testing.T, db *sql.DB, extra ...Option) *Auth {
 	return a
 }
 
-func TestWithPasswordHasher_VerifiesAndRehashesLegacyBcryptOnce(t *testing.T) {
+func TestPasswordHashingHasher_VerifiesAndRehashesLegacyBcryptOnce(t *testing.T) {
 	const (
 		email    = "legacy@example.com"
 		password = "Passw0rd!"
@@ -97,7 +97,7 @@ func TestWithPasswordHasher_VerifiesAndRehashesLegacyBcryptOnce(t *testing.T) {
 		t.Fatalf("seed unpeppered legacy hash: %v", err)
 	}
 	current := &prefixedTestHasher{}
-	a := newAuthWithHasherTestDB(t, db, WithPasswordHasher(current))
+	a := newAuthWithHasherTestDB(t, db, WithPasswordHashing(PasswordHashingConfig{Hasher: current}))
 	defer a.Close()
 	probeHashCalls := current.hashCalls
 
@@ -125,14 +125,14 @@ func TestWithPasswordHasher_VerifiesAndRehashesLegacyBcryptOnce(t *testing.T) {
 	}
 }
 
-func TestWithPasswordHasher_RealArgon2idRehashesBcryptOnLogin(t *testing.T) {
+func TestPasswordHashingHasher_RealArgon2idRehashesBcryptOnLogin(t *testing.T) {
 	const (
 		email    = "argon-migration@example.com"
 		password = "Passw0rd!"
 	)
 	db := newHasherTestDB(t)
 
-	legacy := newAuthWithHasherTestDB(t, db, WithBcryptCost(4))
+	legacy := newAuthWithHasherTestDB(t, db, WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}))
 	defer legacy.Close()
 	if _, err := legacy.Register(context.Background(), api.RegisterInput{
 		Email: email, Password: password, Name: "Argon Migration",
@@ -147,7 +147,7 @@ func TestWithPasswordHasher_RealArgon2idRehashesBcryptOnLogin(t *testing.T) {
 		SaltLength:  16,
 		KeyLength:   32,
 	})
-	a := newAuthWithHasherTestDB(t, db, WithPasswordHasher(argon))
+	a := newAuthWithHasherTestDB(t, db, WithPasswordHashing(PasswordHashingConfig{Hasher: argon}))
 	defer a.Close()
 
 	if _, err := a.Login(context.Background(), api.LoginInput{Email: email, Password: password}); err != nil {
@@ -175,8 +175,8 @@ func TestWithPasswordHasher_RealArgon2idRehashesBcryptOnLogin(t *testing.T) {
 	}
 }
 
-func TestWithBcryptCost_UsesConfiguredCost(t *testing.T) {
-	a := buildAuth(t, minimalOpts(WithBcryptCost(4))...)
+func TestPasswordHashingBcryptCost_UsesConfiguredCost(t *testing.T) {
+	a := buildAuth(t, minimalOpts(WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}))...)
 	defer a.Close()
 
 	result, err := a.Register(context.Background(), api.RegisterInput{
@@ -196,7 +196,7 @@ func TestWithBcryptCost_UsesConfiguredCost(t *testing.T) {
 
 func TestDefaultPasswordHasher_NewSignupIsNotPeppered(t *testing.T) {
 	const password = "Passw0rd!"
-	a := buildAuth(t, minimalOpts(WithBcryptCost(4))...)
+	a := buildAuth(t, minimalOpts(WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}))...)
 	defer a.Close()
 
 	result, err := a.Register(context.Background(), api.RegisterInput{
@@ -220,7 +220,7 @@ func TestDefaultPasswordHasher_NewSignupIsNotPeppered(t *testing.T) {
 	}
 }
 
-func TestWithPasswordHasher_Argon2idSignupIsNotPepperedByDefault(t *testing.T) {
+func TestPasswordHashingHasher_Argon2idSignupIsNotPepperedByDefault(t *testing.T) {
 	const password = "Passw0rd!"
 	argon := argon2id.New(argon2id.Options{
 		Memory:      8 * 1024,
@@ -229,7 +229,7 @@ func TestWithPasswordHasher_Argon2idSignupIsNotPepperedByDefault(t *testing.T) {
 		SaltLength:  16,
 		KeyLength:   32,
 	})
-	a := buildAuth(t, minimalOpts(WithPasswordHasher(argon))...)
+	a := buildAuth(t, minimalOpts(WithPasswordHashing(PasswordHashingConfig{Hasher: argon}))...)
 	defer a.Close()
 
 	result, err := a.Register(context.Background(), api.RegisterInput{
@@ -250,14 +250,14 @@ func TestWithPasswordHasher_Argon2idSignupIsNotPepperedByDefault(t *testing.T) {
 	}
 }
 
-func TestWithPasswordPepper_NewSignupAndLegacyMigration(t *testing.T) {
+func TestPasswordHashingPepper_NewSignupAndLegacyMigration(t *testing.T) {
 	const (
 		pepperSecret = "abcdef0123456789abcdef0123456789"
 		password     = "Passw0rd!"
 	)
 	db := newHasherTestDB(t)
 
-	legacy := newAuthWithHasherTestDB(t, db, WithBcryptCost(4))
+	legacy := newAuthWithHasherTestDB(t, db, WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}))
 	defer legacy.Close()
 	if _, err := legacy.Register(context.Background(), api.RegisterInput{
 		Email: "legacy-pepper@example.com", Password: password, Name: "Legacy",
@@ -266,8 +266,7 @@ func TestWithPasswordPepper_NewSignupAndLegacyMigration(t *testing.T) {
 	}
 
 	pepperedAuth := newAuthWithHasherTestDB(t, db,
-		WithBcryptCost(4),
-		WithPasswordPepper(PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: pepperSecret}}),
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4, Pepper: PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: pepperSecret}}}),
 	)
 	defer pepperedAuth.Close()
 	newUser, err := pepperedAuth.Register(context.Background(), api.RegisterInput{
@@ -327,7 +326,7 @@ func TestWithPasswordPepper_NewSignupAndLegacyMigration(t *testing.T) {
 	}
 }
 
-func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T) {
+func TestPasswordHashingPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T) {
 	const (
 		password = "Passw0rd!"
 		key1     = "password-pepper-version-one-00001"
@@ -336,11 +335,10 @@ func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T)
 	db := newHasherTestDB(t)
 
 	v1 := newAuthWithHasherTestDB(t, db,
-		WithBcryptCost(4),
-		WithPasswordPepper(PasswordPepperConfig{
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4, Pepper: PasswordPepperConfig{
 			CurrentVersion: 1,
 			Keys:           map[uint32]string{1: key1, 2: key2},
-		}),
+		}}),
 	)
 	registered, err := v1.Register(context.Background(), api.RegisterInput{
 		Email: "rotate@example.com", Password: password, Name: "Rotate",
@@ -352,11 +350,10 @@ func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T)
 	v1.Close()
 
 	v2 := newAuthWithHasherTestDB(t, db,
-		WithBcryptCost(4),
-		WithPasswordPepper(PasswordPepperConfig{
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4, Pepper: PasswordPepperConfig{
 			CurrentVersion: 2,
 			Keys:           map[uint32]string{1: key1, 2: key2},
-		}),
+		}}),
 	)
 	if _, err := v2.Login(context.Background(), api.LoginInput{Email: "rotate@example.com", Password: password}); err != nil {
 		t.Fatalf("login and rotate v1 to v2: %v", err)
@@ -377,11 +374,10 @@ func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T)
 	// preloaded v2 during phase one, so it can verify the row, but its current
 	// version remains v1 and must not write a downgrade.
 	oldNode := newAuthWithHasherTestDB(t, db,
-		WithBcryptCost(4),
-		WithPasswordPepper(PasswordPepperConfig{
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4, Pepper: PasswordPepperConfig{
 			CurrentVersion: 1,
 			Keys:           map[uint32]string{1: key1, 2: key2},
-		}),
+		}}),
 	)
 	defer oldNode.Close()
 	if _, err := oldNode.Login(context.Background(), api.LoginInput{Email: "rotate@example.com", Password: password}); err != nil {
@@ -415,12 +411,11 @@ func TestWithPasswordPepper_RotationAndRollingDeployDoNotDowngrade(t *testing.T)
 	}
 }
 
-func TestWithPasswordPepper_StartupRejectsMissingDatabaseVersion(t *testing.T) {
+func TestPasswordHashingPepper_StartupRejectsMissingDatabaseVersion(t *testing.T) {
 	const key1 = "password-pepper-version-one-00001"
 	db := newHasherTestDB(t)
 	v1 := newAuthWithHasherTestDB(t, db,
-		WithBcryptCost(4),
-		WithPasswordPepper(PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: key1}}),
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4, Pepper: PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: key1}}}),
 	)
 	if _, err := v1.Register(context.Background(), api.RegisterInput{
 		Email: "missing-key@example.com", Password: "Passw0rd!", Name: "Missing",
@@ -431,11 +426,10 @@ func TestWithPasswordPepper_StartupRejectsMissingDatabaseVersion(t *testing.T) {
 
 	cfg, err := NewConfig(minimalOpts(
 		WithApp(AppConfig{Name: "app", BaseURL: "https://example.com", Database: DatabaseConfig{Driver: DriverSQLite, DB: db}}),
-		WithBcryptCost(4),
-		WithPasswordPepper(PasswordPepperConfig{
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4, Pepper: PasswordPepperConfig{
 			CurrentVersion: 2,
 			Keys:           map[uint32]string{2: "password-pepper-version-two-00002"},
-		}),
+		}}),
 	)...)
 	if err != nil {
 		t.Fatalf("NewConfig: %v", err)
@@ -472,17 +466,16 @@ func TestDefaultPasswordHasher_RemainsBcryptCost12(t *testing.T) {
 	}
 }
 
-func TestWithPasswordHasher_TakesPrecedenceOverBcryptCost(t *testing.T) {
+func TestPasswordHashingHasher_TakesPrecedenceOverBcryptCost(t *testing.T) {
 	if _, err := NewConfig(minimalOpts(
-		WithBcryptCost(bcrypt.MaxCost+1),
-		WithPasswordHasher(&prefixedTestHasher{}),
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: bcrypt.MaxCost + 1, Hasher: &prefixedTestHasher{}}),
 	)...); err != nil {
 		t.Fatalf("custom hasher should make bcrypt cost inert: %v", err)
 	}
 }
 
-func TestWithBcryptCost_RejectsCostAboveMaximum(t *testing.T) {
-	if _, err := NewConfig(minimalOpts(WithBcryptCost(bcrypt.MaxCost + 1))...); err == nil {
+func TestPasswordHashingBcryptCost_RejectsCostAboveMaximum(t *testing.T) {
+	if _, err := NewConfig(minimalOpts(WithPasswordHashing(PasswordHashingConfig{BcryptCost: bcrypt.MaxCost + 1}))...); err == nil {
 		t.Fatal("expected invalid bcrypt cost to fail validation")
 	}
 }

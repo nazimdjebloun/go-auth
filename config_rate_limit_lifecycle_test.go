@@ -36,7 +36,7 @@ func TestNewReusedConfigHasIndependentRateLimitStores(t *testing.T) {
 	}
 	cfg, err := NewConfig(minimalOpts(
 		WithApp(AppConfig{Name: "app", BaseURL: "https://example.com", Database: DatabaseConfig{Driver: DriverSQLite, DB: db}}),
-		WithBcryptCost(4),
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}),
 	)...)
 	if err != nil {
 		t.Fatal(err)
@@ -72,7 +72,7 @@ func TestNewReusedConfigHasIndependentRateLimitStores(t *testing.T) {
 }
 
 func TestNewDisabledRateLimitDoesNotAllocateStore(t *testing.T) {
-	a := buildAuth(t, minimalOpts(WithRateLimitEnabled(false), WithBcryptCost(4))...)
+	a := buildAuth(t, minimalOpts(WithRateLimitEnabled(false), WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4}))...)
 	t.Cleanup(a.Close)
 	if a.cfg.rateLimit.Store != nil {
 		t.Fatal("disabled rate limiting allocated an owned store")
@@ -98,8 +98,7 @@ func TestNewStartupFailureDoesNotLeakRateLimitWorkers(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	cfg, err := NewConfig(minimalOpts(
 		WithApp(AppConfig{Name: "app", BaseURL: "https://example.com", Database: DatabaseConfig{Driver: DriverSQLite, DB: db}}),
-		WithBcryptCost(4),
-		WithPasswordPepper(PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: strings.Repeat("p", 32)}}),
+		WithPasswordHashing(PasswordHashingConfig{BcryptCost: 4, Pepper: PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: strings.Repeat("p", 32)}}}),
 	)...)
 	if err != nil {
 		t.Fatal(err)

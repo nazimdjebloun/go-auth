@@ -52,7 +52,15 @@ func buildPasswordHasher(cfg *Config) (*service.PasswordHasher, map[uint32][]byt
 		}
 		currentHasher = hasher.New(cost)
 	}
-	passwordRegistry, err := registry.New(currentHasher, hasher.New(defaultBcryptCost))
+	limiter := cfg.passwordWorkLimiter
+	if limiter == nil {
+		var err error
+		limiter, err = hasher.NewWorkLimiter(cfg.passwordConcurrency)
+		if err != nil {
+			return nil, nil, fmt.Errorf("goauth: password work limiter: %w", err)
+		}
+	}
+	passwordRegistry, err := registry.NewWithWorkLimiter(currentHasher, limiter, hasher.New(defaultBcryptCost))
 	if err != nil {
 		return nil, nil, fmt.Errorf("goauth: building password hasher registry: %w", err)
 	}
