@@ -11,8 +11,8 @@ func (m *mockSessionRepo) LockByID(_ context.Context, id string) (*domain.Sessio
 	defer m.mu.Unlock()
 	for _, session := range m.sessions {
 		if session.ID == id {
-			copy := *session
-			return &copy, nil
+			snapshot := *session
+			return &snapshot, nil
 		}
 	}
 	return nil, nil

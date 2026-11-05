@@ -182,7 +182,7 @@ func TestProtectOrganizationScopes(t *testing.T) {
 	f.request(t, "POST", path, "", "", 401)
 	r := httptest.NewRequest("POST", path, nil)
 	r.Header.Set("Origin", "http://localhost")
-	r.AddCookie(&http.Cookie{Name: f.a.cookies.Name, Value: f.memberToken})
+	r.AddCookie(&http.Cookie{Name: f.a.cookies.Name, Value: f.memberToken, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	w := httptest.NewRecorder()
 	f.mux.ServeHTTP(w, r)
 	if w.Code != 403 {

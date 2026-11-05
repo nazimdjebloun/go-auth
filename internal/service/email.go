@@ -101,7 +101,7 @@ func (s *EmailService) actor(ctx context.Context, actor api.EmailChangeActor) (*
 func (s *EmailService) identity(u *domain.User) string {
 	data, _ := json.Marshal(struct {
 		Email               string
-		Password            *string
+		Password            *string // #nosec G117 -- Existing password hash is only local HMAC input, never returned or logged.
 		Pepper              *uint32
 		Verified, TwoFactor bool
 		Role                domain.Role
@@ -324,7 +324,7 @@ func (s *EmailService) ResendEmailChange(ctx context.Context, input api.ResendEm
 			}
 		}
 		*sent = now
-		*resends += 1
+		*resends++
 		*hash = hashOTP(emailCodeInput(v.ID, input.Destination, code), s.config.OTPPepper)
 		return s.store.Save(ctx, v)
 	})

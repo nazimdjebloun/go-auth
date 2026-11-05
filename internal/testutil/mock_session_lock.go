@@ -16,6 +16,6 @@ func (m *MockSessionRepo) LockByID(ctx context.Context, id string) (*domain.Sess
 	if session == nil {
 		return nil, nil
 	}
-	copy := *session
-	return &copy, nil
+	snapshot := *session
+	return &snapshot, nil
 }

@@ -69,7 +69,7 @@ func TestEmailChangeHTTPContract(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			r := httptest.NewRequest("POST", "/auth/email/change/request", strings.NewReader(`{"newEmail":"new@example.com","password":"Passw0rd!"}`))
 			r.Header.Set("Origin", test.origin)
-			r.AddCookie(&http.Cookie{Name: f.a.cookies.Name, Value: created.SessionToken})
+			r.AddCookie(&http.Cookie{Name: f.a.cookies.Name, Value: created.SessionToken, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 			w := httptest.NewRecorder()
 			f.mux.ServeHTTP(w, r)
 			if w.Code != 403 {

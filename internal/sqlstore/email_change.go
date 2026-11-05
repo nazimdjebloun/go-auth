@@ -119,7 +119,7 @@ func (r *EmailChangeRepository) PruneExpired(ctx context.Context, now time.Time)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	type version struct{ userID, requestID string }
 	var versions []version
 	for rows.Next() {
