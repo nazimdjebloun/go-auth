@@ -73,6 +73,8 @@ At the receiver boundary, make the event `id` a unique inbox key and record it i
   `(*Auth).AuditDeliveryStats(ctx)` (and the per-instance counters) reports `pending`, `oldest_pending_age`, `dead_lettered`, `delivery_dropped`, `delivery_orphaned`, `delivery_duplicated`, `delivery_missed`, `record_lost`, and `record_blocked`. `oldest_pending_age` is the primary "delivery is broken" alert; `record_lost` must be zero-or-alert; a non-zero `delivery_orphaned` rate means a broken invariant (bypassed retention validation or manual deletes), not routine pressure.
 </Callout>
 
+The database claim rechecks the retry deadline before incrementing the attempt count. A dispatcher that selected an event before another dispatcher scheduled backoff cannot claim it early or spend another attempt during that delay.
+
 ### Consumer notes
 
 Sinks are read once at startup: a sink added after records have already run (`WithAuditSink` on a live instance) gets no outbox rows for events recorded before it was registered — those events went to the sinks that existed then. Register every delivery sink before the first request.

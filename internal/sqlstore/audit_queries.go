@@ -34,12 +34,15 @@ const (
 
 	// outboxClaimCAS is the guarded compare-and-swap: only the instance whose
 	// UPDATE touches a row owns its delivery for the lease window. RowsAffected
-	// decides the winner — no SKIP LOCKED required (SQLite lacks it).
+	// decides the winner — no SKIP LOCKED required (SQLite lacks it). Recheck
+	// the retry deadline because another claimer may have failed and released
+	// the row with backoff after candidate selection.
 	outboxClaimCAS = `UPDATE audit_outbox
 		SET claimed_at = $1, claim_owner = $2, attempts = attempts + 1
 		WHERE audit_log_id = $3
 		  AND dead_lettered_at IS NULL
-		  AND (claimed_at IS NULL OR claimed_at < $4)`
+		  AND (claimed_at IS NULL OR claimed_at < $4)
+		  AND next_attempt_at <= $5`
 
 	outboxClaimed = `SELECT o.audit_log_id, o.attempts, o.org_id, a.event_type, a.severity,
 			a.success, a.actor_id, a.target_id, a.session_id, a.ip, a.user_agent,

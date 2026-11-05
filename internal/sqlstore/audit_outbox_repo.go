@@ -82,7 +82,7 @@ func (r *OutboxRepository) ClaimBatch(ctx context.Context, owner string, batchSi
 	var won []string
 	var wonStolen []bool
 	for i, id := range candidateIDs {
-		res, err := r.db.ExecContext(ctx, outboxClaimCAS, claimTime, claimToken, id, leaseCutoff)
+		res, err := r.db.ExecContext(ctx, outboxClaimCAS, claimTime, claimToken, id, leaseCutoff, claimTime)
 		if err != nil {
 			return nil, fmt.Errorf("outbox claim: %w", err)
 		}
