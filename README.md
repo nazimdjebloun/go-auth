@@ -16,7 +16,9 @@ Session credentials stay in HttpOnly cookies; HTTP responses tell the frontend
 its next authentication `step`.
 
 Use `Auth.Protect` on application endpoints, then add your ownership, role, or
-permission checks. Applications with their own transport can call the same
+permission checks. For tenant-owned routes with org permissions enabled, use
+`Auth.ProtectOrgScope(pattern, key, handler)` or `Auth.ProtectActiveOrgScope` to
+receive the authorized `OrgScope` directly. Applications with their own transport can call the same
 operations through Go service APIs.
 
 ## What it includes
@@ -118,6 +120,12 @@ This snippet uses `net/http`, `encoding/json`, and
 `Protect` combines rate limiting, browser CSRF checks, session authentication,
 and email-verification enforcement. Add ownership or permission checks inside
 it before accessing application data. See [application routes](docs/guides/application-routes.mdx).
+
+`RequireAuth` applies session authentication, transparent refresh and email
+verification only. `Protect` adds CORS, route-aware rate limiting, CSRF and origin
+checks. Nested authentication from the same `Auth` instance is reused within a
+request. The [route helper reference](docs/guides/application-routes.mdx#route-helper-reference)
+explains the complete and low-level wrappers.
 
 For a custom router, use `handler, ok := auth.Handler("POST /auth/login")`.
 The returned handler includes its middleware. Your router must populate

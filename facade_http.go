@@ -10,6 +10,9 @@ import (
 // (including transparent refresh) that the built-in auth routes use. On
 // success the user and session are placed in the request context — read
 // them with middleware.GetUserFromContext and middleware.GetSessionFromContext.
+// Repeated wrapping by the same Auth instance reuses authentication within the
+// request while the credentials, selected context and identity are unchanged.
+// CORS, CSRF and rate limiting are supplied by Protect, not RequireAuth.
 func (a *Auth) RequireAuth(next http.Handler) http.Handler {
 	return a.authMW(next)
 }

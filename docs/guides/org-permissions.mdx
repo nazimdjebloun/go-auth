@@ -259,16 +259,25 @@ grant authority.
 For a route with `{orgID}`, pass the authorized tenant scope into the handler:
 
 ```go
-mux.Handle("GET /orgs/{orgID}/invoices",
-    auth.RequireOrgPermissionScope("org.invoices.read",
+pattern := "GET /orgs/{orgID}/invoices"
+mux.Handle(pattern,
+    auth.ProtectOrgScope(pattern, "org.invoices.read",
         func(w http.ResponseWriter, r *http.Request, scope goauth.OrgScope) {
             // Include scope.OrgID in every application-owned resource query.
             w.WriteHeader(http.StatusNoContent)
         }))
 ```
 
-`RequireActiveOrgPermissionScope` uses the authenticated session's active org ID
-and checks live membership/role/grants. Lower-level `RequireOrgPermission` and
+`ProtectActiveOrgScope(pattern, key, handler)` uses the authenticated session's active
+org ID and checks live membership/role/grants. Both complete wrappers include CORS,
+rate limiting, CSRF/origin checks, authentication and email verification. Put CORS
+around the complete method-based router so application preflights reach it.
+`RequireOrgPermissionScope` and `RequireActiveOrgPermissionScope` include authentication
+and authorization only, for custom layer composition. Permission checks populate
+both the org ID and current fixed membership role without a second membership query.
+Implementations of `middleware.OrgPermissionChecker` must implement `CheckPermission`
+and return `MembershipRole` on allowed decisions; this replaces the error-only checker
+contract. Lower-level `RequireOrgPermission` and
 `RequireActiveOrgPermission` must run after `RequireAuth`. The old minimum-role
 middleware remains available for applications that intentionally use fixed roles;
 use permission middleware to authorize custom roles.

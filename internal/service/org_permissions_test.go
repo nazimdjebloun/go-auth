@@ -15,6 +15,7 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 	"github.com/nazimdjebloun/go-auth/internal/testdb"
 	"github.com/nazimdjebloun/go-auth/internal/testutil"
+	"github.com/nazimdjebloun/go-auth/port"
 	"github.com/nazimdjebloun/go-auth/token"
 )
 
@@ -25,6 +26,33 @@ type orgPermissionFixture struct {
 	db      *sqlstore.DB
 	repo    *sqlstore.OrgPermissionsRepository
 	owner   api.OrgPermissionActor
+}
+
+type countingOrgMemberships struct {
+	port.OrgRepository
+	reads int
+}
+
+func (r *countingOrgMemberships) GetMembership(ctx context.Context, orgID, userID string) (*domain.OrgMember, error) {
+	r.reads++
+	return r.OrgRepository.GetMembership(ctx, orgID, userID)
+}
+
+func TestOrgPermissionsDecisionIncludesMembershipClassification(t *testing.T) {
+	f := newOrgPermissionFixture(t)
+	member := f.member(t, domain.OrgRoleMember)
+	permission := f.permission(t, "org.tasks.read")
+	role := f.role(t, "reader", permission.Key)
+	f.assign(t, member, role)
+	repo := &countingOrgMemberships{OrgRepository: f.s.orgs}
+	f.s.orgs = repo
+	decision, err := f.s.CheckPermission(t.Context(), api.CheckOrgPermissionInput{Actor: member, PermissionKey: permission.Key})
+	if err != nil || decision == nil || !decision.Allowed || decision.MembershipRole != domain.OrgRoleMember {
+		t.Fatalf("custom role decision=%+v error=%v", decision, err)
+	}
+	if repo.reads != 1 {
+		t.Fatalf("membership reads=%d", repo.reads)
+	}
 }
 
 func newOrgPermissionFixture(t *testing.T) orgPermissionFixture {

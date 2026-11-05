@@ -28,11 +28,13 @@ func (a *Auth) RequireActiveOrgPermission(key string) func(http.Handler) http.Ha
 }
 
 // RequireOrgPermissionScope passes the authorized tenant scope to an application handler.
+// It includes authentication; prefer ProtectOrgScope for browser HTTP routes.
 func (a *Auth) RequireOrgPermissionScope(key string, next OrgHandlerFunc) http.Handler {
-	return a.RequireAuth(a.RequireOrgPermission(key)(a.RequireOrg(domain.OrgRoleMember)(a.orgScopeHandler(next))))
+	return a.RequireAuth(a.RequireOrgPermission(key)(a.orgScopeHandler(next)))
 }
 
 // RequireActiveOrgPermissionScope checks live grants before exposing the active scope.
+// It includes authentication; prefer ProtectActiveOrgScope for browser HTTP routes.
 func (a *Auth) RequireActiveOrgPermissionScope(key string, next OrgHandlerFunc) http.Handler {
-	return a.RequireAuth(a.RequireActiveOrgPermission(key)(middleware.RequireActiveOrg(domain.OrgRoleMember)(a.orgScopeHandler(next))))
+	return a.RequireAuth(a.RequireActiveOrgPermission(key)(a.orgScopeHandler(next)))
 }

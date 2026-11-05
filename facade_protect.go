@@ -23,3 +23,16 @@ func (a *Auth) Protect(pattern string, next http.Handler) http.Handler {
 	mux.Handle(pattern, a.RequireCSRF(a.RequireAuth(next)))
 	return a.CORS(limited(mux))
 }
+
+// ProtectOrgScope applies Protect's complete browser security chain, checks the
+// live organization permission, and passes the authorized scope to next. The
+// organization comes from the pattern's {orgID}; authentication runs once.
+func (a *Auth) ProtectOrgScope(pattern, key string, next OrgHandlerFunc) http.Handler {
+	return a.Protect(pattern, a.RequireOrgPermission(key)(a.orgScopeHandler(next)))
+}
+
+// ProtectActiveOrgScope is ProtectOrgScope for the authenticated session's active
+// organization. A path or query organization cannot override that selection.
+func (a *Auth) ProtectActiveOrgScope(pattern, key string, next OrgHandlerFunc) http.Handler {
+	return a.Protect(pattern, a.RequireActiveOrgPermission(key)(a.orgScopeHandler(next)))
+}

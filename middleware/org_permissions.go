@@ -10,12 +10,14 @@ import (
 )
 
 // OrgPermissionChecker evaluates a current membership, role, definition and grant.
+// Allowed decisions must include the resolved fixed MembershipRole.
 type OrgPermissionChecker interface {
-	RequirePermission(context.Context, api.CheckOrgPermissionInput) error
+	CheckPermission(context.Context, api.CheckOrgPermissionInput) (*api.OrgPermissionDecision, error)
 }
 
 // RequireOrgPermission resolves the org from the path, then authorized context.
 // Authentication must run first. No session role snapshot grants access.
+// Successful checks store both the organization ID and live membership role.
 func RequireOrgPermission(checker OrgPermissionChecker, key string) func(http.Handler) http.Handler {
 	return requireOrgPermission(checker, key, false)
 }
@@ -51,11 +53,21 @@ func requireOrgPermission(checker OrgPermissionChecker, key string, active bool)
 			} else if actor.OrgID == "" {
 				actor.OrgID = GetOrgID(r.Context())
 			}
-			if err := checker.RequirePermission(r.Context(), api.CheckOrgPermissionInput{Actor: actor, PermissionKey: key}); err != nil {
+			decision, err := checker.CheckPermission(r.Context(), api.CheckOrgPermissionInput{Actor: actor, PermissionKey: key})
+			if err != nil {
 				writeAppAuthorizationError(w, err)
 				return
 			}
+			if decision == nil || !decision.Allowed {
+				writeAppAuthorizationError(w, domain.ErrOrgForbidden)
+				return
+			}
+			if actor.OrgID == "" || !decision.MembershipRole.IsValid() {
+				writeAppAuthorizationError(w, domain.ErrInternal)
+				return
+			}
 			ctx := context.WithValue(r.Context(), orgIDKey, actor.OrgID)
+			ctx = context.WithValue(ctx, orgRoleKey, decision.MembershipRole)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

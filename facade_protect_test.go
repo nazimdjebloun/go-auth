@@ -128,3 +128,96 @@ func TestProtectRejectsMismatchedRoute(t *testing.T) {
 		t.Fatalf("mismatch: %d", w.Code)
 	}
 }
+
+func TestProtectOrganizationScopes(t *testing.T) {
+	f := newOrgPermissionsRegressionFixture(t)
+	const key = "org.tasks.write"
+	svc := f.a.Services().OrgPermissions
+	permission, err := svc.CreatePermission(t.Context(), api.CreateOrgPermissionInput{Actor: f.actor, Key: key, Name: "Write tasks"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.SetRolePermissions(t.Context(), api.SetOrgRolePermissionsInput{Actor: f.actor, RoleID: f.role.ID, ExpectedRevision: 1, PermissionKeys: []string{key}}); err != nil {
+		t.Fatal(err)
+	}
+	memberActor := api.OrgPermissionActor{UserID: f.memberID, OrgID: f.actor.OrgID}
+	// Resolve the member's current session without putting identity into the handler.
+	_, sessionUser, err := f.a.Services().Session.ValidateWithUser(t.Context(), f.memberToken)
+	if err != nil || sessionUser.ID != f.memberID {
+		t.Fatalf("member identity: %v", err)
+	}
+	session, err := f.a.Services().Session.Validate(t.Context(), f.memberToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberActor.SessionID = session.ID
+	if err := f.a.Services().Org.SetActiveOrg(t.Context(), api.SetActiveOrgInput{SessionID: session.ID, UserID: f.memberID, OrgID: f.actor.OrgID}); err != nil {
+		t.Fatal(err)
+	}
+	// A second RequireOrg would perform a redundant membership query.
+	f.a.orgMemberMW = func(http.Handler) http.Handler { t.Fatal("duplicate membership middleware"); return nil }
+	called := 0
+	next := func(w http.ResponseWriter, r *http.Request, scope OrgScope) {
+		called++
+		if scope.OrgID != memberActor.OrgID || scope.UserID != memberActor.UserID || scope.Role != domain.OrgRoleMember {
+			t.Fatalf("scope=%+v", scope)
+		}
+		if r.Pattern == "" {
+			t.Fatal("missing route pattern")
+		}
+		w.WriteHeader(204)
+	}
+	pathPattern := "POST /scoped/{orgID}/tasks"
+	activePattern := "POST /active-scoped/{orgID}/tasks"
+	path := "/scoped/" + f.actor.OrgID + "/tasks"
+	activePath := "/active-scoped/" + uuid.NewString() + "/tasks"
+	f.mux.Handle(pathPattern, f.a.ProtectOrgScope(pathPattern, key, next))
+	f.mux.Handle(activePattern, f.a.ProtectActiveOrgScope(activePattern, key, next))
+	// Existing scope helpers also compose safely through Protect.
+	composedPattern := "POST /composed/{orgID}/tasks"
+	f.mux.Handle(composedPattern, f.a.Protect(composedPattern, f.a.RequireOrgPermissionScope(key, next)))
+	f.request(t, "POST", path, "", f.memberToken, 204)
+	f.request(t, "POST", activePath, "", f.memberToken, 204)
+	f.request(t, "POST", "/composed/"+f.actor.OrgID+"/tasks", "", f.memberToken, 204)
+	f.request(t, "POST", path, "", "", 401)
+	r := httptest.NewRequest("POST", path, nil)
+	r.Header.Set("Origin", "http://localhost")
+	r.AddCookie(&http.Cookie{Name: f.a.cookies.Name, Value: f.memberToken})
+	w := httptest.NewRecorder()
+	f.mux.ServeHTTP(w, r)
+	if w.Code != 403 {
+		t.Fatalf("missing CSRF status=%d", w.Code)
+	}
+	disabled := false
+	if _, err := svc.UpdatePermission(t.Context(), api.UpdateOrgPermissionInput{Actor: f.actor, PermissionID: permission.ID, ExpectedRevision: 1, IsEnabled: &disabled}); err != nil {
+		t.Fatal(err)
+	}
+	f.request(t, "POST", path, "", f.memberToken, 403)
+	f.request(t, "POST", activePath, "", f.memberToken, 403)
+	if called != 3 {
+		t.Fatalf("business calls=%d", called)
+	}
+}
+
+func TestProtectOrganizationScopesRejectInvalidSetup(t *testing.T) {
+	f := newAppHTTPFixture(t, false, false)
+	for _, tc := range []struct {
+		name  string
+		build func() http.Handler
+	}{
+		{name: "path nil handler", build: func() http.Handler { return f.a.ProtectOrgScope("GET /orgs/{orgID}", "org.tasks.read", nil) }},
+		{name: "active nil handler", build: func() http.Handler { return f.a.ProtectActiveOrgScope("GET /tasks", "org.tasks.read", nil) }},
+		{name: "invalid pattern", build: func() http.Handler {
+			return f.a.ProtectOrgScope("GET /{", "org.tasks.read", func(http.ResponseWriter, *http.Request, OrgScope) {})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatal("invalid setup did not panic")
+				}
+			}()
+			tc.build()
+		})
+	}
+}

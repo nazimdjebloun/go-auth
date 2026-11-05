@@ -23,6 +23,9 @@ type CheckOrgPermissionInput struct {
 // OrgPermissionDecision separates denial from infrastructure errors.
 type OrgPermissionDecision struct {
 	Allowed bool `json:"allowed"`
+	// MembershipRole is the fixed owner/admin/member classification resolved
+	// by an allowed check, including when a custom permission role is assigned.
+	MembershipRole domain.OrgRole `json:"-"`
 }
 
 // CreateOrgPermissionInput defines an application-owned business action.

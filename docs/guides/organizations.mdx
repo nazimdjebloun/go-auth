@@ -539,11 +539,11 @@ func getProject(w http.ResponseWriter, r *http.Request, scope goauth.OrgScope) {
 
 mux.Handle(
     "GET /projects/{projectID}",
-    auth.CORS(auth.RequireActiveOrgScope(domain.OrgRoleMember, getProject)),
+    auth.Protect("GET /projects/{projectID}", auth.RequireActiveOrgScope(domain.OrgRoleMember, getProject)),
 )
 ```
 
-`RequireActiveOrgScope` includes `RequireAuth`; do not wrap it a second time. It returns `no_active_org` (400) if the session has no active org and `org_forbidden` (403) if its role is below the required role. For a route that names the tenant in an `{orgID}` path segment, use `RequireOrgScope` with the same handler signature instead.
+`RequireActiveOrgScope` includes `RequireAuth`; the surrounding `Protect` reuses that authentication and adds the browser protections. Put `auth.CORS` around the complete method-based router for application preflights. It returns `no_active_org` (400) if the session has no active org and `org_forbidden` (403) if its role is below the required role. For a route that names the tenant in an `{orgID}` path segment, use `RequireOrgScope` with the same handler signature instead. With granular org permissions enabled, prefer `ProtectOrgScope(pattern, key, handler)` or `ProtectActiveOrgScope(pattern, key, handler)` for live permission enforcement and the complete browser chain.
 
 <Callout type="warning" title="Org authorization does not rewrite your SQL">
   `OrgScope` makes the tenant binding an explicit handler and repository argument, but go-auth cannot inject `org_id` into queries issued by your application. Every read, update, and delete of tenant-owned data must include `scope.OrgID` in its predicate. Filtering only by a caller-controlled resource ID can expose another tenant's row, even when this middleware authorized the request itself.

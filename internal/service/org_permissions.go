@@ -60,11 +60,16 @@ func orgInvalid(message string) error        { return appInvalid(message) }
 func orgPage(limit, offset int) (int, error) { return appPage(limit, offset) }
 
 func (s *OrgPermissionsService) current(ctx context.Context, actor api.OrgPermissionActor) (*domain.User, *domain.OrgPermissionRole, error) {
+	user, _, role, err := s.currentMembership(ctx, actor)
+	return user, role, err
+}
+
+func (s *OrgPermissionsService) currentMembership(ctx context.Context, actor api.OrgPermissionActor) (*domain.User, *domain.OrgMember, *domain.OrgPermissionRole, error) {
 	if actor.UserID == "" {
-		return nil, nil, domain.ErrOrgForbidden
+		return nil, nil, nil, domain.ErrOrgForbidden
 	}
 	if err := validateOrgID(actor.OrgID); err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	var user *domain.User
 	var err error
@@ -74,10 +79,10 @@ func (s *OrgPermissionsService) current(ctx context.Context, actor api.OrgPermis
 		user, err = s.users.GetByID(ctx, actor.UserID)
 	}
 	if err != nil {
-		return nil, nil, fmt.Errorf("loading org permission actor: %w", err)
+		return nil, nil, nil, fmt.Errorf("loading org permission actor: %w", err)
 	}
 	if user == nil || user.IsBanned {
-		return nil, nil, domain.ErrOrgForbidden
+		return nil, nil, nil, domain.ErrOrgForbidden
 	}
 	var member *domain.OrgMember
 	if ctx.Value(orgManagementContextKey{}) != nil {
@@ -86,24 +91,24 @@ func (s *OrgPermissionsService) current(ctx context.Context, actor api.OrgPermis
 		member, err = s.orgs.GetMembership(ctx, actor.OrgID, actor.UserID)
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if member == nil {
-		return nil, nil, domain.ErrOrgMemberNotFound
+		return nil, nil, nil, domain.ErrOrgMemberNotFound
 	}
 	role, _, err := s.memberRole(ctx, member)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if !role.IsEnabled {
-		return nil, nil, domain.ErrOrgForbidden
+		return nil, nil, nil, domain.ErrOrgForbidden
 	}
 	// The fixed classification remains the authority for owner counters and
 	// ownership transitions. A custom role cannot masquerade as an owner.
 	if !orgRoleMatchesMembership(role, member) {
-		return nil, nil, domain.ErrOrgForbidden
+		return nil, nil, nil, domain.ErrOrgForbidden
 	}
-	return user, role, nil
+	return user, member, role, nil
 }
 
 func (s *OrgPermissionsService) assurance(ctx context.Context, actor api.OrgPermissionActor, user *domain.User) error {
@@ -143,7 +148,7 @@ func (s *OrgPermissionsService) CheckPermission(ctx context.Context, input api.C
 	if err := validateOrgKey(input.PermissionKey); err != nil {
 		return nil, err
 	}
-	user, role, err := s.current(ctx, input.Actor)
+	user, member, role, err := s.currentMembership(ctx, input.Actor)
 	if errors.Is(err, domain.ErrOrgForbidden) {
 		return &api.OrgPermissionDecision{}, nil
 	}
@@ -159,7 +164,7 @@ func (s *OrgPermissionsService) CheckPermission(ctx context.Context, input api.C
 			return &api.OrgPermissionDecision{}, nil
 		}
 		if role.SystemKey != nil {
-			return &api.OrgPermissionDecision{Allowed: role.IsOwner() || slices.Contains(orgPreset(*role.SystemKey), input.PermissionKey)}, nil
+			return &api.OrgPermissionDecision{Allowed: role.IsOwner() || slices.Contains(orgPreset(*role.SystemKey), input.PermissionKey), MembershipRole: member.Role}, nil
 		}
 	}
 	p, err := s.permissions.PermissionByKey(ctx, input.Actor.OrgID, input.PermissionKey)
@@ -170,13 +175,13 @@ func (s *OrgPermissionsService) CheckPermission(ctx context.Context, input api.C
 		return &api.OrgPermissionDecision{}, nil
 	}
 	if role.IsOwner() {
-		return &api.OrgPermissionDecision{Allowed: true}, nil
+		return &api.OrgPermissionDecision{Allowed: true, MembershipRole: member.Role}, nil
 	}
 	keys, err := s.permissions.RolePermissionKeys(ctx, input.Actor.OrgID, role.ID)
 	if err != nil {
 		return nil, err
 	}
-	return &api.OrgPermissionDecision{Allowed: slices.Contains(keys, input.PermissionKey)}, nil
+	return &api.OrgPermissionDecision{Allowed: slices.Contains(keys, input.PermissionKey), MembershipRole: member.Role}, nil
 }
 
 // RequirePermission fails closed while retaining infrastructure errors.

@@ -46,14 +46,70 @@ pattern = "GET /private-admin"
 mux.Handle(pattern, auth.Protect(pattern, auth.RequireAdmin(adminPage)))
 
 pattern = "POST /orgs/{orgID}/widgets"
-mux.Handle(pattern, auth.Protect(pattern,
-    auth.RequireOrg(domain.OrgRoleMember)(createOrgWidget)))
+mux.Handle(pattern, auth.ProtectOrgScope(pattern, "org.widgets.create",
+    func(w http.ResponseWriter, r *http.Request, scope goauth.OrgScope) {
+        // Pass scope into the repository; every query must include scope.OrgID.
+        w.WriteHeader(http.StatusNoContent)
+    }))
 ```
 
 Permission and organization features must be enabled and provisioned as
 documented in their guides. The wrappers retain their existing live checks;
 `Protect` does not grant a role or permission. Include the authenticated user
 and organization in application queries rather than trusting IDs in JSON.
+
+`ProtectActiveOrgScope(pattern, key, handler)` instead selects the authenticated
+session's active organization. Both helpers check live membership, permission
+role and grants, and supply the fixed owner/admin/member classification as
+`scope.Role`. A custom permission role is represented by the member classification;
+it does not become an owner or admin. Incomplete scope fails with 500 before the
+application handler runs.
+
+For applications intentionally using fixed roles, compose
+`auth.Protect(pattern, auth.RequireOrgScope(domain.OrgRoleMember, handler))`
+or `RequireActiveOrgScope`. Repeated authentication from the same `Auth` instance
+reuses the successful result while credentials, selected session context and
+identity remain unchanged. Separate requests and separate instances authenticate
+independently; public context setters do not bypass authentication.
+
+## Route helper reference
+
+`Protect` is the complete browser route wrapper. `RequireAuth` is one layer:
+it validates the selected session, refreshes expired access credentials when
+possible, loads user/session context and enforces email verification. It adds
+no CORS, CSRF, origin or rate-limit protection and grants no application or org
+permission. Prefer `Protect` or its scoped variants for browser endpoints.
+
+| Helper on `*Auth` | What it does |
+|---|---|
+| `Protect(pattern, handler)` | Complete browser chain plus route matching, `Pattern` and path parameters. Add resource authorization inside it. |
+| `ProtectOrgScope(pattern, key, handler)` | Complete chain plus a live org permission check for `{orgID}`; passes `OrgScope`. |
+| `ProtectActiveOrgScope(pattern, key, handler)` | Complete chain plus a live permission check for the session's active org; passes `OrgScope`. |
+| `RequireAuth(handler)` | Session authentication, transparent refresh, identity context and email verification. |
+| `RequireAdmin(handler)` | Current app-admin authorization and required second-factor assurance; run after authentication. |
+| `RequireAppPermission(key)(handler)` | Live application permission check; run after authentication. |
+| `RequireOrgPermission(key)(handler)` | Live org permission check using `{orgID}`, then authorized org context; stores org ID and membership role. Run after authentication. |
+| `RequireActiveOrgPermission(key)(handler)` | Live org permission check using the session's active org ID; stores the live ID/role. Run after authentication. |
+| `RequireOrg(role)(handler)` | Membership plus minimum fixed role; reads `{orgID}`, falling back to `org_id` query. Run after authentication. |
+| `RequireActiveOrg(role)(handler)` | Active-session org and minimum fixed role; run after authentication. |
+| `RequireOrgScope(role, handler)` | Authentication plus fixed-role org checks; passes `OrgScope`. Add `Protect` for browser protections. |
+| `RequireActiveOrgScope(role, handler)` | Same fixed-role scope adapter for the session's active org. |
+| `RequireOrgPermissionScope(key, handler)` | Authentication plus live org permission checks; passes `OrgScope`. Prefer `ProtectOrgScope` for browser routes. |
+| `RequireActiveOrgPermissionScope(key, handler)` | Same permission scope adapter for the active org. Prefer `ProtectActiveOrgScope` for browser routes. |
+| `RequireCSRF(handler)` | Signed double-submit CSRF and Origin/Referer checks. |
+| `CORS(handler)` | Configured origin/credential headers and preflight handling; place outside a method-based router for application preflights. |
+| `RateLimit(handler)` | Configured limiter using the router's route pattern. |
+| `RateLimitWithPattern(pattern)(handler)` | Configured limiter with an explicit, validated pattern for custom routers. |
+| `Mount(mux)` | Registers enabled built-in auth routes and their middleware. |
+| `Handler(pattern)` | Looks up an enabled built-in wrapped handler; custom routers must populate its path parameters. |
+| `SetSessionCookies(w, r, sessionID, sessionToken, refreshToken)` | Issues credentials and session-bound CSRF protection after trusted session creation. |
+| `ClearSessionCookies(w, r)` | Clears browser credentials and issues anonymous CSRF protection; revoke the session first. |
+| `RotateCSRFToken(w, r)` | Replaces request CSRF protection; credential cookie helpers already rotate it. |
+
+`middleware.GetUserFromContext`, `GetSessionFromContext`, `GetOrgID` and
+`GetOrgRole` read values established by preceding middleware. Missing values
+return nil or the zero value; getters do not authorize or validate scope. For
+tenant-owned data, accept `OrgScope` and pass it explicitly to repositories.
 
 ## Client flow and failures
 

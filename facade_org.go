@@ -95,9 +95,8 @@ func (a *Auth) RequireActiveOrg(role domain.OrgRole) func(http.Handler) http.Han
 // scope to next. It resolves the organization from the {orgID} path segment,
 // falling back to the org_id query parameter.
 //
-// Authentication is included; do not wrap the returned handler in RequireAuth.
-// CORS, CSRF, and rate limiting remain explicit so consumers can apply the
-// layers appropriate to the route.
+// Authentication is included. Wrap with Protect(pattern, handler) for the complete
+// browser security chain; the same Auth instance authenticates only once.
 func (a *Auth) RequireOrgScope(role domain.OrgRole, next OrgHandlerFunc) http.Handler {
 	return a.RequireAuth(a.RequireOrg(role)(a.orgScopeHandler(next)))
 }
@@ -106,9 +105,8 @@ func (a *Auth) RequireOrgScope(role domain.OrgRole, next OrgHandlerFunc) http.Ha
 // organization stored on the authenticated session instead of an {orgID} path
 // segment.
 //
-// Authentication is included; do not wrap the returned handler in RequireAuth.
-// CORS, CSRF, and rate limiting remain explicit so consumers can apply the
-// layers appropriate to the route.
+// Authentication is included. Wrap with Protect(pattern, handler) for the complete
+// browser security chain; the same Auth instance authenticates only once.
 func (a *Auth) RequireActiveOrgScope(role domain.OrgRole, next OrgHandlerFunc) http.Handler {
 	return a.RequireAuth(a.RequireActiveOrg(role)(a.orgScopeHandler(next)))
 }

@@ -441,12 +441,20 @@ deadlocks. When audit is enabled, org authorization audit events identify the
 actor and organization and mark successful changes with `success: true`. They
 use the configured durable audit pipeline.
 
-Use `RequireOrgPermissionScope` or `RequireActiveOrgPermissionScope` for custom
-business routes, and constrain every application-owned query by `scope.OrgID`.
+Use `ProtectOrgScope` or `ProtectActiveOrgScope` for browser business routes,
+and constrain every application-owned query by `scope.OrgID`. These include the
+complete browser chain and obtain the scope's fixed membership role from the
+same live permission check. The lower-level `RequireOrgPermissionScope` and
+`RequireActiveOrgPermissionScope` include authentication and authorization only.
 Access response flags are informational. The library cannot authorize individual
 application resources without the application's own tenant/resource predicates.
 
 For application HTTP routes, prefer `Auth.Protect(pattern, handler)`, which combines the configured rate limiter with mandatory browser CSRF, session authentication and email-verification enforcement. Put ownership or role/permission checks inside it. `RequireAuth` alone only applies authentication and verification; see [application routes](./guides/application-routes.mdx).
+
+Nested authentication from the same middleware instance reuses a private proof
+within the request while credentials, session context and identity are unchanged.
+Public context setters cannot create that proof. New requests authenticate again;
+this is not a cross-request authorization cache.
 
 ## Email-address replacement
 

@@ -13,6 +13,17 @@ import (
 
 type ctxKey string
 
+// Each AuthMiddleware instance owns a distinct, non-zero-sized context key.
+// Public identity setters cannot manufacture proof of authentication.
+type authenticatedRequestKey struct{ marker byte }
+
+type authenticatedRequest struct {
+	scope   sessioncontext.Scope
+	cookie  string
+	session *domain.Session
+	user    *domain.User
+}
+
 const (
 	ctxSession ctxKey = "session"
 	ctxUser    ctxKey = "user"
@@ -59,9 +70,24 @@ func AuthMiddleware(sessionSvc SessionAuthenticator, cookies CookieSettings, use
 	if logger == nil {
 		logger = slog.Default()
 	}
+	key := &authenticatedRequestKey{}
 	return func(next http.Handler) http.Handler {
 		return BrowserSession(logger, false)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			session, user, rawToken := resolveSession(w, r, sessionSvc, cookies.ForRequest(r), userRepo, logger)
+			selected := cookies.ForRequest(r)
+			cookie, _ := r.Cookie(selected.Name)
+			var credential string
+			if cookie != nil {
+				credential = cookie.Value
+			}
+			if authenticated, ok := r.Context().Value(key).(authenticatedRequest); ok &&
+				authenticated.scope == sessioncontext.Current(r.Context()) &&
+				authenticated.cookie == credential &&
+				authenticated.session == GetSessionFromContext(r.Context()) &&
+				authenticated.user == GetUserFromContext(r.Context()) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			session, user, rawToken := resolveSession(w, r, sessionSvc, selected, userRepo, logger)
 			if session == nil || user == nil {
 				return
 			}
@@ -75,6 +101,9 @@ func AuthMiddleware(sessionSvc SessionAuthenticator, cookies CookieSettings, use
 
 			ctx := context.WithValue(r.Context(), ctxSession, session)
 			ctx = context.WithValue(ctx, ctxUser, user)
+			ctx = context.WithValue(ctx, key, authenticatedRequest{
+				scope: sessioncontext.Current(ctx), cookie: credential, session: session, user: user,
+			})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		}))
 	}
