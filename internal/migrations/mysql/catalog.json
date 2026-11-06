@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "release": "v0.6.0",
+  "release": "v0.5.5",
   "dialect": "mysql",
   "targetRevision": 5,
   "bootstrapRevision": 1,
@@ -47,7 +47,7 @@
     },
     {
       "id": 5,
-      "file": "000005_v0.6.0_002.sql",
+      "file": "000005_v0.5.5_001.sql",
       "checksum": "5fe143d3feb319afc07413e604dbfe395631a22582e99ec54cda9dbc059678f1",
       "kind": "upgrade",
       "transactional": false,

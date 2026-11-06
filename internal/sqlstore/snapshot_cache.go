@@ -54,6 +54,9 @@ func (c *SnapshotCache) Stats() SnapshotStats {
 func snapshotKey(kind, id, version string) string { return kind + ":" + id + ":" + version }
 
 func readSnapshot[T any](ctx context.Context, c *SnapshotCache, kind, id, version string) (*T, bool) {
+	if c == nil {
+		return nil, false
+	}
 	if version == "" || version == "legacy" {
 		c.misses.Add(1)
 		return nil, false
@@ -91,7 +94,7 @@ func readSnapshot[T any](ctx context.Context, c *SnapshotCache, kind, id, versio
 }
 
 func writeSnapshot(ctx context.Context, c *SnapshotCache, kind, id, version string, value any) {
-	if version == "" || version == "legacy" {
+	if c == nil || version == "" || version == "legacy" {
 		return
 	}
 	data, err := json.Marshal(value)

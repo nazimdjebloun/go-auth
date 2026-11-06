@@ -167,6 +167,7 @@ local raw=redis.call('GET',KEYS[1])
 local count=0
 if raw then
   count=tonumber(raw)
+  -- MaxInt32 + 1 is valid: the saturated count includes a denied request.
   if not count or count<1 or count~=math.floor(count) or count>2147483648 then return redis.error_reply('invalid counter') end
   if redis.call('PTTL',KEYS[1])<0 then return redis.error_reply('counter has no ttl') end
 end

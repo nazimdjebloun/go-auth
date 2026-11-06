@@ -135,7 +135,7 @@ func New(in *Config) (*Auth, error) {
 	if err := CheckSchema(startupCtx, sqlDB.DB, string(cfg.app.Database.Driver)); err != nil {
 		return nil, fmt.Errorf("goauth: startup schema compatibility: %w; apply matching goauth migrations before startup (existing untracked schemas require explicit adoption)", err)
 	}
-	redisParts, err := buildRedis(context.Background(), &cfg, keys)
+	redisParts, err := buildRedis(startupCtx, &cfg, keys)
 	if err != nil {
 		return nil, err
 	}

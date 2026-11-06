@@ -53,7 +53,7 @@ TTL and scripting permissions, not only PING.
 | `Sessions`, `Tokens` | Nil enables that snapshot cache; pointer to false disables it |
 | `RateLimits`, `TwoFactorNotifications` | Nil enables that Redis capability; pointer to false disables it |
 | `OperationTimeout` | 250ms; positive command deadline |
-| `StartupTimeout` | 5s; shared Redis startup deadline |
+| `StartupTimeout` | 5s; Redis startup deadline, capped by the remaining 10s construction deadline shared with SQL |
 | `SessionCacheTTL` | 5 minutes; retention cap, not authentication lifetime |
 | `TokenCacheTTL` | 1 minute; retention cap, including spent/expired metadata |
 | `MaxSnapshotBytes` | 256 KiB; accepted range 1 KiB to 16 MiB |

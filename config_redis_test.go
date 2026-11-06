@@ -1,6 +1,9 @@
 package goauth
 
 import (
+	"context"
+	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +16,51 @@ import (
 	"github.com/nazimdjebloun/go-auth/ratelimit"
 	"github.com/redis/go-redis/v9"
 )
+
+type redisStartupDeadlineHook struct{ deadline time.Time }
+
+func (*redisStartupDeadlineHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+func (*redisStartupDeadlineHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+func (h *redisStartupDeadlineHook) ProcessHook(_ redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, _ redis.Cmder) error {
+		h.deadline, _ = ctx.Deadline()
+		return context.DeadlineExceeded
+	}
+}
+
+func TestRedisStartupUsesSharedConstructionDeadline(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := Migrate(t.Context(), db, MigrationOptions{Driver: "sqlite"}); err != nil {
+		t.Fatal(err)
+	}
+	client := redis.NewClient(&redis.Options{Addr: "unused:1", ContextTimeoutEnabled: true, MaxRetries: -1})
+	t.Cleanup(func() { _ = client.Close() })
+	hook := &redisStartupDeadlineHook{}
+	client.AddHook(hook)
+	cfg, err := NewConfig(minimalOpts(
+		WithApp(AppConfig{Name: "app", BaseURL: "https://example.com", Database: DatabaseConfig{Driver: DriverSQLite, DB: db}}),
+		WithRedis(RedisConfig{Client: client, StartupTimeout: time.Minute, OperationTimeout: time.Minute}),
+	)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a, err := New(cfg); !errors.Is(err, context.DeadlineExceeded) {
+		if a != nil {
+			a.Close()
+		}
+		t.Fatalf("startup error = %v", err)
+	}
+	if hook.deadline.IsZero() || time.Until(hook.deadline) > startupDatabaseTimeout {
+		t.Fatalf("Redis command escaped the shared startup deadline: %v", hook.deadline)
+	}
+}
 
 func TestRedisConfigClonesIntentAndRejectsConflict(t *testing.T) {
 	c := redis.NewClient(&redis.Options{Addr: "unused:1", ContextTimeoutEnabled: true})

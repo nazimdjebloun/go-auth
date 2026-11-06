@@ -21,6 +21,19 @@ type snapshotMemory struct {
 	beforePut func()
 }
 
+func TestSnapshotDisabledFillUsesSQL(t *testing.T) {
+	db := backendDB(t)
+	r := NewSessionRepository(db)
+	s := snapshotSessionFixture(t, db, r)
+	got, err := r.fillSession(t.Context(), "id=$1", s.ID)
+	if err != nil || got == nil || got.TokenHash != s.TokenHash {
+		t.Fatalf("uncached SQL fill = %+v, %v", got, err)
+	}
+	if _, hit := readSnapshot[sessionSnapshot](t.Context(), nil, "session", s.ID, "version"); hit {
+		t.Fatal("disabled snapshot cache reported a hit")
+	}
+}
+
 func (m *snapshotMemory) Get(_ context.Context, k string) ([]byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

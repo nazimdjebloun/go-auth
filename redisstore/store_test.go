@@ -3,6 +3,7 @@ package redisstore
 import (
 	"context"
 	"errors"
+	"math"
 	"net"
 	"os"
 	"strings"
@@ -203,6 +204,35 @@ func TestRedisGlobalFixedWindow(t *testing.T) {
 	third, e := s.Allow(t.Context(), "expiry", ratelimit.Rate{Requests: 2, Window: 100 * time.Millisecond})
 	if e != nil || !third.Allowed || third.Remaining != 1 {
 		t.Fatal(third, e)
+	}
+}
+
+func TestRedisCounterMaxInt32Saturation(t *testing.T) {
+	s, c := liveStore(t)
+	key := s.redisKey("counter", "maximum")
+	if err := c.Set(t.Context(), key, int64(math.MaxInt32)-1, time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	rate := ratelimit.Rate{Requests: math.MaxInt32, Window: time.Minute}
+	last, err := s.Allow(t.Context(), "maximum", rate)
+	if err != nil || !last.Allowed || last.Remaining != 0 {
+		t.Fatalf("last allowed request = %+v, %v", last, err)
+	}
+	for range 2 {
+		denied, err := s.Allow(t.Context(), "maximum", rate)
+		if err != nil || denied.Allowed || denied.Remaining != 0 {
+			t.Fatalf("saturated request = %+v, %v", denied, err)
+		}
+	}
+	count, err := c.Get(t.Context(), key).Int64()
+	if err != nil || count != int64(math.MaxInt32)+1 {
+		t.Fatalf("saturated counter = %d, %v", count, err)
+	}
+	if err := c.Set(t.Context(), key, int64(math.MaxInt32)+2, time.Minute).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Allow(t.Context(), "maximum", rate); err == nil {
+		t.Fatal("accepted a counter beyond the saturation sentinel")
 	}
 }
 
