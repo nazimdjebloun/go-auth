@@ -551,3 +551,8 @@ For a complete "log out everywhere else" button, see [Client → Sessions](./cli
 - [Security](../security.mdx) — session hashing, refresh rotation, and the reuse-detection grace window
 - [Deployment](./deployment.mdx) for how these cookies behave when the frontend and the API are on different hosts
 - [Schemas](../schemas.mdx#sessions) — the `sessions` table this page reads and writes
+
+
+## Redis snapshots
+
+`WithRedis` can cache encrypted session snapshots selected through the current SQL record version. Revocation, rotation, ownership, active-org updates and MFA assurance remain SQL-authoritative. Locking/transactional reads bypass Redis; listings/counts remain SQL-backed. See [Redis consistency](./redis.mdx#consistency-and-failures).

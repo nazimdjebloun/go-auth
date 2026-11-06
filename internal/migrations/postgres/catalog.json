@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "release": "v0.5.4",
+  "release": "v0.6.0",
   "dialect": "postgres",
-  "targetRevision": 4,
+  "targetRevision": 5,
   "bootstrapRevision": 1,
   "migrations": [
     {
@@ -44,6 +44,19 @@
       "schema": "schema_000004.sql",
       "schemaChecksum": "2d8cd8cc1940a8f50c90d43b80d49f2065e01b9c55c45c5a43bb455eaeb2eb9b",
       "checks": []
+    },
+    {
+      "id": 5,
+      "file": "000005_v0.6.0_002.sql",
+      "checksum": "5fe143d3feb319afc07413e604dbfe395631a22582e99ec54cda9dbc059678f1",
+      "kind": "upgrade",
+      "transactional": true,
+      "schema": "schema_000005.sql",
+      "schemaChecksum": "a21f5aee541d72d5fd57af98010265e9916fc9a6ce72daf9f5ccb53688bfa276",
+      "checks": [
+        "SELECT COUNT(*)=0 FROM sessions WHERE cache_version IS NULL OR cache_version=''",
+        "SELECT COUNT(*)=0 FROM verification_tokens WHERE cache_version IS NULL OR cache_version=''"
+      ]
     }
   ]
 }

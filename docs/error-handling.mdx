@@ -311,3 +311,8 @@ Wrong passwords return `invalid_credentials` (401); limits return
 `rate_limit_exceeded` (429); proof-email delivery failures return `email_failed`
 (500). Infrastructure failures retain the generic `internal_error` envelope.
 Completion-notice failures are retried outside the successful transaction.
+
+
+## Redis infrastructure failures
+
+Redis snapshot failures fall back to authoritative SQL. Rate-limit backend failures retain 429 `rate_limit_error` and `Retry-After: 60`; exhausted budgets return `rate_limit_exceeded`. Notification counter failures never change login authorization. Canceled HTTP requests stop before downstream execution. Redis does not add a credential error code.

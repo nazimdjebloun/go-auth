@@ -2,6 +2,24 @@ package keyring
 
 import "testing"
 
+func TestRedisKeysAreDeterministicAndSeparated(t *testing.T) {
+	a, b := Derive([]byte("a fixed cache test secret with 32 bytes")), Derive([]byte("a fixed cache test secret with 32 bytes"))
+	if string(a.RedisCache) != string(b.RedisCache) || string(a.RedisNames) != string(b.RedisNames) {
+		t.Fatal("Redis keys differ across instances")
+	}
+	keys := [][]byte{a.CSRF, a.OAuthEnc, a.TwoFactor, a.OTPPepper, a.RedisCache, a.RedisNames}
+	for i, k := range keys {
+		if len(k) != 32 {
+			t.Fatal("invalid key size")
+		}
+		for j := 0; j < i; j++ {
+			if string(k) == string(keys[j]) {
+				t.Fatal("key purposes overlap")
+			}
+		}
+	}
+}
+
 func TestDerive_Deterministic(t *testing.T) {
 	secret := []byte("a fixed test secret, 32+ bytes long")
 	k1 := Derive(secret)

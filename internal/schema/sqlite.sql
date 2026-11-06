@@ -128,7 +128,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_active_at DATETIME NOT NULL,
     active_org_id TEXT REFERENCES organizations(id) ON DELETE SET NULL,
     active_org_role TEXT,
-    two_factor_verified_at DATETIME
+    two_factor_verified_at DATETIME,
+    cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy'
 );
 
 CREATE TABLE IF NOT EXISTS verification_tokens (
@@ -144,7 +145,8 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     resend_count INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     context_hash TEXT NOT NULL DEFAULT '',
-    encrypted_payload TEXT NOT NULL DEFAULT ''
+    encrypted_payload TEXT NOT NULL DEFAULT '',
+    cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy'
 );
 
 CREATE TABLE IF NOT EXISTS provider_accounts (

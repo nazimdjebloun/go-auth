@@ -33,6 +33,7 @@ func (c *Config) validate() error {
 		c.validateOrgPermissions,
 		c.validateMaintenance,
 		c.validateRateLimit,
+		c.validateRedis,
 		c.validateProviders,
 		c.validatePasswordHasher,
 		c.validateCoherence,

@@ -20,6 +20,7 @@ package goauth
 // to no minimum — the service treats any non-positive interval as disabled,
 // and validate() leaves negatives on this field alone.
 func (c *Config) applyDefaults() {
+	c.applyRedisDefaults()
 	c.applyAppDefaults()
 	c.applyMailerDefaults()
 	c.applyAuthenticationDefaults()

@@ -232,3 +232,8 @@ try {
 - [Configuration](../configuration.mdx) — every other config block
 - [Architecture → Extension points](../architecture.mdx#extension-points) — implementing `ratelimit.Store` against Redis
 - [Error Handling](../error-handling.mdx) — the full error code list
+
+
+## Built-in Redis store
+
+Use `WithRedis` for shared counters together with session/token snapshots and 2FA notification counters, or use `redisstore.New` with the existing `WithRateLimitStore` for a standalone counter adapter. Both preserve fixed windows. See [Redis](./redis.mdx).

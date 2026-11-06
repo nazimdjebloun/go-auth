@@ -322,6 +322,9 @@ func TestOrgInviteClaim_RejectsExpired(t *testing.T) {
 
 func TestOrgDelete_ReportsMissingRow(t *testing.T) {
 	db := newSQLiteTestDB(t)
+	if _, err := db.Exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, active_org_id TEXT, active_org_role TEXT, cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy')`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := db.Exec(`CREATE TABLE organizations (id TEXT PRIMARY KEY)`); err != nil {
 		t.Fatal(err)
 	}

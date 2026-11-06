@@ -135,3 +135,8 @@ reconciliation. [Migrations](./migrations.mdx) defines these paths, and
 
 - [Configuration](./configuration.mdx): every option, field by field
 - [Schemas](./schemas.mdx): the tables, the CLI, and applying the schema
+
+
+## Redis (optional)
+
+Redis uses `github.com/redis/go-redis/v9` through the root module. Apply the current SQL migrations before enabling `WithRedis`. The complete feature requires Redis scripting and snapshot/TTL permissions; see [Redis setup](./guides/redis.mdx).

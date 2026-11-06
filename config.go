@@ -34,6 +34,7 @@ type Config struct {
 	organizations  OrganizationConfig
 	appPermissions AppPermissionsConfig
 	orgPermissions OrgPermissionsConfig
+	redis          *RedisConfig
 	audit          AuditConfig
 	maintenance    MaintenanceConfig
 	email          *EmailConfig
@@ -124,6 +125,7 @@ func NewConfig(opts ...Option) (*Config, error) {
 // rateLimit.Logger, and the driver/database opened flags.
 func (c *Config) clone() Config {
 	cfg := *c
+	cfg.redis = cloneRedis(c.redis)
 	if c.app.Database.MaxIdleConns != nil {
 		idle := *c.app.Database.MaxIdleConns
 		cfg.app.Database.MaxIdleConns = &idle

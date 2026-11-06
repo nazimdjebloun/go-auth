@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "release": "v0.5.4",
+  "release": "v0.6.0",
   "dialect": "sqlite",
-  "targetRevision": 4,
+  "targetRevision": 5,
   "bootstrapRevision": 1,
   "migrations": [
     {
@@ -44,6 +44,19 @@
       "schema": "schema_000004.sql",
       "schemaChecksum": "2bbd3250ce16e9b733d8cd8d372707a88056ca5f3d82b17bec7c20cf0c4142e7",
       "checks": []
+    },
+    {
+      "id": 5,
+      "file": "000005_v0.6.0_002.sql",
+      "checksum": "5fe143d3feb319afc07413e604dbfe395631a22582e99ec54cda9dbc059678f1",
+      "kind": "upgrade",
+      "transactional": true,
+      "schema": "schema_000005.sql",
+      "schemaChecksum": "3eb219003b6c8b110597526dd4fd570b57988a72e5c904e29fdec530491c5dad",
+      "checks": [
+        "SELECT COUNT(*)=0 FROM sessions WHERE cache_version IS NULL OR cache_version=''",
+        "SELECT COUNT(*)=0 FROM verification_tokens WHERE cache_version IS NULL OR cache_version=''"
+      ]
     }
   ]
 }

@@ -19,11 +19,13 @@ import (
 
 // Auth is a configured go-auth instance.
 type Auth struct {
-	cfg      Config
-	pool     *pgxpool.Pool
-	db       *sqlstore.DB
-	services serviceSet
-	routes   []httproutes.Entry
+	cfg                 Config
+	redis               redisWiring
+	twoFactorStoreOwned bool
+	pool                *pgxpool.Pool
+	db                  *sqlstore.DB
+	services            serviceSet
+	routes              []httproutes.Entry
 
 	// cookies is the resolved session/refresh cookie scope, built once in
 	// New() via cookiesFromSession. Facade helpers and all wiring read it —
@@ -38,8 +40,8 @@ type Auth struct {
 
 	auditService *audit.Service
 
-	// twoFactorStore is always library-constructed (see New), so unlike the
-	// rate-limit Store it is unconditionally ours to close.
+	// twoFactorStore may use a caller-owned Redis client. Only a default
+	// memory store is owned by this Auth instance.
 	twoFactorStore ratelimit.Store
 	maintenance    *maintenanceRunner
 	recoveryWorker *service.RecoveryWorker
@@ -133,9 +135,16 @@ func New(in *Config) (*Auth, error) {
 	if err := CheckSchema(startupCtx, sqlDB.DB, string(cfg.app.Database.Driver)); err != nil {
 		return nil, fmt.Errorf("goauth: startup schema compatibility: %w; apply matching goauth migrations before startup (existing untracked schemas require explicit adoption)", err)
 	}
-	wired, err := buildServices(startupCtx, &cfg, keys, sqlDB, passwordHasher, passwordPepperKeys, hasherImpl)
+	redisParts, err := buildRedis(context.Background(), &cfg, keys)
 	if err != nil {
 		return nil, err
+	}
+	wired, err := buildServices(startupCtx, &cfg, keys, sqlDB, passwordHasher, passwordPepperKeys, hasherImpl, redisParts)
+	if err != nil {
+		return nil, err
+	}
+	if redisParts.rate != nil {
+		cfg.rateLimit.Store = redisParts.rate
 	}
 	// Allocate owned rate-limit resources only after every fallible startup
 	// step succeeds. A reusable Config carries no library-owned store.
@@ -154,21 +163,23 @@ func New(in *Config) (*Auth, error) {
 		wired.recoveryWorker.Start(context.Background())
 	}
 	return &Auth{
-		cfg:            cfg,
-		pool:           pool,
-		db:             sqlDB,
-		cookies:        wired.cookies,
-		authMW:         httpParts.authMW,
-		adminMW:        httpParts.adminMW,
-		rateLimitMW:    httpParts.rateLimitMW,
-		corsMW:         httpParts.corsMW,
-		orgMemberMW:    httpParts.orgMemberMW,
-		auditService:   wired.auditService,
-		twoFactorStore: wired.twoFactorStore,
-		maintenance:    maintenance,
-		recoveryWorker: wired.recoveryWorker,
-		services:       wired.services,
-		routes:         httpParts.routes,
+		cfg:                 cfg,
+		redis:               redisParts,
+		twoFactorStoreOwned: wired.twoFactorStoreOwned,
+		pool:                pool,
+		db:                  sqlDB,
+		cookies:             wired.cookies,
+		authMW:              httpParts.authMW,
+		adminMW:             httpParts.adminMW,
+		rateLimitMW:         httpParts.rateLimitMW,
+		corsMW:              httpParts.corsMW,
+		orgMemberMW:         httpParts.orgMemberMW,
+		auditService:        wired.auditService,
+		twoFactorStore:      wired.twoFactorStore,
+		maintenance:         maintenance,
+		recoveryWorker:      wired.recoveryWorker,
+		services:            wired.services,
+		routes:              httpParts.routes,
 	}, nil
 }
 
@@ -210,7 +221,7 @@ func (a *Auth) Close() {
 		}
 	}
 	// The 2FA notify store has no such caveat — New always builds it.
-	if closer, ok := a.twoFactorStore.(ratelimit.StoreCloser); ok {
+	if closer, ok := a.twoFactorStore.(ratelimit.StoreCloser); ok && a.twoFactorStoreOwned {
 		closer.Close()
 	}
 	if a.cfg.app.Database.opened && a.db != nil {

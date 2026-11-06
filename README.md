@@ -42,6 +42,9 @@ operations through Go service APIs.
 - Durable audit logs with a transactional outbox, retries, and dead-letter delivery
 - Replaceable mailer, templates, OAuth providers, password hasher, rate-limit
   store, and audit sinks
+- Optional [Redis integration](docs/guides/redis.mdx) for encrypted,
+  version-validated session/token snapshots and distributed rate-limit and
+  2FA notification counters; SQL remains the transaction authority
 
 ## Install
 

@@ -14,10 +14,12 @@ import (
 
 // Keys contains purpose-specific keys derived from the application secret.
 type Keys struct {
-	CSRF      []byte
-	OAuthEnc  []byte
-	TwoFactor []byte
-	OTPPepper []byte
+	CSRF       []byte
+	OAuthEnc   []byte
+	TwoFactor  []byte
+	OTPPepper  []byte
+	RedisCache []byte
+	RedisNames []byte
 }
 
 // Derive is pure: the same secret always yields the same keys, on every
@@ -27,10 +29,12 @@ type Keys struct {
 // operator-set precisely so every instance shares one value).
 func Derive(secret []byte) Keys {
 	return Keys{
-		CSRF:      deriveKey(secret, []byte("goauth-csrf-signing-v1")),
-		OAuthEnc:  deriveKey(secret, []byte("goauth-oauth-encryption-v1")),
-		TwoFactor: deriveKey(secret, []byte("goauth-2fa-binding-v1")),
-		OTPPepper: deriveKey(secret, []byte("goauth-otp-pepper-v1")),
+		RedisCache: deriveKey(secret, []byte("goauth-redis-cache-encryption-v1")),
+		RedisNames: deriveKey(secret, []byte("goauth-redis-key-names-v1")),
+		CSRF:       deriveKey(secret, []byte("goauth-csrf-signing-v1")),
+		OAuthEnc:   deriveKey(secret, []byte("goauth-oauth-encryption-v1")),
+		TwoFactor:  deriveKey(secret, []byte("goauth-2fa-binding-v1")),
+		OTPPepper:  deriveKey(secret, []byte("goauth-otp-pepper-v1")),
 	}
 }
 

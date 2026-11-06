@@ -239,6 +239,9 @@ func rateLimit(cfg *ratelimit.Config, declared string) func(http.Handler) http.H
 			clientIP := extractIP(r, cfg)
 			result, err := store.Allow(r.Context(), rateLimitKey(r.Method, pattern, clientIP), rate)
 			if err != nil {
+				if r.Context().Err() != nil {
+					return
+				}
 				// Both fields are request-line input and neither is bounded
 				// by net/http (the method isn't length-checked at all).
 				// This line fires per request while a store is down, so

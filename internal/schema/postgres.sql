@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     active_org_id UUID REFERENCES organizations(id) ON DELETE SET NULL,
     active_org_role VARCHAR(50),
     two_factor_verified_at TIMESTAMPTZ,
+    cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy',
     CHECK ((active_org_id IS NULL AND active_org_role IS NULL) OR (active_org_id IS NOT NULL AND active_org_role IS NOT NULL))
 );
 
@@ -179,7 +180,8 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     resend_count INT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     context_hash VARCHAR(64) NOT NULL DEFAULT '',
-    encrypted_payload TEXT NOT NULL DEFAULT ''
+    encrypted_payload TEXT NOT NULL DEFAULT '',
+    cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy'
 );
 
 CREATE TABLE IF NOT EXISTS provider_accounts (

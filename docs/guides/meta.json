@@ -18,6 +18,7 @@
     "audit-logs",
     "deployment",
     "rate-limiting",
+    "redis",
     "client"
   ]
 }

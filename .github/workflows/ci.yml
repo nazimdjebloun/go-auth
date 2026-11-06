@@ -234,3 +234,27 @@ jobs:
               fi
             done
           done
+
+  redis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      redis:
+        image: redis:8@sha256:f245f4c83b84a9e9a0588da1c9456e579455310f0945d5db52cd2ba27f2000cc
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      GOAUTH_REDIS_TEST_ADDR: 127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.10"
+          cache: true
+          cache-dependency-path: go.sum
+      - run: bash .github/scripts/test_redis.sh

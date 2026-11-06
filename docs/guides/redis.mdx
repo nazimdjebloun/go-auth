@@ -1,0 +1,138 @@
+---
+title: Redis
+description: SQL-authoritative session and token snapshots, distributed rate limits, and 2FA notification counters
+icon: Database
+---
+
+Redis integration is optional. `WithRedis` enables encrypted session/workflow-token
+snapshots, shared route/IP rate limits and shared 2FA suspicious-activity counters.
+SQL remains authoritative for identity, credential validity, permissions and every
+transaction. A warm cache does not allow authentication during a SQL outage.
+
+## Setup
+
+Apply the current auth migrations before starting the updated library. Revision 5
+adds `cache_version` as the last column of `sessions` and `verification_tokens` in
+PostgreSQL, MySQL and SQLite. Existing records start at `legacy` and bypass Redis
+until a normal mutation assigns a fresh version; this does not log users out.
+
+```go
+client := redis.NewClient(&redis.Options{
+    Addr:                  "127.0.0.1:6379", // use authenticated TLS for deployment
+    ContextTimeoutEnabled: true,
+    MaxRetries:            -1, // do not repeat an ambiguous counter increment
+    DialTimeout:           time.Second,
+    ReadTimeout:           time.Second,
+    WriteTimeout:          time.Second,
+    PoolTimeout:           time.Second,
+})
+defer client.Close()
+
+// Include this option in your existing goauth.NewConfig call:
+redisOption := goauth.WithRedis(goauth.RedisConfig{
+    Client: client,
+    Prefix: "myapp:production:auth",
+})
+_ = redisOption
+```
+
+Imports are `time`, `github.com/redis/go-redis/v9`, and the library as `goauth`.
+See the complete [Redis example](https://github.com/nazimdjebloun/go-auth/tree/main/examples/redis)
+for SQL setup, HTTP routing and graceful shutdown. Clients are caller-owned:
+drain requests, call `Auth.Close`, then close Redis. Constructors/configuration
+do not start background Redis workers. Startup probes require the actual cache,
+TTL and scripting permissions, not only PING.
+
+## Configuration
+
+| Field | Default / behavior |
+| --- | --- |
+| `Client` | Required caller-owned `*redis.Client` (including failover clients) or `*redis.ClusterClient` |
+| `CounterClient` | Optional separate instance for counters; otherwise uses Client |
+| `Prefix` | `goauth:v1`; set an application/environment-specific namespace |
+| `Sessions`, `Tokens` | Nil enables that snapshot cache; pointer to false disables it |
+| `RateLimits`, `TwoFactorNotifications` | Nil enables that Redis capability; pointer to false disables it |
+| `OperationTimeout` | 250ms; positive command deadline |
+| `StartupTimeout` | 5s; shared Redis startup deadline |
+| `SessionCacheTTL` | 5 minutes; retention cap, not authentication lifetime |
+| `TokenCacheTTL` | 1 minute; retention cap, including spent/expired metadata |
+| `MaxSnapshotBytes` | 256 KiB; accepted range 1 KiB to 16 MiB |
+
+The global `WithRateLimitEnabled(false)` still disables route limiting. If you
+supply `WithRateLimitStore`, explicitly disable Redis `RateLimits` to avoid a
+configuration conflict. Config cloning copies capability pointers. Reusing a
+Config shares caller clients, not library-owned memory stores.
+
+The supplied client must enable `ContextTimeoutEnabled` and finite socket
+timeouts. Configure finite dial/pool limits and authenticate/TLS for your
+deployment. Do not mutate client settings after wiring. Client command retries
+can over-count requests when a reply is lost; the adapter makes no application
+retry, except the safe `NOSCRIPT` fallback. One counter key must use one Rate
+consistently across all instances sharing its namespace.
+
+## Consistency and failures
+
+Each cached read first resolves the current record ID/version in SQL. Snapshots
+are immutable, encrypted/authenticated and bound to that exact identity. All
+library INSERTs and UPDATEs assign fresh versions atomically with their writes.
+Deleted rows have no current version, so old cached sessions/proofs cannot
+authenticate. Cache fills racing a write populate an obsolete key that future
+SQL lookups will not select. Transactional and locking reads bypass Redis.
+
+User state stays live in SQL. Password/2FA/email/OAuth/org changes and their
+token claims, session revocations and audit writes retain the SQL transaction.
+Admin session filtering, listing, counts and maintenance remain SQL-backed.
+This is a coherent disposable cache, not a Redis-only session database. It adds
+a Redis network operation to eligible lookups; benchmark your workload before
+assuming a latency improvement.
+
+Cache misses, unavailable Redis and bad snapshot data fall back to SQL. SQL
+errors remain failures even if Redis contains a snapshot. Rate-limit outages
+fail closed with the existing HTTP 429 `rate_limit_error` and `Retry-After: 60`;
+exhausted budgets return `rate_limit_exceeded`. Notification-counter failures
+do not block login. The 2FA counter sends a suspicious-activity signal after
+twenty failures/hour; SQL still enforces challenge attempt/resend caps. Its
+latch is best-effort and does not guarantee exactly-once email delivery.
+
+Root-secret-derived cache/name keys have independent purpose labels. Rotating
+the root secret creates a new cache namespace and cold reads reload SQL; it
+also resets shared counter budgets. The existing root-secret rotation effects
+on CSRF, OTPs and provider credentials still apply. No raw session tokens,
+refresh tokens or user-entered codes are cached. Sensitive token metadata,
+including PKCE material, is encrypted inside the snapshot envelope.
+
+## Deployment and rollback
+
+Deploy version-aware code to every database writer with Redis disabled before
+enabling caches. Older binaries/manual SQL writers do not maintain versions;
+do not use them concurrently with caching. Application-owned direct changes to
+session/token rows must assign a fresh cache version or keep caching disabled.
+
+Use explicit Redis capacity, finite pools and memory headroom alerts. Security
+counters should use `noeviction`: memory exhaustion rejects counting and fails
+closed. Eviction can forget enforcement history. Use a separate instance when
+snapshot workloads require eviction; Redis logical databases share server
+memory/persistence policies. Replication/failover can lose recent counters and
+reopen budgets; neither WAIT nor persistence promises a hard global quota.
+
+Use TLS, ACL authentication and key-pattern restrictions. Runtime commands need
+EVAL/EVALSHA and their internal GET/STRLEN/SET/INCR/PTTL/TIME operations, along
+with the pinned client's handshake and topology commands. Test the actual ACL
+for your deployment; do not grant administrative FLUSH, CONFIG or MONITOR.
+
+Coordinate the switch from memory to Redis counters across nodes; mixed stores
+have separate budgets. Existing SQL sessions/proofs need no export or forced
+logout. Roll back by disabling Redis across the fleet before allowing an older
+writer. SQL preserves revoked/consumed state. Counter rollback resets budgets;
+plan edge enforcement during that transition. Keep additive schema metadata
+and respect the rollback binary's migration compatibility requirements.
+
+## Observability
+
+`Auth.RedisStats()` returns aggregate hits/misses/errors/writes for session/token
+caches and allowed/denied/errors for shared counters. Nil capability fields mean
+disabled. Reading stats performs no I/O. Cache errors include decode/backend
+failures; invalid record fields can cause a SQL fallback after decoding. Use
+Redis/client instrumentation for latency, pool pressure, OOM, eviction, memory,
+replication lag and failover. Avoid token/key/IP/email labels. Monitor SQL
+fallback load during Redis outages as well as normal hit ratios.

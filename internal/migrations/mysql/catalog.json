@@ -1,8 +1,8 @@
 {
   "format": 1,
-  "release": "v0.5.4",
+  "release": "v0.6.0",
   "dialect": "mysql",
-  "targetRevision": 4,
+  "targetRevision": 5,
   "bootstrapRevision": 1,
   "migrations": [
     {
@@ -44,6 +44,19 @@
       "schema": "schema_000004.sql",
       "schemaChecksum": "1e85d1126534962cca9c76a4c446b52e2c3e8e3d8bb7e6d96ceb1bd6aa9707fa",
       "checks": []
+    },
+    {
+      "id": 5,
+      "file": "000005_v0.6.0_002.sql",
+      "checksum": "5fe143d3feb319afc07413e604dbfe395631a22582e99ec54cda9dbc059678f1",
+      "kind": "upgrade",
+      "transactional": false,
+      "schema": "schema_000005.sql",
+      "schemaChecksum": "0c9036b7a88699ceeedef9c90970bf78906c57af6d1cf05db41cb04745fb9174",
+      "checks": [
+        "SELECT COUNT(*)=0 FROM sessions WHERE cache_version IS NULL OR cache_version=''",
+        "SELECT COUNT(*)=0 FROM verification_tokens WHERE cache_version IS NULL OR cache_version=''"
+      ]
     }
   ]
 }

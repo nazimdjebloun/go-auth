@@ -78,6 +78,7 @@ func TestConsumeIfValid_GuardsTokenIdentityAndState(t *testing.T) {
 			db := newSQLiteTestDB(t)
 			if _, err := db.Exec(`
 				CREATE TABLE verification_tokens (
+ cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy',
 					id TEXT PRIMARY KEY,
 					user_id TEXT,
 					token_hash TEXT NOT NULL,
@@ -124,6 +125,7 @@ func TestConsumeIfValid_IsSingleUse(t *testing.T) {
 	db := newSQLiteTestDB(t)
 	if _, err := db.Exec(`
 		CREATE TABLE verification_tokens (
+ cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy',
 			id TEXT PRIMARY KEY,
 			user_id TEXT,
 			token_hash TEXT NOT NULL,
@@ -161,6 +163,7 @@ func TestMarkUsedIfUnused_IsSingleUse(t *testing.T) {
 	db := newSQLiteTestDB(t)
 	if _, err := db.Exec(`
 		CREATE TABLE verification_tokens (
+ cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy',
 			id TEXT PRIMARY KEY,
 			used_at DATETIME
 		)

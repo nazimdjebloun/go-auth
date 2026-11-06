@@ -21,6 +21,7 @@ type SessionRepository struct {
 	db             *DB
 	log            *slog.Logger
 	appPermissions bool
+	snapshots      *SnapshotCache
 }
 
 // NewSessionRepository returns a session repository.
@@ -85,6 +86,9 @@ func scanSession(s *domain.Session, sc interface{ Scan(dest ...any) error }) err
 // session at all. That matches what the callers already did with that case:
 // both treated a missing user as an authentication failure.
 func (r *SessionRepository) GetByTokenHashWithUser(ctx context.Context, hash string) (*domain.Session, *domain.User, error) {
+	if _, inTx := txFromContext(ctx); r.snapshots != nil && !inTx {
+		return r.cachedSessionWithUser(ctx, hash)
+	}
 	s := &domain.Session{}
 	u := &domain.User{}
 	var n userNullables
@@ -108,6 +112,9 @@ func (r *SessionRepository) GetByTokenHashWithUser(ctx context.Context, hash str
 // In a transaction, a shared locking read prevents a MySQL repeatable-read
 // snapshot from retaining revoked sessions or removed second-factor assurance.
 func (r *SessionRepository) GetByID(ctx context.Context, id string) (*domain.Session, error) {
+	if _, inTx := txFromContext(ctx); r.snapshots != nil && !inTx {
+		return r.cachedSession(ctx, "id=$1", id)
+	}
 	s := &domain.Session{}
 	query := "SELECT " + sessionCols + " FROM sessions WHERE id=$1"
 	if _, inTx := txFromContext(ctx); inTx {
@@ -153,38 +160,23 @@ func (r *SessionRepository) Create(ctx context.Context, s *domain.Session) error
 		s.ID, s.UserID, s.TokenHash, s.RefreshTokenHash, s.PreviousRefreshHash,
 		s.IP, s.UserAgent, s.IsRevoked, s.ExpiresAt, s.RefreshExpiresAt,
 		s.RefreshRotatedAt, s.CreatedAt, s.RevokedAt, s.LastActiveAt,
-		s.ActiveOrgID, s.ActiveOrgRole, s.TwoFactorVerifiedAt)
+		s.ActiveOrgID, s.ActiveOrgRole, s.TwoFactorVerifiedAt, uuid.NewString())
 	return err
 }
 
 // GetByTokenHash returns a session by access-token hash or nil when absent.
 func (r *SessionRepository) GetByTokenHash(ctx context.Context, hash string) (*domain.Session, error) {
-	s := &domain.Session{}
-	err := scanSession(s, r.db.QueryRowContext(ctx, sessionByTokenHashQuery, hash))
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return s, err
+	return r.cachedSession(ctx, "token_hash=$1", hash)
 }
 
 // GetByRefreshHash returns a session by refresh-token hash or nil when absent.
 func (r *SessionRepository) GetByRefreshHash(ctx context.Context, hash string) (*domain.Session, error) {
-	s := &domain.Session{}
-	err := scanSession(s, r.db.QueryRowContext(ctx, sessionByRefreshHashQuery, hash))
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return s, err
+	return r.cachedSession(ctx, "refresh_token_hash=$1", hash)
 }
 
 // GetByPreviousRefreshHash returns a session by its previous refresh-token hash.
 func (r *SessionRepository) GetByPreviousRefreshHash(ctx context.Context, hash string) (*domain.Session, error) {
-	s := &domain.Session{}
-	err := scanSession(s, r.db.QueryRowContext(ctx, sessionByPreviousRefreshHashQuery, hash))
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	return s, err
+	return r.cachedSession(ctx, "prev_refresh_token_hash=$1", hash)
 }
 
 // LockAndGetByRefreshHash locks and returns a session by refresh-token hash.
@@ -475,7 +467,7 @@ func (r *SessionRepository) DeleteExpired(ctx context.Context) error {
 
 // UpdateLastActiveAt records activity for a session.
 func (r *SessionRepository) UpdateLastActiveAt(ctx context.Context, tokenHash string) error {
-	_, err := r.db.ExecContext(ctx, sessionUpdateLastActiveQuery, time.Now().UTC(), tokenHash)
+	_, err := r.db.execVersioned(ctx, sessionUpdateLastActiveQuery, time.Now().UTC(), tokenHash)
 	return err
 }
 
@@ -522,7 +514,7 @@ func (r *SessionRepository) UpdateRefreshToken(ctx context.Context, input port.U
 // (PostgreSQL, SQLite).
 func (r *SessionRepository) updateRefreshTokenReturning(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut, idleCut time.Time) (*domain.Session, error) {
 	session := &domain.Session{}
-	err := scanSession(session, r.db.QueryRowContext(ctx, sessionRotateRefreshQuery,
+	err := scanSession(session, r.db.queryVersioned(ctx, sessionRotateRefreshQuery,
 		input.NewTokenHash, input.NewRefreshHash, now, input.NewExpiresAt,
 		input.OldRefreshHash, now, maxLifetimeCut, idleCut))
 	if err == nil {
@@ -536,9 +528,7 @@ func (r *SessionRepository) updateRefreshTokenReturning(ctx context.Context, inp
 
 // updateRefreshTokenNoReturning uses ExecContext + RowsAffected (MySQL).
 func (r *SessionRepository) updateRefreshTokenNoReturning(ctx context.Context, input port.UpdateRefreshInput, now, maxLifetimeCut, idleCut time.Time) (*domain.Session, error) {
-	query := r.db.Rebind(sessionRotateRefreshNoReturningQuery)
-
-	result, err := r.db.ExecContext(ctx, query,
+	result, err := r.db.execVersioned(ctx, sessionRotateRefreshNoReturningQuery,
 		input.NewTokenHash, input.NewRefreshHash, now, input.NewExpiresAt,
 		input.OldRefreshHash, now, maxLifetimeCut, idleCut)
 	if err != nil {
@@ -616,30 +606,30 @@ func (r *SessionRepository) classifyRefreshFailure(ctx context.Context, input po
 
 // UpdateActiveOrgRoleForUser updates the active organization role in matching sessions.
 func (r *SessionRepository) UpdateActiveOrgRoleForUser(ctx context.Context, userID, orgID string, newRole domain.OrgRole) error {
-	_, err := r.db.ExecContext(ctx, sessionUpdateActiveOrgRoleQuery, string(newRole), userID, orgID)
+	_, err := r.db.execVersioned(ctx, sessionUpdateActiveOrgRoleQuery, string(newRole), userID, orgID)
 	return err
 }
 
 // ClearActiveOrgForUser clears an organization from a user's active sessions.
 func (r *SessionRepository) ClearActiveOrgForUser(ctx context.Context, userID, orgID string) error {
-	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgForUserQuery, userID, orgID)
+	_, err := r.db.execVersioned(ctx, sessionClearActiveOrgForUserQuery, userID, orgID)
 	return err
 }
 
 // ClearActiveOrg clears the active organization from a session.
 func (r *SessionRepository) ClearActiveOrg(ctx context.Context, sessionID string) error {
-	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgQuery, sessionID)
+	_, err := r.db.execVersioned(ctx, sessionClearActiveOrgQuery, sessionID)
 	return err
 }
 
 // ClearActiveOrgForAllMembers clears an organization from every active session.
 func (r *SessionRepository) ClearActiveOrgForAllMembers(ctx context.Context, orgID string) error {
-	_, err := r.db.ExecContext(ctx, sessionClearActiveOrgForAllMembersQuery, orgID)
+	_, err := r.db.execVersioned(ctx, sessionClearActiveOrgForAllMembersQuery, orgID)
 	return err
 }
 
 // SetActiveOrg sets the active organization and role for a session.
 func (r *SessionRepository) SetActiveOrg(ctx context.Context, sessionID, orgID string, role domain.OrgRole) error {
-	_, err := r.db.ExecContext(ctx, sessionSetActiveOrgQuery, orgID, string(role), sessionID)
+	_, err := r.db.execVersioned(ctx, sessionSetActiveOrgQuery, orgID, string(role), sessionID)
 	return err
 }

@@ -337,3 +337,8 @@ uniqueness, role assignments and audit obligations. Migrations cannot reconstruc
 encryption keys or regenerate credential material safely. Large/resumable live
 backfills and expand/contract rolling upgrades require a future documented and
 tested execution protocol; do not infer them from the first baseline runner.
+
+
+## Redis integration upgrade
+
+Revision 5 adds internal `cache_version` columns to sessions and workflow tokens on all dialects. Existing rows keep their credentials and start at `legacy`; they use SQL until changed normally. Deploy version-aware code to every writer before enabling Redis, and disable caches before rolling back to older writers. See [Redis rollout](./guides/redis.mdx#deployment-and-rollback).

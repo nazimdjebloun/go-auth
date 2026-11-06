@@ -18,21 +18,23 @@ import (
 // serviceWiring contains the values New needs after constructing services.
 // Repositories and stores retain their original ownership rules.
 type serviceWiring struct {
-	services       serviceSet
-	sessionRepo    *sqlstore.SessionRepository
-	tokenRepo      *sqlstore.TokenRepository
-	userRepo       *sqlstore.UserRepository
-	orgRepo        port.OrgRepository
-	cookies        middleware.CookieSettings
-	auditService   *audit.Service
-	twoFactorStore ratelimit.Store
-	recoveryWorker *service.RecoveryWorker
+	services            serviceSet
+	sessionRepo         *sqlstore.SessionRepository
+	tokenRepo           *sqlstore.TokenRepository
+	userRepo            *sqlstore.UserRepository
+	orgRepo             port.OrgRepository
+	cookies             middleware.CookieSettings
+	auditService        *audit.Service
+	twoFactorStore      ratelimit.Store
+	twoFactorStoreOwned bool
+	recoveryWorker      *service.RecoveryWorker
 }
 
 // buildServices keeps the order of repository, audit, and service construction
 // explicit. It runs after opening the database and before HTTP wiring.
-func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, sqlDB *sqlstore.DB, passwordHasher *service.PasswordHasher, passwordPepperKeys map[uint32][]byte, hasherImpl port.Hasher) (serviceWiring, error) {
+func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, sqlDB *sqlstore.DB, passwordHasher *service.PasswordHasher, passwordPepperKeys map[uint32][]byte, hasherImpl port.Hasher, redisParts redisWiring) (serviceWiring, error) {
 	sessionRepo := sqlstore.NewSessionRepository(sqlDB)
+	sessionRepo.WithSnapshotCache(redisParts.sessions)
 	if cfg.logger != nil {
 		sessionRepo.WithLogger(cfg.logger)
 	}
@@ -56,6 +58,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		}
 	}
 	tokenRepo := sqlstore.NewTokenRepository(sqlDB)
+	tokenRepo.WithSnapshotCache(redisParts.tokens)
 	inviteRepo := sqlstore.NewInviteRepository(sqlDB)
 	providerAccountRepo := sqlstore.NewProviderAccountRepository(sqlDB)
 	if keys.OAuthEnc != nil {
@@ -163,10 +166,14 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	// Eviction is off here because the key space is closed: one key per
 	// account with a 2FA failure in the last hour, keyed by a user ID read
 	// from the database, not by anything a caller supplies.
-	twoFactorStore := ratelimit.NewMemoryStore(
-		ratelimit.WithoutEviction(),
-		ratelimit.WithStoreLogger(cfg.logger),
-	)
+	var twoFactorStore ratelimit.Store
+	twoFactorStoreOwned := redisParts.notifications == nil
+	if twoFactorStoreOwned {
+		twoFactorStore = ratelimit.NewMemoryStore(ratelimit.WithoutEviction(), ratelimit.WithStoreLogger(cfg.logger))
+	} else {
+		twoFactorStore = redisParts.notifications
+	}
+
 	twoFactorSvc := service.NewTwoFactorService(sqlDB, userRepo, sessionRepo, tokenRepo, hasherImpl, mailer, twoFactorStore, serviceCfg, sessSvc)
 	twoFactorSvc.AttachSettingsSessions(sessionRepo)
 
@@ -278,8 +285,9 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 		},
 		sessionRepo: sessionRepo, tokenRepo: tokenRepo, userRepo: userRepo,
 		orgRepo: orgRepo, cookies: cookies, auditService: auditSvc,
-		twoFactorStore: twoFactorStore,
-		recoveryWorker: recoveryWorker,
+		twoFactorStore:      twoFactorStore,
+		twoFactorStoreOwned: twoFactorStoreOwned,
+		recoveryWorker:      recoveryWorker,
 	}, nil
 }
 

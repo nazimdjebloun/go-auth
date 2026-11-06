@@ -501,3 +501,8 @@ Target occupancy is checked only after both proofs, using the unique write and
 `email_change_unavailable`. This workflow requires access to the existing
 mailbox; there is no lost-mailbox recovery or admin bypass. Custom transports
 supply browser protections and trusted actor/session attribution.
+
+
+## Redis security
+
+Redis snapshots are encrypted/authenticated with a separately purpose-derived key and selected only after a live SQL cache-version lookup. Transactional/locking reads bypass caching; current user and permission state is never cached. SQL outages fail closed even with a warm cache. New `cache_version` metadata changes atomically with every library session/token mutation; legacy records bypass Redis. Enable caching only after every writer maintains versions. Redis failures may fall back to SQL for snapshots, fail closed for rate limits, and remain best-effort for 2FA notification counters. The challenge attempt cap stays in SQL. See [Redis](./guides/redis.mdx) for secret rotation, capacity, ACLs, rollout and rollback.

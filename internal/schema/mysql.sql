@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     active_org_id VARCHAR(36),
     active_org_role VARCHAR(50),
     two_factor_verified_at DATETIME(6),
+    cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy',
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (active_org_id) REFERENCES organizations(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -184,6 +185,7 @@ CREATE TABLE IF NOT EXISTS verification_tokens (
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     context_hash VARCHAR(64) NOT NULL DEFAULT '',
     encrypted_payload TEXT NOT NULL DEFAULT (''),
+    cache_version VARCHAR(36) NOT NULL DEFAULT 'legacy',
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

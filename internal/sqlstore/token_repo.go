@@ -5,13 +5,16 @@ import (
 	"database/sql"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/port"
 )
 
 // TokenRepository stores one-time verification tokens.
 type TokenRepository struct {
-	db *DB
+	db        *DB
+	snapshots *SnapshotCache
 }
 
 // NewTokenRepository returns a token repository.
@@ -30,21 +33,22 @@ func (r *TokenRepository) Create(ctx context.Context, t *domain.VerificationToke
 	}
 	_, err := r.db.ExecContext(ctx, tokenCreateQuery,
 		t.ID, t.UserID, t.Email, t.TokenHash, t.Type, t.ExpiresAt, t.UsedAt, t.CodeVerifier,
-		t.Attempts, t.ResendCount, createdAt, t.ContextHash, t.EncryptedPayload)
+		t.Attempts, t.ResendCount, createdAt, t.ContextHash, t.EncryptedPayload, uuid.NewString())
 	return err
 }
 
 // scanToken reads the tokenSelectColumns list, in that order, into a token.
 // Returns (nil, nil) when the row is absent, matching the repository's
 // existing "missing is not an error" convention.
-func scanToken(s scanner) (*domain.VerificationToken, error) {
+func scanToken(s scanner, extra ...any) (*domain.VerificationToken, error) {
 	t := &domain.VerificationToken{}
 	var userID sql.NullString
 	var usedAt sql.NullTime
 	var codeVerifier sql.NullString
-	err := s.Scan(
+	dest := []any{
 		&t.ID, &userID, &t.Email, &t.TokenHash, &t.Type, &t.ExpiresAt, &usedAt,
-		&t.CreatedAt, &codeVerifier, &t.Attempts, &t.ResendCount, &t.ContextHash, &t.EncryptedPayload)
+		&t.CreatedAt, &codeVerifier, &t.Attempts, &t.ResendCount, &t.ContextHash, &t.EncryptedPayload}
+	err := s.Scan(append(dest, extra...)...)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -65,33 +69,33 @@ func scanToken(s scanner) (*domain.VerificationToken, error) {
 
 // GetByHash returns a token by hash or nil when absent.
 func (r *TokenRepository) GetByHash(ctx context.Context, hash string) (*domain.VerificationToken, error) {
-	return scanToken(r.db.QueryRowContext(ctx, tokenByHashQuery, hash))
+	return r.cachedToken(ctx, tokenByHashQuery, hash)
 }
 
 // GetByID returns a token by ID or nil when absent.
 func (r *TokenRepository) GetByID(ctx context.Context, id string) (*domain.VerificationToken, error) {
-	return scanToken(r.db.QueryRowContext(ctx, tokenByIDQuery, id))
+	return r.cachedToken(ctx, tokenByIDQuery, id)
 }
 
 // GetLastByUserAndType returns the newest token of a type for a user.
 func (r *TokenRepository) GetLastByUserAndType(ctx context.Context, userID string, tokenType domain.TokenType) (*domain.VerificationToken, error) {
-	return scanToken(r.db.QueryRowContext(ctx, tokenGetLastByUserAndTypeQuery, userID, tokenType))
+	return r.cachedToken(ctx, tokenGetLastByUserAndTypeQuery, userID, tokenType)
 }
 
 // MarkUsed records when a token was used.
 func (r *TokenRepository) MarkUsed(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, tokenMarkUsedQuery, time.Now().UTC(), id)
+	_, err := r.db.execVersioned(ctx, tokenMarkUsedQuery, time.Now().UTC(), id)
 	return err
 }
 
 // MarkUsedIfUnused marks a token used only when it is still unused.
 func (r *TokenRepository) MarkUsedIfUnused(ctx context.Context, id string) (bool, error) {
-	return affected(r.db.ExecContext(ctx, tokenMarkUsedIfUnusedQuery, time.Now().UTC(), id))
+	return affected(r.db.execVersioned(ctx, tokenMarkUsedIfUnusedQuery, time.Now().UTC(), id))
 }
 
 // ConsumeIfValid marks a matching unexpired token used.
 func (r *TokenRepository) ConsumeIfValid(ctx context.Context, input port.ConsumeTokenInput) (bool, error) {
-	return affected(r.db.ExecContext(
+	return affected(r.db.execVersioned(
 		ctx,
 		tokenConsumeIfValidQuery,
 		input.UsedAt,
@@ -106,9 +110,9 @@ func (r *TokenRepository) ConsumeIfValid(ctx context.Context, input port.Consume
 // ConsumeIfValidUnderCap claims the exact live token within its attempt budget.
 func (r *TokenRepository) ConsumeIfValidUnderCap(ctx context.Context, input port.ConsumeTokenInput, maxAttempts int) (bool, error) {
 	if input.UserID == "" {
-		return affected(r.db.ExecContext(ctx, tokenConsumeUnownedUnderCapQuery, input.UsedAt, input.ID, input.TokenHash, input.Type, input.UsedAt, maxAttempts))
+		return affected(r.db.execVersioned(ctx, tokenConsumeUnownedUnderCapQuery, input.UsedAt, input.ID, input.TokenHash, input.Type, input.UsedAt, maxAttempts))
 	}
-	return affected(r.db.ExecContext(ctx, tokenConsumeIfValidUnderCapQuery,
+	return affected(r.db.execVersioned(ctx, tokenConsumeIfValidUnderCapQuery,
 		input.UsedAt, input.ID, input.TokenHash, input.UserID, input.Type, input.UsedAt, maxAttempts))
 }
 
@@ -156,17 +160,17 @@ func affected(res sql.Result, err error) (bool, error) {
 
 // IncrementAttempts adds one failed attempt to a token.
 func (r *TokenRepository) IncrementAttempts(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
-	return affected(r.db.ExecContext(ctx, tokenIncrementAttemptsQuery, id, maxAttemptsPerChallenge))
+	return affected(r.db.execVersioned(ctx, tokenIncrementAttemptsQuery, id, maxAttemptsPerChallenge))
 }
 
 // MarkUsedIfUnderCap marks a token used when its attempt count is below the cap.
 func (r *TokenRepository) MarkUsedIfUnderCap(ctx context.Context, id string, maxAttemptsPerChallenge int) (bool, error) {
-	return affected(r.db.ExecContext(ctx, tokenMarkUsedIfUnderCapQuery, time.Now().UTC(), id, maxAttemptsPerChallenge))
+	return affected(r.db.execVersioned(ctx, tokenMarkUsedIfUnderCapQuery, time.Now().UTC(), id, maxAttemptsPerChallenge))
 }
 
 // UpdateForResend replaces a token's hash and expiry for resending.
 func (r *TokenRepository) UpdateForResend(ctx context.Context, id string, newHash string, newExpiresAt time.Time, newCreatedAt time.Time, maxRefreshesPerChallenge, maxAttemptsPerChallenge int) (bool, error) {
-	return affected(r.db.ExecContext(ctx, tokenUpdateForResendQuery,
+	return affected(r.db.execVersioned(ctx, tokenUpdateForResendQuery,
 		newHash, newExpiresAt, newCreatedAt, id, maxRefreshesPerChallenge, maxAttemptsPerChallenge))
 }
 
@@ -177,7 +181,7 @@ func (r *TokenRepository) GetLastTwoFactor(ctx context.Context, userID string, a
 		predicate = "token_hash LIKE 'ga-admin.%'"
 	}
 	query := sqlText("SELECT " + tokenSelectColumns + " FROM verification_tokens WHERE user_id=$1 AND type=$2 AND " + predicate + " ORDER BY created_at DESC LIMIT 1")
-	return scanToken(r.db.QueryRowContext(ctx, query, userID, domain.TokenTwoFactor))
+	return r.cachedToken(ctx, query, userID, domain.TokenTwoFactor)
 }
 
 // DeleteUnusedTwoFactor leaves challenges in the other browser context untouched.

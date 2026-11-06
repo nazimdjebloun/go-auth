@@ -229,7 +229,7 @@ Everywhere the library needs to talk to the outside world, it does so through a 
 | `audit.EventSink` + `audit.BatchDeliveryTimeBounder` | an external delivery sink (webhook, Kafka, NATS) fed from the `audit_outbox` table by the dispatcher, with a finite batch-time bound used to validate the claim lease | Kafka, NATS, a webhook. Added via `WithAuditSink` |
 | `port.Hasher` | bcrypt (`hasher` package), cost 12; optional built-in `hasher/argon2id`; optional versioned HMAC layer | `WithPasswordHashing` groups `Hasher`, `BcryptCost`, `Pepper`, `Concurrency` and `WorkLimiter`; password policy stays in `WithSecurity` |
 
-**Repository interfaces are segmented, not just one flat contract per aggregate.** `port.UserRepository` embeds the guarded writes (`PasswordHashUpdater`, `AdminGuardStore`) plus the name-only update and conditional email verification methods; `port.SessionRepository` composes `SessionReader` / `SessionWriter` / `SessionRevoker` / `ActiveOrgSessionStore`; `port.OrgRepository` composes `OrgCRUD` / `OrgLimitCounters`. Storage is SQL-only and there is no `With*` option to swap a repository; every consumer goes through `internal/sqlstore`. The narrow interfaces exist so each service depends only on the slice it uses — not as an extension point for non-SQL stores.
+**Repository interfaces are segmented, not just one flat contract per aggregate.** `port.UserRepository` embeds the guarded writes (`PasswordHashUpdater`, `AdminGuardStore`) plus the name-only update and conditional email verification methods; `port.SessionRepository` composes `SessionReader` / `SessionWriter` / `SessionRevoker` / `ActiveOrgSessionStore`; `port.OrgRepository` composes `OrgCRUD` / `OrgLimitCounters`. SQL remains authoritative and there is no option to replace a credential repository; every consumer goes through `internal/sqlstore`. Optional `WithRedis` snapshot caches validate a current SQL version and bypass transactional reads. The narrow interfaces exist so each service depends only on the slice it uses — not as an extension point for non-SQL stores.
 
 ## Testing structure
 
@@ -281,3 +281,8 @@ capabilities. Lock order is user, initiating session, request. The separate
 account slot retains abuse budgets across replacement without changing session
 identity joins. Completion notices use the existing recovery queue/worker;
 their fixed kind requires no additional payload or background service.
+
+
+## Redis integration
+
+`WithRedis` wires disposable encrypted snapshots into SQL repositories and shared stores into rate limiting and 2FA notifications. Each cache read selects its exact identity/version in SQL, with current owning-user data where required. Mutations and locking reads stay in SQL. Immutable version keys make stale fills harmless; no invalidation worker, distributed lock or cross-store transaction is used. Session filtering/counts and token existence checks remain SQL-backed. See [Redis](./guides/redis.mdx).

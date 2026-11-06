@@ -121,3 +121,15 @@ python3 -m unittest discover -s .github/scripts -p '*_test.py'
 Plain `go test` defaults shared fixtures to SQLite. Existing standalone server
 tests may skip when their DSNs are absent; use the backend runner for mandatory
 live-server verification and evidence that every required suite executed.
+
+
+## Redis integration
+
+Start a disposable Redis 8 server and set `GOAUTH_REDIS_TEST_ADDR`, then run
+`bash .github/scripts/test_redis.sh` through WSL. The runner requires the address
+and executes real Lua/TTL/counter tests, snapshot/version safety tests, root
+wiring and ownership checks under race detection with randomized order. Tests
+use unique expiring namespaces and never flush a shared database. An explicitly
+selected unreachable Redis fails the suite. The CI redis job pins its server
+image digest; plain root tests skip only the Redis-dependent cases when no
+address is configured. SQL regression runners still exercise all three dialects.

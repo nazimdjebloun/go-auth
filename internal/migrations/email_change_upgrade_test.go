@@ -34,10 +34,10 @@ func TestEmailChangeUpgradePreservesIdentityAndCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	token := &domain.VerificationToken{ID: "00000000-0000-4000-8000-000000000091", UserID: func() *string { v := userID; return &v }(), Email: "preserved@example.com", TokenHash: "existing-token-hash", Type: domain.TokenResetPass, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
-	if err := tokens.Create(t.Context(), token); err != nil {
+	if _, err := store.ExecContext(t.Context(), "INSERT INTO verification_tokens (id,user_id,email,token_hash,type,created_at,expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7)", token.ID, token.UserID, token.Email, token.TokenHash, token.Type, token.CreatedAt, token.ExpiresAt); err != nil {
 		t.Fatal(err)
 	}
-	if err := sessions.Create(t.Context(), &domain.Session{ID: "00000000-0000-4000-8000-000000000092", UserID: userID, TokenHash: "existing-session-hash", RefreshTokenHash: "existing-refresh-hash", CreatedAt: now, LastActiveAt: now, ExpiresAt: now.Add(time.Hour), RefreshExpiresAt: now.Add(2 * time.Hour)}); err != nil {
+	if _, err := store.ExecContext(t.Context(), "INSERT INTO sessions (id,user_id,token_hash,refresh_token_hash,created_at,last_active_at,expires_at,refresh_expires_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)", "00000000-0000-4000-8000-000000000092", userID, "existing-session-hash", "existing-refresh-hash", now, now, now.Add(time.Hour), now.Add(2*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Apply(t.Context(), db, options); err != nil {

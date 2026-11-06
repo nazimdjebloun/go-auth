@@ -5,7 +5,7 @@ var (
 	// token column list and its order — scanToken depends on both.
 	tokenSelectColumns = sqlText("id, user_id, email, token_hash, type, expires_at, used_at, created_at, code_verifier, attempts, resend_count, context_hash, encrypted_payload")
 
-	tokenCreateQuery = sqlText(`INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at, used_at, code_verifier, attempts, resend_count, created_at, context_hash, encrypted_payload) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`)
+	tokenCreateQuery = sqlText(`INSERT INTO verification_tokens (id, user_id, email, token_hash, type, expires_at, used_at, code_verifier, attempts, resend_count, created_at, context_hash, encrypted_payload, cache_version) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`)
 
 	tokenByHashQuery = sqlText(`SELECT ` + tokenSelectColumns + ` FROM verification_tokens WHERE token_hash = $1`)
 

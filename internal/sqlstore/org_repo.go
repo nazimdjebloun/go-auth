@@ -140,14 +140,25 @@ func (r *OrgRepository) Update(ctx context.Context, org *domain.Organization) er
 
 // Delete removes an organization by ID.
 func (r *OrgRepository) Delete(ctx context.Context, id string) (bool, error) {
-	if r.orgPermissions {
-		for _, q := range []string{`DELETE FROM org_invite_roles WHERE org_id=$1`, `DELETE FROM org_member_roles WHERE org_id=$1`} {
-			if _, err := r.db.ExecContext(ctx, q, id); err != nil {
-				return false, err
+	var removed bool
+	err := r.db.WithTx(ctx, func(ctx context.Context) error {
+		if _, err := r.db.execVersioned(ctx, "UPDATE sessions SET active_org_id=NULL, active_org_role=NULL WHERE active_org_id=$1", id); err != nil {
+			return err
+		}
+
+		if r.orgPermissions {
+			for _, q := range []string{`DELETE FROM org_invite_roles WHERE org_id=$1`, `DELETE FROM org_member_roles WHERE org_id=$1`} {
+				if _, err := r.db.ExecContext(ctx, q, id); err != nil {
+					return err
+				}
 			}
 		}
-	}
-	return affected(r.db.ExecContext(ctx, orgDeleteQuery, id))
+		var err error
+		removed, err = affected(r.db.ExecContext(ctx, orgDeleteQuery, id))
+		return err
+
+	})
+	return removed, err
 }
 
 // AddMember adds a user to an organization.

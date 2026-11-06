@@ -1536,3 +1536,8 @@ account deletion; redemption enforces expiry. Revoking a session does not remove
 its account's budget. The additive migration preserves existing account data.
 Completion enqueues two `email_changed` items in `recovery_requests`, each with
 only its destination and fixed kind, and no raw credential.
+
+
+## Redis cache versions
+
+`sessions.cache_version` and `verification_tokens.cache_version` are `VARCHAR(36) NOT NULL DEFAULT 'legacy'`, placed last in each column list. Migration revision 5 preserves existing credential data and backfills the sentinel. Legacy rows bypass caching; library creation/mutation assigns fresh opaque UUID versions atomically. The metadata is internal and not exposed in public JSON.

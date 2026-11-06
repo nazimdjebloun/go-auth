@@ -1037,3 +1037,8 @@ func (t *myTemplates) Render(data port.TemplateData) (port.TemplateResult, error
 
 - [Introduction](./index.mdx): what go-auth is and why it exists
 - [Installation](./installation.mdx): prerequisites and what you need before configuring
+
+
+## Redis integration
+
+`WithRedis(RedisConfig)` enables session/token snapshots and shared rate-limit/2FA notification counters. Clients remain caller-owned; SQL remains authoritative. See [Redis configuration](./guides/redis.mdx#configuration) for capability switches, deadlines, TTLs, startup checks and ownership.
