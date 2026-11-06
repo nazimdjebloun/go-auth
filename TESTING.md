@@ -133,3 +133,20 @@ use unique expiring namespaces and never flush a shared database. An explicitly
 selected unreachable Redis fails the suite. The CI redis job pins its server
 image digest; plain root tests skip only the Redis-dependent cases when no
 address is configured. SQL regression runners still exercise all three dialects.
+
+To test actual Redis Cluster slot routing, Sentinel replica promotion and an
+isolated noeviction/OOM server, build a static Linux test binary and run:
+
+```sh
+mkdir -p .test-results/redis
+CGO_ENABLED=0 go test -c ./redisstore -o .test-results/redis/redisstore.test
+python3 .github/scripts/test_redis_topologies.py
+```
+
+The topology runner creates uniquely named Docker containers/network, tests
+through that isolated network and removes only its own resources. On Windows
+build the binary through WSL, then use Windows Python/Docker Desktop for the
+runner if Docker integration is unavailable inside the distro. The dedicated
+Redis CI job runs both the race suite and topology runner. SQL backend jobs
+exclude only unselected external Redis fixtures; Redis schema-upgrade tests
+remain required.

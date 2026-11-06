@@ -14,10 +14,11 @@ import (
 )
 
 type snapshotMemory struct {
-	mu     sync.Mutex
-	values map[string][]byte
-	gets   int
-	fail   bool
+	mu        sync.Mutex
+	values    map[string][]byte
+	gets      int
+	fail      bool
+	beforePut func()
 }
 
 func (m *snapshotMemory) Get(_ context.Context, k string) ([]byte, error) {
@@ -30,6 +31,9 @@ func (m *snapshotMemory) Get(_ context.Context, k string) ([]byte, error) {
 	return append([]byte(nil), m.values[k]...), nil
 }
 func (m *snapshotMemory) Put(_ context.Context, k string, v []byte, _ time.Duration) error {
+	if m.beforePut != nil {
+		m.beforePut()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.values == nil {
@@ -39,6 +43,39 @@ func (m *snapshotMemory) Put(_ context.Context, k string, v []byte, _ time.Durat
 		m.values[k] = append([]byte(nil), v...)
 	}
 	return nil
+}
+
+func TestSnapshotLateFillCannotReviveConsumedToken(t *testing.T) {
+	db := backendDB(t)
+	r := NewTokenRepository(db)
+	c, m := testSnapshots(t)
+	r.WithSnapshotCache(c)
+	now := time.Now().UTC()
+	user := backendUser(t, db)
+	tok := &domain.VerificationToken{ID: uuid.NewString(), UserID: &user, Email: "late-fill@example.test", TokenHash: uuid.NewString(), Type: domain.TokenSetPass, CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	if e := r.Create(t.Context(), tok); e != nil {
+		t.Fatal(e)
+	}
+	entered, resume := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	release := sync.OnceFunc(func() { close(resume) })
+	defer release()
+	m.beforePut = func() { once.Do(func() { close(entered); <-resume }) }
+	done := make(chan error, 1)
+	go func() { _, e := r.GetByID(t.Context(), tok.ID); done <- e }()
+	<-entered
+	claimed, e := r.MarkUsedIfUnused(t.Context(), tok.ID)
+	release()
+	if readErr := <-done; readErr != nil {
+		t.Fatal(readErr)
+	}
+	if e != nil || !claimed {
+		t.Fatal(claimed, e)
+	}
+	current, e := r.GetByID(t.Context(), tok.ID)
+	if e != nil || current == nil || current.UsedAt == nil {
+		t.Fatal("late cache fill revived consumed proof", e)
+	}
 }
 func testSnapshots(t *testing.T) (*SnapshotCache, *snapshotMemory) {
 	t.Helper()
@@ -217,6 +254,29 @@ func TestSnapshotRejectsSubstitutionAndCorruption(t *testing.T) {
 	m.values[key][len(raw)-1] ^= 1
 	if _, ok := readSnapshot[map[string]string](ctx, c, "token", "one", "v1"); ok {
 		t.Fatal("accepted corrupted ciphertext")
+	}
+}
+
+func TestSnapshotWarmCacheCannotReplaceSQL(t *testing.T) {
+	db := backendDB(t)
+	r := NewSessionRepository(db)
+	c, m := testSnapshots(t)
+	r.WithSnapshotCache(c)
+	s := snapshotSessionFixture(t, db, r)
+	for range 2 {
+		if _, e := r.GetByTokenHash(t.Context(), s.TokenHash); e != nil {
+			t.Fatal(e)
+		}
+	}
+	before := m.gets
+	if e := db.Close(); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := r.GetByTokenHash(t.Context(), s.TokenHash); e == nil {
+		t.Fatal("warm cache authenticated without SQL")
+	}
+	if m.gets != before {
+		t.Fatal("consulted cache after SQL failure")
 	}
 }
 

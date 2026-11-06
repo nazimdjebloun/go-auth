@@ -159,7 +159,7 @@ goauth.WithSecret(os.Getenv("AUTH_SECRET"))
 
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `secret` | `string` | Required | none | Minimum 32 bytes. HKDF derives separate CSRF, 2FA-binding, OAuth-encryption, and OTP-pepper keys from it. Source it from the environment; never commit it. Password peppering uses a separate opt-in secret. |
+| `secret` | `string` | Required | none | Minimum 32 bytes. HKDF derives separate CSRF, 2FA-binding, OAuth-encryption, OTP-pepper, Redis snapshot-encryption, and Redis key-name keys from it. Source it from the environment; never commit it. Password peppering uses a separate opt-in secret. |
 
 When rotating the root secret, set `SecretRotatedAt` in your existing [WithSecurity](#withsecurity-optional) configuration to the UTC moment the new `WithSecret` value became active. There is one rotation timestamp; it records an operator action and does not rotate keys itself.
 

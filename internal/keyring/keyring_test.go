@@ -12,8 +12,8 @@ func TestRedisKeysAreDeterministicAndSeparated(t *testing.T) {
 		if len(k) != 32 {
 			t.Fatal("invalid key size")
 		}
-		for j := 0; j < i; j++ {
-			if string(k) == string(keys[j]) {
+		for _, other := range keys[:i] {
+			if string(k) == string(other) {
 				t.Fatal("key purposes overlap")
 			}
 		}

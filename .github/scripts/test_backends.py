@@ -18,14 +18,14 @@ REQUIRED = {
         ".": ["TestEmailChangeSecurityConfig", "TestEmailChangeHTTPContract", "TestEmailChangeDisabledAndConfig", "TestOrgPermissionsHTTPBusinessDeletionDelegation", "TestOrgPermissionsHTTPInspectDisabledEffectiveAccess", "TestOrgPermissionsHTTPStaleInvitationRecovery", "TestOrgPermissionsHTTPInspectIneligibleTargetRole", "TestOrgPermissionsHTTPInviteRoleIDValidation", "TestOrgPermissionsDisabledFixedRoleWritesPreserveOwnership", "TestOrgPermissionsPersistedAuditAttribution", "TestOrgPermissionsDisabledAfterUseStillAllowsOrganizationDeletion", "TestOrgPermissionsWithoutAppPermissions", "TestOrgPermissionsHTTPManagementAndLiveAccess", "TestOrgPermissionsOptionalManagementAndDisabledMiddleware", "TestAppPermissionsHTTPUserRoleJSON", "TestAppPermissionsHTTPAssuranceAndOptionalManagement", "TestAppPermissionsStatsAuthorization", "TestAppPermissionsSameRoleAssignmentPreservesAccessRevision", "TestAppPermissionsTargetAccessHTTP", "TestAppPermissionsDisabledCapabilityFailsClosed", "TestAppAuthorizationRouteInventory", "TestAppAuthorizationRouteCoverage", "TestAppAuthorizationHTTPPolicyMatrix", "TestAppAuthorizationMountedRoutesDenyUnprivileged"],
         "integration": ["TestMigrations_CreateTables", "TestHTTPBackendSecurityContract"],
         "cmd/goauth/cmd": ["TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend"],
-        "internal/migrations": ["TestEmailChangeUpgradePreservesIdentityAndCredentials", "TestSelectedBackendOrgPermissionsPopulatedUpgrade", "TestStandaloneSelectedBackend", "TestSelectedBackendFailureState", "TestSelectedBackendRejectsWeakenedForeignKeys", "TestConcurrentStandaloneRunners", "TestSelectedBackendPublishedCatalogUpgradePrefixes", "TestSelectedBackendPopulatedUpgrade", "TestSelectedBackendUpgradeFailureRecovery", "TestSelectedBackendVerifiedRetry", "TestSelectedBackendOwnedTableRetirement", "TestSelectedBackendOwnedTableRetry", "TestSelectedBackendOwnedObjectNamespaces"],
+        "internal/migrations": ["TestEmailChangeUpgradePreservesIdentityAndCredentials", "TestRedisUpgradePreservesPopulatedCredentials", "TestSelectedBackendOrgPermissionsPopulatedUpgrade", "TestStandaloneSelectedBackend", "TestSelectedBackendFailureState", "TestSelectedBackendRejectsWeakenedForeignKeys", "TestConcurrentStandaloneRunners", "TestSelectedBackendPublishedCatalogUpgradePrefixes", "TestSelectedBackendPopulatedUpgrade", "TestSelectedBackendUpgradeFailureRecovery", "TestSelectedBackendVerifiedRetry", "TestSelectedBackendOwnedTableRetirement", "TestSelectedBackendOwnedTableRetry", "TestSelectedBackendOwnedObjectNamespaces"],
         "internal/service": ["TestEmailChangeExpiredProofCleanupPreservesBudget", "TestEmailChangeConcurrentExpiryCleanupAndReplacement", "TestEmailChangeSettingsCannotReviveProofs", "TestEmailChangeCodesAreDistinctAndActuallyRotate", "TestEmailChangeConcurrentPasswordResetHasOneWinner", "TestEmailChangeExpiryRoundTripsWithoutExtension", "TestEmailChangeCompletesAtomicallyAndQueuesNotices", "TestEmailChangeRejectsInvalidProofAndIdentity", "TestEmailChangeAttemptCapSurvivesResend", "TestEmailChangeResendCooldownRotationAndCap", "TestEmailChangeReplacementCancelAndStartBudget", "TestEmailChangeRollback", "TestEmailChangeFailedDeliveryCannotAuthorize", "TestEmailChangeDuplicateAddressAndConcurrentConfirm", "TestEmailChangePasswordlessAndPasswordAuthenticationDisabled", "TestOrgPermissionsTargetInspectionPreservesFailures", "TestOrgPermissionsTargetInspectionRejectsIneligibleActor", "TestOrgPermissionsMismatchedTargetHasNoEffectiveAccess", "TestOrgPermissionsDisabledRoleResetAuditRollback", "TestOrgPermissionsConcurrentDisabledFixedRoleAndGranularAssignment", "TestOrgPermissionsMemberListRoleEnrichment", "TestOrgPermissionsInviteListRoleEnrichment", "TestOrgPermissionsSelfInspectionAndResendAuthority", "TestOrgPermissionsInitializeExistingOrganization", "TestOrgPermissionsCRUDAndOwnershipLifecycle", "TestOrgPermissionsLegacyAssignmentAndResetAudit", "TestOrgPermissionsResendReleasesAuthorizationLocks", "TestOrgPermissionsRolesAndLiveRevocation", "TestOrgPermissionsDelegationAndOwnerInvariants", "TestOrgPermissionsScopeAndDatabaseConstraints", "TestOrgPermissionsInviteRevisionAndClaimRollback", "TestOrgPermissionsAuditRollbackAndConcurrentAssignments", "TestLoginCredentialReplacementCannotIssueSessionOrChallenge", "TestTwoFactorVerifyReassertsCodeAndExpiryAtClaim", "TestAppSignupAvoidsGlobalAuthorizationLocks", "TestAppSignupBaselineFailureRollsBack", "TestAppSignupInviteDuplicatePreservesClaimError", "TestAppSignupInviteClaimFailureRollsBack", "TestAppSameRoleAssignmentIsNoOp", "TestAppConcurrentSameRoleAssignmentsPreserveRevision", "TestAppConcurrentRoleReplacementHasOneWinner", "TestAppConcurrentGrantReplacementAndDeletionCannotRestoreAccess", "TestAppAuthorizationServiceInventory", "TestAppAuthorizationServiceCoverage"],
         "internal/sqlstore": ["TestRecoveryClaimIsExclusiveAndStaleCompletionCannotDeleteReclaimedJob", "TestAdminGuard_ConcurrentReductionsAcrossPools", "TestBackendTokenClaimConcurrentAcrossPools", "TestBackendProviderIdentityIsExact", "TestBackendRefreshZeroGraceRejectsFutureRotation", "TestBackendSessionAssuranceRoundTrip", "TestAppDefaultRoleSharedReadRequiresTransaction", "TestAppPermissionNamespaceOwnership"],
     }.items()
     for name in names
 }
 STRESS_PATTERN = (
-    "TestEmailChange|Concurrent|RollsBack|Rollback|TestBackend|TestRecovery|"
+    "TestEmailChange|TestCacheVersion|TestSnapshot|Concurrent|RollsBack|Rollback|TestBackend|TestRecovery|"
     "TestLoginCredentialReplacement|TestTwoFactorVerify|"
     "TestAdminGuard|TestAdminAccessRequires|TestOrgMutationChecks|"
     "TestInviteRevocationCannot|TestOAuthUnlinkCounts|"
@@ -34,7 +34,7 @@ STRESS_PATTERN = (
 
 
 def required_tests(backend, stress=False):
-    excluded = {"TestSelectedBackendOrgPermissionsPopulatedUpgrade", "TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend", "TestStandaloneSelectedBackend", "TestSelectedBackendPublishedCatalogUpgradePrefixes", "TestSelectedBackendPopulatedUpgrade", "TestHTTPBackendSecurityContract"} if stress else set()
+    excluded = {"TestRedisUpgradePreservesPopulatedCredentials", "TestSelectedBackendOrgPermissionsPopulatedUpgrade", "TestMigrations_CreateTables", "TestApplySchema_SelectedBackend", "TestAdoptSchema_SelectedBackend", "TestStandaloneSelectedBackend", "TestSelectedBackendPublishedCatalogUpgradePrefixes", "TestSelectedBackendPopulatedUpgrade", "TestHTTPBackendSecurityContract"} if stress else set()
     expected = {key for key in REQUIRED if key[1] not in excluded}
     prefix = {"postgres": "Postgres", "mysql": "MySQL"}.get(backend)
     if prefix:
@@ -89,6 +89,10 @@ def main():
     artifacts = Path(".test-results") / args.backend / mode
     artifacts.mkdir(parents=True, exist_ok=True)
     excluded = []
+    # Redis has its own required live job; do not turn an unselected optional
+    # Redis fixture into an unexpected SQL-backend skip.
+    if not env.get("GOAUTH_REDIS_TEST_ADDR"):
+        excluded.extend(["^TestRedisAuthIntegration$", "^TestRedisCacheOutagePreservesSQLAndFailsClosedForLimits$", "^TestRedisTwoFactorSharedNotifications$"])
     if args.backend != "postgres":
         excluded.extend(["^TestPostgres_", "^TestDatabaseBudget_PostgresURL$"])
     if args.backend != "mysql":

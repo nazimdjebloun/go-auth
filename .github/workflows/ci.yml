@@ -258,3 +258,9 @@ jobs:
           cache: true
           cache-dependency-path: go.sum
       - run: bash .github/scripts/test_redis.sh
+      - name: Build isolated topology tests
+        run: |
+          mkdir -p .test-results/redis
+          CGO_ENABLED=0 go test -c ./redisstore -o .test-results/redis/redisstore.test
+      - name: Verify Cluster and Sentinel promotion
+        run: python3 .github/scripts/test_redis_topologies.py

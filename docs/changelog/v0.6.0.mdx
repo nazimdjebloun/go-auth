@@ -1,0 +1,44 @@
+---
+title: "v0.6.0"
+description: "Complete Redis integration with SQL-authoritative snapshots and distributed counters."
+date: "2026-11-06"
+---
+
+## Redis integration
+
+`WithRedis(RedisConfig)` enables encrypted, version-validated session and
+workflow-token snapshots, distributed route/IP fixed-window rate limits, and
+shared 2FA suspicious-activity counters. SQL retains credential/permission
+authority and transaction/locking semantics. Snapshot failures reload SQL;
+rate-limit errors fail closed; notification errors do not block login.
+
+`Auth.RedisStats()` reports aggregate cache/counter activity without credential
+identifiers. The public `redisstore.New` adapter can also be used through the
+existing `WithRateLimitStore` hook. See [Redis](../guides/redis.mdx) for client
+ownership, explicit capability controls, deadlines, examples and operations.
+
+## Database upgrade
+
+Auth schema revision 5 adds internal `cache_version` columns at the end of the
+session and workflow-token column lists on PostgreSQL, MySQL and SQLite.
+Existing rows start at `legacy`, bypassing Redis until a normal mutation assigns
+a fresh version. Existing credentials are preserved. All library writers assign
+fresh versions in the same guarded SQL statement as their mutations.
+
+Migrate first, deploy version-aware code to every writer with Redis disabled,
+then enable the integration. Disable caches before rolling back to a writer
+that does not maintain versions. No session export or forced logout is needed.
+The migration catalog also includes the previously prepared email-change table
+upgrade. Follow the [migration guide](../migrations.mdx) for your recorded revision.
+
+## Compatibility and limitations
+
+Clients are caller-owned. Context deadline support and finite socket timeouts
+are required; automatic retries can over-count ambiguous increments. Redis
+Cluster and Sentinel use single-key operations. SQL is still required for every
+security lookup, and a cache adds a network operation: measure the workload
+before assuming a latency improvement. Redis failover can reopen counter budgets.
+
+Rate-limit failures retain the existing 429 error contract. Canceled HTTP
+requests stop before downstream execution without logging a backend incident.
+New snapshot/name keys are derived with independent HKDF purpose labels.

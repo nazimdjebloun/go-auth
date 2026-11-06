@@ -2,6 +2,7 @@ package goauth
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/redisstore"
@@ -98,6 +99,16 @@ func (c *Config) validateRedis() []error {
 	}
 	if redisEnabled(r.RateLimits) && c.rateLimit != nil && c.rateLimit.Enabled && c.set.rateLimitStore {
 		errs = append(errs, fmt.Errorf("redis: rate limits conflict with a supplied rate-limit store; disable Redis RateLimits explicitly"))
+	}
+	if redisEnabled(r.RateLimits) && c.rateLimit != nil && c.rateLimit.Enabled {
+		if c.rateLimit.Default.Requests > math.MaxInt32 {
+			errs = append(errs, fmt.Errorf("redis: default rate exceeds supported counter limit"))
+		}
+		for pattern, rate := range c.rateLimit.Routes {
+			if rate.Requests > math.MaxInt32 {
+				errs = append(errs, fmt.Errorf("redis: rate for %q exceeds supported counter limit", pattern))
+			}
+		}
 	}
 	return errs
 }

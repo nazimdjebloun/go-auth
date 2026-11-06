@@ -11,6 +11,12 @@ spec.loader.exec_module(runner)
 
 
 class BackendEvidenceTests(unittest.TestCase):
+    def test_redis_upgrade_is_required_in_full_backend_runs(self):
+        key = (runner.MODULE + "internal/migrations", "TestRedisUpgradePreservesPopulatedCredentials")
+        for backend in ["sqlite", "postgres", "mysql"]:
+            self.assertIn(key, runner.required_tests(backend))
+            self.assertNotIn(key, runner.required_tests(backend, stress=True))
+
     def test_email_change_tests_are_required_in_full_and_stress(self):
         email_tests = {key for key in runner.REQUIRED if key[1].startswith("TestEmailChange")}
         self.assertTrue(email_tests)

@@ -49,7 +49,7 @@ TTL and scripting permissions, not only PING.
 | --- | --- |
 | `Client` | Required caller-owned `*redis.Client` (including failover clients) or `*redis.ClusterClient` |
 | `CounterClient` | Optional separate instance for counters; otherwise uses Client |
-| `Prefix` | `goauth:v1`; set an application/environment-specific namespace |
+| `Prefix` | `goauth:v1`; at most 110 bytes, without braces; set an app/environment namespace |
 | `Sessions`, `Tokens` | Nil enables that snapshot cache; pointer to false disables it |
 | `RateLimits`, `TwoFactorNotifications` | Nil enables that Redis capability; pointer to false disables it |
 | `OperationTimeout` | 250ms; positive command deadline |
@@ -131,7 +131,7 @@ and respect the rollback binary's migration compatibility requirements.
 
 `Auth.RedisStats()` returns aggregate hits/misses/errors/writes for session/token
 caches and allowed/denied/errors for shared counters. Nil capability fields mean
-disabled. Reading stats performs no I/O. Cache errors include decode/backend
+disabled. Reading stats performs no I/O. Counter totals include readiness probe calls. Cache errors include decode/backend
 failures; invalid record fields can cause a SQL fallback after decoding. Use
 Redis/client instrumentation for latency, pool pressure, OOM, eviction, memory,
 replication lag and failover. Avoid token/key/IP/email labels. Monitor SQL

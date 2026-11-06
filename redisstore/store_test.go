@@ -2,6 +2,7 @@ package redisstore
 
 import (
 	"context"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -30,6 +31,64 @@ func liveStore(t *testing.T) (*Store, *redis.Client) {
 		t.Fatal("selected Redis is unavailable", e)
 	}
 	return s, c
+}
+
+func TestRedisOperationDeadline(t *testing.T) {
+	listener, e := net.Listen("tcp", "127.0.0.1:0")
+	if e != nil {
+		t.Fatal(e)
+	}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		conn, e := listener.Accept()
+		if e != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		<-stop
+	})
+	t.Cleanup(func() { close(stop); _ = listener.Close(); wg.Wait() })
+	c := redis.NewClient(&redis.Options{Addr: listener.Addr().String(), ContextTimeoutEnabled: true, MaxRetries: -1, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second})
+	t.Cleanup(func() { _ = c.Close() })
+	s, e := New(Config{Client: c, OperationTimeout: 30 * time.Millisecond})
+	if e != nil {
+		t.Fatal(e)
+	}
+	started := time.Now()
+	_, e = s.Allow(t.Context(), "hung", ratelimit.Rate{Requests: 1, Window: time.Second})
+	if e == nil || time.Since(started) > 2*time.Second {
+		t.Fatal("operation deadline did not bound a stalled peer", e)
+	}
+}
+
+func TestRedisRestrictedACL(t *testing.T) {
+	s, admin := liveStore(t)
+	ctx := t.Context()
+	user := "goauth-test-" + uuid.NewString()
+	password := uuid.NewString()
+	if e := admin.ACLSetUser(ctx, user, "on", ">"+password, "~"+s.prefix+":*", "+@connection", "+eval", "+evalsha", "+get", "+set", "+strlen", "+pttl", "+time").Err(); e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if e := admin.ACLDelUser(ctx, user).Err(); e != nil {
+			t.Error(e)
+		}
+	})
+	c := redis.NewClient(&redis.Options{Addr: admin.Options().Addr, Username: user, Password: password, ContextTimeoutEnabled: true, MaxRetries: -1, ReadTimeout: time.Second, WriteTimeout: time.Second})
+	t.Cleanup(func() { _ = c.Close() })
+	limited, e := New(Config{Client: c, Prefix: s.prefix, Key: s.key, OperationTimeout: time.Second})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if v, e := limited.Allow(ctx, "acl", ratelimit.Rate{Requests: 2, Window: time.Minute}); e != nil || !v.Allowed {
+		t.Fatal("initial SET should be permitted", e)
+	}
+	if _, e = limited.Allow(ctx, "acl", ratelimit.Rate{Requests: 2, Window: time.Minute}); e == nil {
+		t.Fatal("INCR permission denial failed open")
+	}
 }
 
 func TestRedisConfiguration(t *testing.T) {
