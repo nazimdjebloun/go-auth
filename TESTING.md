@@ -147,6 +147,7 @@ The topology runner creates uniquely named Docker containers/network, tests
 through that isolated network and removes only its own resources. On Windows
 build the binary through WSL, then use Windows Python/Docker Desktop for the
 runner if Docker integration is unavailable inside the distro. The dedicated
-Redis CI job runs both the race suite and topology runner. SQL backend jobs
+Redis CI job runs both the race suite and topology runner and retains their
+logs for 14 days, including failed runs. SQL backend jobs
 exclude only unselected external Redis fixtures; Redis schema-upgrade tests
 remain required.

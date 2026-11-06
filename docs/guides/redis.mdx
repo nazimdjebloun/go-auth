@@ -131,8 +131,12 @@ and respect the rollback binary's migration compatibility requirements.
 
 `Auth.RedisStats()` returns aggregate hits/misses/errors/writes for session/token
 caches and allowed/denied/errors for shared counters. Nil capability fields mean
-disabled. Reading stats performs no I/O. Counter totals include readiness probe calls. Cache errors include decode/backend
-failures; invalid record fields can cause a SQL fallback after decoding. Use
+disabled. Reading stats performs no I/O. Counter totals include readiness probe
+calls. Cache errors include decode/backend failures; invalid record fields can
+cause a SQL fallback after decoding. Adapter command failures return
+`*redisstore.BackendError`: its message omits connection details and server text,
+while `errors.Is`/`errors.As` can inspect the wrapped cause. Client instrumentation
+and application logs must still protect sensitive connection information. Use
 Redis/client instrumentation for latency, pool pressure, OOM, eviction, memory,
 replication lag and failover. Avoid token/key/IP/email labels. Monitor SQL
 fallback load during Redis outages as well as normal hit ratios.

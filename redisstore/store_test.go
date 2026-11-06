@@ -2,6 +2,7 @@ package redisstore
 
 import (
 	"context"
+	"errors"
 	"net"
 	"os"
 	"strings"
@@ -106,6 +107,52 @@ func TestRedisConfiguration(t *testing.T) {
 				t.Fatal("accepted invalid configuration")
 			}
 		})
+	}
+}
+
+func TestRedisBackendErrorRedactsInfrastructureDetails(t *testing.T) {
+	cause := errors.New("rediss://private-credential@private-host/0")
+	err := &BackendError{Operation: "counter", Cause: cause}
+	if strings.Contains(err.Error(), "private-") {
+		t.Fatal("backend error leaked connection details")
+	}
+	if !errors.Is(err, cause) {
+		t.Fatal("backend error lost the infrastructure cause")
+	}
+}
+
+type droppedReplyHook struct{}
+
+func (droppedReplyHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+func (droppedReplyHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+func (droppedReplyHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		err := next(ctx, cmd)
+		if err == nil && cmd.Name() == "evalsha" {
+			return context.DeadlineExceeded
+		}
+		return err
+	}
+}
+
+func TestRedisAmbiguousReplyIsNotRetried(t *testing.T) {
+	s, admin := liveStore(t)
+	c := redis.NewClient(&redis.Options{Addr: admin.Options().Addr, ContextTimeoutEnabled: true, MaxRetries: -1, ReadTimeout: time.Second, WriteTimeout: time.Second})
+	t.Cleanup(func() { _ = c.Close() })
+	c.AddHook(droppedReplyHook{})
+	lost, e := New(Config{Client: c, Prefix: s.prefix + ":lost", Key: s.key})
+	if e != nil {
+		t.Fatal(e)
+	}
+	_, e = lost.Allow(t.Context(), "budget", ratelimit.Rate{Requests: 5, Window: time.Minute})
+	if !errors.Is(e, context.DeadlineExceeded) {
+		t.Fatal("did not report ambiguous reply", e)
+	}
+	count, e := admin.Get(t.Context(), lost.redisKey("counter", "budget")).Int()
+	if e != nil || count != 1 {
+		t.Fatalf("ambiguous increment was retried: count=%d err=%v", count, e)
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"math"
 	"reflect"
 	"strings"
@@ -50,6 +49,18 @@ type Store struct {
 
 var _ port.SnapshotCache = (*Store)(nil)
 var _ ratelimit.Store = (*Store)(nil)
+
+// BackendError keeps client addresses and server-provided text out of ordinary
+// logs while preserving the original cause for errors.Is/As and trusted tooling.
+type BackendError struct {
+	Operation string
+	Cause     error
+}
+
+func (e *BackendError) Error() string { return "redisstore: " + e.Operation + " failed" }
+
+// Unwrap exposes the infrastructure cause for programmatic classification.
+func (e *BackendError) Unwrap() error { return e.Cause }
 
 // New validates configuration without I/O. Closing the supplied client remains
 // the caller's responsibility, including when construction or startup fails.
@@ -131,7 +142,7 @@ func (s *Store) Get(ctx context.Context, key string) ([]byte, error) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("redisstore: snapshot read: %w", err)
+		return nil, &BackendError{Operation: "snapshot read", Cause: err}
 	}
 	return []byte(v), nil
 }
@@ -144,7 +155,7 @@ func (s *Store) Put(ctx context.Context, key string, value []byte, ttl time.Dura
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	if err := s.client.SetNX(ctx, s.redisKey("cache", key), value, ttl).Err(); err != nil {
-		return fmt.Errorf("redisstore: snapshot write: %w", err)
+		return &BackendError{Operation: "snapshot write", Cause: err}
 	}
 	return nil
 }
@@ -186,7 +197,7 @@ func (s *Store) Allow(ctx context.Context, key string, rate ratelimit.Rate) (rat
 	values, err := fixedWindow.Run(ctx, s.client, []string{s.redisKey("counter", key)}, rate.Requests, int64(ms)).Int64Slice()
 	if err != nil {
 		s.failures.Add(1)
-		return ratelimit.Result{}, fmt.Errorf("redisstore: counter: %w", err)
+		return ratelimit.Result{}, &BackendError{Operation: "counter", Cause: err}
 	}
 	if len(values) != 4 || values[0] < 1 || values[1] < 0 || values[1] > int64(ms) || values[2] < 0 || values[3] < 0 || values[3] >= 1000000 {
 		s.failures.Add(1)

@@ -372,3 +372,37 @@ func TestCacheVersionAllTokenUpdates(t *testing.T) {
 		})
 	}
 }
+
+func TestCacheVersionOrganizationDeletionClearsRevokedScope(t *testing.T) {
+	db := backendDB(t)
+	r := NewSessionRepository(db)
+	s := snapshotSessionFixture(t, db, r)
+	now := time.Now().UTC()
+	org := uuid.NewString()
+	orgs := NewOrgRepository(db)
+	if e := orgs.Create(t.Context(), &domain.Organization{ID: org, Name: "Deleted", Slug: org, CreatedAt: now, UpdatedAt: now}); e != nil {
+		t.Fatal(e)
+	}
+	if e := r.SetActiveOrg(t.Context(), s.ID, org, domain.OrgRoleOwner); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := db.execVersioned(t.Context(), "UPDATE sessions SET is_revoked=true WHERE id=$1", s.ID); e != nil {
+		t.Fatal(e)
+	}
+	c, _ := testSnapshots(t)
+	r.WithSnapshotCache(c)
+	if _, e := r.GetByTokenHash(t.Context(), s.TokenHash); e != nil {
+		t.Fatal(e)
+	}
+	old := cacheVersion(t, db, "sessions", s.ID)
+	if deleted, e := orgs.Delete(t.Context(), org); e != nil || !deleted {
+		t.Fatal(deleted, e)
+	}
+	current, e := r.GetByTokenHash(t.Context(), s.TokenHash)
+	if e != nil || current == nil || current.ActiveOrgID != nil || current.ActiveOrgRole != nil || !current.IsRevoked {
+		t.Fatalf("stale revoked scope: %+v %v", current, e)
+	}
+	if old == cacheVersion(t, db, "sessions", s.ID) {
+		t.Fatal("FK-related mutation kept old cache identity")
+	}
+}
