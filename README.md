@@ -214,6 +214,12 @@ that provide their own transport. Direct calls execute business rules; your
 transport supplies authentication, authorization, rate limits, and browser
 protections where applicable. See the [integration contract](docs/guides/integration.mdx).
 
+Pass `api.Actor` into application services instead of full user/session objects.
+Use `Auth.GetActor` for a raw session credential or `middleware.ActorFromContext`
+after HTTP authentication. `OrgScope` includes session attribution;
+`Auth.AuthorizeOrg` resolves a fresh scope for a business action. See
+[actors and tenant scopes](docs/guides/integration.mdx#actors-and-tenant-scopes).
+
 Repository test doubles implementing `port.UserRepository` must use the
 `SetPasswordAndVerify(ctx, port.SetPasswordAndVerifyInput)` contract, which carries
 the validated token hash and email as well as the new credential.

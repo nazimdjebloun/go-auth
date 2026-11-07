@@ -162,6 +162,17 @@ permission. Prefer `Protect` or its scoped variants for browser endpoints.
 return nil or the zero value; getters do not authorize or validate scope. For
 tenant-owned data, accept `OrgScope` and pass it explicitly to repositories.
 
+`middleware.ActorFromContext(ctx)` projects a matching, nonempty authenticated
+user/session pair into `api.Actor`, returning false for incomplete context.
+`OrgScope` carries `SessionID` as well as the user and tenant; use
+`scope.PermissionActor()` when calling an organization business service, or
+`scope.Actor()` for an app check. Business services can call `Auth.AuthorizeOrg`
+to check the current action and obtain a fresh repository scope. A copied scope
+or role is not continuing authority. For custom transports, `Auth.GetActor`
+validates a raw session credential. See the
+[shared service pattern](./integration.mdx#actors-and-tenant-scopes), trust rules,
+and Go serialization migration notes.
+
 ## Client flow and failures
 
 First call `GET /auth/csrf-token` with credentials, then send its token as

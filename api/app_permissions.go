@@ -2,11 +2,9 @@ package api
 
 import "github.com/nazimdjebloun/go-auth/domain"
 
-// AppPermissionActor is supplied by trusted backend authentication, never JSON.
-type AppPermissionActor struct {
-	UserID    string
-	SessionID string
-}
+// AppPermissionActor is the common authenticated actor used by app permissions.
+// Existing keyed literals remain valid. Identity fields are excluded from JSON.
+type AppPermissionActor = Actor
 
 // InitializeAppPermissionsInput is for trusted first-install setup only.
 type InitializeAppPermissionsInput struct{ AdministratorUserID string }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
 	"github.com/nazimdjebloun/go-auth/internal/httperr"
 	"github.com/nazimdjebloun/go-auth/middleware"
@@ -11,15 +12,31 @@ import (
 
 // OrgScope is the authenticated and authorized tenant identity for an
 // application handler. It is constructed only after the session, membership,
-// and minimum-role checks have succeeded.
+// and role or permission checks have succeeded. It is a snapshot for one
+// operation, not a durable authorization decision. Role is informational when
+// an application uses granular permissions; business services must check the
+// current action and must not trust copied role/grant snapshots.
 //
 // Pass the complete scope into tenant-owned repository methods and include
 // OrgID in every query. go-auth cannot add an organization predicate to SQL
 // issued by the consuming application.
 type OrgScope struct {
-	OrgID  string
-	UserID string
-	Role   domain.OrgRole
+	OrgID     string         `json:"-"`
+	UserID    string         `json:"-"`
+	SessionID string         `json:"-"`
+	Role      domain.OrgRole `json:"-"`
+}
+
+// Actor returns user/session attribution for a subsequent live app check.
+// Projecting a scope does not authenticate it or extend its lifetime.
+func (s OrgScope) Actor() api.Actor {
+	return api.Actor{UserID: s.UserID, SessionID: s.SessionID}
+}
+
+// PermissionActor preserves the selected tenant and session for a subsequent
+// live organization permission check, such as Auth.AuthorizeOrg.
+func (s OrgScope) PermissionActor() api.OrgPermissionActor {
+	return s.Actor().ForOrg(s.OrgID)
 }
 
 // OrgHandlerFunc handles a request after go-auth has resolved its OrgScope.
@@ -123,9 +140,10 @@ func (a *Auth) orgScopeHandler(next OrgHandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user := middleware.GetUserFromContext(r.Context())
 		session := middleware.GetSessionFromContext(r.Context())
+		actor, ok := middleware.ActorFromContext(r.Context())
 		orgID := middleware.GetOrgID(r.Context())
 		role := middleware.GetOrgRole(r.Context())
-		if user == nil || session == nil || user.ID == "" || session.UserID != user.ID || orgID == "" || !role.IsValid() {
+		if !ok || orgID == "" || !role.IsValid() {
 			if a.cfg.logger != nil {
 				a.cfg.logger.Error("goauth: incomplete organization scope after authorization",
 					"has_user", user != nil,
@@ -139,9 +157,10 @@ func (a *Auth) orgScopeHandler(next OrgHandlerFunc) http.Handler {
 		}
 
 		next(w, r, OrgScope{
-			OrgID:  orgID,
-			UserID: user.ID,
-			Role:   role,
+			OrgID:     orgID,
+			UserID:    actor.UserID,
+			SessionID: actor.SessionID,
+			Role:      role,
 		})
 	})
 }

@@ -288,6 +288,15 @@ permission checks. Business-definition disablement, grant removal and membership
 are reflected by subsequent backend permission checks. Applications must still
 scope their own SQL by the authorized org ID.
 
+Scoped handlers now receive session attribution in `scope.SessionID`. Pass
+`scope.PermissionActor()` into application business services; a custom transport
+can use `Auth.GetActor` and `actor.ForOrg(orgID)` for the same input. Inside the
+service, `Auth.AuthorizeOrg(ctx, api.CheckOrgPermissionInput{...})` requires a
+session-bound actor, checks live access, and returns a fresh `OrgScope` for the
+repository. It does not trust the incoming scope's role snapshot. See
+[actors and tenant scopes](./integration.mdx#actors-and-tenant-scopes) for the
+shared service pattern and lifetime/serialization rules.
+
 Use `/access` or `ListEffectivePermissions` with the target omitted for self-inspection.
 `GetMemberRole` and the management member-role route always require
 `goauth.org.roles.read`, including when the target is the caller.
