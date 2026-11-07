@@ -85,7 +85,7 @@ for validation rules and defaults.
 ```go
 pattern := "POST /reports/{id}/publish"
 mux.Handle(pattern, auth.Protect(pattern,
-    auth.RequireAppPermission("reports.publish")(publishReport)))
+    auth.RequireAppPermission("app.reports.publish")(publishReport)))
 
 pattern = "GET /private-admin"
 mux.Handle(pattern, auth.Protect(pattern, auth.RequireAdmin(adminPage)))
@@ -102,6 +102,12 @@ Permission and organization features must be enabled and provisioned as
 documented in their guides. The wrappers retain their existing live checks;
 `Protect` does not grant a role or permission. Include the authenticated user
 and organization in application queries rather than trusting IDs in JSON.
+
+Business permission keys use `app.<resource>.<action>` for application checks
+and `org.<resource>.<action>` for organization checks. A valid key does not create
+its definition or grant access: provision an enabled definition and the intended
+custom-role grants using the [app](./app-permissions.mdx) or
+[organization permission](./org-permissions.mdx) workflow.
 
 `ProtectActiveOrgScope(pattern, key, handler)` instead selects the authenticated
 session's active organization. Both helpers check live membership, permission
