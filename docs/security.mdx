@@ -81,6 +81,20 @@ Refresh tokens rotate on every use: presenting one invalidates it and issues a n
 
 Cookies are `HttpOnly` (never exposed to JavaScript). The `Secure` flag is tri-state: left unset it derives to `true` everywhere except an HTTP public API origin in `EnvironmentDev`. `BrowserConfig.APIURL` supplies that origin, falling back to the origin of `AppConfig.BaseURL`. `goauth.SecureNever()` is allowed only in development; `SameSite=None` always requires Secure. `SameSite` defaults to `Lax`.
 
+## CORS
+
+`BrowserConfig.AllowedOrigins` is an exact frontend allow-list. Optional
+`BrowserConfig.CORS` headers and methods extend the built-in defaults; they do
+not remove the auth headers or broaden the origin list. Configuration rejects
+wildcards and invalid header/method names. Unlisted origins receive no CORS
+access grants. See [application CORS configuration](./configuration.mdx#application-cors-policy).
+
+CORS controls browser access to responses; it does not authenticate a request,
+authorize a business operation, or replace CSRF checks. Custom methods require
+the same Origin/Referer and signed-token checks as POST: only GET, HEAD, and
+OPTIONS skip those unsafe-request checks. Exposed headers do not make HttpOnly
+cookies readable by JavaScript.
+
 ## CSRF
 
 Ordinary unsafe browser routes enforce both an exact origin allow-list and a signed double-submit token. Neither layer can be disabled. The origin comes from `Origin`, falling back to `Referer`; a mutation with neither is rejected. The effective API request origin itself is also accepted, honoring forwarded host/scheme only through configured trusted proxies. OAuth callbacks instead use their existing single-use, browser-bound OAuth state.

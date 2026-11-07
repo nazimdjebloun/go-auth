@@ -198,6 +198,11 @@ goauth.WithBrowser(goauth.BrowserConfig{
         "https://app.example.com",
         "https://admin.example.com",
     },
+    CORS: goauth.CORSConfig{ // optional additions to the built-in policy
+        AllowedHeaders: []string{"Idempotency-Key", "X-Request-ID"},
+        ExposedHeaders: []string{"Content-Disposition", "ETag"},
+        // AllowedMethods: []string{"REPORT"}, // only if your app implements it
+    },
     Cookies: goauth.CookieConfig{
         Name:               "goauth_session",
         RefreshName:        "goauth_refresh",
@@ -219,6 +224,9 @@ Import `net/http` when setting `SameSite`. All cookie fields can be omitted.
 |---|---|---|
 | `APIURL` | Origin of `AppConfig.BaseURL` | Public HTTP(S) API origin; set explicitly when the API has a different origin. No path, query, fragment, or credentials. |
 | `AllowedOrigins` | Required | Exact frontend origins, including scheme and port. At least one; no wildcards. Drives CORS and mutation origin checks. |
+| `CORS.AllowedHeaders` | No additions | Additional request header names browsers may send. Defaults retain `Content-Type`, `Authorization`, `X-CSRF-Token`, `X-GoAuth-Session`, and `If-Match`. |
+| `CORS.ExposedHeaders` | No additions | Additional response header names JavaScript may read. Defaults retain `X-CSRF-Token` and `Retry-After`. |
+| `CORS.AllowedMethods` | No additions | Additional case-sensitive HTTP methods. Defaults retain `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, and `OPTIONS`. |
 | `Cookies.Name` | `goauth_session` | Session cookie name. |
 | `Cookies.RefreshName` | `goauth_refresh` | Refresh cookie name. |
 | `Cookies.ChallengeName` | `_2fa_challenge` | Mandatory 2FA browser binding cookie name. |
@@ -231,6 +239,33 @@ Import `net/http` when setting `SameSite`. All cookie fields can be omitted.
 | `Cookies.Secure` | Derived | `nil`: false only for an HTTP API in `EnvironmentDev`; true otherwise. `SecureAlways()` forces true; `SecureNever()` is development-only. |
 
 All these cookies are HttpOnly. Both contexts inherit the same Domain, Path, SameSite, Secure, and session lifetime policy. CSRF cookies (`_csrf` and `_goauth_admin_csrf`), anonymous browser binding cookies, and challenge binding cookies are always host-only at `/`; they do not inherit `Cookies.Domain`. All six configurable names must be valid and distinct and must not collide with reserved CSRF/binding names. Cookie prefix requirements are validated.
+
+#### Application CORS policy
+
+`CORSConfig` adds to the defaults rather than replacing them. Header names are
+deduplicated case-insensitively; methods are case-sensitive. Supply each name as
+one slice entry. Empty slices keep the default policy. A repeated `WithBrowser`
+replaces the browser section, including its CORS additions; slice values are
+copied when the option is applied and when `New` clones the configuration.
+
+`NewConfig` rejects empty names, whitespace, comma-separated lists, non-ASCII
+names, control characters, and `*`. Methods `CONNECT`, `TRACE`, and `TRACK` are
+browser-forbidden and rejected in any case. `New` repeats validation for options
+applied after `NewConfig`. Low-level callers can pass optional configurations to
+`middleware.CORS(origins, middleware.CORSConfig{...})`; invalid low-level configs
+panic during setup.
+
+The configured policy is shared by built-in routes, `Protect`, and `Auth.CORS`.
+Put `auth.CORS` outside the complete method-based router so application preflights
+reach it. `Mount` also registers OPTIONS for its own built-in paths. Allowed
+preflights finish before authentication and rate accounting. Unlisted origins
+receive no CORS access grants.
+
+Advertising a header or method does not implement its business behavior, register
+a route, or grant authorization. Custom methods still require the signed token
+and Origin/Referer checks; only GET, HEAD, and OPTIONS are treated as safe. CORS
+does not make HttpOnly cookies readable by JavaScript. See the
+[application export example](./guides/application-routes.mdx#application-request-and-response-headers).
 
 #### Independent app and admin sessions
 

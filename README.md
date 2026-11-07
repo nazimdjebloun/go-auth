@@ -97,7 +97,8 @@ driver import, and graceful shutdown. The main configuration sections are:
 - `WithSecret`: your persistent application secret, with at least 32 random bytes.
 - `WithAuthentication`: whether password and OAuth authentication are allowed.
 - `WithRegistration`: signup methods, public or invited signup, and email verification.
-- `WithBrowser`: public API origin, exact frontend origins, and cookie delivery.
+- `WithBrowser`: public API origin, exact frontend origins, cookie delivery, and
+  optional application CORS headers and methods.
 - `WithTwoFactor`: optional or required email 2FA.
 
 `DatabaseConfig` requires exactly one connection source: `URL`, `DB`, or `Pool`.

@@ -95,7 +95,7 @@ func buildHTTP(cfg *Config, wired serviceWiring) httpWiring {
 	rateLimitMW := middleware.RateLimit(cfg.rateLimit)
 	csrfMW := middleware.OriginCheck(cfg.browser.AllowedOrigins, false, trustedIPs, cfg.logger)
 	csrfTokenMW := middleware.CSRFToken(cfg.csrf)
-	corsMW := middleware.CORS(cfg.browser.AllowedOrigins)
+	corsMW := middleware.CORS(cfg.browser.AllowedOrigins, cfg.browser.CORS)
 
 	// Org authorization: orgMemberMW verifies the authenticated user is a
 	// member of the {orgID} path segment; orgAdminMW/orgOwnerMW additionally

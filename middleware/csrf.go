@@ -11,7 +11,8 @@ import (
 )
 
 // OriginCheck returns middleware that validates Origin or Referer headers on
-// state-changing requests (POST, PUT, PATCH, DELETE) to defend against CSRF.
+// all methods except GET, HEAD, and OPTIONS to defend against CSRF, including
+// custom application methods advertised by CORS.
 // When allowedOrigins contains "*" the check is skipped.
 // When allowedOrigins is empty, same-origin requests (Origin matching r.Host)
 // are still permitted.
@@ -47,10 +48,10 @@ func OriginCheck(allowedOrigins []string, allowMissing bool, trustedIPs []string
 				return
 			}
 
-			// Only check state-changing methods
+			// Match the signed-token layer's safe-method definition. Custom
+			// application methods must not skip the origin half of CSRF checks.
 			switch r.Method {
-			case "POST", "PUT", "PATCH", "DELETE":
-			default:
+			case http.MethodGet, http.MethodHead, http.MethodOptions:
 				next.ServeHTTP(w, r)
 				return
 			}

@@ -60,6 +60,116 @@ func TestProtectMutationSecurityAndParameters(t *testing.T) {
 	}
 }
 
+func TestProtectCORSApplicationPolicy(t *testing.T) {
+	f := newAppHTTPFixture(t, false, false,
+		WithBrowser(BrowserConfig{
+			AllowedOrigins: []string{"http://localhost"},
+			CORS: CORSConfig{
+				AllowedHeaders: []string{"Idempotency-Key"},
+				ExposedHeaders: []string{"Content-Disposition"},
+			},
+		}),
+		WithRateLimitRoute("POST /exports", ratelimit.Rate{Requests: 2, Window: time.Minute}),
+	)
+	called := 0
+	protected := f.a.Protect("POST /exports", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called++
+		if r.Header.Get("Idempotency-Key") != "export-123" {
+			t.Error("application header did not reach business handler")
+		}
+		w.Header().Set("Content-Disposition", `attachment; filename="report.csv"`)
+		w.WriteHeader(http.StatusOK)
+	}))
+	f.mux.Handle("POST /exports", protected)
+	for _, tc := range []struct {
+		name, path string
+		handler    http.Handler
+	}{
+		{name: "global CORS", path: "/exports", handler: f.a.CORS(f.mux)},
+		{name: "Protect", path: "/exports", handler: protected},
+		{name: "Mount", path: "/auth/login", handler: f.mux},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest("OPTIONS", tc.path, nil)
+			r.Header.Set("Origin", "http://localhost")
+			r.Header.Set("Access-Control-Request-Method", "POST")
+			r.Header.Set("Access-Control-Request-Headers", "idempotency-key, x-csrf-token")
+			w := httptest.NewRecorder()
+			tc.handler.ServeHTTP(w, r)
+			if w.Code != http.StatusNoContent || called != 0 || w.Header().Get("X-RateLimit-Limit") != "" {
+				t.Fatalf("preflight status=%d, business calls=%d, headers=%v", w.Code, called, w.Header())
+			}
+			if !strings.Contains(w.Header().Get("Access-Control-Allow-Headers"), "Idempotency-Key") || !strings.Contains(w.Header().Get("Access-Control-Expose-Headers"), "Content-Disposition") {
+				t.Fatal("configured application policy missing from preflight")
+			}
+		})
+	}
+	// Preflights spend no budget. The first real request still requires CSRF.
+	r := httptest.NewRequest("POST", "/exports", nil)
+	r.Header.Set("Origin", "http://localhost")
+	w := httptest.NewRecorder()
+	f.mux.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden || called != 0 {
+		t.Fatalf("missing CSRF: status=%d, business calls=%d", w.Code, called)
+	}
+	w = f.request(t, "POST", "/exports", "", f.token, http.StatusOK, http.Header{"Idempotency-Key": {"export-123"}})
+	if w.Header().Get("Content-Disposition") == "" || !strings.Contains(w.Header().Get("Access-Control-Expose-Headers"), "Content-Disposition") {
+		t.Fatal("download metadata not exposed on the actual response")
+	}
+	f.request(t, "POST", "/exports", "", f.token, http.StatusTooManyRequests)
+	if called != 1 {
+		t.Fatalf("business handler calls=%d, want 1", called)
+	}
+}
+
+func TestProtectCORSCustomMethodSecurity(t *testing.T) {
+	f := newAppHTTPFixture(t, false, false, WithBrowser(BrowserConfig{
+		AllowedOrigins: []string{"http://localhost"},
+		CORS:           CORSConfig{AllowedMethods: []string{"REPORT"}},
+	}))
+	called := 0
+	f.mux.Handle("REPORT /reports", f.a.Protect("REPORT /reports", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called++
+		w.WriteHeader(http.StatusNoContent)
+	})))
+	bootstrap := f.request(t, "GET", "/auth/csrf-token", "", f.token, http.StatusOK)
+	for _, tc := range []struct {
+		name, origin string
+		sendCSRF     bool
+		want         int
+	}{
+		{name: "foreign origin with valid proof", origin: "https://evil.example", sendCSRF: true, want: http.StatusForbidden},
+		{name: "missing origin with valid proof", sendCSRF: true, want: http.StatusForbidden},
+		{name: "missing proof", origin: "http://localhost", want: http.StatusForbidden},
+		{name: "allowed", origin: "http://localhost", sendCSRF: true, want: http.StatusNoContent},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := called
+			r := httptest.NewRequest("REPORT", "/reports", nil)
+			r.Header.Set("Origin", tc.origin)
+			r.AddCookie(&http.Cookie{Name: f.a.cookies.Name, Value: f.token})
+			for _, cookie := range bootstrap.Result().Cookies() {
+				r.AddCookie(cookie)
+			}
+			if tc.sendCSRF {
+				r.Header.Set("X-CSRF-Token", bootstrap.Header().Get("X-CSRF-Token"))
+			}
+			w := httptest.NewRecorder()
+			f.mux.ServeHTTP(w, r)
+			wantCalls := before
+			if tc.want == http.StatusNoContent {
+				wantCalls++
+			}
+			if w.Code != tc.want || called != wantCalls {
+				t.Fatalf("status=%d, business calls=%d, want status=%d calls=%d: %s", w.Code, called, tc.want, wantCalls, w.Body.String())
+			}
+			if !strings.Contains(w.Header().Get("Access-Control-Allow-Methods"), "REPORT") && tc.origin == "http://localhost" {
+				t.Fatal("custom method missing from CORS policy")
+			}
+		})
+	}
+}
+
 func TestProtectLiveVerificationExpiryAndAuthorization(t *testing.T) {
 	f := newAppHTTPFixture(t, false, false, WithRegistration(RegistrationConfig{RequireEmailVerification: true}))
 	h := f.a.Protect("GET /widgets/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

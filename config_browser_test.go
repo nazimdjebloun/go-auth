@@ -89,17 +89,110 @@ func TestBrowserDevelopmentAndAPIURLResolution(t *testing.T) {
 func TestBrowserCopiesConsumerIntent(t *testing.T) {
 	origins := []string{"https://app.example.com"}
 	secure := true
-	cfg, err := NewConfig(minimalOpts(WithBrowser(BrowserConfig{AllowedOrigins: origins, Cookies: CookieConfig{Secure: &secure}}))...)
+	cors := CORSConfig{
+		AllowedHeaders: []string{"Idempotency-Key"},
+		ExposedHeaders: []string{"Content-Disposition"},
+		AllowedMethods: []string{"PROPFIND"},
+	}
+	cfg, err := NewConfig(minimalOpts(WithBrowser(BrowserConfig{
+		AllowedOrigins: origins, CORS: cors, Cookies: CookieConfig{Secure: &secure},
+	}))...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	origins[0] = "https://changed.example"
 	secure = false
+	cors.AllowedHeaders[0] = "X-Changed"
+	cors.ExposedHeaders[0] = "X-Changed"
+	cors.AllowedMethods[0] = "CHANGED"
 	prepared, _, err := prepareConfig(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if prepared.browser.AllowedOrigins[0] != "https://app.example.com" || !prepared.resolved.cookieSecure {
 		t.Fatal("consumer mutation changed configuration")
+	}
+	if prepared.browser.CORS.AllowedHeaders[0] != "Idempotency-Key" || prepared.browser.CORS.ExposedHeaders[0] != "Content-Disposition" || prepared.browser.CORS.AllowedMethods[0] != "PROPFIND" {
+		t.Fatal("consumer mutation changed CORS configuration")
+	}
+	prepared.browser.CORS.AllowedHeaders[0] = "X-Changed"
+	prepared.browser.CORS.ExposedHeaders[0] = "X-Changed"
+	prepared.browser.CORS.AllowedMethods[0] = "CHANGED"
+	second, _, err := prepareConfig(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.browser.CORS.AllowedHeaders[0] != "Idempotency-Key" || second.browser.CORS.ExposedHeaders[0] != "Content-Disposition" || second.browser.CORS.AllowedMethods[0] != "PROPFIND" {
+		t.Fatal("prepared instance shares CORS slices with reusable configuration")
+	}
+}
+
+func TestBrowserCORSValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cors CORSConfig
+		want string
+	}{
+		{name: "defaults"},
+		{name: "application additions", cors: CORSConfig{AllowedHeaders: []string{"Idempotency-Key"}, ExposedHeaders: []string{"Content-Disposition"}, AllowedMethods: []string{"PROPFIND"}}},
+		{name: "empty header", cors: CORSConfig{AllowedHeaders: []string{""}}, want: "allowed_headers"},
+		{name: "header list", cors: CORSConfig{AllowedHeaders: []string{"X-One, X-Two"}}, want: "allowed_headers"},
+		{name: "header whitespace", cors: CORSConfig{AllowedHeaders: []string{" X-One"}}, want: "allowed_headers"},
+		{name: "header colon", cors: CORSConfig{AllowedHeaders: []string{"X-One:"}}, want: "allowed_headers"},
+		{name: "header injection", cors: CORSConfig{AllowedHeaders: []string{"X-One\r\nInjected: true"}}, want: "allowed_headers"},
+		{name: "header wildcard", cors: CORSConfig{AllowedHeaders: []string{"*"}}, want: "allowed_headers"},
+		{name: "exposure wildcard", cors: CORSConfig{ExposedHeaders: []string{"*"}}, want: "exposed_headers"},
+		{name: "exposure Unicode", cors: CORSConfig{ExposedHeaders: []string{"X-Café"}}, want: "exposed_headers"},
+		{name: "exposure newline", cors: CORSConfig{ExposedHeaders: []string{"X-One\nX-Two"}}, want: "exposed_headers"},
+		{name: "method wildcard", cors: CORSConfig{AllowedMethods: []string{"*"}}, want: "allowed_methods"},
+		{name: "method list", cors: CORSConfig{AllowedMethods: []string{"POST, GET"}}, want: "allowed_methods"},
+		{name: "method whitespace", cors: CORSConfig{AllowedMethods: []string{" PROPFIND"}}, want: "allowed_methods"},
+		{name: "method separator", cors: CORSConfig{AllowedMethods: []string{"BAD/METHOD"}}, want: "allowed_methods"},
+		{name: "forbidden CONNECT", cors: CORSConfig{AllowedMethods: []string{"CONNECT"}}, want: "browser-forbidden"},
+		{name: "forbidden TRACE", cors: CORSConfig{AllowedMethods: []string{"trace"}}, want: "browser-forbidden"},
+		{name: "forbidden TRACK", cors: CORSConfig{AllowedMethods: []string{"TRACK"}}, want: "browser-forbidden"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			browser := BrowserConfig{AllowedOrigins: []string{"https://app.example.com"}, CORS: tc.cors}
+			cfg, err := NewConfig(minimalOpts(WithBrowser(browser))...)
+			if tc.want == "" {
+				if err != nil || cfg == nil {
+					t.Fatalf("valid CORS rejected: %v", err)
+				}
+				return
+			}
+			if cfg != nil || err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("config present=%v, error=%v, want %q", cfg != nil, err, tc.want)
+			}
+			valid, err := NewConfig(minimalOpts()...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			WithBrowser(browser)(valid)
+			auth, err := New(valid)
+			if auth != nil {
+				auth.Close()
+				t.Fatal("New accepted invalid late CORS options")
+			}
+			if err == nil || !strings.Contains(err.Error(), "goauth: invalid configuration: browser: cors:") {
+				t.Fatalf("New error=%v, want early configuration rejection", err)
+			}
+		})
+	}
+}
+
+func TestBrowserCORSSectionReplacement(t *testing.T) {
+	cfg, err := NewConfig(minimalOpts(
+		WithBrowser(BrowserConfig{
+			AllowedOrigins: []string{"https://app.example.com"},
+			CORS:           CORSConfig{AllowedHeaders: []string{"Idempotency-Key"}},
+		}),
+		WithBrowser(BrowserConfig{AllowedOrigins: []string{"https://other.example.com"}}),
+	)...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.browser.CORS.AllowedHeaders) != 0 {
+		t.Fatal("replaced browser section retained previous CORS additions")
 	}
 }

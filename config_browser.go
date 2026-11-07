@@ -7,15 +7,22 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
 // BrowserConfig describes the public HTTP deployment. CSRF and challenge
 // binding are mandatory; this section only configures browser transport.
 type BrowserConfig struct {
-	APIURL         string   // public API origin; defaults to the origin of AppConfig.BaseURL
-	AllowedOrigins []string // exact frontend origins; no wildcards
+	APIURL         string     // public API origin; defaults to the origin of AppConfig.BaseURL
+	AllowedOrigins []string   // exact frontend origins; no wildcards
+	CORS           CORSConfig // additional application headers and methods
 	Cookies        CookieConfig
 }
+
+// CORSConfig extends the default CORS headers and methods. Empty slices keep
+// the defaults. Origins and cookie policy remain in BrowserConfig.
+type CORSConfig = middleware.CORSConfig
 
 // CookieConfig controls authentication-cookie delivery. CSRF and browser
 // binding cookies remain host-only at / and inherit Secure and SameSite.
@@ -39,6 +46,9 @@ func WithBrowser(cfg BrowserConfig) Option {
 	return func(c *Config) {
 		c.browser = cfg
 		c.browser.AllowedOrigins = append([]string(nil), cfg.AllowedOrigins...)
+		c.browser.CORS.AllowedHeaders = append([]string(nil), cfg.CORS.AllowedHeaders...)
+		c.browser.CORS.ExposedHeaders = append([]string(nil), cfg.CORS.ExposedHeaders...)
+		c.browser.CORS.AllowedMethods = append([]string(nil), cfg.CORS.AllowedMethods...)
 		if cfg.Cookies.Secure != nil {
 			v := *cfg.Cookies.Secure
 			c.browser.Cookies.Secure = &v
@@ -112,6 +122,9 @@ func parseBrowserOrigin(value string) (*url.URL, error) {
 
 func (c *Config) validateBrowser() []error {
 	var errs []error
+	if err := c.browser.CORS.Validate(); err != nil {
+		errs = append(errs, fmt.Errorf("browser: %w", err))
+	}
 	dev := c.app.Environment.normalize() == EnvironmentDev
 	u, err := parseBrowserOrigin(c.resolved.apiURL)
 	if err != nil {

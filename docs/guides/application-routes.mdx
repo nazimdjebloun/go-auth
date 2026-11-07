@@ -35,6 +35,51 @@ The `WithRateLimitRoute` key uses the same pattern if a custom rate is needed.
 Without an override, the configured fallback rate applies. Explicitly disabled
 rate limits and configured exemptions are respected.
 
+## Application request and response headers
+
+Configure additional CORS headers when your application uses custom request
+headers or needs JavaScript to read response metadata:
+
+```go
+goauth.WithBrowser(goauth.BrowserConfig{
+    APIURL:         "https://api.example.com",
+    AllowedOrigins: []string{"https://app.example.com"},
+    CORS: goauth.CORSConfig{
+        AllowedHeaders: []string{"Idempotency-Key"},
+        ExposedHeaders: []string{"Content-Disposition"},
+    },
+})
+```
+
+For example, an authenticated `POST /exports` route can accept an idempotency
+key and return a CSV download. After the normal CSRF bootstrap, the browser can
+send that key and read the filename metadata:
+
+```js
+// csrfToken came from /auth/csrf-token; exportKey identifies this export attempt.
+const response = await fetch("https://api.example.com/exports", {
+    method: "POST",
+    credentials: "include",
+    headers: {
+        "X-CSRF-Token": csrfToken,
+        "Idempotency-Key": exportKey,
+    },
+});
+const disposition = response.headers.get("Content-Disposition");
+```
+
+The application implements idempotency and sets `Content-Disposition` on its
+response. CORS only permits sending/reading those headers. All default auth
+headers remain available. Use `auth.Protect("POST /exports", handler)` and put
+`auth.CORS` around the complete router for preflight, as above. The same CORS
+configuration applies through `Mount`, `Protect`, and `Auth.CORS`; additional
+wrapping with the same instance retains that policy.
+
+Optional `CORS.AllowedMethods` entries advertise custom methods your application
+implements. Origin and signed-token checks apply to every method except GET,
+HEAD, and OPTIONS. See the [configuration reference](../configuration.mdx#application-cors-policy)
+for validation rules and defaults.
+
 ## Authorization runs after authentication
 
 ```go

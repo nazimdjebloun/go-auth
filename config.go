@@ -132,6 +132,9 @@ func (c *Config) clone() Config {
 	}
 
 	cfg.browser.AllowedOrigins = append([]string(nil), c.browser.AllowedOrigins...)
+	cfg.browser.CORS.AllowedHeaders = append([]string(nil), c.browser.CORS.AllowedHeaders...)
+	cfg.browser.CORS.ExposedHeaders = append([]string(nil), c.browser.CORS.ExposedHeaders...)
+	cfg.browser.CORS.AllowedMethods = append([]string(nil), c.browser.CORS.AllowedMethods...)
 	if c.csrf != nil {
 		tok := *c.csrf
 		cfg.csrf = &tok
