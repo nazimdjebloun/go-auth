@@ -11,14 +11,9 @@ import (
 	"github.com/nazimdjebloun/go-auth/internal/sqlstore"
 )
 
-// requireDriverSupport defaults the driver to postgres and checks that the
-// consumer actually blank-imported the database/sql driver the chosen
-// backend needs — go-auth's own go.mod only pulls in pgx. Also enforces
-// MySQL's parseTime requirement when go-auth opens the connection itself.
+// requireDriverSupport checks runtime SQL driver registration for the validated
+// backend and MySQL's parseTime requirement for URL-created connections.
 func requireDriverSupport(cfg *Config) error {
-	if cfg.app.Database.Driver == "" {
-		cfg.app.Database.Driver = DriverPostgres
-	}
 	switch cfg.app.Database.Driver {
 	case DriverPostgres:
 		// supported natively

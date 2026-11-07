@@ -100,6 +100,12 @@ driver import, and graceful shutdown. The main configuration sections are:
 - `WithBrowser`: public API origin, exact frontend origins, and cookie delivery.
 - `WithTwoFactor`: optional or required email 2FA.
 
+`DatabaseConfig` requires exactly one connection source: `URL`, `DB`, or `Pool`.
+Set `Driver` to `DriverPostgres`, `DriverSQLite`, or `DriverMySQL`; `Pool` requires
+`DriverPostgres`. `NewConfig` rejects conflicting sources and unsupported drivers.
+If an existing setup supplies both a URL and a borrowed handle, remove the unused
+source; connection-source precedence is no longer supported.
+
 Mount built-in routes and protect your own routes on the same server:
 
 ```go

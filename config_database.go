@@ -20,8 +20,10 @@ const (
 )
 
 // DatabaseConfig configures the database connection.
-// Provide one of URL, DB, or Pool. URL is the preferred option —
-// the library will open, validate, and close the connection automatically.
+// Provide exactly one of URL, DB, or Pool. Pool requires DriverPostgres.
+// NewConfig rejects unsupported drivers and conflicting connection sources.
+// URL is the preferred option: the library opens, validates, and closes the
+// connection automatically.
 // New checks connectivity and recorded migration compatibility for every source
 // before starting workers. Apply migrations separately before construction.
 type DatabaseConfig struct {
@@ -40,15 +42,40 @@ type DatabaseConfig struct {
 }
 
 func (c *Config) validateDatabase() []error {
+	db := c.app.Database
 	var errs []error
-	if _, _, err := c.app.Database.connectionLimits(); err != nil {
+	if _, _, err := db.connectionLimits(); err != nil {
 		errs = append(errs, err)
 	}
-	if c.app.Database.Driver == "" {
+	switch db.Driver {
+	case "":
 		errs = append(errs, errors.New("database: driver cannot be empty"))
+	case DriverPostgres, DriverSQLite, DriverMySQL:
+	default:
+		errs = append(errs, fmt.Errorf(
+			"database: unsupported driver %q; use DriverPostgres, DriverSQLite, or DriverMySQL",
+			db.Driver,
+		))
 	}
-	if c.app.Database.URL == "" && c.app.Database.DB == nil && c.app.Database.Pool == nil {
+	var sources int
+	if db.URL != "" {
+		sources++
+	}
+	if db.DB != nil {
+		sources++
+	}
+	if db.Pool != nil {
+		sources++
+	}
+	switch sources {
+	case 0:
 		errs = append(errs, errors.New("database: one of URL, DB, or Pool is required"))
+	case 1:
+	default:
+		errs = append(errs, errors.New("database: exactly one of URL, DB, or Pool must be set"))
+	}
+	if db.Pool != nil && db.Driver != DriverPostgres {
+		errs = append(errs, errors.New("database: Pool requires DriverPostgres"))
 	}
 	return errs
 }
