@@ -207,7 +207,11 @@ func (h *OAuthHandlers) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.RequiresVerification {
-		redirectURL := h.baseURL + "/auth/callback?step=verify_email&provider=" + url.QueryEscape(provider)
+		params := url.Values{
+			"step": {string(api.StepVerifyEmail)}, "provider": {provider},
+			"verificationDelivery": {string(result.VerificationDelivery)},
+		}
+		redirectURL := h.baseURL + "/auth/callback?" + params.Encode()
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}

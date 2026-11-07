@@ -24,12 +24,13 @@ const (
 // Session credentials and browser proofs travel only through the existing HttpOnly cookies.
 // ChallengeID identifies a challenge; it is not sufficient to redeem one.
 type AuthenticationResponse struct {
-	Step        AuthStep        `json:"step"`
-	User        *domain.User    `json:"user,omitempty"`
-	Session     *domain.Session `json:"session,omitempty"`
-	ChallengeID string          `json:"challengeId,omitempty"`
-	ExpiresAt   *time.Time      `json:"expiresAt,omitempty"`
-	CodeSent    *bool           `json:"codeSent,omitempty"`
-	IsNewUser   bool            `json:"isNewUser,omitempty"`
-	Message     string          `json:"message,omitempty"`
+	Step                 AuthStep             `json:"step"`
+	User                 *domain.User         `json:"user,omitempty"`
+	Session              *domain.Session      `json:"session,omitempty"`
+	ChallengeID          string               `json:"challengeId,omitempty"`
+	ExpiresAt            *time.Time           `json:"expiresAt,omitempty"`
+	CodeSent             *bool                `json:"codeSent,omitempty"`
+	IsNewUser            bool                 `json:"isNewUser,omitempty"`
+	Message              string               `json:"message,omitempty"`
+	VerificationDelivery VerificationDelivery `json:"verificationDelivery,omitempty"`
 }

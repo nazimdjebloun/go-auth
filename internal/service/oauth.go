@@ -388,10 +388,10 @@ func (s *OAuthService) Callback(ctx context.Context, input api.OAuthCallbackInpu
 		}
 
 		if s.config.RequireEmailVerification && !user.IsVerified {
-			if _, err := s.verifySvc.SendVerification(ctx, user); err != nil {
-				return nil, err
-			}
-			return &api.OAuthCallbackResult{RequiresVerification: true, VerifyEmail: user.Email}, nil
+			return &api.OAuthCallbackResult{
+				RequiresVerification: true, VerifyEmail: user.Email,
+				VerificationDelivery: s.verifySvc.pendingDelivery(ctx, user),
+			}, nil
 		}
 
 		return s.completeOAuthLogin(ctx, user, input.Provider, input.IP, input.UserAgent, false)
@@ -424,10 +424,10 @@ func (s *OAuthService) registerOAuth(ctx context.Context, input api.OAuthCallbac
 	// Only send verification email if the provider did NOT verify the email
 	// and email verification is required.
 	if s.config.RequireEmailVerification && !newUser.IsVerified {
-		if _, err := s.verifySvc.SendVerification(ctx, newUser); err != nil {
-			return nil, err
-		}
-		return &api.OAuthCallbackResult{IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email}, nil
+		return &api.OAuthCallbackResult{
+			IsNewUser: true, RequiresVerification: true, VerifyEmail: newUser.Email,
+			VerificationDelivery: s.verifySvc.pendingDelivery(ctx, newUser),
+		}, nil
 	}
 
 	result, err := s.completeOAuthLogin(ctx, newUser, input.Provider, input.IP, input.UserAgent, true)
@@ -685,10 +685,10 @@ func (s *OAuthService) completeOAuthLogin(ctx context.Context, user *domain.User
 		return nil, err
 	}
 	if verification {
-		if _, err := s.verifySvc.SendVerification(ctx, current); err != nil {
-			return nil, err
-		}
-		return &api.OAuthCallbackResult{RequiresVerification: true, VerifyEmail: current.Email}, nil
+		return &api.OAuthCallbackResult{
+			RequiresVerification: true, VerifyEmail: current.Email,
+			VerificationDelivery: s.verifySvc.pendingDelivery(ctx, current),
+		}, nil
 	}
 	if required {
 		challenge, err := s.twoFactorSvc.challengeWithOAuth(ctx, current.ID)

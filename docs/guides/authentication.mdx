@@ -118,11 +118,18 @@ The raw session and refresh tokens are never in this body — they're set as `Ht
 {
   "user": { "...": "same shape as above, isVerified: false" },
   "step": "verify_email",
-  "message": "Verification email sent. Please verify your email to continue."
+  "verificationDelivery": "sent",
+  "message": "Account created. Verification email sent. Please verify your email to continue."
 }
 ```
 
-No cookies are set on this response. The account exists in the database, but there's nothing to authenticate with yet — the client has to go through [Verifying the email](#verifying-the-email) below.
+No session or refresh cookies are issued on this response. The account exists
+in the database and must complete [email verification](#verifying-the-email).
+If preparing or sending the code fails after account creation, the response is
+still `201`/`verify_email`, with `verificationDelivery: "failed"` and a message
+offering resend. `not_sent` reports reuse/cooldown rather than a fresh message.
+Do not retry signup: offer the public resend operation. See the
+[delivery contract](./authentication-outcomes.mdx#verification-delivery-after-signup).
 
 **Response — `TwoFactorConfig.RequireEmail2FA: true`** (`201 Created`) — a session is not issued; register reaches this gate only when `RequireEmailVerification` is off; otherwise it returns the verification response above (see [Two-factor authentication](#two-factor-authentication)):
 
@@ -183,14 +190,16 @@ result, err := auth.Services().Auth.Register(ctx, api.RegisterInput{
     UserAgent: r.UserAgent(), // optional — same
 })
 if err != nil {
-    // err is always a *domain.AuthError under the hood — extract it with
-    // errors.As(err, &authErr) for authErr.Code/.Message, or match a
-    // specific one with errors.Is(err, domain.ErrEmailAlreadyExists)
-    // — see Error Handling → Handling errors programmatically.
+    // Handle the error before using result. Domain errors support errors.Is
+    // and errors.As; infrastructure errors may wrap their original cause.
+    // See Error Handling → Handling errors programmatically.
+    return err
 }
 
 if result.RequiresVerification {
     // result.Session, result.SessionToken, result.RefreshToken are all zero-valued here
+    // result.VerificationDelivery reports Sent, NotSent, or Failed using api constants.
+    // A failed delivery does not undo the account: offer resend, not another signup.
 } else if result.RequiresTwoFactor {
     // no session issued yet — result.TwoFactorChallenge is the challenge id,
     // result.BindingToken() is what the handler would set as a cookie —
@@ -213,7 +222,8 @@ const result = await apiRequest(API_BASE, "POST", "/auth/register", {
 });
 
 if (result.step === "verify_email") {
-  // show "check your email" — no session exists yet
+  // Show result.message and verification with a resend action.
+  // verificationDelivery === "failed" still means the account was created.
 } else if (result.step === "two_factor") {
   setChallengeId(result.challengeId); // show the code screen; no session exists yet
 } else {

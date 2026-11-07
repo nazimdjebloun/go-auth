@@ -92,6 +92,14 @@ fields and the HTTP error envelope are unchanged.
 
 ## Authentication policy
 
+`RegisterResult.VerificationDelivery` and `OAuthCallbackResult.VerificationDelivery`
+describe the verification-email attempt independently of account creation.
+Once the account exists, a failed attempt returns a verification-pending result,
+not a signup error. Offer the existing resend operation; no credentials are
+issued while verification is pending. Direct `Verify.SendVerification` and
+`ResendVerification` retain their `(result, error)` contract. See
+[delivery outcomes](./authentication-outcomes.mdx#verification-delivery-after-signup).
+
 Password and OAuth login apply the same global and per-account email-2FA requirements. Admin OAuth also applies the admin default. Authentication and signup methods are independently selected with `WithAuthentication` and `WithRegistration`. The [policy matrix](../security.mdx#authentication-policy-matrix) specifies verification and second-factor behavior for each path.
 
 ## Optional application authorization

@@ -15,7 +15,7 @@ status and `{error, message}` envelope, or OAuth `error` query parameter.
 | Step | Frontend action | Data |
 |---|---|---|
 | `authenticated` | Fetch `/auth/me`, then enter the application. | Password flows include `user` and session metadata. OAuth has already issued cookies. |
-| `verify_email` | Show email verification; offer the appropriate resend operation. | Password responses include `user`; restricted `/auth/me` and refresh expose minimal status and email. |
+| `verify_email` | Show email verification; offer the appropriate resend operation. | Password responses include `user`. Signup includes `verificationDelivery`; OAuth verification callbacks include it in the query. Restricted `/auth/me` and refresh expose minimal status and email. |
 | `two_factor` | Collect the six-digit email code and POST `/auth/2fa/verify`. | `challengeId`, `expiresAt`, `codeSent` in JSON; OAuth redirects include the ID and expiry. |
 | `verify_invite_email` | Collect the invitation address-proof code and POST `/auth/oauth/invite/verify`. | OAuth callback supplies `challengeId`. The result may proceed to `two_factor`. |
 | `sign_in` | Display sign-in, or repeat login using credentials still held in memory. | Returned after logout or email verification without this user's live session. |
@@ -46,7 +46,7 @@ credentials stay in HttpOnly cookies and never appear in JSON or callback URLs.
 type User = { id: string; email: string }
 type AuthOutcome =
   | { step: "authenticated"; user?: User }
-  | { step: "verify_email"; user: User }
+  | { step: "verify_email"; user: User; verificationDelivery?: "sent" | "not_sent" | "failed" }
   | { step: "two_factor"; challengeId: string; expiresAt: string; codeSent: boolean }
   | { step: "sign_in" }
 
@@ -64,6 +64,53 @@ Do not trust a landing URL as proof of authentication: anyone can edit its
 query parameters. Fetch `/auth/me` with credentials; protected backend routes
 remain the authority for application access. Handle an unknown step as an
 integration error rather than assuming login succeeded.
+
+## Verification delivery after signup
+
+Account creation and verification delivery are separate outcomes. After a
+password account commits, `POST /auth/register` returns `201` and
+`step: "verify_email"` even if rendering, preparing, or sending the code fails:
+
+```json
+{
+  "step": "verify_email",
+  "user": { "id": "...", "email": "new@example.com", "isVerified": false },
+  "verificationDelivery": "failed",
+  "message": "Account created. Verification email could not be sent. Request a new code to continue."
+}
+```
+
+| `verificationDelivery` | Meaning |
+|---|---|
+| `sent` | The mailer accepted the new message. This does not confirm inbox delivery. |
+| `not_sent` | No new message was attempted because an existing code was reused or a cooldown applied. |
+| `failed` | Preparing or sending the code failed. The account still exists and requires verification. Offer resend. |
+
+This field is omitted when the operation did not attempt verification delivery,
+including ordinary password login that only reports a verification requirement.
+It is separate from `codeSent`, which continues to describe a 2FA challenge.
+Transport-neutral `RegisterResult.VerificationDelivery` and
+`OAuthCallbackResult.VerificationDelivery` use the constants in `api`.
+
+OAuth callbacks for unverified identities use the same statuses in the
+`verificationDelivery` query parameter alongside `step=verify_email`. New-account
+creation preserves its committed provider link when delivery fails, so a fresh
+OAuth attempt resumes the same identity. Invalid OAuth state, provider errors,
+and failures before account creation retain the usual error behavior.
+
+Keep the user on the verification screen and show a resend action instead of
+inviting them to create the same account again. Use
+`POST /auth/verify-email/resend` with the email address. It queues a durable public
+recovery request and returns the same generic response for existing and absent
+accounts; it does not expose delivery status. Token reuse, cooldowns, attempt
+limits and worker retry policy remain in effect. Initial signup delivery is a
+synchronous attempt; `failed` does not mean a background retry was queued.
+
+Email verification continues to create no credentials. No password signup or
+OAuth verification-pending outcome bypasses verification or MFA. Invitation
+redemption already establishes email ownership and has no separate account
+verification-email step. MFA challenge delivery and session-issuance errors are
+outside this delivery-status contract and retain their existing behavior.
 
 ## Email verification and existing sessions
 

@@ -15,6 +15,11 @@ calls that backend for signup, login, verification, and session management.
 Session credentials stay in HttpOnly cookies; HTTP responses tell the frontend
 its next authentication `step`.
 
+With email verification required, committed signup returns `step: "verify_email"`
+even if the verification email attempt fails. `verificationDelivery` reports
+`sent`, `not_sent`, or `failed`; offer verification resend after a failed attempt.
+The account remains unverified and receives no session until the flow completes.
+
 Use `Auth.Protect` on application endpoints, then add your ownership, role, or
 permission checks. For tenant-owned routes with org permissions enabled, use
 `Auth.ProtectOrgScope(pattern, key, handler)` or `Auth.ProtectActiveOrgScope` to

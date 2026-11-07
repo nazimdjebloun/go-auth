@@ -63,6 +63,9 @@ type RegisterResult struct {
 	SessionToken         string          `json:"sessionToken,omitempty"`
 	RefreshToken         string          `json:"refreshToken,omitempty"`
 	RequiresVerification bool            `json:"requiresVerification,omitempty"`
+	// VerificationDelivery is set only when email verification is required.
+	// A failed attempt does not undo the committed account or issue a session.
+	VerificationDelivery VerificationDelivery `json:"verificationDelivery,omitempty"`
 
 	RequiresTwoFactor  bool      `json:"requiresTwoFactor,omitempty"`
 	CodeSent           bool      `json:"codeSent,omitempty"`

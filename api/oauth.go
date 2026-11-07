@@ -48,6 +48,7 @@ type OAuthCallbackResult struct {
 	IsNewUser                  bool
 	RequiresVerification       bool
 	VerifyEmail                string
+	VerificationDelivery       VerificationDelivery `json:"verificationDelivery,omitempty"`
 	IsLink                     bool
 	RequiresTwoFactor          bool      `json:"requiresTwoFactor,omitempty"`
 	CodeSent                   bool      `json:"codeSent,omitempty"`

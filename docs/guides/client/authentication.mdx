@@ -239,6 +239,14 @@ export function RegisterForm() {
 
 Shown when `register()` returns `step: "verify_email"`.
 
+The account has been created even when `verificationDelivery` is `failed`.
+Preserve the returned email, delivery status and message in application state
+when navigating to this screen. Show that message and the resend action; do not
+send the user back to the signup form or automatically repeat registration.
+`not_sent` means a reuse/cooldown skipped a fresh email. The public resend result
+remains generic and does not report per-account delivery. See
+[authentication outcomes](../authentication-outcomes.mdx#verification-delivery-after-signup).
+
 ```tsx
 // components/verify-email-form.tsx
 "use client";

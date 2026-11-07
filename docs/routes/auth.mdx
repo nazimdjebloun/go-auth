@@ -89,9 +89,20 @@ Creates a user. `Auth:` Public.
 {
   "user": { "...": "full user object" },
   "step": "verify_email",
-  "message": "Verification email sent. Please verify your email to continue."
+  "verificationDelivery": "sent",
+  "message": "Account created. Verification email sent. Please verify your email to continue."
 }
 ```
+
+Once account creation commits, a failure to prepare or send its verification
+email returns this same `201`/`verify_email` outcome with
+`verificationDelivery: "failed"` and a message offering a new code. It does not
+return a signup error or issue session/refresh cookies. `not_sent` means no new
+message was attempted because of code reuse or cooldown; `sent` means mailer
+acceptance, not confirmed inbox delivery. The client should show verification
+and offer `POST /auth/verify-email/resend`, rather than repeat registration.
+Public resend responses remain account-independent. See
+[delivery outcomes](../guides/authentication-outcomes.mdx#verification-delivery-after-signup).
 
 2FA gated (`RequireEmail2FA` on): the gated shape above, plus a binding cookie. Complete with `POST /auth/2fa/verify`. Direct login: both cookies set, body carries the session and omits token fields:
 

@@ -38,7 +38,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if result.RequiresVerification {
-		h.writeJSON(w, http.StatusCreated, api.AuthenticationResponse{Step: api.StepVerifyEmail, User: result.User, Message: "Verification email sent. Please verify your email to continue."})
+		message := "Account created. Please verify your email to continue."
+		switch result.VerificationDelivery {
+		case api.VerificationDeliverySent:
+			message = "Account created. Verification email sent. Please verify your email to continue."
+		case api.VerificationDeliveryFailed:
+			message = "Account created. Verification email could not be sent. Request a new code to continue."
+		}
+		h.writeJSON(w, http.StatusCreated, api.AuthenticationResponse{
+			Step: api.StepVerifyEmail, User: result.User, Message: message,
+			VerificationDelivery: result.VerificationDelivery,
+		})
 		return
 	}
 	if result.RequiresTwoFactor {

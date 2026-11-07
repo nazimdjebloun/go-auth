@@ -179,6 +179,22 @@ func (s *VerificationService) SendVerification(ctx context.Context, user *domain
 	return s.sendVerification(ctx, user, false)
 }
 
+// pendingDelivery reports delivery independently of an already-established
+// account identity. Signup cannot be rolled back here, and OAuth has already
+// authenticated the provider identity. Neither path may issue credentials while
+// verification is pending. Explicit resend operations retain their error contract.
+func (s *VerificationService) pendingDelivery(ctx context.Context, user *domain.User) api.VerificationDelivery {
+	result, err := s.SendVerification(ctx, user)
+	if err != nil {
+		s.log.Warn("email verification remains pending after an unsuccessful delivery attempt", "user_id", user.ID)
+		return api.VerificationDeliveryFailed
+	}
+	if result.Sent {
+		return api.VerificationDeliverySent
+	}
+	return api.VerificationDeliveryNotSent
+}
+
 func (s *VerificationService) sendVerification(ctx context.Context, user *domain.User, retry bool) (*api.VerificationResult, error) {
 	if s.mailer == nil {
 		return nil, domain.ErrEmailNotConfigured

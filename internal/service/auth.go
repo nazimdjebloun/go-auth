@@ -298,12 +298,10 @@ func (s *AuthService) Register(ctx context.Context, input api.RegisterInput) (*a
 	s.log.Info("user registered", "user_id", user.ID, "email", user.Email)
 
 	if s.config.RequireEmailVerification {
-		if _, err := s.verifySvc.SendVerification(ctx, user); err != nil {
-			return nil, err
-		}
 		return &api.RegisterResult{
 			User:                 user,
 			RequiresVerification: true,
+			VerificationDelivery: s.verifySvc.pendingDelivery(ctx, user),
 		}, nil
 	}
 

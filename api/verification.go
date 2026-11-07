@@ -4,6 +4,21 @@ import (
 	"time"
 )
 
+// VerificationDelivery describes an email attempt for an account that still
+// requires verification. It never grants access or confirms inbox delivery.
+type VerificationDelivery string
+
+const (
+	// VerificationDeliverySent means the mailer accepted this attempt.
+	VerificationDeliverySent VerificationDelivery = "sent"
+	// VerificationDeliveryNotSent means a code was reused or a cooldown skipped
+	// a new send. The caller must not claim that a fresh message was delivered.
+	VerificationDeliveryNotSent VerificationDelivery = "not_sent"
+	// VerificationDeliveryFailed means preparing or sending the code failed.
+	// Account creation is already complete; offer verification resend, not signup.
+	VerificationDeliveryFailed VerificationDelivery = "failed"
+)
+
 // VerificationResult describes the outcome of a verification-email send.
 //
 // Sent is false when a still-usable code already existed and was left in place
