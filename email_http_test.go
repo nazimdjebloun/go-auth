@@ -46,15 +46,15 @@ func TestEmailChangeHTTPContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := f.a.Services().Session.Create(t.Context(), api.CreateSessionInput{UserID: created.User.ID})
+	second, err := f.a.Trusted().Session.Create(t.Context(), api.CreateSessionInput{UserID: created.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminContext, err := f.a.Services().Session.Create(sessioncontext.With(t.Context(), sessioncontext.Admin), api.CreateSessionInput{UserID: created.User.ID})
+	adminContext, err := f.a.Trusted().Session.Create(sessioncontext.With(t.Context(), sessioncontext.Admin), api.CreateSessionInput{UserID: created.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f.a.Services().Email == nil {
+	if f.a.Trusted().Email == nil {
 		t.Fatal("missing public capability")
 	}
 	for _, raw := range []string{`null`, `[]`, `{}`, `{"NewEmail":"new@example.com"}`, `{"newEmail":null}`, `{"newEmail":1}`, `{"newEmail":"new@example.com","userId":"injected"}`, `{"newEmail":"new@example.com","actor":{"userId":"injected"}}`, `{"newEmail":"a@example.com","newEmail":"b@example.com"}`, `{"newEmail":"new@example.com"} {}`, `{"newEmail":"new@example.com","password":"` + strings.Repeat("x", 5000) + `"}`} {
@@ -122,7 +122,7 @@ func TestEmailChangeHTTPContract(t *testing.T) {
 
 func TestEmailChangeDisabledAndConfig(t *testing.T) {
 	f := newAppHTTPFixture(t, true, false)
-	if f.a.Services().Email != nil {
+	if f.a.Trusted().Email != nil {
 		t.Fatal("disabled capability is non-nil")
 	}
 	for _, pattern := range []string{routes.RequestEmailChange, routes.ConfirmEmailChange, routes.ResendEmailChange, routes.CancelEmailChange} {

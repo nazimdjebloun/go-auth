@@ -28,7 +28,7 @@ func newOrgPermissionsRegressionFixture(t *testing.T) orgPermissionsRegressionFi
 		WithOrganizations(OrganizationConfig{Enable: true}),
 		WithOrgPermissions(OrgPermissionsConfig{Enable: true, EnableManagementHTTP: true}),
 	)
-	org, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{
+	org, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{
 		OwnerID: f.admin.UserID, Name: "Regression", Slug: uuid.NewString(),
 	})
 	if err != nil {
@@ -98,7 +98,7 @@ func TestOrgPermissionsHTTPInspectIneligibleTargetRole(t *testing.T) {
 		}
 	}
 	f.request(t, "GET", base+"/authorization/members/"+uuid.NewString()+"/role", "", f.token, 404)
-	other, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{
+	other, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{
 		OwnerID: f.actor.UserID, Name: "Other", Slug: uuid.NewString(),
 	})
 	if err != nil {
@@ -156,7 +156,7 @@ func TestOrgPermissionsDisabledFixedRoleWritesPreserveOwnership(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(legacy.Close)
-	if legacy.Services().OrgPermissions != nil {
+	if legacy.Trusted().OrgPermissions != nil {
 		t.Fatal("disabled capability is exposed")
 	}
 	// A same-classification write explicitly resets the retained custom role.

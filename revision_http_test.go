@@ -15,7 +15,7 @@ func TestAuthorizationHTTPRevisionPreconditions(t *testing.T) {
 			f := newAppHTTPFixture(t, true, false, WithOrganizations(OrganizationConfig{Enable: true}), WithOrgPermissions(OrgPermissionsConfig{Enable: true, EnableManagementHTTP: true}))
 			base := "/admin/authorization"
 			if namespace == "org" {
-				org, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Revisions", Slug: uuid.NewString()})
+				org, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Revisions", Slug: uuid.NewString()})
 				if err != nil {
 					t.Fatal(err)
 				}

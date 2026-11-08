@@ -181,6 +181,7 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 	// transaction, so a crash cannot leave an account with no record of its
 	// registration (record-iff-commit).
 	authSvc := service.NewAuthService(sqlDB, userRepo, sessionRepo, tokenRepo, hasherImpl, genImpl, mailer, serviceCfg, sessSvc, verifySvc, twoFactorSvc)
+	authSvc.AttachAccountSessions(sessionRepo)
 	passSvc := service.NewPasswordService(userRepo, tokenRepo, hasherImpl, genImpl, mailer, sessionRepo, sqlDB, serviceCfg)
 	recoveryRepo := sqlstore.NewRecoveryRepository(sqlDB)
 	var emailSvc *service.EmailService

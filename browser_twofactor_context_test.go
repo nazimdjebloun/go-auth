@@ -40,7 +40,7 @@ func (m *contextCodeMailer) last(t *testing.T) string {
 func TestBrowserSessionContexts_TwoFactorLineages(t *testing.T) {
 	mailer := &contextCodeMailer{}
 	f := newAppHTTPFixture(t, true, false, WithMailer(mailer))
-	svc := f.a.Services().TwoFactor
+	svc := f.a.Trusted().TwoFactor
 	app := sessioncontext.With(t.Context(), sessioncontext.App)
 	admin := sessioncontext.With(t.Context(), sessioncontext.Admin)
 	first, err := svc.Challenge(app, f.admin.UserID)

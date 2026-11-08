@@ -6,6 +6,11 @@ icon: "MonitorSmartphone"
 
 # Sessions
 
+Self-service Go examples use an authenticated `api.Actor` named `actor`, obtained
+from `Auth.GetActor` or `middleware.ActorFromContext` after authentication.
+`Auth.Account(actor)` binds the target account and rechecks current access on
+each call. See [service capabilities](./service-capabilities.mdx).
+
 The self-service surface on top of the two-token session model: checking whether a request is authenticated, listing a user's own active sessions, and revoking them. For the token/cookie mechanics themselves (rotation, hashing, the grace window) see [Security concepts](../security.mdx) and the `sessions` table on [Schemas](../schemas.mdx#sessions). For an admin viewing or revoking *another* user's sessions, see [Admin](./admin.mdx#managing-a-users-sessions) — that's a different, role-gated surface and isn't covered here.
 
 The curl mutation examples use `jq` to read the mandatory CSRF bootstrap JSON. Keep the same cookie jar for bootstrap and the following request; the bootstrap is repeated after authentication changes.
@@ -294,8 +299,8 @@ Both endpoints return the caller's **own** sessions only, plus `currentSessionId
 
 | Param | Type | Default | Notes |
 |---|---|---|---|
-| `offset` | `int` | `0` | |
-| `limit` | `int` | `20` | Clamped to a max of `100` — a larger value is silently capped, not rejected |
+| `offset` | `int` | `0` | Negative values become `0`. |
+| `limit` | `int` | `20` | Nonpositive values use `20`; positive values cap at `100`. |
 
 ```json
 {
@@ -338,7 +343,7 @@ curl "https://api.myapp.com/auth/sessions?offset=0&limit=20" -b cookies.txt -c c
 #### Programmatic (Go)
 
 ```go
-sessions, total, err := auth.Services().Session.List(ctx, api.ListSessionsInput{UserID: userID, Offset: 0, Limit: 20})
+sessions, total, err := auth.Account(actor).Session.List(ctx, api.SessionPageInput{Offset: 0, Limit: 20})
 ```
 
 ---
@@ -383,7 +388,7 @@ curl https://api.myapp.com/auth/sessions/all -b cookies.txt -c cookies.txt
 #### Programmatic (Go)
 
 ```go
-sessions, err := auth.Services().Session.ListAll(ctx, userID)
+sessions, err := auth.Account(actor).Session.ListAll(ctx)
 ```
 
 ---
@@ -430,7 +435,7 @@ curl -X DELETE https://api.myapp.com/auth/sessions/9e2c... \
 #### Programmatic (Go)
 
 ```go
-revoked, err := auth.Services().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{SessionID: sessionID, UserID: userID})
+revoked, err := auth.Account(actor).Session.RevokeByID(ctx, sessionID)
 if err == nil && !revoked {
     // treat as session_not_found — it existed but wasn't this user's, or didn't exist at all
 }
@@ -483,9 +488,7 @@ curl -X POST https://api.myapp.com/auth/sessions/revoke \
 #### Programmatic (Go)
 
 ```go
-revoked, err := auth.Services().Session.RevokeManyForUser(ctx, api.RevokeSessionsForUserInput{
-    SessionIDs: []string{"9e2c...", "a71f..."}, UserID: userID,
-})
+revoked, err := auth.Account(actor).Session.RevokeMany(ctx, []string{"9e2c...", "a71f..."})
 ```
 
 ---
@@ -529,9 +532,9 @@ curl -X DELETE https://api.myapp.com/auth/sessions \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Session.RevokeAllExcept(ctx, api.RevokeAllSessionsExceptInput{UserID: userID, ExceptSessionID: currentSessionID})
-// or, if you don't have a "current" session to preserve:
-err := auth.Services().Session.RevokeAll(ctx, userID)
+err := auth.Account(actor).Session.RevokeOthers(ctx)
+// or revoke every session of this account, including the initiating session:
+err = auth.Account(actor).Session.RevokeAll(ctx)
 ```
 
 ---

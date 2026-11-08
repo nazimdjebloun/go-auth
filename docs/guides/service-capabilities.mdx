@@ -1,0 +1,146 @@
+---
+title: "Go service capabilities"
+description: "Authentication flows, actor-bound self-service, management, and explicit backend primitives."
+icon: "ShieldCheck"
+---
+
+# Go service capabilities
+
+Choose the capability that matches the caller's trust. `Services()` is the
+ordinary flow/management surface. `Account(actor)` binds self-service to a
+validated user's session. `Trusted()` deliberately exposes lower-level backend
+integration primitives. HTTP routes compose authentication, cookie handling, CSRF and rate limiting.
+Credential and account services enforce their own transaction and proof rules.
+
+## Authenticate, then bind the account
+
+```go
+actor, err := auth.GetActor(ctx, rawSessionToken)
+if err != nil {
+    return err
+}
+account := auth.Account(actor)
+err = account.Profile.ChangeName(ctx, "Ada Byron")
+```
+
+In protected HTTP handlers, obtain the actor from
+`middleware.ActorFromContext(r.Context())` after `Protect`/`RequireAuth`. Its
+boolean result must be checked. Do not build actors from request IDs. A value of
+`api.Actor` is backend attribution; it is not a credential.
+
+Each account operation checks the current session owner, liveness, account ban
+and ordinary verification policy before delegating to the account service.
+Logout and verification resend also permit verification-pending identity.
+Holding an account handle does not preserve access after revocation. These
+checks do not independently add a universal MFA policy; password, code, binding
+and action-specific assurance requirements remain in the existing operations.
+The guard completes before the delegated mutation; it does not make session
+revocation and the later action one atomic transaction.
+
+## Public operation inventory
+
+Every public capability belongs to one of these categories. Management inputs
+still require trusted actor attribution; accepting actor IDs in request JSON
+does not authenticate their owner. Fixed-role, granular-permission, MFA and delegation policies apply to their
+respective operations.
+
+| Entry point | Operations / purpose | Required trust |
+|---|---|---|
+| `Services().Auth` | `Register`, `Login`, `AdminLogin`; `ConfirmDeleteAccount` consumes a passwordless account-deletion code | Complete the credential/proof flow; honor verification and 2FA continuations |
+| `Services().Password` | `ForgotPassword`, `ResetPassword`, `ConfirmSetPassword` | Recovery enqueueing or valid account-bound code proof; a target user ID alone cannot complete setup |
+| `Services().Session` | `RefreshSession` | Possession of the raw refresh credential; existing rotation/replay rules |
+| `Services().Verify` | `VerifyEmail`, `SendVerificationByEmail` | Code possession or account-independent queue request; queue acceptance is not delivery |
+| `Services().TwoFactor` | `Verify`, `Resend` | Existing login challenge plus browser binding; code proof for verification |
+| `Services().OAuth` | `Initiate`, `Callback`, `InitiateInvite`, `VerifyInviteEmail` | Provider/state/PKCE/browser/invitation proofs required by the flow |
+| `Services().Invite` | `GetInviteByToken`, `CompleteInviteRegistration` | Signup invitation credential and registration proof |
+| `Services().Admin` | User administration, statistics, sessions and audit-log inspection | Authenticated administrator/operator attribution and current operation authorization |
+| `Services().AdminInvite` | Signup invitation create/list/count/revoke/delete/resend and bulk operations | Current invitation-administration authorization |
+| `Services().AdminOrg` | Platform organization list/count/detail/member oversight and mutations | Current platform-administrator authorization; separate from tenant membership |
+| `Services().Org` | Organization detail/update/delete, member add/remove/role/list/count | Trusted actor attribution and current tenant role/permission checks |
+| `Services().OrgInvite` | Organization invitation create/list/count/delete/resend | Trusted actor attribution and current tenant invitation authority |
+| `Services().Email` | Request/confirm/resend/cancel email change | Actor/session-bound account proofs |
+| `Services().AppPermissions` | App catalog, roles, grants, assignments and access checks | Current app authorization and trusted actor/session attribution |
+| `Services().OrgPermissions` | Org initialization, catalog, roles, grants, assignments and access checks | Current tenant authorization and trusted actor/session attribution |
+| `Account(actor).Profile` | Name, password-based deletion, deletion-code request/confirmation | Bound live account; password/mailbox proofs still apply |
+| `Account(actor).Session` | Logout, paginated/all listing, single/batch/other/all revocation | Bound live account; target session queries filter by that account |
+| `Account(actor).Password` | Password change, setup request/confirmation | Bound live account plus password/code proof |
+| `Account(actor).Verify` | `ResendVerification` | Bound live identity, including unverified identity |
+| `Account(actor).TwoFactor` | Settings challenge, enable, disable | Bound live account plus password or action/session-bound code proof |
+| `Account(actor).OAuth` | Provider link initiation, unlink, connected-provider listing | Bound live account; initiation uses its current session token hash |
+| `Account(actor).Org` | Create, list/count own memberships, self-leave, select/clear active org | Bound live account; ownership/user/session fields are derived internally |
+| `Account(actor).OrgInvite` | Accept organization invitation | Bound live account; invitation email/role proofs remain checked |
+| `Trusted()` | Raw backend service operations and audit repository | Explicit trusted backend wiring; caller owns all prior identity/authorization assumptions |
+
+OAuth/organization account capabilities are nil when unavailable. Optional email, organization and permission management capabilities are
+available when their features are enabled. Do not dereference an optional capability without
+checking it or enabling its feature during application setup.
+
+Root `Register`, `Login`, `CompleteInviteRegistration`, `GetActor`, `GetSession`,
+and `CheckSession` perform credential/proof-based operations. `AuthorizeOrg`
+requires a session-bound actor and a current action check. Root
+`InitializeAppPermissions` is trusted installation bootstrap with no HTTP
+route; org initialization requires its current owner's authority. The HTTP composition and cookie helpers require their documented transport
+preconditions.
+
+## Self-service session ownership
+
+```go
+account := auth.Account(actor)
+sessions, total, err := account.Session.List(ctx, api.SessionPageInput{Limit: 20})
+revoked, err := account.Session.RevokeByID(ctx, selectedSessionID)
+err = account.Session.RevokeOthers(ctx)
+```
+
+There is no target `UserID` parameter. A session belonging to another user is not
+revoked and returns `false`; mixed batch revocation counts only owned sessions.
+`RevokeOthers` preserves the initiating session. `RevokeAll` also revokes that
+session, so subsequent calls on the retained handle fail. Paginated listing uses
+20 rows for a nonpositive limit, caps positive limits at 100, and treats negative
+offsets as zero. HTTP and Go session listing use this same service policy. Batch revocation accepts 1–100 IDs. `ListAll` returns all sessions of the bound account; choose the paginated method for bounded responses.
+
+Password change retains the initiating session and revokes other sessions through
+the credential transaction. Ordinary inputs cannot select another
+account or choose an arbitrary session to retain. Provider linking similarly
+derives the current token hash instead of accepting it from request metadata.
+
+## Explicit backend primitives
+
+```go
+// Deliberately trusted integration only: this does NOT authenticate the user.
+issued, err := auth.Trusted().Session.Create(ctx, api.CreateSessionInput{
+    UserID: establishedUserID, IP: clientIP, UserAgent: userAgent,
+})
+```
+
+`Session.Create` does not verify a password, enforce email verification or finish
+MFA, and does not set second-factor assurance. `Trusted().TwoFactor.Challenge`
+starts a login challenge from a user ID; the caller must already own its required
+first-factor authentication. Start ordinary login with `Login`/`AdminLogin` and
+follow their result. Do not expose either primitive as a user-ID-based login API.
+
+`Trusted().Session` also exposes low-level validation, activity touch and
+unrestricted session-ID/user-ID revocation/listing. Identity validation can be
+needed for verification-pending transports; it does not grant ordinary verified
+access. `Trusted().Verify.SendVerification` accepts a backend user object;
+ordinary resend uses the bound account or public generic queue request.
+`Trusted().AuditLog` is the raw repository; use `Services().Admin.ListAuditLogs`
+for authorized inspection. Metadata helpers, including 2FA cookie/binding
+settings, remain available to advanced custom transports through `Trusted()`.
+
+Ordinary service values wrap restricted interfaces, so a Go interface assertion
+cannot widen them to recover hidden session issuance or login-challenge methods.
+This is API separation for trusted Go application code, not a sandbox for hostile
+plugins or reflection. Possession of the root `*Auth` still permits `Trusted()`.
+Inject only the capability your consumer actually needs:
+
+```go
+type profileEditor interface {
+    ChangeName(context.Context, string) error
+}
+
+editor := auth.Account(actor).Profile // supply this to a profile-only consumer
+```
+
+All direct Go calls need their transport's rate limiting and applicable
+CSRF/origin checks. See the [integration contract](./integration.mdx) and
+[application route protections](./application-routes.mdx).

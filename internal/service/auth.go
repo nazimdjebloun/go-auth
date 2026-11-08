@@ -25,6 +25,8 @@ const deleteAccountCodeTTL = 10 * time.Minute
 
 // AuthService provides registration and authentication operations.
 type AuthService struct {
+	accountSessions port.SessionIdentityReader
+
 	users     port.UserRepository
 	sessions  port.SessionRevoker // only DeleteAllForUser (account deletion)
 	tokens    port.TokenRepository

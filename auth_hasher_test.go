@@ -392,7 +392,7 @@ func TestPasswordHashingPepper_RotationAndRollingDeployDoNotDowngrade(t *testing
 		t.Fatal("old node downgraded a password written with a newer pepper version")
 	}
 
-	if err := oldNode.Services().Password.ChangePassword(context.Background(), api.ChangePasswordInput{
+	if err := oldNode.Trusted().Password.ChangePassword(context.Background(), api.ChangePasswordInput{
 		UserID:      userID,
 		OldPassword: password,
 		NewPassword: "NewPassw0rd!",

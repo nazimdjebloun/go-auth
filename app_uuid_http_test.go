@@ -12,7 +12,7 @@ import (
 
 func TestAppPermissionsUUIDInputsHTTP(t *testing.T) {
 	f := newAppHTTPFixture(t, true, false)
-	permissions := f.a.Services().AppPermissions
+	permissions := f.a.Trusted().AppPermissions
 	permission, err := permissions.CreatePermission(t.Context(), api.CreateAppPermissionInput{
 		Actor: f.admin, Key: "app.uuid.read", Name: "UUID test",
 	})

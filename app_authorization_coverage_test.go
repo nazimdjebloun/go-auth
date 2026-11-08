@@ -254,7 +254,7 @@ func TestAppAuthorizationHTTPPolicyMatrix(t *testing.T) {
 		}
 	}
 	verify(f.admin.SessionID, true)
-	permissions := f.a.Services().AppPermissions
+	permissions := f.a.Trusted().AppPermissions
 	keys := []string{}
 	for _, definition := range service.AppLibraryPermissionCatalog() {
 		keys = append(keys, definition.Key)

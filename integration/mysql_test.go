@@ -104,7 +104,7 @@ func TestMySQL_RegisterAndValidateSession(t *testing.T) {
 		t.Fatal("session token missing after register")
 	}
 
-	user, session, aerr := a.Services().Auth.ValidateSession(ctx, res.SessionToken)
+	user, session, aerr := a.Trusted().Auth.ValidateSession(ctx, res.SessionToken)
 	if aerr != nil {
 		t.Fatal("ValidateSession:", aerr)
 	}
@@ -121,10 +121,10 @@ func TestMySQL_RegisterAndValidateSession(t *testing.T) {
 		t.Error("session token hash mismatch")
 	}
 
-	if aerr := a.Services().Auth.Logout(ctx, session.ID); aerr != nil {
+	if aerr := a.Trusted().Auth.Logout(ctx, session.ID); aerr != nil {
 		t.Fatal(aerr)
 	}
-	if _, _, aerr = a.Services().Auth.ValidateSession(ctx, res.SessionToken); aerr == nil {
+	if _, _, aerr = a.Trusted().Auth.ValidateSession(ctx, res.SessionToken); aerr == nil {
 		t.Error("expected error after session revoked")
 	}
 }
@@ -177,7 +177,7 @@ func TestMySQL_RefreshRotation(t *testing.T) {
 		t.Error("refresh_token_hash not updated to the new token")
 	}
 
-	if _, _, aerr := a.Services().Auth.ValidateSession(ctx, rotated.SessionToken); aerr != nil {
+	if _, _, aerr := a.Trusted().Auth.ValidateSession(ctx, rotated.SessionToken); aerr != nil {
 		t.Fatal("ValidateSession after rotation:", aerr)
 	}
 	second, aerr := a.Services().Session.RefreshSession(ctx, rotated.RefreshToken)
@@ -188,7 +188,7 @@ func TestMySQL_RefreshRotation(t *testing.T) {
 	if _, err := a.Services().Session.RefreshSession(ctx, rotated.RefreshToken); err == nil {
 		t.Error("replayed token accepted")
 	}
-	if _, _, err := a.Services().Auth.ValidateSession(ctx, second.SessionToken); err == nil {
+	if _, _, err := a.Trusted().Auth.ValidateSession(ctx, second.SessionToken); err == nil {
 		t.Error("replay did not revoke session")
 	}
 

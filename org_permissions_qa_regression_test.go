@@ -14,7 +14,7 @@ import (
 
 func TestOrgPermissionsHTTPBusinessDeletionDelegation(t *testing.T) {
 	f := newOrgPermissionsRegressionFixture(t)
-	svc := f.a.Services().OrgPermissions
+	svc := f.a.Trusted().OrgPermissions
 	keys := []string{"goauth.org.permissions.update", "goauth.org.permissions.delete"}
 	if _, err := svc.UpdateLibraryPermissions(t.Context(), api.UpdateOrgLibraryPermissionsInput{
 		Actor: f.actor, Create: keys,
@@ -81,7 +81,7 @@ func TestOrgPermissionsHTTPBusinessDeletionDelegation(t *testing.T) {
 
 func TestOrgPermissionsHTTPInspectDisabledEffectiveAccess(t *testing.T) {
 	f := newOrgPermissionsRegressionFixture(t)
-	svc := f.a.Services().OrgPermissions
+	svc := f.a.Trusted().OrgPermissions
 	const key = "org.tasks.read"
 	if _, err := svc.CreatePermission(t.Context(), api.CreateOrgPermissionInput{
 		Actor: f.actor, Key: key, Name: "Read tasks",
@@ -157,7 +157,7 @@ func TestOrgPermissionsHTTPInspectDisabledEffectiveAccess(t *testing.T) {
 		t.Fatalf("banned owner effective access: %+v", access)
 	}
 	f.request(t, "GET", base+"/authorization/members/"+uuid.NewString()+"/access", "", f.token, 404)
-	other, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{
+	other, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{
 		OwnerID: f.actor.UserID, Name: "Other", Slug: uuid.NewString(),
 	})
 	if err != nil {

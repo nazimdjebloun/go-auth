@@ -91,9 +91,9 @@ func TestAuthenticationMethodsAndClosedSignupForExistingAccounts(t *testing.T) {
 	}{
 		{"forgot", func() error { return c.Services().Password.ForgotPassword(ctx, api.ForgotPasswordInput{}) }},
 		{"reset", func() error { return c.Services().Password.ResetPassword(ctx, api.ResetPasswordInput{}) }},
-		{"request setup", func() error { return c.Services().Password.RequestSetPassword(ctx, registered.User.ID) }},
+		{"request setup", func() error { return c.Trusted().Password.RequestSetPassword(ctx, registered.User.ID) }},
 		{"confirm setup", func() error { return c.Services().Password.ConfirmSetPassword(ctx, api.ConfirmSetPasswordInput{}) }},
-		{"change", func() error { return c.Services().Password.ChangePassword(ctx, api.ChangePasswordInput{}) }},
+		{"change", func() error { return c.Trusted().Password.ChangePassword(ctx, api.ChangePasswordInput{}) }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := tc.call(); !errors.Is(err, domain.ErrMethodDisabled) {
@@ -156,7 +156,7 @@ func TestVerificationPolicyRestrictsExistingSessionsAndRefresh(t *testing.T) {
 	if w := request(a, "/private", refreshed.SessionToken); w.Code != http.StatusNoContent {
 		t.Fatalf("turning requirement off did not restore access: %d", w.Code)
 	}
-	if _, err := b.Services().Verify.ResendVerification(ctx, reg.User.ID); err != nil {
+	if _, err := b.Trusted().Verify.ResendVerification(ctx, reg.User.ID); err != nil {
 		t.Fatal(err)
 	}
 	code := testutil.GetLastVerificationCode(mailer)

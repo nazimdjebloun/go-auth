@@ -455,18 +455,18 @@ func TestAdmin_DeleteOrg_ByNonMemberAdmin_PublishesAdminEvent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{Name: "Acme Inc", Slug: "acme-inc", OwnerID: owner.User.ID})
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{Name: "Acme Inc", Slug: "acme-inc", OwnerID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	// admin is a platform admin but not a member of org — self-service
 	// DeleteOrg would reject this with ErrOrgMemberNotFound.
-	if err := a.Services().Org.AdminDeleteOrg(ctx, api.AdminOrgActionInput{OrgID: org.ID, ActorID: admin.User.ID}); err != nil {
+	if err := a.Services().AdminOrg.AdminDeleteOrg(ctx, api.AdminOrgActionInput{OrgID: org.ID, ActorID: admin.User.ID}); err != nil {
 		t.Fatalf("AdminDeleteOrg failed for a non-member platform admin: %v", err)
 	}
 
-	if got, err := a.Services().Org.AdminGetOrg(ctx, api.AdminGetOrgInput{OrgID: org.ID, ActorID: admin.User.ID}); err != domain.ErrOrgNotFound {
+	if got, err := a.Services().AdminOrg.AdminGetOrg(ctx, api.AdminGetOrgInput{OrgID: org.ID, ActorID: admin.User.ID}); err != domain.ErrOrgNotFound {
 		t.Fatalf("expected the org to be gone (ErrOrgNotFound), got %+v, err=%v", got, err)
 	}
 
@@ -511,7 +511,7 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{Name: "Orphan Co", Slug: "orphan-co", OwnerID: owner.User.ID})
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{Name: "Orphan Co", Slug: "orphan-co", OwnerID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +524,7 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	if _, err := db.ExecContext(ctx, testdb.SQL(db, "DELETE FROM organization_members WHERE org_id = ? AND user_id = ?"), org.ID, owner.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	members, err := a.Services().Org.AdminListOrgMembers(ctx, api.AdminListOrgMembersInput{OrgID: org.ID, ActorID: admin.User.ID})
+	members, err := a.Services().AdminOrg.AdminListOrgMembers(ctx, api.AdminListOrgMembersInput{OrgID: org.ID, ActorID: admin.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,13 +536,13 @@ func TestAdmin_AddMember_RecoversOrgWithNoRemainingOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.Services().Org.AdminAddMember(ctx, api.AdminAddMemberInput{
+	if err := a.Services().AdminOrg.AdminAddMember(ctx, api.AdminAddMemberInput{
 		OrgID: org.ID, UserID: newOwner.User.ID, Role: "owner", ActorID: admin.User.ID,
 	}); err != nil {
 		t.Fatalf("AdminAddMember failed to recover the orphaned org: %v", err)
 	}
 
-	m, err := a.Services().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: newOwner.User.ID})
+	m, err := a.Trusted().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: newOwner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

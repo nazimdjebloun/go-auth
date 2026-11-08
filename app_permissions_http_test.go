@@ -71,7 +71,7 @@ func newAppHTTPFixture(t *testing.T, management, requireMFA bool, options ...Opt
 	if err := a.InitializeAppPermissions(t.Context(), api.InitializeAppPermissionsInput{AdministratorUserID: id}); err != nil {
 		t.Fatal(err)
 	}
-	session, err := a.Services().Session.Create(t.Context(), api.CreateSessionInput{UserID: id})
+	session, err := a.Trusted().Session.Create(t.Context(), api.CreateSessionInput{UserID: id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +294,7 @@ func TestAppPermissionsHTTPAccountCreationAndSessionDelegation(t *testing.T) {
 	if u, err := f.users.GetByEmail(t.Context(), "escalated@example.com"); err != nil || u != nil {
 		t.Fatalf("failed creation left an account: %+v %v", u, err)
 	}
-	session, err := f.a.Services().Session.Create(t.Context(), api.CreateSessionInput{UserID: created.ID})
+	session, err := f.a.Trusted().Session.Create(t.Context(), api.CreateSessionInput{UserID: created.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -461,7 +461,7 @@ func TestAppPermissionsHTTPPromotionRequiresFreshAssurance(t *testing.T) {
 	if account.RequiresTwoFactor || account.Session == nil {
 		t.Fatal("baseline signup unexpectedly privileged")
 	}
-	permissions := f.a.Services().AppPermissions
+	permissions := f.a.Trusted().AppPermissions
 	if _, err := permissions.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Create: []string{"goauth.app.users.read"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -531,7 +531,7 @@ func TestAppPermissionsHTTPDelegatedRoleMFASettings(t *testing.T) {
 			if err := f.users.SetTwoFactorEnabled(ctx, account.User.ID, tc.perUser, now); err != nil {
 				t.Fatal(err)
 			}
-			permissions := f.a.Services().AppPermissions
+			permissions := f.a.Trusted().AppPermissions
 			if _, err := permissions.UpdateLibraryPermissions(ctx, api.UpdateAppLibraryPermissionsInput{Actor: f.admin, Create: []string{"goauth.app.users.read"}}); err != nil {
 				t.Fatal(err)
 			}
@@ -552,7 +552,7 @@ func TestAppPermissionsHTTPDelegatedRoleMFASettings(t *testing.T) {
 				t.Fatalf("delegated role accepted at admin login: %+v %v", result, err)
 			}
 			// Seed a first-factor session to check live route and direct-call policy.
-			session, err := f.a.Services().Session.Create(ctx, api.CreateSessionInput{UserID: account.User.ID})
+			session, err := f.a.Trusted().Session.Create(ctx, api.CreateSessionInput{UserID: account.User.ID})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -586,7 +586,7 @@ func TestAppPermissionsHTTPBusinessGuardAndProtectedRolePayloads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	permissions := f.a.Services().AppPermissions
+	permissions := f.a.Trusted().AppPermissions
 	p, err := permissions.CreatePermission(ctx, api.CreateAppPermissionInput{Actor: f.admin, Key: "app.posts.delete", Name: "Delete posts"})
 	if err != nil {
 		t.Fatal(err)
@@ -625,7 +625,7 @@ func TestAppPermissionsDisabledCapabilityFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(a.Close)
-	if a.Services().AppPermissions != nil {
+	if a.Trusted().AppPermissions != nil {
 		t.Fatal("disabled capability is typed nil")
 	}
 	for _, pattern := range []string{routes.AppAccess, routes.AppLibraryPermissions, routes.ListAppRoles, routes.GetAppUserAccess} {

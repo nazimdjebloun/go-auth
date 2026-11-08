@@ -59,7 +59,7 @@ func TestAuthenticationOutcomePasswordAndExistingVerificationSession(t *testing.
 		token := f.token // A different signed-in account must not count as this user's session.
 		want := api.StepSignIn
 		if existingSession {
-			session, err := f.a.Services().Session.Create(t.Context(), api.CreateSessionInput{UserID: userID})
+			session, err := f.a.Trusted().Session.Create(t.Context(), api.CreateSessionInput{UserID: userID})
 			if err != nil {
 				t.Fatal(err)
 			}

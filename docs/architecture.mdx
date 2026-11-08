@@ -213,8 +213,10 @@ root supplies the same SQL transaction manager to all four; nested operations
 join the transaction through the callback context. Repository unit tests
 supply `testutil.MockTxManager`, while HTTP-only handler fixtures use an
 explicit callback stub. Neither fixture establishes real database atomicity;
-the SQL transaction tests cover that contract. Public `goauth.New` and
-`Auth.Services()` signatures are unchanged.
+the SQL transaction tests cover that contract. `Auth.Services()` exposes flow and management capabilities;
+`Auth.Account(actor)` binds self-service, and `Auth.Trusted()` retains the raw
+integration contracts. Each capability delegates credential mutations to the internal transaction
+services. See [service capabilities](./guides/service-capabilities.mdx).
 
 ## Extension points
 

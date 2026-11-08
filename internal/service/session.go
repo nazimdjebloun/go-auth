@@ -332,6 +332,9 @@ func (s *SessionService) RevokeByIDForUser(ctx context.Context, input api.Revoke
 
 // RevokeManyForUser revokes multiple sessions for a user.
 func (s *SessionService) RevokeManyForUser(ctx context.Context, input api.RevokeSessionsForUserInput) (int, error) {
+	if err := ValidateSessionRevocation(input.SessionIDs); err != nil {
+		return 0, err
+	}
 	var revoked int
 	err := s.withTx(ctx, func(txCtx context.Context) error {
 		n, err := s.repo.RevokeManyForUser(txCtx, input.SessionIDs, input.UserID)
@@ -379,7 +382,13 @@ func (s *SessionService) RevokeAllExcept(ctx context.Context, input api.RevokeAl
 
 // List returns a page of sessions for a user.
 func (s *SessionService) List(ctx context.Context, input api.ListSessionsInput) ([]domain.Session, int, error) {
-	return s.repo.ListByUserID(ctx, input.UserID, input.Offset, input.Limit)
+	page := NormalizeSessionPage(api.SessionPageInput{Offset: input.Offset, Limit: input.Limit})
+	return s.repo.ListByUserID(
+		ctx,
+		input.UserID,
+		page.Offset,
+		page.Limit,
+	)
 }
 
 // ListAll returns all active sessions for a user.

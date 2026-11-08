@@ -183,7 +183,7 @@ func TestProtectLiveVerificationExpiryAndAuthorization(t *testing.T) {
 	if err := f.users.Create(t.Context(), &domain.User{ID: id, Email: id + "@example.test", Role: domain.RoleUser, CreatedAt: now, UpdatedAt: now}); err != nil {
 		t.Fatal(err)
 	}
-	session, err := f.a.Services().Session.Create(t.Context(), api.CreateSessionInput{UserID: id})
+	session, err := f.a.Trusted().Session.Create(t.Context(), api.CreateSessionInput{UserID: id})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestProtectRejectsMismatchedRoute(t *testing.T) {
 func TestProtectOrganizationScopes(t *testing.T) {
 	f := newOrgPermissionsRegressionFixture(t)
 	const key = "org.tasks.write"
-	svc := f.a.Services().OrgPermissions
+	svc := f.a.Trusted().OrgPermissions
 	permission, err := svc.CreatePermission(t.Context(), api.CreateOrgPermissionInput{Actor: f.actor, Key: key, Name: "Write tasks"})
 	if err != nil {
 		t.Fatal(err)
@@ -252,16 +252,16 @@ func TestProtectOrganizationScopes(t *testing.T) {
 	}
 	memberActor := api.OrgPermissionActor{UserID: f.memberID, OrgID: f.actor.OrgID}
 	// Resolve the member's current session without putting identity into the handler.
-	_, sessionUser, err := f.a.Services().Session.ValidateWithUser(t.Context(), f.memberToken)
+	_, sessionUser, err := f.a.Trusted().Session.ValidateWithUser(t.Context(), f.memberToken)
 	if err != nil || sessionUser.ID != f.memberID {
 		t.Fatalf("member identity: %v", err)
 	}
-	session, err := f.a.Services().Session.Validate(t.Context(), f.memberToken)
+	session, err := f.a.Trusted().Session.Validate(t.Context(), f.memberToken)
 	if err != nil {
 		t.Fatal(err)
 	}
 	memberActor.SessionID = session.ID
-	if err := f.a.Services().Org.SetActiveOrg(t.Context(), api.SetActiveOrgInput{SessionID: session.ID, UserID: f.memberID, OrgID: f.actor.OrgID}); err != nil {
+	if err := f.a.Trusted().Org.SetActiveOrg(t.Context(), api.SetActiveOrgInput{SessionID: session.ID, UserID: f.memberID, OrgID: f.actor.OrgID}); err != nil {
 		t.Fatal(err)
 	}
 	// A second RequireOrg would perform a redundant membership query.

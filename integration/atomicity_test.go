@@ -91,7 +91,7 @@ func testSetPasswordOneWinner(t *testing.T, afterCommit bool) {
 		t.Fatal(err)
 	}
 
-	if aerr := a.Services().Password.RequestSetPassword(ctx, reg.User.ID); aerr != nil {
+	if aerr := a.Trusted().Password.RequestSetPassword(ctx, reg.User.ID); aerr != nil {
 		t.Fatal(aerr)
 	}
 	code := extractCodeAfter(mailer.lastBody(), "Your code: ")
@@ -199,7 +199,7 @@ func TestInvite_ConcurrentComplete_OneWins(t *testing.T) {
 	if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{
+	invite, aerr := a.Services().AdminInvite.CreateInvite(ctx, api.CreateInviteInput{
 		Email: "invitee@example.com", AdminID: admin.User.ID,
 	})
 	if aerr != nil {
@@ -277,7 +277,7 @@ func TestInvite_DuplicateEmail_RollsBackClaim(t *testing.T) {
 	if _, err := db.Exec(testdb.SQL(db, "UPDATE users SET role = 'admin' WHERE id = ?"), admin.User.ID); err != nil {
 		t.Fatal(err)
 	}
-	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{
+	invite, aerr := a.Services().AdminInvite.CreateInvite(ctx, api.CreateInviteInput{
 		Email: "late@example.com", AdminID: admin.User.ID,
 	})
 	if aerr != nil {
@@ -354,7 +354,7 @@ func TestOrg_ConcurrentRemoveMember_CountsConsistent(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -432,7 +432,7 @@ func TestOrg_ConcurrentDemoteSameMemberTwice(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner1.User.ID,
 	})
 	if err != nil {
@@ -504,7 +504,7 @@ func TestOrg_ConcurrentRemoveVsDemote(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner1.User.ID,
 	})
 	if err != nil {
@@ -602,7 +602,7 @@ func TestOrg_ConcurrentDeleteOrg_CountsConsistent(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -671,7 +671,7 @@ func TestOrg_ConcurrentAddMember_CountsConsistent(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -744,7 +744,7 @@ func TestOrgInvite_RotatedCodeRejected(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Race", Slug: "race", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -769,7 +769,7 @@ func TestOrgInvite_RotatedCodeRejected(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ResendOrgInviteEmail failed: %v", err)
 	}
-	if err := a.Services().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
+	if err := a.Trusted().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
 		UserID: invitee.User.ID, RawCode: oldCode,
 	}); authCode(err) != "org_invite_expired" {
 		t.Fatalf("stale code accept: code = %q, want org_invite_expired", authCode(err))
@@ -897,7 +897,7 @@ func oauthRegister(ctx context.Context, t *testing.T, a *goauth.Auth, provider s
 	if !res.IsNewUser {
 		t.Fatal("expected a new user registration")
 	}
-	user, _, err := a.Services().Auth.ValidateSession(ctx, res.SessionToken)
+	user, _, err := a.Trusted().Auth.ValidateSession(ctx, res.SessionToken)
 	if err != nil {
 		t.Fatalf("cannot resolve the registered user: %v", err)
 	}
@@ -906,7 +906,7 @@ func oauthRegister(ctx context.Context, t *testing.T, a *goauth.Auth, provider s
 
 func oauthLink(ctx context.Context, t *testing.T, a *goauth.Auth, provider, userID string) {
 	t.Helper()
-	session, err := a.Services().Session.Create(ctx, api.CreateSessionInput{
+	session, err := a.Trusted().Session.Create(ctx, api.CreateSessionInput{
 		UserID:    userID,
 		IP:        "127.0.0.1",
 		UserAgent: "test-agent",
@@ -914,7 +914,7 @@ func oauthLink(ctx context.Context, t *testing.T, a *goauth.Auth, provider, user
 	if err != nil {
 		t.Fatal(err)
 	}
-	flow, err := a.Services().OAuth.InitiateLink(ctx, api.OAuthLinkInput{
+	flow, err := a.Trusted().OAuth.InitiateLink(ctx, api.OAuthLinkInput{
 		Provider:         provider,
 		UserID:           userID,
 		SessionTokenHash: session.Session.TokenHash,
@@ -963,7 +963,7 @@ func TestUnlink_ConcurrentLastProvider(t *testing.T) {
 		go func(provider string) {
 			defer wg.Done()
 			err := doWithBusyRetry(func() error {
-				return a.Services().OAuth.Unlink(ctx, api.OAuthUnlinkInput{
+				return a.Trusted().OAuth.Unlink(ctx, api.OAuthUnlinkInput{
 					UserID:   userID,
 					Provider: provider,
 				})
@@ -987,7 +987,7 @@ func TestUnlink_ConcurrentLastProvider(t *testing.T) {
 		t.Fatalf("expected the loser to get cannot_unlink_last_provider, got %d", refused)
 	}
 
-	remaining, err := a.Services().OAuth.ListConnected(ctx, userID)
+	remaining, err := a.Trusted().OAuth.ListConnected(ctx, userID)
 	if err != nil {
 		t.Fatal(err)
 	}

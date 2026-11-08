@@ -209,10 +209,14 @@ result, err := auth.Login(ctx, api.LoginInput{
 })
 ```
 
-The complete service surface is available under `auth.Services()` for applications
-that provide their own transport. Direct calls execute business rules; your
-transport supplies authentication, authorization, rate limits, and browser
-protections where applicable. See the [integration contract](docs/guides/integration.mdx).
+Use `auth.Services()` for credential/proof flows and authorized management.
+Bind self-service with `auth.Account(actor)`; its profile, session, password,
+provider, and organization operations derive their target from the authenticated
+actor and check current access on every call. Low-level primitives, including
+session creation by user ID, require the explicit `auth.Trusted()` accessor.
+See the [capability inventory and API guide](docs/guides/service-capabilities.mdx).
+Custom transports still supply credential delivery, rate limits, and applicable
+browser protections.
 
 Pass `api.Actor` into application services instead of full user/session objects.
 Use `Auth.GetActor` for a raw session credential or `middleware.ActorFromContext`

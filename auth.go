@@ -66,11 +66,62 @@ type serviceSet struct {
 	OrgPermissions *service.OrgPermissionsService
 }
 
-// Services returns a copy of the configured programmatic capabilities.
-// Reassigning a field on the returned value does not change this Auth instance.
-// Optional capabilities remain nil when their features are unavailable.
+// Services returns authentication flows and authorized management capabilities.
+// Optional capabilities remain nil. For self-service use Account(actor); use
+// Trusted only when the caller deliberately owns authentication/authorization.
 func (a *Auth) Services() Services {
 	s := Services{
+		Auth: authOperations{a.services.Auth}, Password: passwordOperations{a.services.Password},
+		Session: sessionOperations{a.services.Session}, Verify: verifyOperations{a.services.Verify},
+		Invite: inviteOperations{a.services.Invite}, AdminInvite: adminInviteOperations{a.services.Invite},
+		Admin: adminOperations{a.services.Admin}, TwoFactor: twoFactorOperations{a.services.TwoFactor},
+	}
+	if a.services.Email != nil {
+		s.Email = emailOperations{a.services.Email}
+	}
+	if a.services.OAuth != nil {
+		s.OAuth = oauthOperations{a.services.OAuth}
+	}
+	if a.services.Org != nil {
+		s.Org = orgOperations{a.services.Org}
+		s.AdminOrg = adminOrgOperations{a.services.Org}
+	}
+	if a.services.OrgInvite != nil {
+		s.OrgInvite = orgInviteOperations{a.services.OrgInvite}
+	}
+	if a.services.AppPermissions != nil {
+		s.AppPermissions = appPermissionsOperations{a.services.AppPermissions}
+	}
+	if a.services.OrgPermissions != nil {
+		s.OrgPermissions = orgPermissionsOperations{a.services.OrgPermissions}
+	}
+	return s
+}
+
+// Embed restricted interfaces so the returned concrete values cannot be widened
+// by a type assertion to recover the underlying service's trusted methods.
+type authOperations struct{ AuthOperations }
+type passwordOperations struct{ PasswordOperations }
+type sessionOperations struct{ SessionOperations }
+type verifyOperations struct{ VerifyOperations }
+type inviteOperations struct{ InviteOperations }
+type oauthOperations struct{ OAuthOperations }
+type orgOperations struct{ OrgOperations }
+type orgInviteOperations struct{ OrgInviteOperations }
+type twoFactorOperations struct{ TwoFactorOperations }
+type adminInviteOperations struct{ AdminInviteOperations }
+type adminOrgOperations struct{ AdminOrgOperations }
+type emailOperations struct{ EmailOperations }
+type adminOperations struct{ AdminOperations }
+type appPermissionsOperations struct{ AppPermissionsOperations }
+type orgPermissionsOperations struct{ OrgPermissionsOperations }
+
+// Trusted returns primitives for explicitly trusted backend integration.
+// Session.Create does not authenticate a password, enforce verification or complete MFA.
+// Reassigning a field on the returned value does not change this Auth instance.
+// Optional capabilities remain nil when their features are unavailable.
+func (a *Auth) Trusted() TrustedServices {
+	s := TrustedServices{
 		Auth: a.services.Auth, Password: a.services.Password,
 		Session: a.services.Session, Verify: a.services.Verify,
 		Invite: a.services.Invite, Admin: a.services.Admin,

@@ -118,7 +118,7 @@ func BenchmarkValidateSession(b *testing.B) {
 	ctx := context.Background()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, _, err := a.Services().Auth.ValidateSession(ctx, token); err != nil {
+		if _, _, err := a.Trusted().Auth.ValidateSession(ctx, token); err != nil {
 			b.Fatal(err)
 		}
 	}

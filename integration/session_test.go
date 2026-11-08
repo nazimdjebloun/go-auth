@@ -44,7 +44,7 @@ func TestSession_RefreshReuseDetection_PublishesAuditEvent(t *testing.T) {
 	waitAuditCount(t, db, "SELECT COUNT(*) FROM audit_log WHERE event_type = 'session.refresh_reuse_detected'", 1)
 
 	reuseType := string(audit.EventSessionRefreshReuseDetected)
-	events, err := a.Services().AuditLog.List(ctx, port.AuditLogFilter{Types: []string{reuseType}, Limit: 10})
+	events, err := a.Trusted().AuditLog.List(ctx, port.AuditLogFilter{Types: []string{reuseType}, Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,7 @@ import (
 func TestAppPermissionsTargetAccessHTTP(t *testing.T) {
 	f := newAppHTTPFixture(t, true, true)
 	ctx := t.Context()
-	permissions := f.a.Services().AppPermissions
+	permissions := f.a.Trusted().AppPermissions
 	register := func(email string) *api.RegisterResult {
 		t.Helper()
 		result, err := f.a.Register(ctx, api.RegisterInput{Email: email, Name: "Access test", Password: "Passw0rd!"})

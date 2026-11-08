@@ -6,7 +6,11 @@ icon: "Plug"
 
 # Integration contract
 
-The public `Auth.Services()` interfaces are the contract for custom transports and application code. Import `github.com/nazimdjebloun/go-auth/api` for operation inputs. Mounted HTTP routes call those same operations and add cookie handling, authentication middleware, CSRF checks, and rate limiting.
+The public Go surface separates `Auth.Services()` flows/management,
+`Auth.Account(actor)` self-service, and explicit `Auth.Trusted()` primitives.
+Import `github.com/nazimdjebloun/go-auth/api` for operation inputs. Mounted HTTP
+routes compose internal services, authentication, cookies, CSRF and
+rate limits. See the [capability inventory and API guide](./service-capabilities.mdx).
 
 ## Application HTTP routes
 
@@ -74,8 +78,8 @@ custom backend supplies `actor.ForOrg(selectedOrgID)` after `GetActor`. Both
 paths use the same service check. `AuthorizeOrg` requires nonempty user and
 session IDs, reloads current organization access through the permission service,
 and returns a zero scope on any failure. It returns `org_permissions_disabled`
-when that optional capability is off. The lower-level permission services retain
-their existing trusted-call semantics, including conditional session requirements.
+when that optional capability is off. The lower-level permission services have
+their own trusted-call contracts, including conditional session requirements.
 
 `OrgScope` includes `OrgID`, `UserID`, `SessionID`, and the resolved fixed
 membership `Role`. `scope.Actor()` returns common attribution;
@@ -93,29 +97,23 @@ as authority. The check does not cancel already authorized work or make a later
 application write part of the auth transaction. Resource ownership and state
 rules remain in the application service.
 
-### Actor and scope migration
+### Actor and scope values
 
-Existing keyed `api.AppPermissionActor` literals still compile; callers can now
-pass `api.Actor` directly. Existing scoped callbacks now receive `SessionID`, so
-they no longer need to recover full session objects for attribution. Use keyed
-`OrgScope` literals rather than positional literals when constructing test values.
-Manual test scopes need a real session ID to pass `AuthorizeOrg`.
+`api.AppPermissionActor` aliases `api.Actor`. Scoped callbacks receive `OrgID`,
+`UserID`, `SessionID` and the resolved membership role. Use keyed `OrgScope`
+literals for backend test values and supply a real session ID for `AuthorizeOrg`.
+Actor identity and scope fields are excluded from JSON in both directions. Use
+application DTOs for client-visible IDs and keep these contracts in trusted code.
 
-Actor identity fields and all `OrgScope` fields are excluded from JSON in both
-directions. This changes Go-value serialization for the former app-actor/scope
-structs; built-in HTTP payloads are unchanged. Use explicit application DTOs for
-client-visible IDs. Do not decode an HTTP body into these backend contracts.
+## Calling Go operations
 
-## Migrating Go callers
-
-Service operations with multiple values after `context.Context` now take one named input. This is a breaking Go API change before v1; return values and HTTP request bodies are unchanged. Single-value operations, such as `Session.Validate(ctx, token)` and `OAuth.Initiate(ctx, provider)`, keep their direct argument.
+Use `Services()` for credential/proof flows and authorized management,
+`Account(actor)` for self-service, and `Trusted()` for backend primitives.
+Self-service inputs omit target user/session IDs. Multi-field operations use
+named input structs from `api`; single-value operations take their direct value.
 
 ```go
-// Previously: ChangeName(ctx, userID, name)
-err := auth.Services().Auth.ChangeName(ctx, api.ChangeNameInput{
-    UserID: userID,
-    Name:   name,
-})
+err := auth.Account(actor).Profile.ChangeName(ctx, name)
 
 verified, err := auth.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
     ChallengeID:  challengeID,
@@ -126,57 +124,32 @@ verified, err := auth.Services().TwoFactor.Verify(ctx, api.TwoFactorVerifyInput{
 })
 ```
 
-Move the old positional arguments into the following fields, in the order shown. All types are in `api`.
+Set actor IDs from authenticated server context, client metadata from the
+transport, and binding/session credentials from their cookies or equivalent
+trusted storage. Named inputs do not establish trust. Do not log input structs
+containing passwords or one-time codes. HTTP business fields use camelCase.
 
-| Service operation | Input type | Fields replacing positional arguments |
-|---|---|---|
-| `Admin.GetStats` | `GetAdminStatsInput` | `ActorID`, `ActorSessionID` |
-| `Auth.ChangeName` | `ChangeNameInput` | `UserID`, `Name` |
-| `Auth.DeleteAccount` | `DeleteAccountInput` | `UserID`, `Password` |
-| `Session.Create` | `CreateSessionInput` | `UserID`, `IP`, `UserAgent` |
-| `Session.Touch` | `TouchSessionInput` | `Token`, `LastActiveAt` |
-| `Session.RevokeByIDForUser` | `RevokeSessionForUserInput` | `SessionID`, `UserID` |
-| `Session.RevokeManyForUser` | `RevokeSessionsForUserInput` | `SessionIDs`, `UserID` |
-| `Session.RevokeAllExcept` | `RevokeAllSessionsExceptInput` | `UserID`, `ExceptSessionID` |
-| `Session.List` | `ListSessionsInput` | `UserID`, `Offset`, `Limit` |
-| `OAuth.InitiateLink` | `OAuthLinkInput` | `Provider`, `UserID`, `SessionTokenHash` |
-| `OAuth.Callback` | `OAuthCallbackInput` | `Provider`, `Code`, `State`, `BrowserState`, `SessionToken`, `IP`, `UserAgent` |
-| `OAuth.Unlink` | `OAuthUnlinkInput` | `UserID`, `Provider` |
-| `TwoFactor.Verify` | `TwoFactorVerifyInput` | `ChallengeID`, `BindingToken`, `Code`, `IP`, `UserAgent` |
-| `TwoFactor.Resend` | `TwoFactorResendInput` | `ChallengeID`, `BindingToken` |
-| `TwoFactor.Enable` | `TwoFactorEnableInput` | `UserID`, `Password`, `KeepOtherSessions`, `CallerSessionID` |
-| `TwoFactor.Disable` | `TwoFactorDisableInput` | `UserID`, `Password` |
-| `Invite.HardDeleteInvite` | `HardDeleteInviteInput` | `InviteID`, `ActorID` |
-| `Invite.RevokeInvite` | `RevokeInviteInput` | `InviteID`, `ActorID` |
-| `Invite.ResendInviteEmail` | `ResendInviteEmailInput` | `InviteID`, `ActorID` |
-| `OrgInvite.DeleteOrgInvite` | `DeleteOrgInviteInput` | `OrgID`, `InviteID`, `ActorID` |
-| `OrgInvite.ResendOrgInviteEmail` | `ResendOrgInviteEmailInput` | `OrgID`, `InviteID`, `ActorID` |
+OAuth callbacks supply `State` from the provider query and `BrowserState` from
+the initiating browser cookie. Linking supplies the current raw session token
+in `SessionToken`; the service checks those credentials and their binding.
 
-Update mocks and custom implementations of the public capability interfaces too. In particular, `middleware.SessionAuthenticator.Touch` now has this signature:
-
-```go
-Touch(ctx context.Context, input api.TouchSessionInput) error
-```
-
-Named fields do not establish trust. Set actor/user IDs from the authenticated identity, client metadata from your transport, and binding/session credentials from their original cookies or equivalent trusted storage. Built-in handlers decode transport-specific bodies and supply actor identity separately; never accept it from request JSON. Public HTTP business fields use camelCase. Inputs can still contain passwords and one-time codes; do not log them wholesale.
-
-For OAuth callbacks, keep `State` (provider callback query) separate from `BrowserState` (the initiating browser's state cookie). Linking also needs the current raw session token in `SessionToken`. The service compares these credentials; an input struct does not replace the browser-binding checks.
-
-Direct service calls do not execute HTTP middleware. Your custom transport must supply authentication and route-level authorization, rate limiting, and any applicable browser CSRF protection. Low-level operations such as session creation assume the caller has already completed the required authentication flow. Optional service capabilities can be nil when disabled; check before using them.
+Direct service calls do not execute HTTP middleware. Custom transports supply
+authentication, authorization, rate limiting and applicable browser protections.
+Check optional capabilities for nil before use. See the
+[operation inventory](./service-capabilities.mdx) for each capability's contract.
 
 ## Errors across transports
 
 Go operations return ordinary errors. Use `errors.Is` for a sentinel and `errors.As` for `*domain.AuthError`; backend errors may instead wrap their original cause. Do not send raw backend errors to clients.
 
-The built-in HTTP handlers and middleware use `{"error": code, "message": message}` with `Content-Type: application/json`. CSRF rejection bodies now use this envelope too, replacing their former plain-text bodies. Match the code rather than parsing the message. OAuth callback failures remain browser redirects with an `error` query parameter. Router-generated errors and your own handlers are outside this contract. See [Error Handling](../error-handling.mdx) for codes and statuses.
+The built-in HTTP handlers and middleware use `{"error": code, "message": message}` with `Content-Type: application/json`. CSRF rejection bodies use this envelope. Match the code rather than parsing the message. OAuth callback failures remain browser redirects with an `error` query parameter. Router-generated errors and your own handlers are outside this contract. See [Error Handling](../error-handling.mdx) for codes and statuses.
 
 ## Frontend authentication outcomes
 
-Successful HTTP authentication flows return one `step` instead of `requires*`
-booleans. OAuth callbacks use the same names in query parameters. See
+Successful HTTP authentication flows return a `step` that identifies the next
+client action. OAuth callbacks use the same names in query parameters. See
 [Authentication outcomes](./authentication-outcomes.mdx) for the decision table,
-response fields and email-verification continuation behavior. Go service result
-fields and the HTTP error envelope are unchanged.
+response fields and email-verification continuation behavior. Go service results and the HTTP error envelope have their own documented contracts.
 
 ## Authentication policy
 
@@ -184,8 +157,8 @@ fields and the HTTP error envelope are unchanged.
 describe the verification-email attempt independently of account creation.
 Once the account exists, a failed attempt returns a verification-pending result,
 not a signup error. Offer the existing resend operation; no credentials are
-issued while verification is pending. Direct `Verify.SendVerification` and
-`ResendVerification` retain their `(result, error)` contract. See
+issued while verification is pending. `Trusted().Verify.SendVerification` and
+`Account(actor).Verify.ResendVerification` return `(result, error)`. See
 [delivery outcomes](./authentication-outcomes.mdx#verification-delivery-after-signup).
 
 Password and OAuth login apply the same global and per-account email-2FA requirements. Admin OAuth also applies the admin default. Authentication and signup methods are independently selected with `WithAuthentication` and `WithRegistration`. The [policy matrix](../security.mdx#authentication-policy-matrix) specifies verification and second-factor behavior for each path.
@@ -200,13 +173,12 @@ supports the fixed `admin` and `user` roles and returns `role` in account JSON.
 Organization membership roles remain separate.
 
 App permission operations take a trusted `api.AppPermissionActor` containing
-the authenticated user ID and current session ID. Existing administrative
+the authenticated user ID and current session ID. Administrative
 inputs use `ActorSessionID` alongside their actor/admin ID. Direct service
 calls enforce the action key and required session assurance too. For stats,
 use `Admin.GetStats(ctx, api.GetAdminStatsInput{ActorID: id, ActorSessionID: sessionID})`.
-It replaces both `GetStats(ctx, id)` and `GetStatsForActor`; the permission and
-required assurance checks are unchanged. Obtain these IDs from authenticated
-server context, never a client request body.
+Supply these IDs from authenticated server context. The method checks the
+operation permission and required session assurance.
 
 Only protected administrators require local second-factor verification by
 default, including OAuth login. Every other role follows the user MFA policy,
@@ -248,23 +220,33 @@ Stop accepting work and wait for HTTP requests and direct service callers to fin
 
 `Close` stops the recovery worker and maintenance before stopping audit work, then releases the owned stores and database. The audit stop receives a five-second timeout. There is no deadline for the whole `Close` call and it returns no error; custom dependencies must honor cancellation so workers can exit. A stop timeout is not a guarantee that external audit delivery finished: undelivered durable outbox records remain for later processing. If you use an asynchronous mailer, stop/drain that caller-owned mailer after `Auth.Close`.
 
-## Browser and CSRF migration
+## Browser and CSRF configuration
 
-This is a breaking pre-v1 browser API change. Replace `WithCookie(...)` with `WithBrowser(BrowserConfig{APIURL: ..., AllowedOrigins: ..., Cookies: ...})`; move the origins out of `SecurityConfig`. Keep password policy, email-link policy, and pepper timestamps in `WithSecurity`, and lifetimes in `WithSession`.
+Configure the API origin, frontend origins and cookies through `WithBrowser`.
+Use `WithSecurity` for password policy, email-link policy and pepper timestamps,
+and `WithSession` for lifetimes. Challenge cookie names are configured through
+`BrowserConfig.Cookies`. Keep cookie domains empty for host-only subdomain use.
 
-Remove `DisableCSRFToken`, `AllowMissingCSRFHeaders`, `CSRFToken`, and their token overrides; there are no replacement bypasses. Remove `TwoFactorConfig.DisableChallengeBinding` and move `ChallengeCookieName` to `BrowserConfig.Cookies.ChallengeName`. Keep cookie domains empty for normal subdomain deployments.
+Clients fetch `200 {"token":"..."}` from `/auth/csrf-token`, send credentials and
+`X-CSRF-Token` on mutations, and consume replacement tokens from that response
+header. The CSRF cookie is HttpOnly. Cookie helpers accept the request and return
+errors: `SetSessionCookies(w, r, sessionID, sessionToken, refreshToken)`,
+`ClearSessionCookies(w, r)` and `RotateCSRFToken(w, r)`. Authentication cookie
+issuance includes CSRF rotation. `api.OAuthCallbackResult.SessionID` supplies the
+stable session identity for custom OAuth transports.
 
-Update clients to read `200 {"token":"..."}` from `/auth/csrf-token`, send credentials and the token header, and consume `X-CSRF-Token` replacements. Do not read the HttpOnly CSRF cookie. Custom cookie helpers now require the request and return errors: `SetSessionCookies(w, r, sessionID, sessionToken, refreshToken)`, `ClearSessionCookies(w, r)`, and `RotateCSRFToken(w, r)`. Issuing authentication cookies includes CSRF rotation; do not issue it separately. `api.OAuthCallbackResult.SessionID` supplies the stable ID for custom OAuth transports.
+Use `Auth.Protect` for custom browser routes. Place CORS before method routing
+so preflight reaches it before authentication/rate limiting. `Auth.Mount`
+registers OPTIONS for the built-in routes; applications register their own paths.
 
-The low-level middleware dependency struct is not an application configuration API. The facade wires session identity resolution and validated snapshot reuse; custom HTTP routes should use `Auth.RequireCSRF` and `Auth.RequireAuth`. Identity lookup for CSRF does not authorize expired, revoked, banned, or otherwise invalid sessions.
-
-Custom admin HTTP transports must select admin consistently through the request header, including when calling request-aware cookie helpers with credentials returned by `AdminLogin`. A helper rejects credentials from a different context instead of writing them into the wrong cookie set. Pure Go service calls have no browser header; admin login returns admin credentials, 2FA verification restores the challenge's context, and refresh preserves the original credential context.
-
-For direct browser access to custom API routes, register each path's OPTIONS handler with CORS outermost, before authentication and rate limiting. A method-specific POST/PATCH/DELETE route alone does not handle preflight. `Auth.Mount` already registers OPTIONS for go-auth's own paths; consumers own preflight for their application paths.
-
-Update admin clients to send `X-GoAuth-Session: admin` on every request, including bootstrap and 2FA follow-ups. Admin login always issues the admin context's credential cookies. Old shared admin cookies are not reused as admin credentials; sign in again. App cookie names remain unchanged. Optional `Cookies.AdminName`, `AdminRefreshName`, and `AdminChallengeName` customize the independent admin names; transport policy remains common to both contexts. The bundled panel handles selection automatically, with `VITE_API_URL` pointing directly at the backend.
-
-Old CSRF tokens are incompatible and safe bootstrap requests replace them. No database schema migration is needed. Review HTTPS/HTTP development settings and direct API deployment using [Deployment](./deployment.mdx).
+`BrowserSession` resolves `X-GoAuth-Session` before CSRF or authentication.
+Keep `X-GoAuth-Session: admin` on every admin-client request, including bootstrap
+and 2FA follow-ups. App and admin credentials use separate cookie contexts.
+OAuth state records its initiating context; callbacks, 2FA verification and
+refresh preserve that context. `Cookies.AdminName`, `AdminRefreshName` and
+`AdminChallengeName` configure admin cookie names. The bundled panel selects the
+context with `VITE_API_URL` pointing directly at the backend. See
+[Deployment](./deployment.mdx) for HTTPS, development origins and direct API use.
 
 ## Session access checks and verification-only identity lookup
 
@@ -277,7 +259,7 @@ Credential validation does not grant a business permission.
 `Auth.RequireAuth` applies the same verification requirement to custom protected
 HTTP routes.
 
-The low-level `Services().Session.ValidateWithUser` checks session identity and
+The low-level `Trusted().Session.ValidateWithUser` checks session identity and
 liveness without imposing email verification. It remains available to build
 verification, minimal-status and logout flows. Its successful return is not
 permission to bypass verification for ordinary protected operations. The

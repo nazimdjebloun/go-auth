@@ -6,6 +6,11 @@ icon: "Link2"
 
 # OAuth linking
 
+Self-service Go examples use an authenticated `api.Actor` named `actor`, obtained
+from `Auth.GetActor` or `middleware.ActorFromContext` after authentication.
+`Auth.Account(actor)` binds the target account and rechecks current access on
+each call. See [service capabilities](./service-capabilities.mdx).
+
 The initial sign-up/sign-in redirect flow (`GET /auth/oauth/{provider}` → provider approval → callback) is covered per-provider on the [Providers](../providers/index.mdx) pages — it's identical regardless of which provider you use. This page covers the three endpoints that only matter for an **already-authenticated** user: linking an additional provider to their account, unlinking one, and listing what's currently connected.
 
 Requires `AuthenticationConfig.OAuth: true` and at least one `WithProvider(...)` call — see [Authentication → Configuration](./authentication.mdx#configuration). Disabling authentication OAuth unmounts its route group; enabling it without a provider fails startup.
@@ -60,9 +65,7 @@ The response is JSON, not a redirect — your frontend reads `url` and navigates
 Import `github.com/nazimdjebloun/go-auth/api` for operation inputs.
 
 ```go
-flow, err := auth.Services().OAuth.InitiateLink(ctx, api.OAuthLinkInput{
-    Provider: "github", UserID: userID, SessionTokenHash: session.TokenHash,
-})
+flow, err := auth.Account(actor).OAuth.InitiateLink(ctx, "github")
 if err != nil {
     // wraps a *domain.AuthError — provider_not_found if the name is wrong
 }
@@ -139,7 +142,7 @@ curl -X POST https://api.myapp.com/auth/oauth/github/unlink \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().OAuth.Unlink(ctx, api.OAuthUnlinkInput{UserID: userID, Provider: "github"})
+err := auth.Account(actor).OAuth.Unlink(ctx, "github")
 ```
 
 ---
@@ -193,7 +196,7 @@ curl https://api.myapp.com/auth/oauth/providers \
 #### Programmatic (Go)
 
 ```go
-accounts, err := auth.Services().OAuth.ListConnected(ctx, userID)
+accounts, err := auth.Account(actor).OAuth.ListConnected(ctx)
 // accounts[i].AccessToken / RefreshToken ARE populated here — this is the
 // internal domain type, not the handler's filtered response shape above.
 // Never send this straight back to a client.

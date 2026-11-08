@@ -57,13 +57,13 @@ func TestRequireOrgScope_BindsAuthorizedTenantToHandler(t *testing.T) {
 	defer a.Close()
 
 	account := registerForScopedRoute(t, a, "scope-owner@example.com")
-	orgA, err := a.Services().Org.CreateOrg(context.Background(), api.CreateOrgInput{
+	orgA, err := a.Trusted().Org.CreateOrg(context.Background(), api.CreateOrgInput{
 		Name: "Tenant A", Slug: "tenant-a", OwnerID: account.User.ID,
 	})
 	if err != nil {
 		t.Fatalf("CreateOrg tenant A: %v", err)
 	}
-	orgB, err := a.Services().Org.CreateOrg(context.Background(), api.CreateOrgInput{
+	orgB, err := a.Trusted().Org.CreateOrg(context.Background(), api.CreateOrgInput{
 		Name: "Tenant B", Slug: "tenant-b", OwnerID: account.User.ID,
 	})
 	if err != nil {
@@ -131,7 +131,7 @@ func TestRequireOrgScope_RejectsBeforeCallingHandler(t *testing.T) {
 	defer a.Close()
 
 	owner := registerForScopedRoute(t, a, "scope-owner-2@example.com")
-	org, err := a.Services().Org.CreateOrg(context.Background(), api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(context.Background(), api.CreateOrgInput{
 		Name: "Private tenant", Slug: "private-tenant", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -179,7 +179,7 @@ func TestRequireActiveOrgScope_UsesSessionTenant(t *testing.T) {
 	defer a.Close()
 
 	account := registerForScopedRoute(t, a, "active-scope-owner@example.com")
-	org, err := a.Services().Org.CreateOrg(context.Background(), api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(context.Background(), api.CreateOrgInput{
 		Name: "Active tenant", Slug: "active-tenant", OwnerID: account.User.ID,
 	})
 	if err != nil {
@@ -205,7 +205,7 @@ func TestRequireActiveOrgScope_UsesSessionTenant(t *testing.T) {
 		t.Fatal("scoped handler ran without an active organization")
 	}
 
-	if err := a.Services().Org.SetActiveOrg(context.Background(), api.SetActiveOrgInput{
+	if err := a.Trusted().Org.SetActiveOrg(context.Background(), api.SetActiveOrgInput{
 		SessionID: account.Session.ID,
 		UserID:    account.User.ID,
 		OrgID:     org.ID,

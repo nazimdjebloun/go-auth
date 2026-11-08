@@ -6,6 +6,11 @@ icon: "Building2"
 
 # Organizations
 
+Self-service Go examples use an authenticated `api.Actor` named `actor`, obtained
+from `Auth.GetActor` or `middleware.ActorFromContext` after authentication.
+`Auth.Account(actor)` binds the target account and rechecks current access on
+each call. See [service capabilities](./service-capabilities.mdx).
+
 The role rules on this page describe the default fixed-role mode. Opt into
 [org permissions](./org-permissions.mdx) for custom roles, custom business definitions and exact
 operation grants. In that mode built-in roles retain their preset powers, while
@@ -112,11 +117,7 @@ curl -X POST https://api.myapp.com/auth/orgs \
 Go examples on this page import `github.com/nazimdjebloun/go-auth/api` for operation inputs and results.
 
 ```go
-org, err := auth.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
-    Name:    "Acme Inc",
-    Slug:    "acme",
-    OwnerID: userID,
-})
+org, err := auth.Account(actor).Org.CreateOrg(ctx, api.CreateOwnOrgInput{Name: "Acme Inc", Slug: "acme"})
 ```
 
 ---
@@ -181,15 +182,15 @@ curl "https://api.myapp.com/auth/orgs/count?search=acme" -b cookies.txt -c cooki
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{
-    UserID: userID, Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
+result, err := auth.Account(actor).Org.ListUserOrgs(ctx, api.ListOwnOrgsInput{
+    Offset: 0, Limit: nil, // nil = default 20; &0 = unlimited
     OrderBy: api.UserOrgSortCreatedAt, OrderDirection: api.SortDescending,
 })
 // result.Orgs, result.Limit, result.Offset
 
 search := "acme"
-n, err := auth.Services().Org.CountUserOrgs(ctx, api.ListUserOrgsInput{
-    UserID: userID, Search: &search,
+n, err := auth.Account(actor).Org.CountUserOrgs(ctx, api.ListOwnOrgsInput{
+    Search: &search,
 })
 ```
 
@@ -197,8 +198,8 @@ n, err := auth.Services().Org.CountUserOrgs(ctx, api.ListUserOrgsInput{
 
 ```go
 role := domain.OrgRoleOwner
-owned, err := auth.Services().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{
-    UserID: userID, Role: &role,
+owned, err := auth.Account(actor).Org.ListUserOrgs(ctx, api.ListOwnOrgsInput{
+    Role: &role,
 })
 ```
 
@@ -447,8 +448,8 @@ curl -X POST https://api.myapp.com/auth/orgs/a1b2.../leave \
 err := auth.Services().Org.RemoveMember(ctx, api.RemoveMemberInput{
     OrgID: orgID, UserID: targetUserID, ActorID: callerUserID,
 })
-// leaving is the same call with your own ID as UserID (the actor is you):
-err = auth.Services().Org.LeaveOrg(ctx, api.LeaveOrgInput{OrgID: orgID, UserID: callerUserID})
+// Self-leave derives the user from the authenticated account:
+err = auth.Account(actor).Org.LeaveOrg(ctx, orgID)
 ```
 
 ---
@@ -584,7 +585,7 @@ curl -X PUT https://api.myapp.com/auth/orgs/active \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Org.SetActiveOrg(ctx, api.SetActiveOrgInput{SessionID: sessionID, UserID: userID, OrgID: orgID})
+err := auth.Account(actor).Org.SetActiveOrg(ctx, orgID)
 ```
 
 ---
@@ -617,7 +618,7 @@ curl -X DELETE https://api.myapp.com/auth/orgs/active \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Org.ClearActiveOrg(ctx, api.ClearActiveOrgInput{SessionID: sessionID})
+err := auth.Account(actor).Org.ClearActiveOrg(ctx)
 ```
 
 ---
@@ -722,10 +723,7 @@ curl -X POST https://api.myapp.com/auth/orgs/invites/accept \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
-    UserID:  callerUserID,
-    RawCode: code,
-})
+err := auth.Account(actor).OrgInvite.AcceptInvite(ctx, code)
 ```
 
 ---

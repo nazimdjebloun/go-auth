@@ -17,7 +17,7 @@ import (
 
 func TestOrgPermissionsHTTPManagementAndLiveAccess(t *testing.T) {
 	f := newAppHTTPFixture(t, true, false, WithOrganizations(OrganizationConfig{Enable: true}), WithOrgPermissions(OrgPermissionsConfig{Enable: true, EnableManagementHTTP: true}))
-	org, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Example", Slug: uuid.NewString()})
+	org, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Example", Slug: uuid.NewString()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,12 +62,12 @@ func TestOrgPermissionsHTTPManagementAndLiveAccess(t *testing.T) {
 		w.WriteHeader(204)
 	}))
 	f.request(t, "GET", "/projects/"+org.ID, "", reg.SessionToken, 204)
-	other, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Other", Slug: uuid.NewString()})
+	other, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Other", Slug: uuid.NewString()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.request(t, "GET", "/projects/"+other.ID, "", reg.SessionToken, 404)
-	if err = f.a.Services().Org.SetActiveOrg(t.Context(), api.SetActiveOrgInput{SessionID: reg.Session.ID, UserID: reg.User.ID, OrgID: org.ID}); err != nil {
+	if err = f.a.Trusted().Org.SetActiveOrg(t.Context(), api.SetActiveOrgInput{SessionID: reg.Session.ID, UserID: reg.User.ID, OrgID: org.ID}); err != nil {
 		t.Fatal(err)
 	}
 	f.mux.Handle("GET /active-projects", f.a.RequireActiveOrgPermissionScope("org.projects.read", func(w http.ResponseWriter, _ *http.Request, scope OrgScope) {
@@ -84,7 +84,7 @@ func TestOrgPermissionsHTTPManagementAndLiveAccess(t *testing.T) {
 	f.request(t, "GET", "/projects/"+org.ID, "", reg.SessionToken, 403)
 	f.request(t, "GET", "/active-projects", "", reg.SessionToken, 403)
 	// Revoked sessions are checked again even for direct permission-service calls.
-	if err = f.a.Services().Session.RevokeByID(t.Context(), reg.Session.ID); err != nil {
+	if err = f.a.Trusted().Session.RevokeByID(t.Context(), reg.Session.ID); err != nil {
 		t.Fatal(err)
 	}
 	_, err = f.a.Services().OrgPermissions.CheckPermission(t.Context(), api.CheckOrgPermissionInput{Actor: api.OrgPermissionActor{OrgID: org.ID, UserID: reg.User.ID, SessionID: reg.Session.ID}, PermissionKey: "goauth.org.organization.update"})
@@ -95,7 +95,7 @@ func TestOrgPermissionsHTTPManagementAndLiveAccess(t *testing.T) {
 
 func TestOrgPermissionsOptionalManagementAndDisabledMiddleware(t *testing.T) {
 	f := newAppHTTPFixture(t, false, false, WithOrganizations(OrganizationConfig{Enable: true}), WithOrgPermissions(OrgPermissionsConfig{Enable: true}))
-	org, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Org", Slug: uuid.NewString()})
+	org, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Org", Slug: uuid.NewString()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestOrgPermissionsOptionalManagementAndDisabledMiddleware(t *testing.T) {
 	if w.Code != 503 {
 		t.Fatalf("disabled permission middleware status=%d", w.Code)
 	}
-	if disabled.Services().OrgPermissions != nil {
+	if disabled.Trusted().OrgPermissions != nil {
 		t.Fatal("disabled capability exposed a typed nil")
 	}
 	if _, err = NewConfig(minimalOpts(WithOrgPermissions(OrgPermissionsConfig{Enable: true}))...); err == nil {
@@ -126,10 +126,10 @@ func TestOrgPermissionsWithoutAppPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	if a.Services().AppPermissions != nil || a.Services().OrgPermissions == nil {
+	if a.Trusted().AppPermissions != nil || a.Trusted().OrgPermissions == nil {
 		t.Fatal("org capability depends on app permissions")
 	}
-	org, err := a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Independent", Slug: uuid.NewString()})
+	org, err := a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Independent", Slug: uuid.NewString()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestOrgPermissionsWithoutAppPermissions(t *testing.T) {
 
 func TestOrgPermissionsDisabledAfterUseStillAllowsOrganizationDeletion(t *testing.T) {
 	f := newAppHTTPFixture(t, false, false, WithOrganizations(OrganizationConfig{Enable: true}), WithOrgPermissions(OrgPermissionsConfig{Enable: true}))
-	org, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Disable later", Slug: uuid.NewString()})
+	org, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Disable later", Slug: uuid.NewString()})
 	if err != nil {
 		t.Fatal(err)
 	}

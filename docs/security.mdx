@@ -8,6 +8,24 @@ icon: "Lock"
 
 go-auth provides authentication controls; you remain responsible for deployment, transport security, secret storage, and operational response. This page describes the library's controls and their limits.
 
+## Go capability trust
+
+`Auth.Services()` exposes credential/proof-based flows and actor-attributed
+management. `Auth.Account(actor)` binds self-service to trusted user/session
+attribution and checks current identity/access before each call. Password, code,
+MFA settings and provider-linking proofs remain enforced by their existing
+services. Verification-pending identities can still resend verification and log
+out. An actor value alone does not authenticate a client.
+
+Raw session issuance, arbitrary session-ID operations, login challenge creation
+from a user ID, and the audit repository require the explicit `Auth.Trusted()`
+surface. `Trusted().Session.Create` neither authenticates a password nor enforces
+verification or completes MFA. Do not expose it as a user-ID-based login route.
+Normal capabilities wrap restricted interfaces so a type assertion cannot
+recover those hidden methods. Go application code holding the root `*Auth`
+still has access to trusted integration; these interfaces are not a plugin
+sandbox. See the [operation inventory and API guide](./guides/service-capabilities.mdx).
+
 ## Password hashing and hasher migration
 
 ### Defaults and policy

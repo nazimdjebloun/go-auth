@@ -6,6 +6,11 @@ icon: "ShieldCheck"
 
 # Security
 
+Self-service Go examples use an authenticated `api.Actor` named `actor`, obtained
+from `Auth.GetActor` or `middleware.ActorFromContext` after authentication.
+`Auth.Account(actor)` binds the target account and rechecks current access on
+each call. See [service capabilities](./service-capabilities.mdx).
+
 `BrowserConfig` holds browser origins and cookie delivery; `SecurityConfig` holds password, optional email-change, and email-link policy. CSRF protection is mandatory. This page covers that config, then every endpoint an authenticated user calls to manage their own account: changing their name or password, setting a password on an OAuth-only account, the public forgot/reset flow, re-sending email verification, and deleting the account.
 
 For the initial registration verification step (not the resend covered here), see [Authentication → Verifying the email](./authentication.mdx#verifying-the-email). For why login timing is constant and how sessions are hashed, see [Security concepts](../security.mdx).
@@ -90,12 +95,10 @@ curl -X POST https://api.myapp.com/auth/change-password \
 Go examples on this page import `github.com/nazimdjebloun/go-auth/api` for operation inputs and results.
 
 ```go
-err := auth.Services().Password.ChangePassword(ctx, api.ChangePasswordInput{
-    UserID:          userID,
-    OldPassword:     "correct horse battery staple 1",
-    NewPassword:     "a new stronger passphrase 2",
-    ExceptSessionID: currentSession.ID, // keep this session alive; omit to revoke every session including this one
-})
+err := auth.Account(actor).Password.ChangePassword(ctx, api.ChangeOwnPasswordInput{
+    OldPassword: "correct horse battery staple 1",
+    NewPassword: "a new stronger passphrase 2",
+}) // retains the initiating session and revokes the account's other sessions
 ```
 
 ---
@@ -144,7 +147,7 @@ curl -X POST https://api.myapp.com/auth/set-password/request \
 #### Programmatic (Go)
 
 ```go
-err := auth.Services().Password.RequestSetPassword(ctx, userID)
+err := auth.Account(actor).Password.RequestSetPassword(ctx)
 ```
 
 ---
@@ -359,7 +362,7 @@ curl -X POST https://api.myapp.com/auth/resend-verification \
 #### Programmatic (Go)
 
 ```go
-result, err := auth.Services().Verify.ResendVerification(ctx, userID)
+result, err := auth.Account(actor).Verify.ResendVerification(ctx)
 if err == nil && !result.Sent {
     // A usable code was already outstanding; result.ExpiresAt is its expiry.
 }

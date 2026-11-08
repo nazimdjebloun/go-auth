@@ -3,6 +3,7 @@
   "pages": [
     "onboarding",
     "integration",
+    "service-capabilities",
     "application-routes",
     "authentication",
     "authentication-outcomes",

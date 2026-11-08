@@ -6,6 +6,7 @@ import (
 
 	"github.com/nazimdjebloun/go-auth/api"
 	"github.com/nazimdjebloun/go-auth/domain"
+	"github.com/nazimdjebloun/go-auth/internal/service"
 	"github.com/nazimdjebloun/go-auth/middleware"
 )
 
@@ -63,16 +64,12 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if limit <= 0 {
-		limit = 20
-	} else if limit > 100 {
-		limit = 100
-	}
+	page := service.NormalizeSessionPage(api.SessionPageInput{Offset: offset, Limit: limit})
 
 	sessions, total, err := h.services.Session.List(r.Context(), api.ListSessionsInput{
 		UserID: user.ID,
-		Offset: offset,
-		Limit:  limit,
+		Offset: page.Offset,
+		Limit:  page.Limit,
 	})
 	if err != nil {
 		h.log.Error("failed to list sessions", "err", err, "user_id", user.ID)
@@ -86,8 +83,8 @@ func (h *Handler) ListSessions(w http.ResponseWriter, r *http.Request) {
 	h.writeJSON(w, http.StatusOK, map[string]any{
 		"sessions":         sessions,
 		"total":            total,
-		"limit":            limit,
-		"offset":           offset,
+		"limit":            page.Limit,
+		"offset":           page.Offset,
 		"currentSessionId": currentSessionID,
 	})
 }
@@ -156,12 +153,8 @@ func (h *Handler) RevokeManySessions(w http.ResponseWriter, r *http.Request) {
 	if !h.decodeJSON(w, r, &body) {
 		return
 	}
-	if len(body.SessionIDs) == 0 {
-		h.writeError(w, domain.NewError("invalid_input", "sessionIds must not be empty"))
-		return
-	}
-	if len(body.SessionIDs) > 100 {
-		h.writeError(w, domain.NewError("invalid_input", "cannot revoke more than 100 sessions at once"))
+	if err := service.ValidateSessionRevocation(body.SessionIDs); err != nil {
+		h.writeError(w, err)
 		return
 	}
 

@@ -9,7 +9,7 @@ import (
 
 // This compiles the public type surface from outside package goauth.
 func publicTypesCompile(ctx context.Context, a *goauth.Auth) {
-	services := a.Services()
+	services := a.Trusted()
 	_ = struct {
 		Auth      goauth.AuthOperations
 		Password  goauth.PasswordOperations
@@ -70,4 +70,26 @@ func publicTypesCompile(ctx context.Context, a *goauth.Auth) {
 	_ = api.SessionResult{}
 	_ = api.AuditLogEntry{}
 	_ = api.DailyCount{}
+}
+
+// Compile the ordinary and actor-bound contracts without internal package access.
+func publicAccountTypesCompile(ctx context.Context, a *goauth.Auth, actor api.Actor) {
+	flows := a.Services()
+	_, _ = flows.Auth.Login(ctx, api.LoginInput{})
+	_, _ = flows.Session.RefreshSession(ctx, "refresh-credential")
+	account := a.Account(actor)
+	_ = account.Profile.ChangeName(ctx, "New name")
+	_ = account.Password.ChangePassword(ctx, api.ChangeOwnPasswordInput{})
+	_, _, _ = account.Session.List(ctx, api.SessionPageInput{})
+	_, _ = account.Session.ListAll(ctx)
+	_, _ = account.Session.RevokeByID(ctx, "session-id")
+	_ = account.Session.RevokeOthers(ctx)
+	_, _ = account.Org.CreateOrg(ctx, api.CreateOwnOrgInput{})
+	_, _ = account.Org.ListUserOrgs(ctx, api.ListOwnOrgsInput{})
+	_ = account.Org.SetActiveOrg(ctx, "org-id")
+	_, _ = account.OAuth.InitiateLink(ctx, "provider")
+	_ = account.TwoFactor.Enable(ctx, api.EnableOwnTwoFactorInput{})
+	_ = account.TwoFactor.Disable(ctx, api.DisableOwnTwoFactorInput{})
+	_, _ = flows.AdminOrg.AdminListOrgs(ctx, api.AdminListOrgsInput{})
+	_, _ = flows.AdminInvite.CreateInvite(ctx, api.CreateInviteInput{})
 }

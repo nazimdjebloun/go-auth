@@ -30,7 +30,7 @@ func TestGetActorValidatesCurrentSessionAndAccount(t *testing.T) {
 			return f.token
 		}, want: domain.ErrSessionExpired},
 		{name: "revoked", change: func(t *testing.T, f appHTTPFixture) string {
-			if err := f.a.Services().Session.RevokeByID(t.Context(), f.admin.SessionID); err != nil {
+			if err := f.a.Trusted().Session.RevokeByID(t.Context(), f.admin.SessionID); err != nil {
 				t.Fatal(err)
 			}
 			return f.token
@@ -95,7 +95,7 @@ func TestActorScopeAcrossHTTPAndBackendServices(t *testing.T) {
 	orgs := make([]*domain.Organization, 0, 2)
 	var roleA *domain.OrgPermissionRole
 	for range 2 {
-		org, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Tenant", Slug: uuid.NewString()})
+		org, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Tenant", Slug: uuid.NewString()})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -164,7 +164,7 @@ func TestActorScopeAcrossHTTPAndBackendServices(t *testing.T) {
 			}
 		})
 	}
-	if err := f.a.Services().Org.SetActiveOrg(t.Context(), api.SetActiveOrgInput{UserID: actor.UserID, SessionID: actor.SessionID, OrgID: orgA}); err != nil {
+	if err := f.a.Trusted().Org.SetActiveOrg(t.Context(), api.SetActiveOrgInput{UserID: actor.UserID, SessionID: actor.SessionID, OrgID: orgA}); err != nil {
 		t.Fatal(err)
 	}
 	w := f.request(t, "GET", "/actor-active/shared-id?org_id="+orgB, "", member.SessionToken, 200)
@@ -230,7 +230,7 @@ func TestAuthorizeOrgDisabledAndBackendFailureReturnNoScope(t *testing.T) {
 		t.Fatalf("disabled: %+v %v", scope, err)
 	}
 	f := newAppHTTPFixture(t, false, false, WithOrganizations(OrganizationConfig{Enable: true}), WithOrgPermissions(OrgPermissionsConfig{Enable: true}))
-	org, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Cancelled", Slug: uuid.NewString()})
+	org, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Cancelled", Slug: uuid.NewString()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +262,7 @@ func TestOrgScopeIdentityCannotCrossJSONBoundary(t *testing.T) {
 
 func TestAuthorizeOrgRechecksSessionAssurance(t *testing.T) {
 	f := newAppHTTPFixture(t, false, false, WithOrganizations(OrganizationConfig{Enable: true}), WithOrgPermissions(OrgPermissionsConfig{Enable: true}))
-	org, err := f.a.Services().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Assurance", Slug: uuid.NewString()})
+	org, err := f.a.Trusted().Org.CreateOrg(t.Context(), api.CreateOrgInput{OwnerID: f.admin.UserID, Name: "Assurance", Slug: uuid.NewString()})
 	if err != nil {
 		t.Fatal(err)
 	}

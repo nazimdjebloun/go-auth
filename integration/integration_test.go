@@ -356,7 +356,7 @@ func TestSession_ValidateAfterRegister(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	user, session, aerr := a.Services().Auth.ValidateSession(ctx, res.SessionToken)
+	user, session, aerr := a.Trusted().Auth.ValidateSession(ctx, res.SessionToken)
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -385,11 +385,11 @@ func TestSession_RevokeInvalidates(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	if aerr := a.Services().Auth.Logout(ctx, res.Session.ID); aerr != nil {
+	if aerr := a.Trusted().Auth.Logout(ctx, res.Session.ID); aerr != nil {
 		t.Fatal(aerr)
 	}
 
-	_, _, aerr = a.Services().Auth.ValidateSession(ctx, res.SessionToken)
+	_, _, aerr = a.Trusted().Auth.ValidateSession(ctx, res.SessionToken)
 	if aerr == nil {
 		t.Error("ValidateSession should fail after session revoked")
 	}
@@ -420,7 +420,7 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	revoked, err := a.Services().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
+	revoked, err := a.Trusted().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
 		SessionID: "not-a-uuid",
 		UserID:    alice.User.ID,
 	})
@@ -431,7 +431,7 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 		t.Error("expected revoked=false for malformed id")
 	}
 
-	revoked, err = a.Services().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
+	revoked, err = a.Trusted().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
 		SessionID: alice.Session.ID,
 		UserID:    bob.User.ID,
 	})
@@ -442,12 +442,12 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 		t.Error("expected revoked=false for another user's session")
 	}
 
-	_, _, aerr = a.Services().Auth.ValidateSession(ctx, alice.SessionToken)
+	_, _, aerr = a.Trusted().Auth.ValidateSession(ctx, alice.SessionToken)
 	if aerr != nil {
 		t.Error("alice session should still be valid")
 	}
 
-	revoked, err = a.Services().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
+	revoked, err = a.Trusted().Session.RevokeByIDForUser(ctx, api.RevokeSessionForUserInput{
 		SessionID: alice.Session.ID,
 		UserID:    alice.User.ID,
 	})
@@ -457,7 +457,7 @@ func TestSession_RevokeByIDForUser_OwnershipAndMalformedID(t *testing.T) {
 	if !revoked {
 		t.Error("expected revoked=true when owner revokes")
 	}
-	_, _, aerr = a.Services().Auth.ValidateSession(ctx, alice.SessionToken)
+	_, _, aerr = a.Trusted().Auth.ValidateSession(ctx, alice.SessionToken)
 	if aerr == nil {
 		t.Error("alice session should be invalid after owner revoke")
 	}
@@ -488,7 +488,7 @@ func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	n, err := a.Services().Session.RevokeManyForUser(ctx, api.RevokeSessionsForUserInput{
+	n, err := a.Trusted().Session.RevokeManyForUser(ctx, api.RevokeSessionsForUserInput{
 		SessionIDs: []string{bob.Session.ID, "not-a-uuid"},
 		UserID:     alice.User.ID,
 	})
@@ -499,7 +499,7 @@ func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
 		t.Errorf("expected 0 revoked for bob's session + malformed id, got %d", n)
 	}
 
-	n, err = a.Services().Session.RevokeManyForUser(ctx, api.RevokeSessionsForUserInput{
+	n, err = a.Trusted().Session.RevokeManyForUser(ctx, api.RevokeSessionsForUserInput{
 		SessionIDs: []string{alice.Session.ID, "not-a-uuid"},
 		UserID:     alice.User.ID,
 	})
@@ -510,11 +510,11 @@ func TestSession_RevokeManyForUser_ScopingAndMalformedIDs(t *testing.T) {
 		t.Errorf("expected 1 revoked, got %d", n)
 	}
 
-	_, _, aerr = a.Services().Auth.ValidateSession(ctx, alice.SessionToken)
+	_, _, aerr = a.Trusted().Auth.ValidateSession(ctx, alice.SessionToken)
 	if aerr == nil {
 		t.Error("alice session should be invalid after revoke")
 	}
-	_, _, aerr = a.Services().Auth.ValidateSession(ctx, bob.SessionToken)
+	_, _, aerr = a.Trusted().Auth.ValidateSession(ctx, bob.SessionToken)
 	if aerr != nil {
 		t.Error("bob session should still be valid")
 	}
@@ -635,7 +635,7 @@ func TestInvite_CreateAndCompleteRegistration(t *testing.T) {
 	}
 
 	// Create invite
-	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{
+	invite, aerr := a.Services().AdminInvite.CreateInvite(ctx, api.CreateInviteInput{
 		Email:   "invitee@example.com",
 		AdminID: admin.User.ID,
 	})
@@ -865,7 +865,7 @@ func TestCheckSession_AfterLogout(t *testing.T) {
 	}
 
 	// Logout
-	if aerr = a.Services().Auth.Logout(ctx, res.Session.ID); aerr != nil {
+	if aerr = a.Trusted().Auth.Logout(ctx, res.Session.ID); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -1096,7 +1096,7 @@ func TestGetSession_AfterLogoutReturnsError(t *testing.T) {
 	}
 
 	// Logout (revokes session)
-	if aerr = a.Services().Auth.Logout(ctx, res.Session.ID); aerr != nil {
+	if aerr = a.Trusted().Auth.Logout(ctx, res.Session.ID); aerr != nil {
 		t.Fatal(aerr)
 	}
 
@@ -1158,7 +1158,7 @@ func TestRefreshToken_E2E(t *testing.T) {
 	}
 
 	// New session token should validate BEFORE reuse test (which revokes the session)
-	user, session, aerr := a.Services().Auth.ValidateSession(ctx, rawToken2)
+	user, session, aerr := a.Trusted().Auth.ValidateSession(ctx, rawToken2)
 	if aerr != nil {
 		t.Fatalf("new session token should validate: %v", aerr)
 	}
@@ -1195,7 +1195,7 @@ func TestRefreshToken_E2E(t *testing.T) {
 	}
 
 	// After reuse detection, the session should be revoked
-	_, _, aerr = a.Services().Auth.ValidateSession(ctx, rawToken2)
+	_, _, aerr = a.Trusted().Auth.ValidateSession(ctx, rawToken2)
 	if aerr == nil {
 		t.Fatal("expected session to be revoked after reuse detection")
 	}
@@ -1243,7 +1243,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 	var err error
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		events, err = a.Services().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50})
+		events, err = a.Trusted().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50})
 		if err != nil {
 			t.Fatalf("audit log list must not fail on NULL json columns: %v", err)
 		}
@@ -1257,7 +1257,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 	}
 	// GetByID must also survive NULL columns.
 	for _, e := range events {
-		got, err := a.Services().AuditLog.GetByID(ctx, e.ID)
+		got, err := a.Trusted().AuditLog.GetByID(ctx, e.ID)
 		if err != nil {
 			t.Fatalf("audit log get by id %s failed: %v", e.ID, err)
 		}
@@ -1269,7 +1269,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 	// Regression: the search filter referenced the same placeholder twice but
 	// bound a single argument, which failed on ?-placeholder drivers.
 	search := "TestAgent"
-	searched, err := a.Services().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
+	searched, err := a.Trusted().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
 	if err != nil {
 		t.Fatalf("search filter must not fail: %v", err)
 	}
@@ -1277,7 +1277,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 		deadline = time.Now().Add(5 * time.Second)
 		for len(searched) == 0 && !time.Now().After(deadline) {
 			time.Sleep(50 * time.Millisecond)
-			searched, err = a.Services().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
+			searched, err = a.Trusted().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Search: &search})
 			if err != nil {
 				t.Fatalf("search filter must not fail: %v", err)
 			}
@@ -1289,7 +1289,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 
 	// Regression: event-type filter must bind correctly.
 	loginType := "login.success"
-	typed, err := a.Services().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
+	typed, err := a.Trusted().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
 	if err != nil {
 		t.Fatalf("event-type filter must not fail: %v", err)
 	}
@@ -1297,7 +1297,7 @@ func TestAuditLogList_HandlesNullJSONColumns(t *testing.T) {
 		deadline = time.Now().Add(5 * time.Second)
 		for len(typed) == 0 && !time.Now().After(deadline) {
 			time.Sleep(50 * time.Millisecond)
-			typed, err = a.Services().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
+			typed, err = a.Trusted().AuditLog.List(ctx, port.AuditLogFilter{Limit: 50, Types: []string{loginType}})
 			if err != nil {
 				t.Fatalf("event-type filter must not fail: %v", err)
 			}
@@ -1443,7 +1443,7 @@ func TestTwoFactor_VerifyThenEnable_LaterLoginRequiresTwoFactor(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            user.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -1554,7 +1554,7 @@ func TestTwoFactor_EnableDisable_PersistsToDB(t *testing.T) {
 		t.Fatal("2fa should start disabled")
 	}
 
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            reg.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -1566,7 +1566,7 @@ func TestTwoFactor_EnableDisable_PersistsToDB(t *testing.T) {
 		t.Error("Enable did not persist two_factor_enabled=true")
 	}
 
-	if aerr := a.Services().TwoFactor.Disable(ctx, api.TwoFactorDisableInput{
+	if aerr := a.Trusted().TwoFactor.Disable(ctx, api.TwoFactorDisableInput{
 		UserID:   reg.User.ID,
 		Password: validTestPassword(),
 	}); aerr != nil {
@@ -1593,7 +1593,7 @@ func TestTwoFactor_AttemptCap_ResendFails_FreshLoginIssuesNewCode(t *testing.T) 
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            reg.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -1693,7 +1693,7 @@ func TestTwoFactor_NoAccountLevelRefusal_AcrossManyLineages(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            reg.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -1749,7 +1749,7 @@ func TestTwoFactor_ResendCeiling(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            reg.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -1794,7 +1794,7 @@ func TestTwoFactor_ConcurrentGuesses_NeverExceedCap(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            reg.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -1911,7 +1911,7 @@ func TestTwoFactor_ChallengeBinding_RequiredByDefault(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            regA.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -1923,7 +1923,7 @@ func TestTwoFactor_ChallengeBinding_RequiredByDefault(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            regB.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -1991,7 +1991,7 @@ func TestTwoFactor_ChallengeBinding_CannotBeDisabled(t *testing.T) {
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            reg.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -2062,7 +2062,7 @@ func TestTwoFactor_DefaultTwoFactorEnabled_GatedUntilDisabled(t *testing.T) {
 	}
 	user := verifyResult.User
 
-	if aerr := a.Services().TwoFactor.Disable(ctx, api.TwoFactorDisableInput{
+	if aerr := a.Trusted().TwoFactor.Disable(ctx, api.TwoFactorDisableInput{
 		UserID:   user.ID,
 		Password: validTestPassword(),
 	}); aerr != nil {
@@ -2136,7 +2136,7 @@ func TestTwoFactor_RequireEmail2FA_GatesAdminLoginAndInvite(t *testing.T) {
 	}
 
 	// Invite registration is gated the same way as Register.
-	invite, aerr := a.Services().Invite.CreateInvite(ctx, api.CreateInviteInput{Email: "pat@example.com", AdminID: user.ID})
+	invite, aerr := a.Services().AdminInvite.CreateInvite(ctx, api.CreateInviteInput{Email: "pat@example.com", AdminID: user.ID})
 	if aerr != nil {
 		t.Fatal(aerr)
 	}
@@ -2190,7 +2190,7 @@ func TestTwoFactor_Enable_RevokesOtherSessionsByDefault(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	sessions, err := a.Services().Session.ListAll(ctx, reg.User.ID)
+	sessions, err := a.Trusted().Session.ListAll(ctx, reg.User.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2198,7 +2198,7 @@ func TestTwoFactor_Enable_RevokesOtherSessionsByDefault(t *testing.T) {
 		t.Fatalf("expected 2 sessions before Enable, got %d", len(sessions))
 	}
 
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            reg.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: false,
@@ -2207,7 +2207,7 @@ func TestTwoFactor_Enable_RevokesOtherSessionsByDefault(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	sessions, err = a.Services().Session.ListAll(ctx, reg.User.ID)
+	sessions, err = a.Trusted().Session.ListAll(ctx, reg.User.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2235,7 +2235,7 @@ func TestTwoFactor_Enable_KeepOtherSessionsLeavesBoth(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	if aerr := a.Services().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
+	if aerr := a.Trusted().TwoFactor.Enable(ctx, api.TwoFactorEnableInput{
 		UserID:            reg.User.ID,
 		Password:          validTestPassword(),
 		KeepOtherSessions: true,
@@ -2244,7 +2244,7 @@ func TestTwoFactor_Enable_KeepOtherSessionsLeavesBoth(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	sessions, err := a.Services().Session.ListAll(ctx, reg.User.ID)
+	sessions, err := a.Trusted().Session.ListAll(ctx, reg.User.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

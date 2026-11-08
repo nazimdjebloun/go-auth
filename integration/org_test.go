@@ -81,7 +81,7 @@ func TestOrg_CreateOrgAndGetByID(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "My Org", Slug: "my-org", OwnerID: res.User.ID,
 	})
 	if err != nil {
@@ -136,13 +136,13 @@ func TestOrg_CreateOrgDuplicateSlug(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	if _, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	if _, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "First", Slug: "dup", OwnerID: res.User.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	_, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	_, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Second", Slug: "dup", OwnerID: res.User.ID,
 	})
 	if err == nil {
@@ -167,7 +167,7 @@ func TestOrg_CreateOrgReservedSlug(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	_, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	_, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Admin", Slug: "admin", OwnerID: res.User.ID,
 	})
 	if err == nil {
@@ -192,7 +192,7 @@ func TestOrg_GetBySlug(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "By Slug", Slug: "by-slug", OwnerID: res.User.ID,
 	})
 	if err != nil {
@@ -227,7 +227,7 @@ func TestOrg_UpdateOrg(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Old Name", Slug: "old-slug", OwnerID: res.User.ID,
 	})
 	if err != nil {
@@ -266,7 +266,7 @@ func TestOrg_DeleteOrg(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "To Delete", Slug: "to-delete", OwnerID: res.User.ID,
 	})
 	if err != nil {
@@ -304,7 +304,7 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Team", Slug: "team", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -317,7 +317,7 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 		t.Fatalf("AddMember failed: %v", err)
 	}
 
-	m, err := a.Services().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID})
+	m, err := a.Trusted().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID})
 	if err != nil {
 		t.Fatalf("GetMembership failed: %v", err)
 	}
@@ -335,7 +335,7 @@ func TestOrg_AddAndRemoveMember(t *testing.T) {
 		t.Fatalf("RemoveMember failed: %v", err)
 	}
 
-	if _, err := a.Services().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID}); err == nil {
+	if _, err := a.Trusted().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: member.User.ID}); err == nil {
 		t.Fatal("expected error after removal")
 	}
 	checkTestErrors(t).noError(db.QueryRow(testdb.SQL(db, "SELECT member_count FROM organizations WHERE id=?"), org.ID).Scan(&dbCount))
@@ -359,7 +359,7 @@ func TestOrg_AddDuplicateMember(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Dup", Slug: "dup", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -399,7 +399,7 @@ func TestOrg_UpdateMemberRole(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Roles", Slug: "roles", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -446,7 +446,7 @@ func TestOrg_CannotRemoveLastOwner(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "OnlyOne", Slug: "only-one", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -473,7 +473,7 @@ func TestOrg_ListMembers(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "List", Slug: "list", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -539,7 +539,7 @@ func TestOrg_ListMembers_LimitSemantics(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "LimitTest", Slug: "limit-test", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -604,7 +604,7 @@ func TestOrg_ListMembers_Search(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "SearchOrg", Slug: "search-org", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -660,14 +660,14 @@ func TestOrg_ListUserOrgs(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org1, _ := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org1, _ := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "A", Slug: "org-a", OwnerID: owner.User.ID,
 	})
-	org2, _ := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org2, _ := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "B", Slug: "org-b", OwnerID: owner.User.ID,
 	})
 
-	result, err := a.Services().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{UserID: owner.User.ID})
+	result, err := a.Trusted().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{UserID: owner.User.ID})
 	if err != nil {
 		t.Fatalf("ListUserOrgs failed: %v", err)
 	}
@@ -684,7 +684,7 @@ func TestOrg_ListUserOrgs(t *testing.T) {
 	}
 
 	// Exact-order assertion: sort by name descending, "B" before "A".
-	descResult, err := a.Services().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{
+	descResult, err := a.Trusted().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{
 		UserID: owner.User.ID, OrderBy: "name", OrderDirection: "desc",
 	})
 	if err != nil {
@@ -710,20 +710,20 @@ func TestOrg_ListUserOrgs_Search(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	acme, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	acme, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Acme Corp", Slug: "acme-corp", OwnerID: owner.User.ID,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	if _, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Widgets Inc", Slug: "widgets-inc", OwnerID: owner.User.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
 
 	search := "acme"
-	result, err := a.Services().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{UserID: owner.User.ID, Search: &search})
+	result, err := a.Trusted().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{UserID: owner.User.ID, Search: &search})
 	if err != nil {
 		t.Fatalf("ListUserOrgs failed: %v", err)
 	}
@@ -747,7 +747,7 @@ func TestOrg_CreateOrgInviteAndDelete(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "InviteTest", Slug: "invite-test", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -819,14 +819,14 @@ func TestOrg_MaxOrgLimit(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		slug := "limit-" + string(rune('a'+i))
-		if _, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+		if _, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 			Name: slug, Slug: slug, OwnerID: owner.User.ID,
 		}); err != nil {
 			t.Fatalf("create %d failed: %v", i, err)
 		}
 	}
 
-	result, err := a.Services().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{UserID: owner.User.ID})
+	result, err := a.Trusted().Org.ListUserOrgs(ctx, api.ListUserOrgsInput{UserID: owner.User.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -857,7 +857,7 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "AcceptTest", Slug: "accept-test", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -875,14 +875,14 @@ func TestOrg_AcceptInvite_AndBecomesMember(t *testing.T) {
 	}
 
 	// Accept the invite
-	if err := a.Services().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
+	if err := a.Trusted().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
 		UserID: invitee.User.ID, RawCode: invite.RawCode,
 	}); err != nil {
 		t.Fatalf("AcceptInvite failed: %v", err)
 	}
 
 	// Verify membership
-	m, err := a.Services().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: invitee.User.ID})
+	m, err := a.Trusted().Org.GetMembership(ctx, api.GetOrgMembershipInput{OrgID: org.ID, UserID: invitee.User.ID})
 	if err != nil {
 		t.Fatalf("GetMembership after accept failed: %v", err)
 	}
@@ -929,7 +929,7 @@ func TestOrg_AcceptInvite_WrongEmail(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "EmailMismatch", Slug: "email-mismatch", OwnerID: owner.User.ID,
 	})
 	if err != nil {
@@ -943,7 +943,7 @@ func TestOrg_AcceptInvite_WrongEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = a.Services().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
+	err = a.Trusted().OrgInvite.AcceptInvite(ctx, api.AcceptInviteInput{
 		UserID: invitee.User.ID, RawCode: invite.RawCode,
 	})
 	if err == nil {
@@ -975,7 +975,7 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 		t.Fatal(aerr)
 	}
 
-	org, err := a.Services().Org.CreateOrg(ctx, api.CreateOrgInput{
+	org, err := a.Trusted().Org.CreateOrg(ctx, api.CreateOrgInput{
 		Name: "Active Org", Slug: "active-org", OwnerID: res.User.ID,
 	})
 	if err != nil {

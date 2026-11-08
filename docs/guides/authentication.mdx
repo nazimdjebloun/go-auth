@@ -649,13 +649,13 @@ curl -X POST https://api.myapp.com/auth/logout \
 
 #### Programmatic (Go)
 
-The HTTP handler revokes by the raw session token — the same value stored in the cookie — not by session ID:
+For a custom transport, bind the authenticated actor and revoke its own session:
 
 ```go
-err := auth.Services().Session.Revoke(ctx, sessionToken) // sessionToken is the raw value from the cookie, not the session's ID
+err := auth.Account(actor).Session.Logout(ctx)
 ```
 
-If you only have the session ID instead (e.g. an admin ending one specific session — see [Routes → Sessions](../routes/sessions.mdx)), use `auth.Services().Auth.Logout(ctx, sessionID)` instead — same effect, looked up differently.
+Obtain `actor` from trusted authentication. Verification-pending identities can log out too. For ending another account's session, use an authorized `Services().Admin` operation. Raw token/ID revocation remains available only through `Trusted().Session`/`Trusted().Auth` for explicit backend integration.
 
 ---
 
