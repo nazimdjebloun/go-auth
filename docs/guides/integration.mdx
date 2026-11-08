@@ -207,6 +207,12 @@ starting workers, including for borrowed handles. It never executes DDL. See
 
 `NewConfig` validates configuration and starts no background work. `New` clones and revalidates it, opens or adopts the database, constructs services, and starts the configured workers. Depending on configuration, these include maintenance, recovery-email delivery, audit delivery/retention, and cleanup for the library's in-memory rate-limit stores. Create an `Auth` for the application's lifetime, rather than per request.
 
+Inspect selected resolved settings with `cfg.Describe()` before startup or
+`auth.Describe()` on a constructed instance. These data-only reports exclude
+credentials and live objects and show optional capabilities, database ownership,
+rate-limit storage and work enabled at startup. They are not worker-health or
+connectivity checks. See [configuration inspection](../configuration.mdx#inspect-effective-configuration).
+
 Stop accepting work and wait for HTTP requests and direct service callers to finish before calling `Auth.Close()`. `Close` does not stop or drain your HTTP server. Call it once as part of orderly application shutdown, then release resources you supplied.
 
 | Resource | Ownership and shutdown |

@@ -106,6 +106,10 @@ driver import, and graceful shutdown. The main configuration sections are:
   optional application CORS headers and methods.
 - `WithTwoFactor`: optional or required email 2FA.
 
+Inspect selected effective settings with `cfg.Describe()` before startup or
+`auth.Describe()` after construction. Both return a detached, redacted report;
+see [configuration inspection](docs/configuration.mdx#inspect-effective-configuration).
+
 `DatabaseConfig` requires exactly one connection source: `URL`, `DB`, or `Pool`.
 Set `Driver` to `DriverPostgres`, `DriverSQLite`, or `DriverMySQL`; `Pool` requires
 `DriverPostgres`. `NewConfig` rejects conflicting sources and unsupported drivers.

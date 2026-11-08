@@ -13,12 +13,27 @@ import (
 // prepareConfig clones and checks the caller's config before New mutates its
 // resolved defaults. The returned copy shares only consumer-owned live objects.
 func prepareConfig(in *Config) (Config, keyring.Keys, error) {
+	cfg, err := resolveConfig(in)
+	if err != nil {
+		return Config{}, keyring.Keys{}, err
+	}
+	if cfg.app.Environment.normalize() == EnvironmentDev && cfg.logger != nil {
+		cfg.logger.Warn("goauth: running in dev environment", "cookie_secure", cfg.resolved.cookieSecure)
+	}
+	keys := keyring.Derive([]byte(cfg.secret))
+	applyCSRFTokenDefaults(&cfg, keys)
+	return cfg, keys, nil
+}
+
+// resolveConfig shares final defaulting and validation between startup and
+// configuration inspection, without deriving keys or opening stores.
+func resolveConfig(in *Config) (Config, error) {
 	if in == nil {
-		return Config{}, keyring.Keys{}, fmt.Errorf("goauth: nil config — build one with goauth.NewConfig(goauth.WithApp(...), ...)")
+		return Config{}, fmt.Errorf("goauth: nil config — build one with goauth.NewConfig(goauth.WithApp(...), ...)")
 	}
 	cfg := in.clone()
 	if !cfg.resolved.validated {
-		return Config{}, keyring.Keys{}, fmt.Errorf(
+		return Config{}, fmt.Errorf(
 			"goauth: config was not built via NewConfig(opts...) — " +
 				"construct it with goauth.NewConfig(goauth.WithApp(...), ...) so " +
 				"required fields and security settings are validated",
@@ -28,14 +43,9 @@ func prepareConfig(in *Config) (Config, keyring.Keys, error) {
 	// again and validate the final clone before deriving keys or opening stores.
 	cfg.applyDefaults()
 	if err := cfg.validate(); err != nil {
-		return Config{}, keyring.Keys{}, fmt.Errorf("goauth: invalid configuration: %w", err)
+		return Config{}, fmt.Errorf("goauth: invalid configuration: %w", err)
 	}
-	if cfg.app.Environment.normalize() == EnvironmentDev && cfg.logger != nil {
-		cfg.logger.Warn("goauth: running in dev environment", "cookie_secure", cfg.resolved.cookieSecure)
-	}
-	keys := keyring.Derive([]byte(cfg.secret))
-	applyCSRFTokenDefaults(&cfg, keys)
-	return cfg, keys, nil
+	return cfg, nil
 }
 
 // buildPasswordHasher keeps prefix-based verifier selection and independently

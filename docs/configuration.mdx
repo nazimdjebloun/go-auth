@@ -16,6 +16,7 @@ enable optional features as needed.
 - [Request protection](#request-protection): rate limits and trusted proxy configuration.
 - [Organizations and permissions](#organizations-and-permissions): optional organizations, app roles and organization roles.
 - [Operations and customization](#operations-and-customization): logging, audit, cleanup and email templates.
+- [Inspect effective configuration](#inspect-effective-configuration): resolved policy, capabilities, ownership and background work.
 
 ## Build a configuration
 
@@ -79,6 +80,90 @@ checks migration compatibility but never applies migrations. See
 - `New` clones the configuration, reapplies defaults and validates the complete
   result before deriving keys or initializing services. Options applied after
   `NewConfig` are checked again; startup does not modify the caller's config.
+
+## Inspect effective configuration
+
+Use `Config.Describe()` to inspect selected effective settings before opening
+connections. It resolves defaults and validates a private copy with the same
+rules as `New`, including options applied after `NewConfig`. On error it returns
+a zero description. It does not check connectivity, schema compatibility or
+custom integration behavior during startup, and starts no workers. Validation
+can consult custom provider/hasher metadata, as it does in `NewConfig`.
+
+```go
+description, err := cfg.Describe()
+if err != nil {
+    return err
+}
+slog.Info("auth configuration", "config", description)
+
+auth, err := goauth.New(cfg)
+if err != nil {
+    return err
+}
+// Register graceful shutdown for auth, then serve requests.
+slog.Info("auth startup policy", "config", auth.Describe())
+```
+
+`Auth.Describe()` uses the configuration captured by that instance. Later options
+on the original `Config` do not change it. The returned `ConfigDescription` and
+its maps/slices are detached; modifying a report does not configure go-auth.
+Apply options sequentially, without concurrently mutating a `Config`.
+
+| Section | Reported settings |
+|---|---|
+| `Environment`, `Browser` | Normalized environment, resolved API origin, allowed frontend origins, cookie names, scope, SameSite, Secure and HttpOnly. Challenge/CSRF/browser-binding cookies are host-only at `/`. |
+| `Session` | Effective session, idle, refresh and token lifetimes, maximum lifetime, refresh grace and activity debounce. Explicit zero grace/debounce stays `"0s"`. |
+| `Authentication` | Password/OAuth login and signup selection, public/invited signup, verification and global/admin 2FA policy. Account-specific and action-specific rules still apply. |
+| `Capabilities` | Optional email-change, OAuth, organization and permission services, permission-management HTTP switches, and audit recording. OAuth service availability means providers are registered; method policy controls usable flows. |
+| `Database` | Driver, source (`"url"`, `"db"`, `"pool"`), SQL-handle shutdown ownership and supplied-pool ownership. `URLLimits` contains resolved pool settings only for URL-created connections. Borrowed handle limits remain caller-managed and are not inspected. |
+| `RateLimit` | Enablement, store selection (`"disabled"`, `"memory"`, `"redis"`, `"custom"`), store shutdown ownership, default/route budgets, exemptions and proxy policy. Overrides do not register or enable routes. Custom stores and Redis clients remain caller-owned. |
+| `Redis` | Selected session/token caches and rate-limit/2FA notification counters. Redis rate counters are off when route rate limiting is disabled. |
+| `Background` | Library work enabled at startup: maintenance and its interval, recovery email, external audit delivery, audit retention and owned memory-store cleanup. Audit recording alone does not enable external delivery workers. |
+
+Durations are strings in Go duration syntax, such as `"5m0s"` and `"0s"`, in
+both the Go value and JSON. The report deliberately omits root/derived secrets,
+password pepper keys, all database connection strings, SMTP settings, provider
+configuration, Redis client settings/prefixes, and live objects. It contains
+operational deployment details; keep it in backend diagnostics. It is not a
+permission decision, an importable configuration, or a complete configuration
+dump. Worker flags describe startup policy, including after `Auth.Close`; they
+are not live health indicators. A borrowed pgx pool reports `CloseSQLHandle:
+true` for its library-owned adapter and `CloseSuppliedPool: false`.
+
+### Application-owned environment parsing
+
+Your application loads environment variables and chooses options. For example,
+parse an optional deployment switch before adding it to the required option set
+shown above:
+
+```go
+rateEnabled := true
+if raw, present := os.LookupEnv("AUTH_RATE_LIMIT_ENABLED"); present {
+    parsed, err := strconv.ParseBool(raw)
+    if err != nil {
+        return fmt.Errorf("AUTH_RATE_LIMIT_ENABLED: %w", err)
+    }
+    rateEnabled = parsed
+}
+options = append(options, goauth.WithRateLimitEnabled(rateEnabled))
+cfg, err := goauth.NewConfig(options...)
+if err != nil {
+    return err
+}
+description, err := cfg.Describe()
+if err != nil {
+    return err
+}
+slog.Info("auth rate-limit configuration", "enabled", description.RateLimit.Enabled,
+    "store", description.RateLimit.Store)
+```
+
+Here `options` is the application's `[]goauth.Option` containing required
+application, secret, browser and email policy. The snippet uses `os`, `strconv`,
+`fmt`, and `log/slog`. Invalid booleans fail explicitly; the report shows the
+effective selection after option ordering and default resolution. The library
+does not read `AUTH_RATE_LIMIT_ENABLED` itself.
 
 ## Required setup
 
