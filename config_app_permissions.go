@@ -27,7 +27,7 @@ var appRoleSlugPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,79}$`)
 
 func (c *Config) validateAppPermissions() []error {
 	var errs []error
-	if c.appPermissions.EnableManagementHTTP && !c.appPermissions.Enable {
+	if c.browserEnabled() && c.appPermissions.EnableManagementHTTP && !c.appPermissions.Enable {
 		errs = append(errs, configIssue(
 			"AppPermissions.EnableManagementHTTP", ConfigDependency,
 			"app_permissions: management HTTP requires Enable",

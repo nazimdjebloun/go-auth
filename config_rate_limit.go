@@ -109,7 +109,7 @@ func WithIPAddressHeader(header string) Option {
 }
 func (c *Config) validateRateLimit() []error {
 	var errs []error
-	if c.rateLimit == nil || !c.rateLimit.Enabled {
+	if !c.httpRateLimitEnabled() {
 		return nil
 	}
 	rl := c.rateLimit

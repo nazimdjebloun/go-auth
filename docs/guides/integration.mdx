@@ -12,6 +12,11 @@ Import `github.com/nazimdjebloun/go-auth/api` for operation inputs. Mounted HTTP
 routes compose internal services, authentication, cookies, CSRF and
 rate limits. See the [capability inventory and API guide](./service-capabilities.mdx).
 
+`WithTransport(TransportServices)` selects service-only construction without
+browser configuration or HTTP adapters. `TransportBrowser` is the default and
+builds the protected browser surface. Both modes use the same services and
+security policy. See [service-only backends](./service-only.mdx).
+
 ## Application HTTP routes
 
 Use `Auth.Protect("POST /widgets/{id}", handler)` for the complete browser

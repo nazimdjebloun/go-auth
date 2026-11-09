@@ -14,7 +14,13 @@ import (
 // another router by having it populate PathValue before calling into these
 // handlers, or use Auth.RequireAuth/RequireAdmin/RequireOrg plus
 // auth.Services().* directly and write your own routing layer.
-func (a *Auth) Mount(mux *http.ServeMux) {
+// Mount returns ErrHTTPDisabled without registering anything in service-only
+// mode. Browser-mode registration errors, such as duplicate patterns, panic
+// according to ServeMux's normal setup contract.
+func (a *Auth) Mount(mux *http.ServeMux) error {
+	if !a.cfg.browserEnabled() {
+		return ErrHTTPDisabled
+	}
 	// All middleware (CORS, rate limit, csrf token, origin check, auth, admin)
 	// is already baked into a.routes — CORS outermost so preflight OPTIONS
 	// short-circuits before rate limiting. Mount only registers routes; do NOT
@@ -48,6 +54,7 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 	for _, e := range a.routes {
 		handle(e.Pattern, e.Handler)
 	}
+	return nil
 }
 
 // Handler returns the fully wrapped handler for an enabled canonical route
@@ -55,7 +62,11 @@ func (a *Auth) Mount(mux *http.ServeMux) {
 // and unknown patterns. The returned handler sets Request.Pattern to the
 // canonical pattern for per-route rate limiting. A custom router must still
 // set PathValue for each parameterized path segment before calling it.
+// Service-only instances return nil, false for every pattern.
 func (a *Auth) Handler(pattern string) (http.Handler, bool) {
+	if !a.cfg.browserEnabled() {
+		return nil, false
+	}
 	for _, e := range a.routes {
 		if e.Pattern == pattern {
 			h := e.Handler

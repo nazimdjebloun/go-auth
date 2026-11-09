@@ -20,5 +20,8 @@ func (a *Auth) InitializeAppPermissions(ctx context.Context, input api.Initializ
 
 // RequireAppPermission checks current SQL access after RequireAuth middleware.
 func (a *Auth) RequireAppPermission(key string) func(http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTPMiddleware
+	}
 	return middleware.RequireAppPermission(a.services.AppPermissions, key)
 }

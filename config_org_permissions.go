@@ -15,7 +15,7 @@ func (c *Config) validateOrgPermissions() []error {
 	if c.orgPermissions.Enable && !c.organizations.Enable {
 		errs = append(errs, configIssue("OrgPermissions.Enable", ConfigDependency, "org_permissions: requires organizations"))
 	}
-	if c.orgPermissions.EnableManagementHTTP && !c.orgPermissions.Enable {
+	if c.browserEnabled() && c.orgPermissions.EnableManagementHTTP && !c.orgPermissions.Enable {
 		errs = append(errs, configIssue(
 			"OrgPermissions.EnableManagementHTTP", ConfigDependency,
 			"org_permissions: management HTTP requires Enable",

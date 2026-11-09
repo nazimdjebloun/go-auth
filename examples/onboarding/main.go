@@ -44,7 +44,10 @@ func newApplication(dsn, baseURL, secret string, options ...goauth.Option) (*goa
 		return nil, nil, err
 	}
 	mux := http.NewServeMux()
-	auth.Mount(mux)
+	if err := auth.Mount(mux); err != nil {
+		auth.Close()
+		return nil, nil, err
+	}
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")

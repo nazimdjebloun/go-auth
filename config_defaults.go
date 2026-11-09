@@ -20,6 +20,9 @@ package goauth
 // to no minimum — the service treats any non-positive interval as disabled,
 // and validate() leaves negatives on this field alone.
 func (c *Config) applyDefaults() {
+	if c.transport == "" {
+		c.transport = TransportBrowser
+	}
 	c.applyRedisDefaults()
 	c.applyAppDefaults()
 	c.applyMailerDefaults()
@@ -30,7 +33,12 @@ func (c *Config) applyDefaults() {
 	c.applySessionDefaults()
 	c.applyTwoFactorDefaults()
 	c.applySecurityDefaults()
-	c.applyBrowserDefaults()
+	if c.browserEnabled() {
+		c.applyBrowserDefaults()
+	} else {
+		c.resolved.apiURL = ""
+		c.resolved.cookieSecure = false
+	}
 	c.applyRateLimitDefaults()
 	c.applyEmailURLDefaults()
 }

@@ -24,6 +24,7 @@ type Config struct {
 	// Consumer intent — exactly what the With* options were handed, unmodified.
 	// Never read a field here that has a twin in resolved; read the twin.
 	app            AppConfig
+	transport      Transport
 	session        SessionConfig
 	security       SecurityConfig
 	twoFactor      TwoFactorConfig

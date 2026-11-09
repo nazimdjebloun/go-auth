@@ -61,7 +61,7 @@ func buildRedis(ctx context.Context, cfg *Config, keys keyring.Keys) (redisWirin
 		}
 		return s, nil
 	}
-	if redisEnabled(r.RateLimits) && cfg.rateLimit.Enabled {
+	if redisEnabled(r.RateLimits) && cfg.httpRateLimitEnabled() {
 		out.rate, err = makeStore("rate")
 		if err != nil {
 			return out, err

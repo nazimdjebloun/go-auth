@@ -104,11 +104,11 @@ func (c *Config) validateRedis() []error {
 				"redis: startup timeout and cache ttls must be positive"))
 		}
 	}
-	if redisEnabled(r.RateLimits) && c.rateLimit != nil && c.rateLimit.Enabled && c.set.rateLimitStore {
+	if redisEnabled(r.RateLimits) && c.httpRateLimitEnabled() && c.set.rateLimitStore {
 		errs = append(errs, configIssue("Redis.RateLimits", ConfigConflict,
 			"redis: rate limits conflict with a supplied rate-limit store; disable Redis RateLimits explicitly"))
 	}
-	if redisEnabled(r.RateLimits) && c.rateLimit != nil && c.rateLimit.Enabled {
+	if redisEnabled(r.RateLimits) && c.httpRateLimitEnabled() {
 		if c.rateLimit.Default.Requests > math.MaxInt32 {
 			errs = append(errs, configIssue("RateLimit.Default.Requests", ConfigRange,
 				"redis: default rate exceeds supported counter limit"))

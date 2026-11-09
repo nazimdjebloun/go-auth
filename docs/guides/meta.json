@@ -4,6 +4,7 @@
     "onboarding",
     "integration",
     "service-capabilities",
+    "service-only",
     "application-routes",
     "authentication",
     "authentication-outcomes",

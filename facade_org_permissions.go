@@ -19,22 +19,34 @@ func (a *Auth) InitializeOrgPermissions(ctx context.Context, input api.Initializ
 
 // RequireOrgPermission checks live org access after RequireAuth.
 func (a *Auth) RequireOrgPermission(key string) func(http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTPMiddleware
+	}
 	return middleware.RequireOrgPermission(a.services.OrgPermissions, key)
 }
 
 // RequireActiveOrgPermission uses the session's org ID and checks live grants.
 func (a *Auth) RequireActiveOrgPermission(key string) func(http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTPMiddleware
+	}
 	return middleware.RequireActiveOrgPermission(a.services.OrgPermissions, key)
 }
 
 // RequireOrgPermissionScope passes the authorized tenant scope to an application handler.
 // It includes authentication; prefer ProtectOrgScope for browser HTTP routes.
 func (a *Auth) RequireOrgPermissionScope(key string, next OrgHandlerFunc) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.RequireAuth(a.RequireOrgPermission(key)(a.orgScopeHandler(next)))
 }
 
 // RequireActiveOrgPermissionScope checks live grants before exposing the active scope.
 // It includes authentication; prefer ProtectActiveOrgScope for browser HTTP routes.
 func (a *Auth) RequireActiveOrgPermissionScope(key string, next OrgHandlerFunc) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.RequireAuth(a.RequireActiveOrgPermission(key)(a.orgScopeHandler(next)))
 }

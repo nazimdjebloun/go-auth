@@ -97,7 +97,7 @@ Outside `EnvironmentDev`, API and frontend origins must use HTTPS and cookies mu
 - A 401 remains an authentication failure; a 500 remains a backend failure. Neither is a reason to replay arbitrary writes.
 - All API replicas must share the same root secret, database, browser configuration, and public deployment policy.
 
-See [full browser configuration](../configuration.mdx#withbrowser-required-allowedorigins), [client wrapper](./client/index.mdx), and [migration instructions](./integration.mdx#browser-and-csrf-migration).
+See [full browser configuration](../configuration.mdx#withbrowser-required-allowedorigins), [client wrapper](./client/index.mdx), and [browser/CSRF configuration](./integration.mdx#browser-and-csrf-configuration).
 
 
 ## Redis deployment

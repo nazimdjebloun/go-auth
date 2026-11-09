@@ -8,6 +8,7 @@ package httperr
 import "net/http"
 
 var byCode = map[string]int{
+	"http_disabled":                       http.StatusServiceUnavailable,
 	"password_work_busy":                  http.StatusServiceUnavailable,
 	"email_change_unavailable":            http.StatusConflict,
 	"email_change_invalid":                http.StatusBadRequest,

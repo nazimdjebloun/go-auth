@@ -6,8 +6,9 @@ import (
 	"github.com/nazimdjebloun/go-auth/domain"
 )
 
-// TwoFactorVerifyInput completes a challenge using the code and browser binding.
-// BindingToken comes from the binding cookie, never from the request body.
+// TwoFactorVerifyInput completes a challenge using its code and client binding.
+// Browser transports read BindingToken from the binding cookie, never the JSON
+// body. Nonbrowser transports preserve it in protected per-client flow storage.
 type TwoFactorVerifyInput struct {
 	ChallengeID  string `json:"challengeId"`
 	BindingToken string `json:"-"`
@@ -16,7 +17,7 @@ type TwoFactorVerifyInput struct {
 	UserAgent    string `json:"-"`
 }
 
-// TwoFactorResendInput identifies a challenge bound to the requesting browser.
+// TwoFactorResendInput identifies a challenge bound to its initiating client.
 type TwoFactorResendInput struct {
 	ChallengeID  string `json:"challengeId"`
 	BindingToken string `json:"-"`

@@ -7,9 +7,12 @@ import "net/http"
 // material, provider configuration and live objects are never copied into it.
 // Durations are strings in Go duration syntax. It is not an importable Config,
 // a connectivity check, a permission decision or a worker-health snapshot.
+// Browser is nil for TransportServices; HTTP rate limiting and management
+// capabilities then report disabled, independently of their inactive options.
 type ConfigDescription struct {
 	Environment    Environment               `json:"environment"`
-	Browser        BrowserDescription        `json:"browser"`
+	Transport      Transport                 `json:"transport"`
+	Browser        *BrowserDescription       `json:"browser,omitempty"`
 	Session        SessionDescription        `json:"session"`
 	Authentication AuthenticationDescription `json:"authentication"`
 	Capabilities   CapabilityDescription     `json:"capabilities"`
@@ -173,31 +176,17 @@ func describeConfig(c *Config) ConfigDescription {
 	if r := c.redis; r != nil {
 		redis = RedisDescription{
 			Sessions: redisEnabled(r.Sessions), Tokens: redisEnabled(r.Tokens),
-			RateLimits:             c.rateLimit.Enabled && redisEnabled(r.RateLimits),
+			RateLimits:             c.httpRateLimitEnabled() && redisEnabled(r.RateLimits),
 			TwoFactorNotifications: redisEnabled(r.TwoFactorNotifications),
 		}
 	}
-	b := c.browser.Cookies
-	sameSite := "default"
-	switch b.SameSite {
-	case http.SameSiteLaxMode:
-		sameSite = "lax"
-	case http.SameSiteStrictMode:
-		sameSite = "strict"
-	case http.SameSiteNoneMode:
-		sameSite = "none"
+	var browser *BrowserDescription
+	if c.browserEnabled() {
+		browser = describeBrowser(c)
 	}
 	rate := describeRateLimit(c, redis)
 	return ConfigDescription{
-		Environment: c.app.Environment.normalize(),
-		Browser: BrowserDescription{
-			APIURL: c.resolved.apiURL, AllowedOrigins: append([]string(nil), c.browser.AllowedOrigins...),
-			Cookies: CookieDescription{
-				Name: b.Name, RefreshName: b.RefreshName, ChallengeName: b.ChallengeName,
-				AdminName: b.AdminName, AdminRefreshName: b.AdminRefreshName, AdminChallengeName: b.AdminChallengeName,
-				Domain: b.Domain, Path: b.Path, SameSite: sameSite, Secure: c.resolved.cookieSecure, HTTPOnly: true,
-			},
-		},
+		Environment: c.app.Environment.normalize(), Transport: c.transport, Browser: browser,
 		Session: SessionDescription{
 			TTL: c.session.TTL.String(), IdleTTL: c.session.IdleTTL.String(),
 			RefreshTokenTTL: c.session.RefreshTokenTTL.String(), MaxLifetime: c.session.MaxLifetime.String(),
@@ -216,8 +205,8 @@ func describeConfig(c *Config) ConfigDescription {
 			EmailChange: c.security.AllowEmailChange, OAuth: len(c.providers) > 0,
 			Organizations: c.organizations.Enable, AppPermissions: c.appPermissions.Enable,
 			OrgPermissions: c.orgPermissions.Enable, Audit: c.audit.Enabled,
-			AppPermissionManagementHTTP: c.appPermissions.EnableManagementHTTP,
-			OrgPermissionManagementHTTP: c.orgPermissions.EnableManagementHTTP,
+			AppPermissionManagementHTTP: c.browserEnabled() && c.appPermissions.EnableManagementHTTP,
+			OrgPermissionManagementHTTP: c.browserEnabled() && c.orgPermissions.EnableManagementHTTP,
 		},
 		Database: describeDatabase(c.app.Database), RateLimit: rate, Redis: redis,
 		Background: BackgroundDescription{
@@ -226,6 +215,27 @@ func describeConfig(c *Config) ConfigDescription {
 			AuditDelivery:    c.audit.Enabled && len(c.audit.Sinks)+len(c.auditSinks) > 0,
 			AuditRetention:   c.audit.Enabled && c.audit.RetentionDays > 0,
 			RateLimitCleanup: rate.CloseStoreOnShutdown, TwoFactorCleanup: !redis.TwoFactorNotifications,
+		},
+	}
+}
+
+func describeBrowser(c *Config) *BrowserDescription {
+	b := c.browser.Cookies
+	sameSite := "default"
+	switch b.SameSite {
+	case http.SameSiteLaxMode:
+		sameSite = "lax"
+	case http.SameSiteStrictMode:
+		sameSite = "strict"
+	case http.SameSiteNoneMode:
+		sameSite = "none"
+	}
+	return &BrowserDescription{
+		APIURL: c.resolved.apiURL, AllowedOrigins: append([]string(nil), c.browser.AllowedOrigins...),
+		Cookies: CookieDescription{
+			Name: b.Name, RefreshName: b.RefreshName, ChallengeName: b.ChallengeName,
+			AdminName: b.AdminName, AdminRefreshName: b.AdminRefreshName, AdminChallengeName: b.AdminChallengeName,
+			Domain: b.Domain, Path: b.Path, SameSite: sameSite, Secure: c.resolved.cookieSecure, HTTPOnly: true,
 		},
 	}
 }
@@ -249,9 +259,13 @@ func describeDatabase(c DatabaseConfig) DatabaseDescription {
 }
 
 func describeRateLimit(c *Config, redis RedisDescription) RateLimitDescription {
+	if !c.browserEnabled() {
+		// Inactive HTTP intent is neither effective policy nor diagnostic data.
+		return RateLimitDescription{Store: "disabled", Default: RateDescription{Window: "0s"}}
+	}
 	r := c.rateLimit
 	d := RateLimitDescription{
-		Enabled: r.Enabled, Store: "disabled",
+		Enabled: c.httpRateLimitEnabled(), Store: "disabled",
 		Default:        RateDescription{Requests: r.Default.Requests, Window: r.Default.Window.String()},
 		Routes:         make(map[string]RateDescription, len(r.Routes)),
 		DisabledRoutes: append([]string(nil), r.DisabledRoutes...), TrustedIPs: append([]string(nil), r.TrustedIPs...),
@@ -260,7 +274,7 @@ func describeRateLimit(c *Config, redis RedisDescription) RateLimitDescription {
 	for pattern, rate := range r.Routes {
 		d.Routes[pattern] = RateDescription{Requests: rate.Requests, Window: rate.Window.String()}
 	}
-	if r.Enabled {
+	if d.Enabled {
 		switch {
 		case redis.RateLimits:
 			d.Store = "redis"

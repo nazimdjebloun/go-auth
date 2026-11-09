@@ -76,7 +76,9 @@ func newAppHTTPFixture(t *testing.T, management, requireMFA bool, options ...Opt
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	a.Mount(mux)
+	if err := a.Mount(mux); err != nil {
+		t.Fatal(err)
+	}
 	return appHTTPFixture{a: a, db: db, users: users, admin: api.AppPermissionActor{UserID: id, SessionID: session.Session.ID}, token: session.SessionToken, mux: mux}
 }
 

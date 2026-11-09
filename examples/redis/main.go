@@ -49,7 +49,9 @@ func run(ctx context.Context) error {
 	}
 	defer auth.Close()
 	mux := http.NewServeMux()
-	auth.Mount(mux)
+	if err := auth.Mount(mux); err != nil {
+		return err
+	}
 	pattern := "GET /app/me"
 	mux.Handle(pattern, auth.Protect(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

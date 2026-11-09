@@ -56,6 +56,9 @@ type OrgHandlerFunc func(http.ResponseWriter, *http.Request, OrgScope)
 // request with 503 — add goauth.WithOrganizations(goauth.OrganizationConfig{
 // Enable: true}) to enable them.
 func (a *Auth) RequireOrg(role domain.OrgRole) func(http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTPMiddleware
+	}
 	if !role.IsValid() {
 		panic(fmt.Sprintf(
 			"goauth: invalid org role %q — use domain.OrgRoleMember, domain.OrgRoleAdmin, or domain.OrgRoleOwner",
@@ -91,6 +94,9 @@ func (a *Auth) RequireOrg(role domain.OrgRole) func(http.Handler) http.Handler {
 // request with 503 — add goauth.WithOrganizations(goauth.OrganizationConfig{
 // Enable: true}) to enable them.
 func (a *Auth) RequireActiveOrg(role domain.OrgRole) func(http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTPMiddleware
+	}
 	if !role.IsValid() {
 		panic(fmt.Sprintf(
 			"goauth: invalid org role %q — use domain.OrgRoleMember, domain.OrgRoleAdmin, or domain.OrgRoleOwner",
@@ -115,6 +121,9 @@ func (a *Auth) RequireActiveOrg(role domain.OrgRole) func(http.Handler) http.Han
 // Authentication is included. Wrap with Protect(pattern, handler) for the complete
 // browser security chain; the same Auth instance authenticates only once.
 func (a *Auth) RequireOrgScope(role domain.OrgRole, next OrgHandlerFunc) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.RequireAuth(a.RequireOrg(role)(a.orgScopeHandler(next)))
 }
 
@@ -125,6 +134,9 @@ func (a *Auth) RequireOrgScope(role domain.OrgRole, next OrgHandlerFunc) http.Ha
 // Authentication is included. Wrap with Protect(pattern, handler) for the complete
 // browser security chain; the same Auth instance authenticates only once.
 func (a *Auth) RequireActiveOrgScope(role domain.OrgRole, next OrgHandlerFunc) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.RequireAuth(a.RequireActiveOrg(role)(a.orgScopeHandler(next)))
 }
 

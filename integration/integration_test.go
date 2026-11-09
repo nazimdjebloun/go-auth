@@ -1354,7 +1354,9 @@ func TestMount_BakesInCORS(t *testing.T) {
 	a := openAuth(t, db, &testMailer{})
 
 	mux := http.NewServeMux()
-	a.Mount(mux)
+	if err := a.Mount(mux); err != nil {
+		t.Fatal(err)
+	}
 
 	// A real request from an allowed origin must carry CORS response headers.
 	req := httptest.NewRequest("GET", "/auth/me", nil)

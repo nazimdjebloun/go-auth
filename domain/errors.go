@@ -30,6 +30,7 @@ func NewError(code string, msg string) *AuthError {
 
 // ErrInternal and the following values are reusable API errors.
 var (
+	ErrHTTPDisabled                 = NewError("http_disabled", "Browser HTTP transport is disabled")
 	ErrPasswordWorkBusy             = NewError("password_work_busy", "Password processing is busy; try again later")
 	ErrEmailChangeUnavailable       = NewError("email_change_unavailable", "This email change is unavailable")
 	ErrEmailChangeInvalid           = NewError("email_change_invalid", "Invalid email change request or confirmation codes")

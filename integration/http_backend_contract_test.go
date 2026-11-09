@@ -20,7 +20,9 @@ func TestHTTPBackendSecurityContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	a.Mount(mux)
+	if err := a.Mount(mux); err != nil {
+		t.Fatal(err)
+	}
 	csrfResponse := httptest.NewRecorder()
 	mux.ServeHTTP(csrfResponse, httptest.NewRequest(http.MethodGet, "/auth/csrf-token", nil))
 	var csrf *http.Cookie

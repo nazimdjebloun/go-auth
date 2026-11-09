@@ -7,14 +7,18 @@ import "net/http"
 // then session authentication and current email-verification policy.
 //
 // pattern uses ServeMux syntax, for example "POST /widgets/{id}". The wrapper
-// populates Request.Pattern and PathValue even on a third-party router. Invalid
-// patterns or nil handlers panic at setup; requests outside the pattern get 404.
+// populates Request.Pattern and PathValue even on a third-party router. In
+// browser mode, invalid patterns or nil handlers panic at setup; requests outside
+// the pattern get 404. Service-only instances return a 503 http_disabled handler.
 // Register OPTIONS separately on method-based routers so preflights reach this
 // wrapper. ServeMux callers may apply Auth.CORS to the complete mux instead.
 //
 // Authorization remains explicit: pass RequireAppPermission, RequireAdmin or
 // RequireOrg around next to run those checks after authentication.
 func (a *Auth) Protect(pattern string, next http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	if next == nil {
 		panic("goauth: Protect requires a handler")
 	}
@@ -28,11 +32,17 @@ func (a *Auth) Protect(pattern string, next http.Handler) http.Handler {
 // live organization permission, and passes the authorized scope to next. The
 // organization comes from the pattern's {orgID}; authentication runs once.
 func (a *Auth) ProtectOrgScope(pattern, key string, next OrgHandlerFunc) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.Protect(pattern, a.RequireOrgPermission(key)(a.orgScopeHandler(next)))
 }
 
 // ProtectActiveOrgScope is ProtectOrgScope for the authenticated session's active
 // organization. A path or query organization cannot override that selection.
 func (a *Auth) ProtectActiveOrgScope(pattern, key string, next OrgHandlerFunc) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.Protect(pattern, a.RequireActiveOrgPermission(key)(a.orgScopeHandler(next)))
 }

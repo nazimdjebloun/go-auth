@@ -1,0 +1,147 @@
+---
+title: "Service-only backends"
+description: "Use the authentication services from RPC handlers, workers and other application-owned transports."
+icon: "Server"
+---
+
+# Service-only backends
+
+Select `WithTransport(TransportServices)` when your application calls go-auth
+from Go without its browser HTTP adapters. This supports a gRPC application,
+worker or custom transport using the same credential and account services.
+Transport selection changes adapter construction; it does not grant identity
+or relax authentication and authorization policy.
+
+## Configure the services
+
+```go
+cfg, err := goauth.NewConfig(
+    goauth.WithTransport(goauth.TransportServices),
+    goauth.WithApp(goauth.AppConfig{
+        Name:    "Billing",
+        BaseURL: "https://app.example.com", // real application links in email
+        Database: goauth.DatabaseConfig{
+            Driver: goauth.DriverPostgres,
+            URL:    os.Getenv("DATABASE_URL"),
+        },
+    }),
+    goauth.WithSecret(os.Getenv("AUTH_SECRET")),
+    goauth.WithMailer(mailDelivery), // your application's configured mailer
+)
+if err != nil {
+    return err
+}
+auth, err := goauth.New(cfg)
+if err != nil {
+    return err
+}
+defer auth.Close() // after draining your server/workers
+```
+
+This fragment uses `os`, `goauth "github.com/nazimdjebloun/go-auth"`, and an
+application-supplied `port.Mailer` named `mailDelivery`. Apply matching auth
+migrations before construction. Default password login is enabled and signup is
+closed; select registration, OAuth, organizations and permissions as needed.
+`WithBrowser`, API origins, allowed frontend origins and cookie policy are not
+required. No HTTP server or RPC implementation is supplied by this mode.
+
+`App.BaseURL` remains necessary when a mailer, SMTP configuration or provider is
+configured, because those services need application links. It may be omitted
+in service-only mode when none of these integrations is configured. The default
+development log mailer also counts as a configured mailer. The default
+administrator MFA policy still needs email delivery. A deliberately mail-free
+process must explicitly select `TwoFactorConfig.DisableAdminTwoFactor: true`
+and leave all other email-dependent policies off; transport selection does not
+make that policy decision. The executable `ExampleTransport_services` in
+`config_transport_example_test.go` demonstrates a complete mail-free SQLite
+setup, credential validation and an account mutation without any URL or HTTP
+configuration.
+
+## Authenticate inside application operations
+
+Your transport passes the actual raw session credential to the application
+service. Do not accept a user ID or session ID as proof:
+
+```go
+type ProfileService struct {
+    auth *goauth.Auth
+}
+
+func (s *ProfileService) Rename(ctx context.Context, rawSessionToken, name string) error {
+    actor, err := s.auth.GetActor(ctx, rawSessionToken)
+    if err != nil {
+        return err
+    }
+    return s.auth.Account(actor).Profile.ChangeName(ctx, name)
+}
+```
+
+This example uses `context` and go-auth. `GetActor` checks the live credential,
+account status and verification policy. The bound account also reloads its
+current identity/access before mutation. Session revocation, bans, password
+proofs and ownership checks apply to service-only calls.
+
+Use `Services()` for credential/proof flows and authorized management,
+`Account(actor)` for self-service, and `AuthorizeOrg` inside a tenant business
+operation before querying by its returned `OrgScope.OrgID`. Permission services
+retain their action-specific assurance rules. `Trusted()` deliberately exposes
+backend primitives and requires their documented authentication prerequisites.
+See the [capability inventory](./service-capabilities.mdx).
+
+Login and registration may return verification or MFA continuations rather
+than a session. Complete those flows before treating the caller as authenticated.
+MFA still requires its code and client-binding proof. Nonbrowser transports
+preserve the binding token in protected per-client flow storage. OAuth callbacks
+still require initiating state, PKCE/provider proofs and any linking-session
+proof. Its `BrowserState` input carries the initiating client's stored state;
+browser transports read it from their state cookie. Do not remove these proofs
+because the transport has no browser cookies.
+
+## Resources and deployment responsibilities
+
+Service-only construction opens/checks the auth database, constructs services
+and starts configured core work: maintenance, recovery mail, audit work and
+the 2FA notification store. It skips HTTP handlers, route registration,
+authentication-cookie/CSRF wiring, and owned HTTP rate-limit stores. Redis
+session/token caches and notification counters remain available; HTTP Redis
+rate counters are inactive. Caller-supplied objects retain their ownership.
+
+Your application supplies TLS and credential delivery, RPC/transport rate
+limits, metadata parsing and any applicable browser protections. Direct Go
+calls do not run HTTP middleware. Selecting services does not authorize an
+operation or provide a custom transport's security chain.
+
+`auth.Describe().Transport` is `TransportServices`; `Browser` is nil and omitted
+from JSON. HTTP rate-limit and permission-management capabilities report
+disabled, and inactive HTTP policy is not copied into the report. Core
+capabilities and background work are still described.
+
+## HTTP capability availability
+
+| Operation in service-only mode | Result |
+|---|---|
+| `Mount(mux)` | Returns `goauth.ErrHTTPDisabled`; registers nothing. |
+| `Handler(pattern)` | Returns `nil, false`. |
+| `Protect`, `Require*`, `CORS`, `RateLimit`, `RateLimitWithPattern`, `RequireCSRF` | Returns middleware/handlers that reject requests with `503 http_disabled`; application handlers do not run. |
+| `SetSessionCookies`, `ClearSessionCookies`, `RotateCSRFToken` | Returns `ErrHTTPDisabled`; writes no response headers or cookies. |
+
+Check mounting errors with `errors.Is(err, goauth.ErrHTTPDisabled)`. The rejection
+envelope is `{"error":"http_disabled","message":"Browser HTTP transport is disabled"}`.
+These failures make accidental HTTP wiring visible; they do not substitute for
+constructing browser mode.
+The rejection includes `OPTIONS` preflights: service-only instances do not
+acknowledge browser CORS access or invoke the application handler.
+
+## Browser applications
+
+`TransportBrowser` is the default. Select it explicitly with
+`WithTransport(TransportBrowser)` when desired, and provide `WithBrowser` origins
+and cookie policy. Browser construction validates and builds its complete
+protection chain, including mandatory CSRF and origin checks. Handle the result
+of `Mount(mux)` before starting the HTTP server.
+
+`WithBrowser` configures browser settings without changing the selected
+transport. In services mode, browser and HTTP rate-limit settings are inactive.
+Selecting browser mode on a reusable config resolves and validates them again;
+invalid origins or rates cannot inherit a service-only validation decision.
+Changing options on the original config does not reconfigure an existing Auth.

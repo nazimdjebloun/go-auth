@@ -10,6 +10,13 @@ go-auth provides authentication controls; you remain responsible for deployment,
 
 ## Go capability trust
 
+`WithTransport(TransportServices)` skips browser HTTP construction while retaining
+service-level credential, verification, account, MFA/client-binding and action
+authorization checks. It does not disable the default administrator MFA policy.
+Custom transports supply credential delivery, rate limiting and applicable
+browser protections. Root HTTP helpers reject use in this mode; see
+[service-only backends](./guides/service-only.mdx).
+
 `Auth.Services()` exposes credential/proof-based flows and actor-attributed
 management. `Auth.Account(actor)` binds self-service to trusted user/session
 attribution and checks current identity/access before each call. Password, code,

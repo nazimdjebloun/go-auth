@@ -18,6 +18,7 @@ import (
 func (c *Config) validate() error {
 	var errs []error
 	for _, check := range []func() []error{
+		c.validateTransport,
 		c.validateApp,
 		c.validateDatabase,
 		c.validateSession,
@@ -110,7 +111,7 @@ func (c *Config) validateCoherence() []error {
 	// A forwarding header is only as trustworthy as the hop that set it.
 	// Honouring one with no trusted peers lets any client pick its own
 	// rate-limit bucket.
-	if c.rateLimit != nil && c.rateLimit.Enabled &&
+	if c.httpRateLimitEnabled() &&
 		c.rateLimit.IPAddressHeader != "" && len(c.rateLimit.TrustedIPs) == 0 {
 		errs = append(errs, configIssue(
 			"RateLimit.IPAddressHeader", ConfigDependency,

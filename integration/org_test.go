@@ -990,7 +990,9 @@ func TestActiveOrg_RoundTripThroughHTTP(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	a.Mount(mux)
+	if err := a.Mount(mux); err != nil {
+		t.Fatal(err)
+	}
 
 	sessionCookie := secureRequestCookie("goauth_session", login.SessionToken)
 

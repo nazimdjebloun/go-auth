@@ -123,7 +123,9 @@ Mount built-in routes and protect your own routes on the same server:
 ```go
 // auth is a configured *goauth.Auth.
 mux := http.NewServeMux()
-auth.Mount(mux)
+if err := auth.Mount(mux); err != nil {
+    return err
+}
 
 pattern := "GET /app/me"
 mux.Handle(pattern, auth.Protect(pattern, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +204,12 @@ See [configuration](docs/configuration.mdx) for every default and
 [security](docs/security.mdx) for the guarantees and deployment requirements.
 
 ## Using the library without HTTP
+
+Select `WithTransport(TransportServices)` to construct Go services without
+browser origins, cookies, HTTP routes or HTTP rate-limit resources. Browser mode
+is the default. Both modes retain the same credential and service authorization
+policy. See [service-only backends](docs/guides/service-only.mdx) for setup,
+transport responsibilities and unavailable-HTTP behavior.
 
 `Auth` exposes facade methods for core operations. Import their input types from
 `github.com/nazimdjebloun/go-auth/api`:

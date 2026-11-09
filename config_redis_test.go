@@ -111,7 +111,9 @@ func TestRedisCacheOutagePreservesSQLAndFailsClosedForLimits(t *testing.T) {
 		t.Fatal("cache failure did not use authoritative SQL", e)
 	}
 	mux := http.NewServeMux()
-	a.Mount(mux)
+	if err := a.Mount(mux); err != nil {
+		t.Fatal(err)
+	}
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest("GET", "https://example.com/auth/me", nil))
 	if w.Code != 429 || !strings.Contains(w.Body.String(), `"rate_limit_error"`) {

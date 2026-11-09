@@ -6,11 +6,12 @@ icon: "Settings2"
 
 # Configuration
 
-Build the required application, secret, browser and email settings first. Then
-choose authentication and signup behavior, tune passwords and sessions, and
-enable optional features as needed.
+Build application and secret settings, and select the transport. Browser
+deployments also configure origins and cookies. Configure email when the chosen
+policies require it, then select authentication/signup and optional features.
 
 - [Required setup](#required-setup): application/database, root secret, browser origins and email delivery.
+- [Transport selection](#transport-selection): browser HTTP or service-only construction.
 - [Authentication and sessions](#authentication-and-sessions): login methods, signup, OAuth providers, lifetimes and 2FA.
 - [Passwords and security](#passwords-and-security): password policy, hashing, pepper keys and concurrency.
 - [Request protection](#request-protection): rate limits and trusted proxy configuration.
@@ -82,6 +83,30 @@ checks migration compatibility but never applies migrations. See
   result before deriving keys or initializing services. Options applied after
   `NewConfig` are checked again; startup does not modify the caller's config.
 
+## Transport selection
+
+`WithTransport(TransportBrowser)` constructs browser HTTP routes and helpers.
+It is the default. Configure `WithBrowser` with exact allowed origins and the
+deployment's cookie policy; all browser protections remain enforced.
+
+`WithTransport(TransportServices)` constructs the Go services without browser
+HTTP adapters. Browser origins, API URLs and cookies are not required; HTTP rate
+limiting and permission-management HTTP switches are inactive. Core session,
+password, verification, MFA/binding and permission policies still apply.
+Configured core background work and Redis cache/notification capabilities remain
+available. Your transport supplies credential delivery and rate limiting.
+
+Repeated transport options replace the selection. `WithBrowser` does not select
+a transport. In services mode, browser/HTTP rate-limit intent is inactive;
+selecting browser mode later resolves and validates it again. Existing Auth
+instances retain the transport captured at construction.
+
+`Mount(mux)` returns `ErrHTTPDisabled` in services mode; check its error before
+starting an HTTP server. Handler lookup returns `nil, false`, HTTP middleware
+rejects requests with `503 http_disabled`, and cookie helpers return the error
+without writing cookies. See [service-only backends](./guides/service-only.mdx)
+for complete setup and availability rules.
+
 ## Configuration errors
 
 `NewConfig` returns `*goauth.ConfigError` when static settings are invalid.
@@ -138,7 +163,7 @@ Paths use exported option/configuration vocabulary, without a `Config.` prefix:
   `OrgPermissions`, `Maintenance`, `Email`, `RateLimit` and `Redis`, followed by
   exported field names. Examples: `App.Database.Driver`, `Session.GraceWindow`,
   `PasswordHashing.Pepper.CurrentVersion`.
-- Standalone options use `Secret` and `Mailer`. `Providers[i]` identifies the
+- Standalone options use `Secret`, `Mailer` and `Transport`. `Providers[i]` identifies the
   zero-based order of `WithProvider` calls. Provider metadata uses suffixes
   such as `.Name`, `.ClientID` and `.ClientSecret`.
 - Slices use zero-based indices: `Browser.AllowedOrigins[0]`,
@@ -191,12 +216,12 @@ Apply options sequentially, without concurrently mutating a `Config`.
 
 | Section | Reported settings |
 |---|---|
-| `Environment`, `Browser` | Normalized environment, resolved API origin, allowed frontend origins, cookie names, scope, SameSite, Secure and HttpOnly. Challenge/CSRF/browser-binding cookies are host-only at `/`. |
+| `Environment`, `Transport`, `Browser` | Normalized environment and selected transport. Browser mode includes resolved API origin, allowed frontend origins and cookie policy. `Browser` is nil/omitted in services mode. Challenge/CSRF/browser-binding cookies are host-only at `/` in browser mode. |
 | `Session` | Effective session, idle, refresh and token lifetimes, maximum lifetime, refresh grace and activity debounce. Explicit zero grace/debounce stays `"0s"`. |
 | `Authentication` | Password/OAuth login and signup selection, public/invited signup, verification and global/admin 2FA policy. Account-specific and action-specific rules still apply. |
 | `Capabilities` | Optional email-change, OAuth, organization and permission services, permission-management HTTP switches, and audit recording. OAuth service availability means providers are registered; method policy controls usable flows. |
 | `Database` | Driver, source (`"url"`, `"db"`, `"pool"`), SQL-handle shutdown ownership and supplied-pool ownership. `URLLimits` contains resolved pool settings only for URL-created connections. Borrowed handle limits remain caller-managed and are not inspected. |
-| `RateLimit` | Enablement, store selection (`"disabled"`, `"memory"`, `"redis"`, `"custom"`), store shutdown ownership, default/route budgets, exemptions and proxy policy. Overrides do not register or enable routes. Custom stores and Redis clients remain caller-owned. |
+| `RateLimit` | Browser middleware enablement, store selection (`"disabled"`, `"memory"`, `"redis"`, `"custom"`), ownership, budgets, exemptions and proxy policy. Services mode reports disabled and omits inactive policy values. Overrides do not enable routes. Custom stores and Redis clients remain caller-owned. |
 | `Redis` | Selected session/token caches and rate-limit/2FA notification counters. Redis rate counters are off when route rate limiting is disabled. |
 | `Background` | Library work enabled at startup: maintenance and its interval, recovery email, external audit delivery, audit retention and owned memory-store cleanup. Audit recording alone does not enable external delivery workers. |
 
@@ -276,7 +301,7 @@ goauth.WithApp(goauth.AppConfig{
 | Field | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `Name` | `string` | Required | none | Shown in email templates. |
-| `BaseURL` | `string` | Required | none | Must be a valid `http://` or `https://` URL. Base for links in emails. |
+| `BaseURL` | `string` | Conditional | none | Required for browser mode or a configured mailer/SMTP/provider. May be omitted in services mode without those integrations. When supplied, must be a valid `http://` or `https://` URL. Base for application links in emails. |
 | `Database` | `DatabaseConfig` | Required | none | See table below. |
 | `Environment` | `Environment` | Optional | `EnvironmentProd` | One of `dev`, `staging`, `prod` (`development`/`production` are accepted as aliases). Drives the cookie `Secure` default and the email-link `http://` default. |
 
@@ -352,6 +377,9 @@ When rotating the root secret, set `SecretRotatedAt` in your existing [WithSecur
 - `secret: signing secret must be at least 32 bytes for HMAC-SHA256`: shorter than 32 bytes.
 
 ### `WithBrowser`: Required (`AllowedOrigins`)
+
+Required in `TransportBrowser` (the default); inactive in `TransportServices`.
+This option configures browser policy without changing the selected transport.
 
 Configure the public API origin, exact frontend origins, and browser cookie delivery together. Session lifetimes stay in `WithSession`; password and email-link policy stay in `WithSecurity`.
 

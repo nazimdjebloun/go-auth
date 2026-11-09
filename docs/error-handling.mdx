@@ -24,6 +24,13 @@ issues have no HTTP status mapping. See [Configuration errors](./configuration.m
 
 `invalid_session_context` (400) means `X-GoAuth-Session` has an unsupported or repeated value, or explicitly selects `app` on the dedicated admin login route. Omit the header for ordinary app requests; use `admin` consistently for panel requests.
 
+## Transport availability
+
+`http_disabled` (503) means a browser HTTP helper was used on an instance built
+with `TransportServices`. Such middleware does not run the application handler.
+`Mount` and cookie helpers return `goauth.ErrHTTPDisabled` to Go callers;
+`Handler` lookup returns `nil, false`. See [transport availability](./guides/service-only.mdx#http-capability-availability).
+
 ## App authorization
 
 | Code | HTTP status | Meaning |

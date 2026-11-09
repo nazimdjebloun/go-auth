@@ -13,7 +13,11 @@ import (
 // Repeated wrapping by the same Auth instance reuses authentication within the
 // request while the credentials, selected context and identity are unchanged.
 // CORS, CSRF and rate limiting are supplied by Protect, not RequireAuth.
+// On service-only instances, HTTP middleware rejects with 503 http_disabled.
 func (a *Auth) RequireAuth(next http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.authMW(next)
 }
 
@@ -21,6 +25,9 @@ func (a *Auth) RequireAuth(next http.Handler) http.Handler {
 // used by built-in /admin routes. Wrap with RequireAuth first so the user and
 // session are available in the request context.
 func (a *Auth) RequireAdmin(next http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.adminMW(next)
 }
 
@@ -28,6 +35,9 @@ func (a *Auth) RequireAdmin(next http.Handler) http.Handler {
 // routes mounted by Mount already have rate limiting baked in — this is for
 // your own routes only.
 func (a *Auth) RateLimit(next http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.rateLimitMW(next)
 }
 
@@ -44,9 +54,13 @@ func (a *Auth) RateLimit(next http.Handler) http.Handler {
 //	    auth.RateLimitWithPattern("POST /widgets/{id}/publish")(publish).ServeHTTP)
 //
 // The declaration must be a valid ServeMux pattern and match the request.
-// Invalid patterns panic during construction; mismatched requests receive 404.
+// In browser mode, invalid patterns panic at setup and mismatched requests get
+// 404. Service-only instances return a 503 http_disabled handler.
 // Use the same pattern in WithRateLimitRoute to select a custom rate.
 func (a *Auth) RateLimitWithPattern(pattern string) func(http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTPMiddleware
+	}
 	return middleware.RateLimitWithPattern(a.cfg.rateLimit, pattern)
 }
 
@@ -54,12 +68,18 @@ func (a *Auth) RateLimitWithPattern(pattern string) func(http.Handler) http.Hand
 // routes mounted by Mount already have CORS baked in — this is for your own
 // routes only.
 func (a *Auth) CORS(next http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	return a.corsMW(next)
 }
 
 // RequireCSRF applies mandatory signed double-submit and Origin/Referer
 // verification to application routes. Mount already applies both to mutations.
 func (a *Auth) RequireCSRF(next http.Handler) http.Handler {
+	if !a.cfg.browserEnabled() {
+		return a.denyHTTP()
+	}
 	var trusted []string
 	if a.cfg.rateLimit != nil {
 		trusted = a.cfg.rateLimit.TrustedIPs
@@ -70,18 +90,28 @@ func (a *Auth) RequireCSRF(next http.Handler) http.Handler {
 
 // SetSessionCookies issues session/refresh cookies and a session-bound CSRF
 // token together. Supply the stable ID returned alongside the raw credentials.
+// Service-only instances return ErrHTTPDisabled without writing response headers.
 func (a *Auth) SetSessionCookies(w http.ResponseWriter, r *http.Request, sessionID, sessionToken, refreshToken string) error {
+	if !a.cfg.browserEnabled() {
+		return ErrHTTPDisabled
+	}
 	return middleware.SetAuthenticationCookies(w, r, a.cookies, a.cfg.csrf, sessionID, sessionToken, refreshToken)
 }
 
 // ClearSessionCookies clears credentials and issues anonymous browser CSRF
 // protection. Revoke the session through the service before calling this.
 func (a *Auth) ClearSessionCookies(w http.ResponseWriter, r *http.Request) error {
+	if !a.cfg.browserEnabled() {
+		return ErrHTTPDisabled
+	}
 	return middleware.ClearAuthenticationCookies(w, r, a.cookies, a.cfg.csrf)
 }
 
 // RotateCSRFToken replaces CSRF protection in the current request context.
 // Session issuance and clearing already perform their own rotation.
 func (a *Auth) RotateCSRFToken(w http.ResponseWriter, r *http.Request) error {
+	if !a.cfg.browserEnabled() {
+		return ErrHTTPDisabled
+	}
 	return middleware.RotateCSRFToken(w, r, a.cfg.csrf)
 }

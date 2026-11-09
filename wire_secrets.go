@@ -21,7 +21,10 @@ func prepareConfig(in *Config) (Config, keyring.Keys, error) {
 		cfg.logger.Warn("goauth: running in dev environment", "cookie_secure", cfg.resolved.cookieSecure)
 	}
 	keys := keyring.Derive([]byte(cfg.secret))
-	applyCSRFTokenDefaults(&cfg, keys)
+	cfg.csrf = nil
+	if cfg.browserEnabled() {
+		applyCSRFTokenDefaults(&cfg, keys)
+	}
 	return cfg, keys, nil
 }
 

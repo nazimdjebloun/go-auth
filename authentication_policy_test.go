@@ -121,7 +121,9 @@ func TestVerificationPolicyRestrictsExistingSessionsAndRefresh(t *testing.T) {
 	defer b.Close()
 	request := func(auth *Auth, path, raw string) *httptest.ResponseRecorder {
 		mux := http.NewServeMux()
-		auth.Mount(mux)
+		if err := auth.Mount(mux); err != nil {
+			t.Fatal(err)
+		}
 		mux.Handle("GET /private", auth.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })))
 		r := httptest.NewRequest(http.MethodGet, "https://example.com"+path, nil)
 		r.AddCookie(&http.Cookie{Name: auth.cfg.browser.Cookies.Name, Value: raw, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})

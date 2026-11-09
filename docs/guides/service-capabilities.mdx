@@ -12,6 +12,11 @@ validated user's session. `Trusted()` deliberately exposes lower-level backend
 integration primitives. HTTP routes compose authentication, cookie handling, CSRF and rate limiting.
 Credential and account services enforce their own transaction and proof rules.
 
+Use `WithTransport(TransportServices)` for a backend that supplies its own
+transport. It constructs these Go capabilities without browser HTTP wiring;
+credential, verification, MFA/binding and permission checks still apply. See
+[service-only backends](./service-only.mdx) for configuration and transport duties.
+
 ## Authenticate, then bind the account
 
 ```go

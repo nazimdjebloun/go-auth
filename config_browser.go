@@ -42,6 +42,9 @@ type CookieConfig struct {
 
 // WithBrowser configures browser origins and cookie delivery. Repeated calls
 // replace this section. Slices and pointer values are copied on application.
+// It does not select a transport; these settings are inactive in TransportServices.
+// Stored settings are resolved and revalidated by NewConfig, New or Describe
+// when TransportBrowser is selected.
 func WithBrowser(cfg BrowserConfig) Option {
 	return func(c *Config) {
 		c.browser = cfg
@@ -121,6 +124,9 @@ func parseBrowserOrigin(value string) (*url.URL, error) {
 }
 
 func (c *Config) validateBrowser() []error {
+	if !c.browserEnabled() {
+		return nil
+	}
 	var errs []error
 	errs = append(errs, c.validateCORS()...)
 	dev := c.app.Environment.normalize() == EnvironmentDev

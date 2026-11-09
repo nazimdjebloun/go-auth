@@ -146,10 +146,10 @@ validation together. `config_defaults.go` preserves defaulting order, while
 2. Opens (or adopts) the database connection based on `DatabaseConfig` and wraps it in `internal/sqlstore.DB`, which implements `port.TxManager`.
 3. Checks database connectivity and recorded schema compatibility for every database source before any services/workers start. It never runs migrations.
 4. Constructs the repositories, mailer, template provider, audit service, and dependent services in that order.
-5. Builds the HTTP adapters and middleware, then the enabled route registry with each route's specific chain.
+5. In `TransportBrowser` (the default), builds HTTP adapters, middleware and the enabled route registry. `TransportServices` skips this step and owned HTTP rate-limit resources while retaining core services and policy.
 6. Starts maintenance and returns an `*Auth` with `Services()` for programmatic calls, `Handler(pattern)` for custom routers, and middleware accessors for application routes. `Services()` returns a value containing operation interfaces; disabled optional capabilities remain nil.
 
-`Auth.Mount(mux *http.ServeMux)` registers the enabled route registry on the mux you give it. It does not add middleware of its own. Each handler already has its full chain baked in from step 5, and CORS preflight (`OPTIONS`) is registered per path when `SecurityConfig.AllowedOrigins` is non-empty. `Handler(pattern)` returns the enabled route's wrapped handler with a small adapter that sets the canonical `Request.Pattern`; it reports `false` for a disabled or unknown route. A custom router must populate `PathValue` for parameterized routes before invoking it.
+`Auth.Mount(mux *http.ServeMux) error` registers the enabled browser route registry. In service-only mode it returns `ErrHTTPDisabled` and registers nothing. It does not add middleware of its own. Each browser handler already has its full chain from step 5, and CORS preflight (`OPTIONS`) is registered per path when `BrowserConfig.AllowedOrigins` is non-empty. `Handler(pattern)` sets the canonical `Request.Pattern`; it returns `nil, false` for a disabled/unknown route or service-only transport. Custom routers must populate `PathValue` for parameterized routes. See [transport construction](./guides/service-only.mdx).
 
 ## Two ways to drive it
 

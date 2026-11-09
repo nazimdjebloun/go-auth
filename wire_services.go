@@ -131,10 +131,14 @@ func buildServices(startupCtx context.Context, cfg *Config, keys keyring.Keys, s
 
 	sessionCfg := buildSessionConfig(cfg, auditPub)
 	cookies := cookiesFromSession(sessionCfg)
-	cookies.ChallengeName = cfg.browser.Cookies.ChallengeName
-	cookies.AdminName = cfg.browser.Cookies.AdminName
-	cookies.AdminRefreshName = cfg.browser.Cookies.AdminRefreshName
-	cookies.AdminChallengeName = cfg.browser.Cookies.AdminChallengeName
+	if cfg.browserEnabled() {
+		cookies.ChallengeName = cfg.browser.Cookies.ChallengeName
+		cookies.AdminName = cfg.browser.Cookies.AdminName
+		cookies.AdminRefreshName = cfg.browser.Cookies.AdminRefreshName
+		cookies.AdminChallengeName = cfg.browser.Cookies.AdminChallengeName
+	} else {
+		serviceCfg.TwoFactorChallengeCookieName = ""
+	}
 
 	// Direct session API calls must get the same record-iff-commit guarantee
 	// as login: the session mutation and its audit record share one tx.
@@ -360,12 +364,14 @@ func buildSessionConfig(cfg *Config, auditPub service.AuditPublisher) service.Se
 	sessionCfg.MaxLifetime = cfg.session.MaxLifetime
 	sessionCfg.GraceWindow = cfg.resolved.graceWindow
 	sessionCfg.TouchDebounce = cfg.resolved.touchDebounce
-	sessionCfg.CookieName = cfg.browser.Cookies.Name
-	sessionCfg.RefreshCookieName = cfg.browser.Cookies.RefreshName
-	sessionCfg.Domain = cfg.browser.Cookies.Domain
-	sessionCfg.Path = cfg.browser.Cookies.Path
-	sessionCfg.Secure = cfg.resolved.cookieSecure
-	sessionCfg.SameSite = cfg.browser.Cookies.SameSite
+	if cfg.browserEnabled() {
+		sessionCfg.CookieName = cfg.browser.Cookies.Name
+		sessionCfg.RefreshCookieName = cfg.browser.Cookies.RefreshName
+		sessionCfg.Domain = cfg.browser.Cookies.Domain
+		sessionCfg.Path = cfg.browser.Cookies.Path
+		sessionCfg.Secure = cfg.resolved.cookieSecure
+		sessionCfg.SameSite = cfg.browser.Cookies.SameSite
+	}
 	sessionCfg.Logger = cfg.logger
 	sessionCfg.Audit = auditPub
 	return sessionCfg

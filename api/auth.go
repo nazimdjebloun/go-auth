@@ -42,8 +42,8 @@ type LoginResult struct {
 	bindingToken string // see RegisterResult.bindingToken
 }
 
-// BindingToken returns the challenge binding token for the handler to set as a
-// cookie. Not serialized — see RegisterResult.bindingToken.
+// BindingToken returns the proof the transport preserves for the initiating
+// client. Browser handlers set it as a cookie. It is not serialized.
 func (r *LoginResult) BindingToken() string { return r.bindingToken }
 
 // RegisterInput contains values used to register a user.
@@ -72,14 +72,14 @@ type RegisterResult struct {
 	TwoFactorChallenge string    `json:"challengeId,omitempty"`
 	TwoFactorExpiresAt time.Time `json:"twoFactorExpiresAt,omitempty"`
 
-	// bindingToken is deliberately unexported: it must reach the client as a
-	// cookie set by the handler, never as a field in the JSON body, or it
-	// would leak alongside the challenge id it is meant to be separate from.
+	// bindingToken is deliberately unexported so JSON cannot expose it beside
+	// the challenge ID. Browser handlers use a binding cookie; nonbrowser
+	// transports preserve the proof in protected per-client flow storage.
 	bindingToken string
 }
 
-// BindingToken returns the challenge binding token for the handler to set as a
-// cookie. Not serialized — see the field comment.
+// BindingToken returns the client-binding proof, not serialized into JSON.
+// See the field comment for browser and nonbrowser transport handling.
 func (r *RegisterResult) BindingToken() string { return r.bindingToken }
 
 // NewRegisterResult attaches the challenge binding token without serializing it.
