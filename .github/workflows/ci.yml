@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -44,7 +44,7 @@ jobs:
           version: v2.13.2
 
   check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -58,7 +58,8 @@ jobs:
       - run: go vet ./...
 
   migration-catalog:
-    runs-on: ubuntu-latest
+    needs: [check, lint]
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -94,7 +95,8 @@ jobs:
         run: go run ./tools/migrations check --replay --base-ref HEAD --timeout 20m --diagnostics
 
   unit:
-    runs-on: ubuntu-latest
+    needs: [check, lint]
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
@@ -108,7 +110,8 @@ jobs:
 
   databases:
     name: database-${{ matrix.backend }}
-    runs-on: ubuntu-latest
+    needs: [check, lint]
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -135,7 +138,10 @@ jobs:
           MYSQL_ROOT_HOST: "%"
         ports:
           - 3306:3306
+        # Ephemeral fixture data belongs in memory: every test creates its own
+        # schema, and overlay-file fsyncs made each DDL statement ~4x slower.
         options: >-
+          --tmpfs /var/lib/mysql:rw,size=2g
           --health-cmd="mysqladmin ping -h localhost -pgoauth-test"
           --health-interval=10s
           --health-timeout=5s
@@ -169,7 +175,8 @@ jobs:
           if-no-files-found: error
 
   cli:
-    runs-on: ubuntu-latest
+    needs: [check, lint]
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
@@ -186,7 +193,8 @@ jobs:
       # locally. Installing an unpublished version cannot be checked on this push.
 
   security:
-    runs-on: ubuntu-latest
+    needs: [check, lint]
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -196,11 +204,12 @@ jobs:
           cache: true
           cache-dependency-path: |
             go.sum
-      - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
 
   fuzz:
+    needs: [check, lint]
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     env:
       FUZZ_BUDGET: ${{ github.event.inputs.fuzz_time || '5' }}
@@ -236,7 +245,8 @@ jobs:
           done
 
   redis:
-    runs-on: ubuntu-latest
+    needs: [check, lint]
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     services:
       redis:

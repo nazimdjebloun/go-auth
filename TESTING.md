@@ -100,6 +100,12 @@ fuzz each existing target for 5 seconds. Manual runs also fuzz, with a
 configurable budget of 15 seconds per target by default. There is no scheduled
 nightly workflow.
 
+Lint and build checks gate the remaining jobs: when either fails, the database,
+unit, CLI, fuzz, Redis, security, and migration jobs are skipped instead of
+occupying runners for half an hour. The MySQL service keeps its data directory
+on tmpfs because the fixture suite creates a fresh schema for every test case;
+on the runner's overlay filesystem those DDL fsyncs dominated the MySQL stage.
+
 Tag pushes do not start CI. Release metadata is checked against the newest
 changelog version on the branch commit. Tag the exact SHA whose CI passed;
 after publishing the tag, run `bash tools/check-published-release.sh v0.5.1`
