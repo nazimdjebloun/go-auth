@@ -150,7 +150,7 @@ func TestAccountIdentityGuardRejectsStaleOrMismatchedIdentity(t *testing.T) {
 		want   error
 	}{
 		{name: "missing", change: func(*testing.T, appHTTPFixture) api.Actor { return api.Actor{} }, want: domain.ErrForbidden},
-		{name: "wrong owner", change: func(t *testing.T, f appHTTPFixture) api.Actor { a := f.admin; a.UserID = "another-user"; return a }, want: domain.ErrForbidden},
+		{name: "wrong owner", change: func(_ *testing.T, f appHTTPFixture) api.Actor { a := f.admin; a.UserID = "another-user"; return a }, want: domain.ErrForbidden},
 		{name: "expired", change: func(t *testing.T, f appHTTPFixture) api.Actor {
 			if _, err := f.db.ExecContext(t.Context(), "UPDATE sessions SET expires_at = $1 WHERE id = $2", time.Now().Add(-time.Hour), f.admin.SessionID); err != nil {
 				t.Fatal(err)

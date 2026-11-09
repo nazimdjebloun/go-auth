@@ -147,7 +147,7 @@ func TestProtectCORSCustomMethodSecurity(t *testing.T) {
 			before := called
 			r := httptest.NewRequest("REPORT", "/reports", nil)
 			r.Header.Set("Origin", tc.origin)
-			r.AddCookie(&http.Cookie{Name: f.a.cookies.Name, Value: f.token})
+			r.AddCookie(&http.Cookie{Name: f.a.cookies.Name, Value: f.token, Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 			for _, cookie := range bootstrap.Result().Cookies() {
 				r.AddCookie(cookie)
 			}

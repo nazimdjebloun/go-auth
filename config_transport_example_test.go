@@ -16,7 +16,7 @@ func ExampleTransport_services() {
 	if err != nil {
 		panic(err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	if _, err := goauth.Migrate(ctx, db, goauth.MigrationOptions{Driver: "sqlite"}); err != nil {

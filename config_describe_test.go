@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nazimdjebloun/go-auth/audit"
 	"github.com/nazimdjebloun/go-auth/internal/testdb"
@@ -353,7 +354,8 @@ func (sensitiveDescriptionMailer) String() string { panic("description formatted
 func TestDescribeOmitsCredentialsAndLiveObjectsInEveryRepresentation(t *testing.T) {
 	root := strings.Repeat("ROOT-SECRET-", 4)
 	pepper := strings.Repeat("PEPPER-SECRET-", 4)
-	const dsn = "postgres://DSN-USER:DSN-PASSWORD@unused:1/private-database"
+	throwaway := uuid.NewString()
+	dsn := fmt.Sprintf("postgres://dsn-user-%s:dsn-password-%s@unused:1/private-database", throwaway, throwaway)
 	var logs bytes.Buffer
 	cfg, err := NewConfig(minimalOpts(
 		WithApp(AppConfig{
@@ -363,7 +365,7 @@ func TestDescribeOmitsCredentialsAndLiveObjectsInEveryRepresentation(t *testing.
 		WithSecret(root), WithMailer(sensitiveDescriptionMailer{}),
 		WithEmail(EmailConfig{Host: "SMTP-HOST", User: "SMTP-USER", Pass: "SMTP-PASSWORD"}),
 		WithProvider(google.New(google.Config{
-			ClientID: "OAUTH-CLIENT-ID", ClientSecret: "OAUTH-SECRET", RedirectURL: "https://example.com/callback",
+			ClientID: "OAUTH-CLIENT-ID", ClientSecret: "oauth-secret-" + throwaway, RedirectURL: "https://example.com/callback",
 		})),
 		WithPasswordHashing(PasswordHashingConfig{
 			Pepper: PasswordPepperConfig{CurrentVersion: 1, Keys: map[uint32]string{1: pepper}},
@@ -385,8 +387,8 @@ func TestDescribeOmitsCredentialsAndLiveObjectsInEveryRepresentation(t *testing.
 	representations := []string{string(encoded), fmt.Sprintf("%v %+v %#v", d, d, d), logs.String()}
 	for _, output := range representations {
 		for _, forbidden := range []string{
-			root, pepper, dsn, "DSN-PASSWORD", "DSN-USER", "SMTP-HOST", "SMTP-USER", "SMTP-PASSWORD",
-			"OAUTH-CLIENT-ID", "OAUTH-SECRET", "private-link-path", "sensitiveDescriptionMailer",
+			root, pepper, dsn, "dsn-password-" + throwaway, "dsn-user-" + throwaway, "SMTP-HOST", "SMTP-USER", "SMTP-PASSWORD",
+			"OAUTH-CLIENT-ID", "oauth-secret-" + throwaway, "private-link-path", "sensitiveDescriptionMailer",
 		} {
 			if strings.Contains(output, forbidden) {
 				t.Fatalf("description leaked %q", forbidden)

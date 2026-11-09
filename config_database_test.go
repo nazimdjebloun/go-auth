@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -14,7 +15,10 @@ func TestNewConfigDatabaseValidation(t *testing.T) {
 	// their presence, leaving connectivity and ownership to New.
 	db := &sql.DB{}
 	pool := &pgxpool.Pool{}
-	const dsn = "postgres://fixture:dummy-password@localhost/app"
+	// A randomized credential proves the redaction assertion below against a
+	// value that exists only in this run.
+	password := "dummy-" + uuid.NewString()
+	dsn := "postgres://fixture:" + password + "@localhost/app"
 	const sourceConflict = "database: exactly one of URL, DB, or Pool must be set"
 	const poolDriver = "database: Pool requires DriverPostgres"
 	for _, tc := range []struct {
@@ -96,7 +100,7 @@ func TestNewConfigDatabaseValidation(t *testing.T) {
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %q, want %q", err, tc.want)
 			}
-			if strings.Contains(err.Error(), dsn) || strings.Contains(err.Error(), "dummy-password") {
+			if strings.Contains(err.Error(), dsn) || strings.Contains(err.Error(), password) {
 				t.Fatal("database configuration error exposed connection credentials")
 			}
 		})

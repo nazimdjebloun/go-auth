@@ -8,7 +8,7 @@ import (
 func TestActorIdentityCannotCrossJSONBoundary(t *testing.T) {
 	actor := Actor{UserID: "trusted-user", SessionID: "trusted-session"}
 	// App permissions accept the same value without rebuilding another actor.
-	var appActor AppPermissionActor = actor
+	var appActor = actor
 	for _, test := range []struct {
 		name  string
 		value any
