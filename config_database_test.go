@@ -2,6 +2,7 @@ package goauth
 
 import (
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 
@@ -61,12 +62,12 @@ func TestNewConfigDatabaseValidation(t *testing.T) {
 		{
 			name:     "unsupported driver",
 			database: DatabaseConfig{Driver: "mongo", DB: db},
-			want:     `database: unsupported driver "mongo"`,
+			want:     `database: unsupported driver`,
 		},
 		{
 			name:     "sqlite CLI alias",
 			database: DatabaseConfig{Driver: "sqlite", DB: db},
-			want:     `database: unsupported driver "sqlite"`,
+			want:     `database: unsupported driver`,
 		},
 		{
 			name:     "sqlite Pool",
@@ -107,21 +108,26 @@ func TestNewRevalidatesDatabaseOptions(t *testing.T) {
 		name     string
 		database DatabaseConfig
 		want     string
+		field    string
+		code     ConfigIssueCode
 	}{
 		{
 			name:     "multiple sources",
 			database: DatabaseConfig{Driver: DriverPostgres, URL: "fixture", DB: &sql.DB{}},
 			want:     "database: exactly one of URL, DB, or Pool must be set",
+			field:    "App.Database", code: ConfigConflict,
 		},
 		{
 			name:     "unsupported driver",
 			database: DatabaseConfig{Driver: "mongo", DB: &sql.DB{}},
-			want:     `database: unsupported driver "mongo"`,
+			want:     `database: unsupported driver`,
+			field:    "App.Database.Driver", code: ConfigUnsupported,
 		},
 		{
 			name:     "incompatible Pool",
 			database: DatabaseConfig{Driver: DriverSQLite, Pool: &pgxpool.Pool{}},
 			want:     "database: Pool requires DriverPostgres",
+			field:    "App.Database.Pool", code: ConfigConflict,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -137,7 +143,9 @@ func TestNewRevalidatesDatabaseOptions(t *testing.T) {
 				auth.Close()
 				t.Fatal("New accepted invalid database options applied after NewConfig")
 			}
-			if err == nil || !strings.Contains(err.Error(), "goauth: invalid configuration: "+tc.want) {
+			var issue *ConfigIssue
+			if !errors.As(err, &issue) || issue.Field != tc.field || issue.Code != tc.code ||
+				!strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %v, want configuration rejection containing %q", err, tc.want)
 			}
 		})

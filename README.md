@@ -109,6 +109,8 @@ driver import, and graceful shutdown. The main configuration sections are:
 Inspect selected effective settings with `cfg.Describe()` before startup or
 `auth.Describe()` after construction. Both return a detached, redacted report;
 see [configuration inspection](docs/configuration.mdx#inspect-effective-configuration).
+Validation returns a `*ConfigError` with all issues, stable codes and public
+field paths; see [configuration errors](docs/configuration.mdx#configuration-errors).
 
 `DatabaseConfig` requires exactly one connection source: `URL`, `DB`, or `Pool`.
 Set `Driver` to `DriverPostgres`, `DriverSQLite`, or `DriverMySQL`; `Pool` requires

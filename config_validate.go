@@ -1,8 +1,6 @@
 package goauth
 
 import (
-	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/nazimdjebloun/go-auth/mailer"
@@ -40,7 +38,7 @@ func (c *Config) validate() error {
 	} {
 		errs = append(errs, check()...)
 	}
-	return errors.Join(errs...)
+	return joinConfigIssues(errs...)
 }
 
 // validateCoherence holds every rule where each field involved is individually
@@ -58,7 +56,11 @@ func (c *Config) validateCoherence() []error {
 	// instead of delivering them, which is a development convenience and a
 	// credential leak anywhere else.
 	if _, isLog := c.mailer.(*mailer.Log); isLog && c.app.Environment.normalize() != EnvironmentDev {
-		errs = append(errs, errors.New("mailer: mailer.Log cannot be used outside EnvironmentDev — codes and reset links would be written to application logs instead of delivered"))
+		errs = append(errs, configIssue(
+			"Mailer", ConfigInsecure,
+			"mailer: mailer.Log cannot be used outside EnvironmentDev — codes and reset links would be "+
+				"written to application logs instead of delivered",
+		))
 	}
 
 	// A mailer is required only if some configured feature actually sends
@@ -68,7 +70,8 @@ func (c *Config) validateCoherence() []error {
 	// other email feature also off.
 	if c.mailer == nil && c.email == nil {
 		if reasons := c.mailerReasons(); len(reasons) > 0 {
-			errs = append(errs, fmt.Errorf("email: Mailer or Email config required — enabled features need it: %s", strings.Join(reasons, ", ")))
+			errs = append(errs, configIssue("Email", ConfigDependency,
+				"email: Mailer or Email config required — enabled features need it: %s", strings.Join(reasons, ", ")))
 		}
 	}
 
@@ -76,19 +79,32 @@ func (c *Config) validateCoherence() []error {
 	// rather than a danger, but a consumer who set one believes it is doing
 	// something.
 	if !c.authentication.EmailPassword && !c.authentication.OAuth {
-		errs = append(errs, errors.New("authentication: enable EmailPassword or OAuth"))
+		errs = append(errs, configIssue("Authentication", ConfigRequired, "authentication: enable EmailPassword or OAuth"))
 	}
 	if c.registration.EmailPassword && !c.authentication.EmailPassword {
-		errs = append(errs, errors.New("registration: EmailPassword requires authentication.EmailPassword"))
+		errs = append(errs, configIssue(
+			"Registration.EmailPassword", ConfigDependency,
+			"registration: EmailPassword requires authentication.EmailPassword",
+		))
 	}
 	if c.registration.OAuth && !c.authentication.OAuth {
-		errs = append(errs, errors.New("registration: OAuth requires authentication.OAuth"))
+		errs = append(errs, configIssue(
+			"Registration.OAuth", ConfigDependency,
+			"registration: OAuth requires authentication.OAuth",
+		))
 	}
 	if c.authentication.OAuth && len(c.providers) == 0 {
-		errs = append(errs, errors.New("authentication: OAuth requires at least one WithProvider"))
+		errs = append(errs, configIssue(
+			"Authentication.OAuth", ConfigDependency,
+			"authentication: OAuth requires at least one WithProvider",
+		))
 	}
 	if (c.registration.AllowPublic || c.registration.InviteSignup) && !c.registration.EmailPassword && !c.registration.OAuth {
-		errs = append(errs, errors.New("registration: AllowPublic or InviteSignup is true but no registration method is enabled (EmailPassword or OAuth)"))
+		errs = append(errs, configIssue(
+			"Registration", ConfigDependency,
+			"registration: AllowPublic or InviteSignup is true but no registration method is enabled "+
+				"(EmailPassword or OAuth)",
+		))
 	}
 
 	// A forwarding header is only as trustworthy as the hop that set it.
@@ -96,7 +112,11 @@ func (c *Config) validateCoherence() []error {
 	// rate-limit bucket.
 	if c.rateLimit != nil && c.rateLimit.Enabled &&
 		c.rateLimit.IPAddressHeader != "" && len(c.rateLimit.TrustedIPs) == 0 {
-		errs = append(errs, errors.New("rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can be spoofed to bypass rate limiting"))
+		errs = append(errs, configIssue(
+			"RateLimit.IPAddressHeader", ConfigDependency,
+			"rate_limit: ip_address_header is set but trusted_ips is empty - client-supplied header can"+
+				" be spoofed to bypass rate limiting",
+		))
 	}
 
 	return errs

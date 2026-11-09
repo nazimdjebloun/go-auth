@@ -1,7 +1,6 @@
 package goauth
 
 import (
-	"errors"
 	"time"
 )
 
@@ -34,37 +33,52 @@ func WithSession(cfg SessionConfig) Option {
 func (c *Config) validateSession() []error {
 	var errs []error
 	if c.session.TTL <= 0 {
-		errs = append(errs, errors.New("session_ttl must be positive"))
+		errs = append(errs, configIssue("Session.TTL", ConfigRange, "session_ttl must be positive"))
 	}
 	if c.session.IdleTTL <= 0 {
-		errs = append(errs, errors.New("session_idle_ttl must be positive"))
+		errs = append(errs, configIssue("Session.IdleTTL", ConfigRange, "session_idle_ttl must be positive"))
 	}
 	if c.session.IdleTTL > c.session.TTL {
-		errs = append(errs, errors.New("session_idle_ttl must not exceed session_ttl"))
+		errs = append(errs, configIssue("Session.IdleTTL", ConfigConflict, "session_idle_ttl must not exceed session_ttl"))
 	}
 	if c.session.RefreshTokenTTL <= 0 {
-		errs = append(errs, errors.New("refresh_token_ttl must be positive"))
+		errs = append(errs, configIssue("Session.RefreshTokenTTL", ConfigRange, "refresh_token_ttl must be positive"))
 	}
 	if c.session.RefreshTokenTTL < c.session.TTL {
-		errs = append(errs, errors.New("refresh_token_ttl must not be less than session_ttl"))
+		errs = append(errs, configIssue(
+			"Session.RefreshTokenTTL", ConfigConflict,
+			"refresh_token_ttl must not be less than session_ttl",
+		))
 	}
 	// A resolved value can only be negative here if the consumer explicitly
 	// set GraceWindow/TouchDebounce to a negative *time.Duration — nil
 	// (unset) resolves to the positive default, and 0 (off) is never
 	// negative, so there's no "meant to disable it" case to special-case.
 	if c.resolved.graceWindow < 0 {
-		errs = append(errs, errors.New("session grace_window must not be negative (use goauth.Duration(0) to turn it off)"))
+		errs = append(errs, configIssue(
+			"Session.GraceWindow", ConfigRange,
+			"session grace_window must not be negative (use goauth.Duration(0) to turn it off)",
+		))
 	}
 	if c.resolved.touchDebounce < 0 {
-		errs = append(errs, errors.New("session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)"))
+		errs = append(errs, configIssue(
+			"Session.TouchDebounce", ConfigRange,
+			"session touch_debounce must not be negative (use goauth.Duration(0) to turn it off)",
+		))
 	}
 	if c.session.MaxLifetime < 0 {
-		errs = append(errs, errors.New("session max_lifetime must not be negative (0 = no limit)"))
+		errs = append(errs, configIssue(
+			"Session.MaxLifetime", ConfigRange,
+			"session max_lifetime must not be negative (0 = no limit)",
+		))
 	} else if c.session.MaxLifetime > 0 && c.session.MaxLifetime < c.session.TTL {
-		errs = append(errs, errors.New("session max_lifetime must not be less than session_ttl"))
+		errs = append(errs, configIssue(
+			"Session.MaxLifetime", ConfigConflict,
+			"session max_lifetime must not be less than session_ttl",
+		))
 	}
 	if c.session.TokenTTL <= 0 {
-		errs = append(errs, errors.New("session token_ttl must be positive"))
+		errs = append(errs, configIssue("Session.TokenTTL", ConfigRange, "session token_ttl must be positive"))
 	}
 	return errs
 }

@@ -29,15 +29,16 @@ func prepareConfig(in *Config) (Config, keyring.Keys, error) {
 // configuration inspection, without deriving keys or opening stores.
 func resolveConfig(in *Config) (Config, error) {
 	if in == nil {
-		return Config{}, fmt.Errorf("goauth: nil config — build one with goauth.NewConfig(goauth.WithApp(...), ...)")
+		return Config{}, joinConfigIssues(configIssue("Config", ConfigRequired,
+			"goauth: nil config — build one with goauth.NewConfig(goauth.WithApp(...), ...)"))
 	}
 	cfg := in.clone()
 	if !cfg.resolved.validated {
-		return Config{}, fmt.Errorf(
-			"goauth: config was not built via NewConfig(opts...) — " +
-				"construct it with goauth.NewConfig(goauth.WithApp(...), ...) so " +
+		return Config{}, joinConfigIssues(configIssue("Config", ConfigInvalid,
+			"goauth: config was not built via NewConfig(opts...) — "+
+				"construct it with goauth.NewConfig(goauth.WithApp(...), ...) so "+
 				"required fields and security settings are validated",
-		)
+		))
 	}
 	// Exported options remain callable after NewConfig. Resolve intent fields
 	// again and validate the final clone before deriving keys or opening stores.

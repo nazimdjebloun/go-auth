@@ -1,7 +1,6 @@
 package goauth
 
 import (
-	"errors"
 	"fmt"
 	"net/mail"
 	"time"
@@ -118,27 +117,33 @@ func (c *Config) validateMailer() []error {
 	if c.email != nil && c.mailer == nil {
 		e := c.email
 		if e.Host == "" {
-			errs = append(errs, errors.New("email: host is required"))
+			errs = append(errs, configIssue("Email.Host", ConfigRequired, "email: host is required"))
 		}
 		if e.Port <= 0 || e.Port > 65535 {
-			errs = append(errs, fmt.Errorf("email: port must be between 1 and 65535, got %d", e.Port))
+			errs = append(errs, configIssue("Email.Port", ConfigRange,
+				"email: port must be between 1 and 65535, got %d", e.Port))
 		}
 		if e.From == "" {
-			errs = append(errs, errors.New("email: from address is required"))
+			errs = append(errs, configIssue("Email.From", ConfigRequired, "email: from address is required"))
 		} else if _, err := mail.ParseAddress(e.From); err != nil {
-			errs = append(errs, fmt.Errorf("email: from address %q is not valid: %w", e.From, err))
+			errs = append(errs, configIssue("Email.From", ConfigInvalid, "email: from address is not valid"))
 		}
 		if (e.User == "") != (e.Pass == "") {
-			errs = append(errs, errors.New("email: user and pass must both be set or both be empty"))
+			errs = append(errs, configIssue("Email", ConfigConflict, "email: user and pass must both be set or both be empty"))
 		}
 		if e.TLS < TLSStart || e.TLS > TLSNone {
 			errs = append(
 				errs,
-				fmt.Errorf("email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got %d", e.TLS),
+				configIssue("Email.TLS", ConfigUnsupported,
+					"email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got %d", e.TLS),
 			)
 		}
 		if e.TLS == TLSNone && c.app.Environment.normalize() != EnvironmentDev {
-			errs = append(errs, errors.New("email: TLSNone is only allowed in EnvironmentDev — use TLSStart or TLSImplicit outside development"))
+			errs = append(errs, configIssue(
+				"Email.TLS", ConfigInsecure,
+				"email: TLSNone is only allowed in EnvironmentDev — use TLSStart or TLSImplicit outside "+
+					"development",
+			))
 		}
 	}
 	return errs
@@ -147,27 +152,32 @@ func (c *Config) validateMailer() []error {
 func (c *Config) validateProviders() []error {
 	var errs []error
 	seen := map[string]bool{}
-	for _, p := range c.providers {
-		if p == nil {
-			errs = append(errs, errors.New("provider: nil provider registered via WithProvider"))
+	for index, p := range c.providers {
+		field := fmt.Sprintf("Providers[%d]", index)
+		if nilConfigIntegration(p) {
+			errs = append(errs, configIssue(field, ConfigRequired, "provider: nil provider registered via WithProvider"))
 			continue
 		}
 		name := p.Name()
 		if name == "" {
-			errs = append(errs, errors.New("provider: provider with empty name"))
+			errs = append(errs, configIssue(field+".Name", ConfigRequired, "provider: provider with empty name"))
 			continue
 		}
 		if seen[name] {
-			errs = append(errs, fmt.Errorf("provider: duplicate provider %q", name))
+			errs = append(errs, configIssue(field+".Name", ConfigDuplicate, "provider: duplicate provider name"))
 		}
 		seen[name] = true
 		if cfg, ok := p.(interface{ OAuth2Config() *oauth2.Config }); ok {
 			c := cfg.OAuth2Config()
+			if c == nil {
+				errs = append(errs, configIssue(field, ConfigRequired, "provider: OAuth2Config must not be nil"))
+				continue
+			}
 			if c.ClientID == "" {
-				errs = append(errs, fmt.Errorf("provider %q: client_id is required", name))
+				errs = append(errs, configIssue(field+".ClientID", ConfigRequired, "provider: client_id is required"))
 			}
 			if c.ClientSecret == "" {
-				errs = append(errs, fmt.Errorf("provider %q: client_secret is required", name))
+				errs = append(errs, configIssue(field+".ClientSecret", ConfigRequired, "provider: client_secret is required"))
 			}
 		}
 	}

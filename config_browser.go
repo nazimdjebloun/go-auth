@@ -122,35 +122,46 @@ func parseBrowserOrigin(value string) (*url.URL, error) {
 
 func (c *Config) validateBrowser() []error {
 	var errs []error
-	if err := c.browser.CORS.Validate(); err != nil {
-		errs = append(errs, fmt.Errorf("browser: %w", err))
-	}
+	errs = append(errs, c.validateCORS()...)
 	dev := c.app.Environment.normalize() == EnvironmentDev
 	u, err := parseBrowserOrigin(c.resolved.apiURL)
 	if err != nil {
-		errs = append(errs, fmt.Errorf("browser: api_url %w", err))
+		errs = append(errs, configIssue("Browser.APIURL", ConfigInvalid, "browser: api_url %v", err))
 	} else if !dev && u.Scheme != "https" {
-		errs = append(errs, errors.New("browser: api_url requires HTTPS outside EnvironmentDev"))
+		errs = append(errs, configIssue(
+			"Browser.APIURL", ConfigInsecure,
+			"browser: api_url requires HTTPS outside EnvironmentDev",
+		))
 	}
 	if len(c.browser.AllowedOrigins) == 0 {
-		errs = append(errs, errors.New("browser: allowed_origins must include at least one origin"))
+		errs = append(errs, configIssue(
+			"Browser.AllowedOrigins", ConfigRequired,
+			"browser: allowed_origins must include at least one origin",
+		))
 	}
-	for _, origin := range c.browser.AllowedOrigins {
+	for index, origin := range c.browser.AllowedOrigins {
+		field := fmt.Sprintf("Browser.AllowedOrigins[%d]", index)
 		parsed, err := parseBrowserOrigin(origin)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("browser: allowed_origins %q %w", origin, err))
+			errs = append(errs, configIssue(field, ConfigInvalid, "browser: allowed_origins %v", err))
 		} else if !dev && parsed.Scheme != "https" {
-			errs = append(errs, fmt.Errorf("browser: allowed_origins %q requires HTTPS outside EnvironmentDev", origin))
+			errs = append(errs, configIssue(field, ConfigInsecure,
+				"browser: allowed_origins requires HTTPS outside EnvironmentDev"))
 		}
 	}
 	b := c.browser.Cookies
 	seen := map[string]bool{"_csrf": true, "_goauth_browser": true, "__Host-goauth_browser": true, "_goauth_admin_csrf": true, "_goauth_admin_browser": true, "__Host-goauth_admin_browser": true}
+	fields := []string{
+		"Name", "RefreshName", "ChallengeName",
+		"AdminName", "AdminRefreshName", "AdminChallengeName",
+	}
 	for index, name := range []string{b.Name, b.RefreshName, b.ChallengeName, b.AdminName, b.AdminRefreshName, b.AdminChallengeName} {
+		field := "Browser.Cookies." + fields[index]
 		if err := (&http.Cookie{Name: name, Value: "valid", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}).Valid(); err != nil {
-			errs = append(errs, fmt.Errorf("browser: invalid cookie name %q: %w", name, err))
+			errs = append(errs, configIssue(field, ConfigInvalid, "browser: invalid cookie name"))
 		}
 		if seen[name] {
-			errs = append(errs, fmt.Errorf("browser: conflicting cookie name %q", name))
+			errs = append(errs, configIssue(field, ConfigDuplicate, "browser: conflicting cookie name"))
 		}
 		seen[name] = true
 		domain, path := b.Domain, b.Path
@@ -158,33 +169,86 @@ func (c *Config) validateBrowser() []error {
 			domain, path = "", "/" // challenge binding is always host-only
 		}
 		if strings.HasPrefix(name, "__Host-") && (!c.resolved.cookieSecure || domain != "" || path != "/") {
-			errs = append(errs, fmt.Errorf("browser: __Host- cookie %q requires Secure, Path=/, and no Domain", name))
+			errs = append(errs, configIssue(field, ConfigConflict,
+				"browser: __Host- cookie requires Secure, Path=/, and no Domain"))
 		}
 		if strings.HasPrefix(name, "__Secure-") && !c.resolved.cookieSecure {
-			errs = append(errs, fmt.Errorf("browser: __Secure- cookie %q requires Secure", name))
+			errs = append(errs, configIssue(field, ConfigConflict, "browser: __Secure- cookie requires Secure"))
 		}
 	}
 	if b.Path != "/" {
-		errs = append(errs, errors.New("browser: cookie path must be / to cover the built-in /auth and /admin routes"))
+		errs = append(errs, configIssue(
+			"Browser.Cookies.Path", ConfigInvalid,
+			"browser: cookie path must be / to cover the built-in /auth and /admin routes",
+		))
 	}
 	if err := (&http.Cookie{Name: b.Name, Value: "valid", Domain: b.Domain, Path: b.Path, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}).Valid(); err != nil {
-		errs = append(errs, fmt.Errorf("browser: invalid cookie scope: %w", err))
+		errs = append(errs, configIssue("Browser.Cookies", ConfigInvalid, "browser: invalid cookie scope"))
 	}
 	if b.Domain != "" && u != nil {
 		domain := strings.TrimPrefix(b.Domain, ".")
 		host := u.Hostname()
 		if !strings.EqualFold(host, domain) && !strings.HasSuffix(strings.ToLower(host), "."+strings.ToLower(domain)) {
-			errs = append(errs, errors.New("browser: cookie domain must match the public API host or a parent domain"))
+			errs = append(errs, configIssue(
+				"Browser.Cookies.Domain", ConfigConflict,
+				"browser: cookie domain must match the public API host or a parent domain",
+			))
 		}
 	}
 	if b.SameSite != http.SameSiteLaxMode && b.SameSite != http.SameSiteStrictMode && b.SameSite != http.SameSiteNoneMode {
-		errs = append(errs, errors.New("browser: same_site must be Lax, Strict, or None"))
+		errs = append(errs, configIssue(
+			"Browser.Cookies.SameSite", ConfigUnsupported,
+			"browser: same_site must be Lax, Strict, or None",
+		))
 	}
 	if b.SameSite == http.SameSiteNoneMode && !c.resolved.cookieSecure {
-		errs = append(errs, errors.New("browser: same_site=None requires Secure cookies, including in development"))
+		errs = append(errs, configIssue(
+			"Browser.Cookies.SameSite", ConfigConflict,
+			"browser: same_site=None requires Secure cookies, including in development",
+		))
 	}
 	if !dev && !c.resolved.cookieSecure {
-		errs = append(errs, errors.New("browser: insecure cookies are only allowed in EnvironmentDev"))
+		errs = append(errs, configIssue(
+			"Browser.Cookies.Secure", ConfigInsecure,
+			"browser: insecure cookies are only allowed in EnvironmentDev",
+		))
+	}
+	return errs
+}
+
+func (c *Config) validateCORS() []error {
+	var errs []error
+	for _, group := range []struct {
+		field  string
+		name   string
+		values []string
+	}{
+		{"AllowedHeaders", "allowed_headers", c.browser.CORS.AllowedHeaders},
+		{"ExposedHeaders", "exposed_headers", c.browser.CORS.ExposedHeaders},
+		{"AllowedMethods", "allowed_methods", c.browser.CORS.AllowedMethods},
+	} {
+		for index, value := range group.values {
+			var candidate CORSConfig
+			switch group.field {
+			case "AllowedHeaders":
+				candidate.AllowedHeaders = []string{value}
+			case "ExposedHeaders":
+				candidate.ExposedHeaders = []string{value}
+			case "AllowedMethods":
+				candidate.AllowedMethods = []string{value}
+			}
+			if candidate.Validate() != nil {
+				// Child validation can echo submitted text. Report only its field
+				// and rule, including when a malformed name contains a credential.
+				message := "browser: cors: %s contains invalid name; use explicit HTTP tokens"
+				if group.field == "AllowedMethods" {
+					message = "browser: cors: %s contains invalid or browser-forbidden method"
+				}
+				errs = append(errs, configIssue(
+					fmt.Sprintf("Browser.CORS.%s[%d]", group.field, index), ConfigInvalid, message, group.name,
+				))
+			}
+		}
 	}
 	return errs
 }

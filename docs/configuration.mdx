@@ -17,6 +17,7 @@ enable optional features as needed.
 - [Organizations and permissions](#organizations-and-permissions): optional organizations, app roles and organization roles.
 - [Operations and customization](#operations-and-customization): logging, audit, cleanup and email templates.
 - [Inspect effective configuration](#inspect-effective-configuration): resolved policy, capabilities, ownership and background work.
+- [Configuration errors](#configuration-errors): typed issues, public field paths and stable codes.
 
 ## Build a configuration
 
@@ -80,6 +81,84 @@ checks migration compatibility but never applies migrations. See
 - `New` clones the configuration, reapplies defaults and validates the complete
   result before deriving keys or initializing services. Options applied after
   `NewConfig` are checked again; startup does not modify the caller's config.
+
+## Configuration errors
+
+`NewConfig` returns `*goauth.ConfigError` when static settings are invalid.
+`Config.Describe()` and `New` use the same validation for options applied after
+configuration creation. They preserve this type through error wrapping. Nil or
+hand-built configurations are also classified, using the root path `Config`.
+
+Given an `err` from one of these operations, inspect all issues with `errors.As`:
+
+```go
+var failure *goauth.ConfigError
+if errors.As(err, &failure) {
+    for _, issue := range failure.Issues {
+        fmt.Printf("%s [%s]: %s\n", issue.Field, issue.Code, issue.Message)
+    }
+}
+```
+
+This snippet uses `errors` and `fmt`. Stop startup on any error; the loop shows
+how to display all configuration problems at the application boundary. A
+configuration form can attach each issue to `issue.Field` and retain several
+issues for the same field. `errors.As(err, &issue)` with a `*goauth.ConfigIssue`
+target reaches the first individual issue through normal error traversal; use
+`ConfigError.Issues` to enumerate all of them.
+
+Each `ConfigIssue` has `Field`, `Code` and `Message`, serialized as `field`,
+`code` and `message`. Match `Field` and `Code`; `Message` is explanatory prose
+and may change. `Error()` joins field-prefixed messages with newlines. The
+reference's expected-error examples below show message text. The issue list is
+sorted lexicographically by field, code and message for deterministic display;
+do not depend on an issue's position as its identity.
+
+| Code | Go constant | Meaning |
+|---|---|---|
+| `required` | `ConfigRequired` | A required value or selection is absent. |
+| `invalid_value` | `ConfigInvalid` | A value or group has an invalid format or configuration. |
+| `out_of_range` | `ConfigRange` | A size, lifetime or numeric setting is outside its allowed range. |
+| `conflict` | `ConfigConflict` | Settings cannot be used together. |
+| `dependency_required` | `ConfigDependency` | A selected feature requires another setting, service or key. |
+| `insecure` | `ConfigInsecure` | Deployment security policy rejects the selection. |
+| `unsupported` | `ConfigUnsupported` | A driver or enum selection is unsupported. |
+| `duplicate` | `ConfigDuplicate` | A unique name is repeated or reserved by another cookie/provider. |
+
+Handle unknown future codes as validation failures and display their messages.
+These startup diagnostics have no HTTP status mapping and are separate from
+runtime `domain.AuthError` codes.
+
+### Field-path contract
+
+Paths use exported option/configuration vocabulary, without a `Config.` prefix:
+
+- Sections use `App`, `Browser`, `Session`, `Security`, `PasswordHashing`,
+  `Authentication`, `Registration`, `TwoFactor`, `Organizations`, `AppPermissions`,
+  `OrgPermissions`, `Maintenance`, `Email`, `RateLimit` and `Redis`, followed by
+  exported field names. Examples: `App.Database.Driver`, `Session.GraceWindow`,
+  `PasswordHashing.Pepper.CurrentVersion`.
+- Standalone options use `Secret` and `Mailer`. `Providers[i]` identifies the
+  zero-based order of `WithProvider` calls. Provider metadata uses suffixes
+  such as `.Name`, `.ClientID` and `.ClientSecret`.
+- Slices use zero-based indices: `Browser.AllowedOrigins[0]`,
+  `Browser.CORS.AllowedHeaders[1]`, `RateLimit.TrustedIPs[0]`.
+- Password pepper keys use their numeric version:
+  `PasswordHashing.Pepper.Keys[2]`.
+- A group path identifies a multi-field or nested-adapter constraint, such as
+  `App.Database`, `Email`, `Security.PasswordPolicy` or `Redis`. Rate-route map
+  issues point to `RateLimit.Routes`; pattern/exemption conflicts point to
+  `RateLimit.Routes` or `RateLimit.DisabledRoutes`. Arbitrary map keys and submitted
+  text are omitted from diagnostic paths and messages.
+
+Library-produced configuration issues omit submitted strings, credentials,
+DSNs, provider names and key material. They carry field locations, rule
+descriptions and nonsecret numeric settings; submitted strings are omitted.
+Messages from custom integration startup, database connectivity and schema
+checks are outside this static validation contract. Those errors retain their
+own context/causes and do not become `ConfigError`; inspect them with the usual
+`errors.Is`/`errors.As` handling. Configuration inspection does not prove that
+these later startup checks will succeed.
 
 ## Inspect effective configuration
 
@@ -243,11 +322,11 @@ Run [auth migrations](./migrations.mdx) explicitly with deployment credentials. 
 - `base_url is required`: `BaseURL` was left blank.
 - `base_url must be a valid HTTP or HTTPS URL`: `BaseURL` does not parse as `http://` or `https://`.
 - `database: driver cannot be empty`: `Driver` was left blank.
-- `database: unsupported driver "..."; use DriverPostgres, DriverSQLite, or DriverMySQL`: `Driver` is not a supported Go driver constant.
+- `database: unsupported driver; use DriverPostgres, DriverSQLite, or DriverMySQL`: `Driver` is not a supported Go driver constant.
 - `database: one of URL, DB, or Pool is required`: none of the three connection fields were set.
 - `database: exactly one of URL, DB, or Pool must be set`: multiple connection sources were supplied; remove the unused ones.
 - `database: Pool requires DriverPostgres`: a pgx pool was paired with another driver.
-- `environment must be one of dev, staging, or prod, got "..."`: `Environment` was set to something other than the recognized values. Leaving it blank is fine (`prod` default).
+- `environment must be one of dev, staging, or prod`: `Environment` was set to something other than the recognized values. Leaving it blank is fine (`prod` default).
 
 ### `WithSecret`: Required
 
@@ -428,7 +507,7 @@ Public password-reset and verification-resend requests are delivered by the dura
 - `email: host is required`
 - `email: port must be between 1 and 65535, got N`
 - `email: from address is required`
-- `email: from address "..." is not valid: ...`
+- `email: from address is not valid`
 - `email: user and pass must both be set or both be empty`
 - `email: tls mode must be one of TLSNone, TLSStart, or TLSImplicit, got N`
 - `email: TLSNone is only allowed in EnvironmentDev — use TLSStart or TLSImplicit outside development`

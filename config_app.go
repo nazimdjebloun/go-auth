@@ -1,8 +1,6 @@
 package goauth
 
 import (
-	"errors"
-	"fmt"
 	"log/slog"
 	"net/url"
 )
@@ -52,19 +50,20 @@ func WithLogger(logger *slog.Logger) Option {
 func (c *Config) validateApp() []error {
 	var errs []error
 	if c.app.Name == "" {
-		errs = append(errs, errors.New("app_name cannot be empty"))
+		errs = append(errs, configIssue("App.Name", ConfigRequired, "app_name cannot be empty"))
 	}
 	if c.app.BaseURL == "" {
-		errs = append(errs, errors.New("base_url is required"))
+		errs = append(errs, configIssue("App.BaseURL", ConfigRequired, "base_url is required"))
 	} else if parsedURL, err := url.Parse(c.app.BaseURL); err != nil ||
 		(parsedURL.Scheme != "http" && parsedURL.Scheme != "https") || parsedURL.Hostname() == "" ||
 		parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
-		errs = append(errs, errors.New("base_url must be a valid HTTP or HTTPS URL"))
+		errs = append(errs, configIssue("App.BaseURL", ConfigInvalid, "base_url must be a valid HTTP or HTTPS URL"))
 	}
 	switch c.app.Environment.normalize() {
 	case EnvironmentDev, EnvironmentStaging, EnvironmentProd:
 	default:
-		errs = append(errs, fmt.Errorf("environment must be one of dev, staging, or prod, got %q", c.app.Environment))
+		errs = append(errs, configIssue("App.Environment", ConfigUnsupported,
+			"environment must be one of dev, staging, or prod"))
 	}
 	return errs
 }

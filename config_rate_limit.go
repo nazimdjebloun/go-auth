@@ -113,42 +113,56 @@ func (c *Config) validateRateLimit() []error {
 		return nil
 	}
 	rl := c.rateLimit
-	if _, err := ratelimitpolicy.New(rl); err != nil {
-		errs = append(errs, fmt.Errorf("rate_limit: %w", err))
+	if _, err := ratelimitpolicy.New(&ratelimit.Config{Routes: rl.Routes}); err != nil {
+		errs = append(errs, configIssue("RateLimit.Routes", ConfigInvalid,
+			"rate_limit: routes contain invalid or conflicting ServeMux patterns"))
+	}
+	if _, err := ratelimitpolicy.New(&ratelimit.Config{DisabledRoutes: rl.DisabledRoutes}); err != nil {
+		errs = append(errs, configIssue("RateLimit.DisabledRoutes", ConfigInvalid,
+			"rate_limit: disabled routes contain invalid or conflicting ServeMux patterns"))
 	}
 	// A nil Store requests a per-Auth in-memory store. New creates it only
 	// after all fallible startup work succeeds.
-	if err := validateRate("default", rl.Default, false); err != nil {
+	if err := validateRate("RateLimit.Default", rl.Default, false); err != nil {
 		errs = append(errs, err)
 	}
-	for route, rate := range rl.Routes {
-		if err := validateRate(route, rate, true); err != nil {
+	for _, rate := range rl.Routes {
+		if err := validateRate("RateLimit.Routes", rate, true); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	if rl.IPv6Subnet < 1 || rl.IPv6Subnet > 128 {
-		errs = append(errs, fmt.Errorf("rate_limit: ipv6_subnet must be between 1 and 128, got %d", rl.IPv6Subnet))
+		errs = append(errs, configIssue("RateLimit.IPv6Subnet", ConfigRange,
+			"rate_limit: ipv6_subnet must be between 1 and 128, got %d", rl.IPv6Subnet))
 	}
-	for _, ip := range rl.TrustedIPs {
+	for index, ip := range rl.TrustedIPs {
 		if net.ParseIP(ip) == nil {
 			if _, _, err := net.ParseCIDR(ip); err != nil {
-				errs = append(errs, fmt.Errorf("rate_limit: trusted_ips contains invalid IP/CIDR %q", ip))
+				errs = append(errs, configIssue(fmt.Sprintf("RateLimit.TrustedIPs[%d]", index), ConfigInvalid,
+					"rate_limit: trusted_ips contains invalid IP/CIDR"))
 			}
 		}
 	}
 	return errs
 }
-func validateRate(name string, r ratelimit.Rate, allowZero bool) error {
-	if r.Requests < 0 || (r.Requests == 0 && !allowZero) {
-		return fmt.Errorf("rate_limit: route %q requests must be positive, got %d", name, r.Requests)
+func validateRate(field string, r ratelimit.Rate, allowZero bool) error {
+	var errs []error
+	requestsField, windowField := field, field
+	if field == "RateLimit.Default" {
+		requestsField, windowField = field+".Requests", field+".Window"
 	}
-	if r.Requests == 0 {
+	if r.Requests < 0 || (r.Requests == 0 && !allowZero) {
+		errs = append(errs, configIssue(requestsField, ConfigRange,
+			"rate_limit: route requests must be positive, got %d", r.Requests))
+	}
+	if r.Requests == 0 && allowZero {
 		return nil // explicitly disabled; Window is irrelevant
 	}
 	if r.Window <= 0 {
-		return fmt.Errorf("rate_limit: route %q window must be positive, got %s", name, r.Window)
+		errs = append(errs, configIssue(windowField, ConfigRange,
+			"rate_limit: route window must be positive, got %s", r.Window))
 	}
-	return nil
+	return joinConfigIssues(errs...)
 }
 
 func (c *Config) applyRateLimitDefaults() {

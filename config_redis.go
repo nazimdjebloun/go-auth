@@ -1,7 +1,6 @@
 package goauth
 
 import (
-	"fmt"
 	"math"
 	"time"
 
@@ -84,29 +83,40 @@ func (c *Config) validateRedis() []error {
 	}
 	var errs []error
 	if len(r.Prefix) > 110 {
-		errs = append(errs, fmt.Errorf("redis: prefix must not exceed 110 bytes"))
+		errs = append(errs, configIssue("Redis.Prefix", ConfigRange, "redis: prefix must not exceed 110 bytes"))
 	}
 	if _, err := redisstore.New(redisstore.Config{Client: r.Client, Prefix: r.Prefix, OperationTimeout: r.OperationTimeout, MaxSnapshotBytes: r.MaxSnapshotBytes}); err != nil {
-		errs = append(errs, fmt.Errorf("redis: %w", err))
+		errs = append(errs, configIssue("Redis", ConfigInvalid, "redis: %v", err))
 	}
 	if r.CounterClient != nil {
 		if _, err := redisstore.New(redisstore.Config{Client: r.CounterClient, Prefix: r.Prefix, OperationTimeout: r.OperationTimeout, MaxSnapshotBytes: r.MaxSnapshotBytes}); err != nil {
-			errs = append(errs, fmt.Errorf("redis counters: %w", err))
+			errs = append(errs, configIssue("Redis", ConfigInvalid, "redis counters: %v", err))
 		}
 	}
-	if r.StartupTimeout <= 0 || r.SessionCacheTTL <= 0 || r.TokenCacheTTL <= 0 {
-		errs = append(errs, fmt.Errorf("redis: startup timeout and cache ttls must be positive"))
+	for _, setting := range []struct {
+		field string
+		value time.Duration
+	}{
+		{"StartupTimeout", r.StartupTimeout}, {"SessionCacheTTL", r.SessionCacheTTL}, {"TokenCacheTTL", r.TokenCacheTTL},
+	} {
+		if setting.value <= 0 {
+			errs = append(errs, configIssue("Redis."+setting.field, ConfigRange,
+				"redis: startup timeout and cache ttls must be positive"))
+		}
 	}
 	if redisEnabled(r.RateLimits) && c.rateLimit != nil && c.rateLimit.Enabled && c.set.rateLimitStore {
-		errs = append(errs, fmt.Errorf("redis: rate limits conflict with a supplied rate-limit store; disable Redis RateLimits explicitly"))
+		errs = append(errs, configIssue("Redis.RateLimits", ConfigConflict,
+			"redis: rate limits conflict with a supplied rate-limit store; disable Redis RateLimits explicitly"))
 	}
 	if redisEnabled(r.RateLimits) && c.rateLimit != nil && c.rateLimit.Enabled {
 		if c.rateLimit.Default.Requests > math.MaxInt32 {
-			errs = append(errs, fmt.Errorf("redis: default rate exceeds supported counter limit"))
+			errs = append(errs, configIssue("RateLimit.Default.Requests", ConfigRange,
+				"redis: default rate exceeds supported counter limit"))
 		}
-		for pattern, rate := range c.rateLimit.Routes {
+		for _, rate := range c.rateLimit.Routes {
 			if rate.Requests > math.MaxInt32 {
-				errs = append(errs, fmt.Errorf("redis: rate for %q exceeds supported counter limit", pattern))
+				errs = append(errs, configIssue("RateLimit.Routes", ConfigRange,
+					"redis: route rate exceeds supported counter limit"))
 			}
 		}
 	}

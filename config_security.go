@@ -1,9 +1,7 @@
 package goauth
 
 import (
-	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"time"
 
@@ -123,23 +121,30 @@ func WithSecret(secret string) Option {
 func (c *Config) validateSecurity() []error {
 	var errs []error
 	if err := c.security.PasswordPolicy.ValidateConfig(); err != nil {
-		errs = append(errs, fmt.Errorf("password_policy: %w", err))
+		errs = append(errs, configIssue("Security.PasswordPolicy", ConfigInvalid, "password_policy: %v", err))
 	}
 	limit, err := passwordInputLimit(c.passwordHasher)
 	if err != nil {
 		errs = append(errs, err)
 	} else if limit > 0 {
 		if c.passwordPepper.CurrentVersion == 0 && c.security.PasswordPolicy.MinLength > limit {
-			errs = append(errs, fmt.Errorf("password_policy: MinLength cannot fit the selected hasher's %d-byte input limit", limit))
+			errs = append(errs, configIssue("Security.PasswordPolicy.MinLength", ConfigConflict,
+				"password_policy: MinLength cannot fit the selected hasher's %d-byte input limit", limit))
 		}
 		if c.passwordPepper.CurrentVersion != 0 && limit < 44 {
-			errs = append(errs, errors.New("password_hasher: input limit cannot fit the 44-byte password-pepper representation"))
+			errs = append(errs, configIssue(
+				"PasswordHashing.Hasher", ConfigConflict,
+				"password_hasher: input limit cannot fit the 44-byte password-pepper representation",
+			))
 		}
 	}
 	if len(c.secret) == 0 {
-		errs = append(errs, errors.New("secret: signing secret is required"))
+		errs = append(errs, configIssue("Secret", ConfigRequired, "secret: signing secret is required"))
 	} else if len(c.secret) < 32 {
-		errs = append(errs, errors.New("secret: signing secret must be at least 32 bytes for HMAC-SHA256"))
+		errs = append(errs, configIssue(
+			"Secret", ConfigRange,
+			"secret: signing secret must be at least 32 bytes for HMAC-SHA256",
+		))
 	}
 
 	return errs
@@ -149,26 +154,25 @@ func passwordInputLimit(h port.Hasher) (int, error) {
 	if h == nil {
 		return hasher.BcryptMaxPasswordBytes, nil
 	}
-	value := reflect.ValueOf(h)
-	switch value.Kind() {
-	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
-		if value.IsNil() {
-			return 0, errors.New("password_hasher: hasher is nil")
-		}
+	if nilConfigIntegration(h) {
+		return 0, configIssue("PasswordHashing.Hasher", ConfigRequired, "password_hasher: hasher is nil")
 	}
 	limit := 0
 	if limiter, ok := h.(port.PasswordInputLimiter); ok {
 		limit = limiter.MaxPasswordBytes()
 	}
 	if limit < 0 {
-		return 0, errors.New("password_hasher: MaxPasswordBytes must be nonnegative")
+		return 0, configIssue(
+			"PasswordHashing.Hasher", ConfigInvalid,
+			"password_hasher: MaxPasswordBytes must be nonnegative",
+		)
 	}
 	return limit, nil
 }
 func (c *Config) validateTwoFactor() []error {
 	var errs []error
 	if c.twoFactor.CodeTTL <= 0 {
-		errs = append(errs, errors.New("two_factor: code_ttl must be positive"))
+		errs = append(errs, configIssue("TwoFactor.CodeTTL", ConfigRange, "two_factor: code_ttl must be positive"))
 	}
 	return errs
 }
@@ -181,14 +185,21 @@ func (c *Config) validateTwoFactor() []error {
 func (c *Config) validatePasswordHasher() []error {
 	var errs []error
 	if c.passwordConcurrency < 0 {
-		errs = append(errs, errors.New("password_concurrency must be nonnegative"))
+		errs = append(errs, configIssue(
+			"PasswordHashing.Concurrency", ConfigRange,
+			"password_concurrency must be nonnegative",
+		))
 	}
 	if c.passwordWorkLimiter != nil && c.passwordWorkLimiter.Limit() == 0 {
-		errs = append(errs, errors.New("password_work_limiter must be constructed with hasher.NewWorkLimiter"))
+		errs = append(errs, configIssue(
+			"PasswordHashing.WorkLimiter", ConfigInvalid,
+			"password_work_limiter must be constructed with hasher.NewWorkLimiter",
+		))
 	}
 	// A custom Hasher makes PasswordHashingConfig.BcryptCost inert.
 	if c.passwordHasher == nil && c.bcryptCost > bcrypt.MaxCost {
-		errs = append(errs, fmt.Errorf("bcrypt_cost %d exceeds bcrypt.MaxCost (%d)", c.bcryptCost, bcrypt.MaxCost))
+		errs = append(errs, configIssue("PasswordHashing.BcryptCost", ConfigRange,
+			"bcrypt_cost %d exceeds bcrypt.MaxCost (%d)", c.bcryptCost, bcrypt.MaxCost))
 	}
 	if err := c.validatePasswordPepper(); err != nil {
 		errs = append(errs, err)
@@ -196,6 +207,7 @@ func (c *Config) validatePasswordHasher() []error {
 	return errs
 }
 func (c *Config) validatePasswordPepper() error {
+	var errs []error
 	versions := make([]uint32, 0, len(c.passwordPepper.Keys))
 	for version := range c.passwordPepper.Keys {
 		versions = append(versions, version)
@@ -203,18 +215,22 @@ func (c *Config) validatePasswordPepper() error {
 	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
 	for _, version := range versions {
 		if version == 0 {
-			return errors.New("password_pepper: key version 0 is reserved for unpeppered passwords")
+			errs = append(errs, configIssue("PasswordHashing.Pepper.Keys[0]", ConfigInvalid,
+				"password_pepper: key version 0 is reserved for unpeppered passwords"))
+			continue
 		}
 		if len(c.passwordPepper.Keys[version]) < 32 {
-			return fmt.Errorf("password_pepper: key version %d must be at least 32 bytes", version)
+			errs = append(errs, configIssue(fmt.Sprintf("PasswordHashing.Pepper.Keys[%d]", version), ConfigRange,
+				"password_pepper: key version %d must be at least 32 bytes", version))
 		}
 	}
 	if c.passwordPepper.CurrentVersion != 0 {
 		if _, ok := c.passwordPepper.Keys[c.passwordPepper.CurrentVersion]; !ok {
-			return fmt.Errorf("password_pepper: current version %d has no configured key", c.passwordPepper.CurrentVersion)
+			errs = append(errs, configIssue("PasswordHashing.Pepper.CurrentVersion", ConfigDependency,
+				"password_pepper: current version %d has no configured key", c.passwordPepper.CurrentVersion))
 		}
 	}
-	return nil
+	return joinConfigIssues(errs...)
 }
 
 // boolPtr returns a pointer to v — the shared implementation behind the

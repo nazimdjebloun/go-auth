@@ -1,7 +1,5 @@
 package goauth
 
-import "errors"
-
 // OrgPermissionsConfig enables organization-local custom roles and permissions.
 type OrgPermissionsConfig struct {
 	Enable               bool
@@ -15,10 +13,13 @@ func WithOrgPermissions(cfg OrgPermissionsConfig) Option {
 func (c *Config) validateOrgPermissions() []error {
 	var errs []error
 	if c.orgPermissions.Enable && !c.organizations.Enable {
-		errs = append(errs, errors.New("org_permissions: requires organizations"))
+		errs = append(errs, configIssue("OrgPermissions.Enable", ConfigDependency, "org_permissions: requires organizations"))
 	}
 	if c.orgPermissions.EnableManagementHTTP && !c.orgPermissions.Enable {
-		errs = append(errs, errors.New("org_permissions: management HTTP requires Enable"))
+		errs = append(errs, configIssue(
+			"OrgPermissions.EnableManagementHTTP", ConfigDependency,
+			"org_permissions: management HTTP requires Enable",
+		))
 	}
 	return errs
 }

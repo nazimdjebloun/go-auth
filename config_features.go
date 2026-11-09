@@ -1,7 +1,6 @@
 package goauth
 
 import (
-	"errors"
 	"time"
 )
 
@@ -108,10 +107,13 @@ func WithOrganizations(cfg OrganizationConfig) Option {
 func (c *Config) validateRegistration() []error {
 	var errs []error
 	if c.registration.InviteTTL <= 0 {
-		errs = append(errs, errors.New("registration: invite_ttl must be positive"))
+		errs = append(errs, configIssue("Registration.InviteTTL", ConfigRange, "registration: invite_ttl must be positive"))
 	}
 	if c.registration.VerificationCodeTTL <= 0 {
-		errs = append(errs, errors.New("registration: verification_code_ttl must be positive"))
+		errs = append(errs, configIssue(
+			"Registration.VerificationCodeTTL", ConfigRange,
+			"registration: verification_code_ttl must be positive",
+		))
 	}
 	return errs
 }
@@ -122,10 +124,13 @@ func (c *Config) validateOrganizations() []error {
 		return nil
 	}
 	if c.organizations.MaxOrgsPerUser < 0 || c.organizations.MaxOrgsPerUser > 100 {
-		errs = append(errs, errors.New("organizations.max_orgs_per_user must be between 0 and 100 (0 = default 100)"))
+		errs = append(errs, configIssue(
+			"Organizations.MaxOrgsPerUser", ConfigRange,
+			"organizations.max_orgs_per_user must be between 0 and 100 (0 = default 100)",
+		))
 	}
 	if c.organizations.InviteTTL <= 0 {
-		errs = append(errs, errors.New("organizations.invite_ttl must be positive"))
+		errs = append(errs, configIssue("Organizations.InviteTTL", ConfigRange, "organizations.invite_ttl must be positive"))
 	}
 	return errs
 }

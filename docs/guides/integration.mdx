@@ -142,6 +142,11 @@ Check optional capabilities for nil before use. See the
 
 Go operations return ordinary errors. Use `errors.Is` for a sentinel and `errors.As` for `*domain.AuthError`; backend errors may instead wrap their original cause. Do not send raw backend errors to clients.
 
+Static configuration validation returns `*goauth.ConfigError`. Its `Issues`
+contain stable codes and public field paths, including through `New` and
+`Config.Describe` wrapping. Database/schema/custom integration startup failures
+remain separate. See the [configuration error contract](../configuration.mdx#configuration-errors).
+
 The built-in HTTP handlers and middleware use `{"error": code, "message": message}` with `Content-Type: application/json`. CSRF rejection bodies use this envelope. Match the code rather than parsing the message. OAuth callback failures remain browser redirects with an `error` query parameter. Router-generated errors and your own handlers are outside this contract. See [Error Handling](../error-handling.mdx) for codes and statuses.
 
 ## Frontend authentication outcomes

@@ -1,7 +1,6 @@
 package goauth
 
 import (
-	"errors"
 	"log/slog"
 	"time"
 )
@@ -61,16 +60,16 @@ func (c *Config) validateMaintenance() []error {
 	var errs []error
 	m := c.maintenance
 	if m.Interval < 0 {
-		errs = append(errs, errors.New("maintenance interval must not be negative"))
+		errs = append(errs, configIssue("Maintenance.Interval", ConfigRange, "maintenance interval must not be negative"))
 	}
 	if m.BatchSize < 0 {
-		errs = append(errs, errors.New("maintenance batch_size must not be negative"))
+		errs = append(errs, configIssue("Maintenance.BatchSize", ConfigRange, "maintenance batch_size must not be negative"))
 	}
 	if m.Grace < 0 {
-		errs = append(errs, errors.New("maintenance grace must not be negative"))
+		errs = append(errs, configIssue("Maintenance.Grace", ConfigRange, "maintenance grace must not be negative"))
 	}
 	if m.Timeout < 0 {
-		errs = append(errs, errors.New("maintenance timeout must not be negative"))
+		errs = append(errs, configIssue("Maintenance.Timeout", ConfigRange, "maintenance timeout must not be negative"))
 	}
 	return errs
 }

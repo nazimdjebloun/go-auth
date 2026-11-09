@@ -1,6 +1,7 @@
 package goauth
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -174,7 +175,9 @@ func TestBrowserCORSValidation(t *testing.T) {
 				auth.Close()
 				t.Fatal("New accepted invalid late CORS options")
 			}
-			if err == nil || !strings.Contains(err.Error(), "goauth: invalid configuration: browser: cors:") {
+			var configErr *ConfigError
+			if !errors.As(err, &configErr) || len(configErr.Issues) == 0 ||
+				!strings.HasPrefix(configErr.Issues[0].Field, "Browser.CORS.") {
 				t.Fatalf("New error=%v, want early configuration rejection", err)
 			}
 		})

@@ -231,7 +231,7 @@ func TestValidate_EmailConfig(t *testing.T) {
 				Host: "smtp.example.com",
 				Port: 587,
 			},
-			wantErr: "email: from address \"not an email\" is not valid",
+			wantErr: "email: from address is not valid",
 		},
 		{
 			name: "partial credentials",
@@ -366,7 +366,7 @@ func TestNewConfig_RateLimitValidation(t *testing.T) {
 				}
 				return cfg
 			}(),
-			wantErr: "POST /custom",
+			wantErr: "RateLimit.Routes",
 		},
 		{
 			name: "enabled with ipv6 subnet too low",

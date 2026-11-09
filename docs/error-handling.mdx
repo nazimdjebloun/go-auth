@@ -17,7 +17,10 @@ The built-in HTTP handlers and middleware return errors as JSON with the same sh
 
 `error` is the stable machine-readable code. Match on it, not `message`; the message is for people and can change. The HTTP status provides the usual API signal (`404` not found, `409` conflict, `429` rate limited, and so on).
 
-This page covers **runtime** errors from mounted HTTP handlers. For configuration errors returned by `NewConfig` before the server starts, see [Configuration](./configuration.mdx).
+This page covers **runtime** errors from mounted HTTP handlers. Static settings
+validation returns `*goauth.ConfigError` with structured issues, public field
+paths and stable codes, including through startup/description wrapping. These
+issues have no HTTP status mapping. See [Configuration errors](./configuration.mdx#configuration-errors).
 
 `invalid_session_context` (400) means `X-GoAuth-Session` has an unsupported or repeated value, or explicitly selects `app` on the dedicated admin login route. Omit the header for ordinary app requests; use `admin` consistently for panel requests.
 

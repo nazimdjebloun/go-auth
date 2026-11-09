@@ -1,7 +1,6 @@
 package goauth
 
 import (
-	"errors"
 	"regexp"
 )
 
@@ -29,10 +28,16 @@ var appRoleSlugPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,79}$`)
 func (c *Config) validateAppPermissions() []error {
 	var errs []error
 	if c.appPermissions.EnableManagementHTTP && !c.appPermissions.Enable {
-		errs = append(errs, errors.New("app_permissions: management HTTP requires Enable"))
+		errs = append(errs, configIssue(
+			"AppPermissions.EnableManagementHTTP", ConfigDependency,
+			"app_permissions: management HTTP requires Enable",
+		))
 	}
 	if c.appPermissions.DefaultRoleSlug != "" && (!appRoleSlugPattern.MatchString(c.appPermissions.DefaultRoleSlug) || c.appPermissions.DefaultRoleSlug == "admin") {
-		errs = append(errs, errors.New("app_permissions: DefaultRoleSlug must be a canonical non-admin role slug"))
+		errs = append(errs, configIssue(
+			"AppPermissions.DefaultRoleSlug", ConfigInvalid,
+			"app_permissions: DefaultRoleSlug must be a canonical non-admin role slug",
+		))
 	}
 	return errs
 }

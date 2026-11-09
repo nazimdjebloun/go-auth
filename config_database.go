@@ -2,8 +2,6 @@ package goauth
 
 import (
 	"database/sql"
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -49,12 +47,11 @@ func (c *Config) validateDatabase() []error {
 	}
 	switch db.Driver {
 	case "":
-		errs = append(errs, errors.New("database: driver cannot be empty"))
+		errs = append(errs, configIssue("App.Database.Driver", ConfigRequired, "database: driver cannot be empty"))
 	case DriverPostgres, DriverSQLite, DriverMySQL:
 	default:
-		errs = append(errs, fmt.Errorf(
-			"database: unsupported driver %q; use DriverPostgres, DriverSQLite, or DriverMySQL",
-			db.Driver,
+		errs = append(errs, configIssue("App.Database.Driver", ConfigUnsupported,
+			"database: unsupported driver; use DriverPostgres, DriverSQLite, or DriverMySQL",
 		))
 	}
 	var sources int
@@ -69,19 +66,23 @@ func (c *Config) validateDatabase() []error {
 	}
 	switch sources {
 	case 0:
-		errs = append(errs, errors.New("database: one of URL, DB, or Pool is required"))
+		errs = append(errs, configIssue("App.Database", ConfigRequired, "database: one of URL, DB, or Pool is required"))
 	case 1:
 	default:
-		errs = append(errs, errors.New("database: exactly one of URL, DB, or Pool must be set"))
+		errs = append(errs, configIssue(
+			"App.Database", ConfigConflict,
+			"database: exactly one of URL, DB, or Pool must be set",
+		))
 	}
 	if db.Pool != nil && db.Driver != DriverPostgres {
-		errs = append(errs, errors.New("database: Pool requires DriverPostgres"))
+		errs = append(errs, configIssue("App.Database.Pool", ConfigConflict, "database: Pool requires DriverPostgres"))
 	}
 	return errs
 }
 
 // connectionLimits resolves defaults without mutating caller configuration.
 func (c DatabaseConfig) connectionLimits() (int, int, error) {
+	var errs []error
 	open := c.MaxOpenConns
 	if open == 0 {
 		open = 25
@@ -94,13 +95,23 @@ func (c DatabaseConfig) connectionLimits() (int, int, error) {
 		idle = *c.MaxIdleConns
 	}
 	if open < 1 {
-		return 0, 0, fmt.Errorf("database: max_open_conns must not be negative")
+		errs = append(errs, configIssue("App.Database.MaxOpenConns", ConfigRange,
+			"database: max_open_conns must not be negative"))
 	}
-	if idle < 0 || idle > open {
-		return 0, 0, fmt.Errorf("database: max_idle_conns must be between 0 and max_open_conns")
+	if c.MaxIdleConns != nil && (idle < 0 || (open > 0 && idle > open)) {
+		errs = append(errs, configIssue("App.Database.MaxIdleConns", ConfigRange,
+			"database: max_idle_conns must be between 0 and max_open_conns"))
 	}
-	if c.ConnMaxLifetime < 0 || c.ConnMaxIdleTime < 0 {
-		return 0, 0, fmt.Errorf("database: connection lifetimes must not be negative")
+	if c.ConnMaxLifetime < 0 {
+		errs = append(errs, configIssue("App.Database.ConnMaxLifetime", ConfigRange,
+			"database: connection lifetimes must not be negative"))
+	}
+	if c.ConnMaxIdleTime < 0 {
+		errs = append(errs, configIssue("App.Database.ConnMaxIdleTime", ConfigRange,
+			"database: connection lifetimes must not be negative"))
+	}
+	if err := joinConfigIssues(errs...); err != nil {
+		return 0, 0, err
 	}
 	return open, idle, nil
 }
