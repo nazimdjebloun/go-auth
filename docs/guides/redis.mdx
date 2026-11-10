@@ -37,8 +37,8 @@ _ = redisOption
 ```
 
 Imports are `time`, `github.com/redis/go-redis/v9`, and the library as `goauth`.
-See the complete [Redis example](https://github.com/nazimdjebloun/go-auth/tree/main/examples/redis)
-for SQL setup, HTTP routing and graceful shutdown. Clients are caller-owned:
+See [Installation](../installation.mdx) for SQL setup and
+[Integration](./integration.mdx) for HTTP routing. Clients are caller-owned:
 drain requests, call `Auth.Close`, then close Redis. Constructors/configuration
 do not start background Redis workers. Startup probes require the actual cache,
 TTL and scripting permissions, not only PING.

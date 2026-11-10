@@ -61,12 +61,14 @@ go get github.com/nazimdjebloun/go-auth
 
 ## Local quick start
 
-Run the complete browser example from a source checkout. These commands use
-Bash and OpenSSL; the [onboarding guide](docs/guides/onboarding.mdx) also covers
-PowerShell and running from your own Go module.
+The examples folder has been removed from the current checkout. To try the
+historical browser example, use the v0.5.3 release below; it runs that release
+of the library. For current integrations, follow [Installation](docs/installation.mdx)
+and [Use it in your backend](#use-it-in-your-backend). These commands use Bash
+and OpenSSL; the [onboarding guide](docs/guides/onboarding.mdx) also covers PowerShell.
 
 ```bash
-git clone https://github.com/nazimdjebloun/go-auth.git
+git clone --branch v0.5.3 https://github.com/nazimdjebloun/go-auth.git
 cd go-auth
 
 export DATABASE_URL='file:onboarding.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)'
@@ -88,15 +90,15 @@ Keep the generated secret for later restarts of that database.
 
 [First working application](docs/guides/onboarding.mdx) includes consuming-module
 commands, PowerShell setup, the complete flow and first-admin setup for closed
-installations. The [example source](examples/onboarding/main.go) is the complete
+installations. The [v0.5.3 example source](https://github.com/nazimdjebloun/go-auth/blob/v0.5.3/examples/onboarding/main.go) is the complete
 configuration and HTTP integration, including graceful shutdown.
 
 ## Use it in your backend
 
 Build a configuration with `NewConfig`, create an instance with `New`, and call
 `Auth.Close` after your HTTP server shuts down. The
-[example source](examples/onboarding/main.go) includes configuration, a database
-driver import, and graceful shutdown. The main configuration sections are:
+[integration guide](docs/guides/integration.mdx) covers HTTP integration. The main
+configuration sections are:
 
 - `WithApp`: application name, frontend base URL, environment, and database.
 - `WithSecret`: your persistent application secret, with at least 32 random bytes.

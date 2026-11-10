@@ -6,17 +6,25 @@ icon: "Rocket"
 
 # First working application
 
-The runnable `examples/onboarding` application uses SQLite, the real HTTP
+The examples folder has been removed from the current checkout. This guide
+describes the historical v0.5.3 example and runs that release of the library.
+For current integrations, follow [Installation](../installation.mdx),
+[Configuration](../configuration.mdx), and [Integration](./integration.mdx).
+
+The v0.5.3 `examples/onboarding` application uses SQLite, the real HTTP
 handlers, host-only development cookies and terminal email delivery. Its browser
 page completes signup, email verification, password login, email 2FA, a protected
 application mutation and logout. It exposes no mailbox or code-reading endpoint.
 
-## Run from this checkout
+## Run from the v0.5.3 checkout
 
 These shell commands use a fresh local SQLite database. Generate the root
 secret once and keep it for subsequent restarts of this development database.
 
 ```bash
+git clone --branch v0.5.3 https://github.com/nazimdjebloun/go-auth.git
+cd go-auth
+
 export DATABASE_URL='file:onboarding.db?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)'
 export GOAUTH_SECRET="$(openssl rand -hex 32)"
 
@@ -79,7 +87,8 @@ mailer and HTTPS for a deployed application; see [Deployment](./deployment.mdx).
 
 ## Use it in your backend
 
-`examples/onboarding/main.go` contains the full configuration, explicit driver
+[The v0.5.3 example source](https://github.com/nazimdjebloun/go-auth/blob/v0.5.3/examples/onboarding/main.go)
+contains the full configuration, explicit driver
 import, route mounting and graceful shutdown. `index.html` contains the CSRF
 bootstrap/replacement and [`step` handling](./authentication-outcomes.mdx).
 Copy the relevant parts into your application rather than building a separate
@@ -115,4 +124,4 @@ add `--app-permissions` and configure/initialize that feature as described in
 The example's test uses its actual handler, a real migrated SQLite database and
 one HTTP cookie jar. It checks startup rejection before migration, the complete
 flow above, rejection before login and 2FA, and CSRF rejection even with valid
-session cookies. Run `go test ./examples/onboarding` from the checkout.
+session cookies. Run `go test ./examples/onboarding` from the v0.5.3 checkout.

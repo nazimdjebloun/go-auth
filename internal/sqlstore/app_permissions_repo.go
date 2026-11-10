@@ -92,6 +92,9 @@ func (r *AppPermissionsRepository) PermissionGrantRoles(ctx context.Context, id 
 
 // RemovePermissionGrants must participate in the definition deletion transaction.
 func (r *AppPermissionsRepository) RemovePermissionGrants(ctx context.Context, id string) error {
+	if _, ok := txFromContext(ctx); !ok {
+		return errors.New("app permission grant removal requires transaction")
+	}
 	_, err := r.db.ExecContext(ctx, `DELETE FROM app_role_permissions WHERE permission_id=$1`, id)
 	return err
 }

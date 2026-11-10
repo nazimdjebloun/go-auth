@@ -76,11 +76,14 @@ func TestPermissionsCommandSeedAndMixedUpdate(t *testing.T) {
 	if err != nil || len(result.Created) != 2 {
 		t.Fatalf("seed command: %+v %v", result, err)
 	}
-	result, err = run("update", "--create", "goauth.app.sessions.revoke", "--delete", "goauth.app.users.read,goauth.app.sessions.read")
+	if _, err := run("update", "--delete", "goauth.app.users.read"); err == nil {
+		t.Fatal("delete without --yes accepted")
+	}
+	result, err = run("update", "--yes", "--create", "goauth.app.sessions.revoke", "--delete", "goauth.app.users.read,goauth.app.sessions.read")
 	if err != nil || len(result.Created) != 1 || len(result.Deleted) != 2 {
 		t.Fatalf("mixed update command: %+v %v", result, err)
 	}
-	if _, err := run("update", "--create", "goauth.app.users.read", "--delete", "goauth.app.users.read"); err == nil {
+	if _, err := run("update", "--yes", "--create", "goauth.app.users.read", "--delete", "goauth.app.users.read"); err == nil {
 		t.Fatal("overlapping CLI batch accepted")
 	}
 	repo := sqlstore.NewAppPermissionsRepository(db)

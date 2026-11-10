@@ -318,6 +318,9 @@ func (s *OrgPermissionsService) initializeNew(ctx context.Context, actor api.Org
 	}
 	now := time.Now().UTC()
 	if err := s.state.InitializeOrgState(ctx, actor.OrgID, now); err != nil {
+		if errors.Is(err, port.ErrDuplicateKey) {
+			return domain.ErrOrgPermissionsInitialized
+		}
 		return err
 	}
 	for _, identity := range []string{"owner", "admin", "member"} {

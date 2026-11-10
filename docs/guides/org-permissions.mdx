@@ -92,8 +92,9 @@ deleted or given a different grant set. Their policy comes from code:
   in its organization, including future supported actions. Unknown library keys
   and absent/disabled business definitions do not authorize access.
 - Admin can read/update the organization, read/add/remove non-owner members,
-  assign member/admin roles, and create/read/resend/delete invitations. It has no
-  automatic business-permission access or permission/role-definition management.
+  assign member/admin roles, and create/read/resend/delete invitations. Admins
+  can also list the roles and permission definitions they manage, but cannot
+  create, update or delete them. Admin has no automatic business-permission access.
 - Member can read the organization and its members. Leaving an organization is
   available independently of custom grants, subject to last-owner protection.
 

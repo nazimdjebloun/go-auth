@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -47,7 +48,7 @@ func (r *AppPermissionsRepository) RoleBySlugForShare(ctx context.Context, slug 
 	}
 	query := "SELECT " + appRoleColumns + " FROM app_roles WHERE slug=$1"
 	switch r.db.Driver() {
-	case "postgres", "pgx", "mysql":
+	case "postgres", "mysql":
 		query += " FOR SHARE"
 	}
 	role, err := scanAppRole(r.db.QueryRowContext(ctx, query, slug))
@@ -97,17 +98,41 @@ func (r *AppPermissionsRepository) DeleteAppRole(ctx context.Context, id string)
 
 // RoleUserCount supports explicit in-use errors before restrictive deletion.
 func (r *AppPermissionsRepository) RoleUserCount(ctx context.Context, id string) (int, error) {
-	ids, err := r.strings(ctx, `SELECT id FROM users WHERE app_role_id=$1 ORDER BY id`, id)
-	return len(ids), err
+	var count int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE app_role_id=$1`, id).Scan(&count)
+	return count, err
 }
+
+const appGrantChunk = 50
 
 // ReplaceRoleGrants joins the service transaction and records the grant actor.
 func (r *AppPermissionsRepository) ReplaceRoleGrants(ctx context.Context, id string, permissions []string, actor string, now time.Time) error {
+	if _, ok := txFromContext(ctx); !ok {
+		return errors.New("app role grant replacement requires transaction")
+	}
 	if _, err := r.db.ExecContext(ctx, `DELETE FROM app_role_permissions WHERE role_id=$1`, id); err != nil {
 		return err
 	}
-	for _, permission := range permissions {
-		if _, err := r.db.ExecContext(ctx, `INSERT INTO app_role_permissions(role_id,permission_id,granted_by,created_at) VALUES ($1,$2,$3,$4)`, id, permission, actor, now); err != nil {
+	if len(permissions) == 0 {
+		return nil
+	}
+	// Bounded multi-row inserts keep each statement's parameter count inside
+	// every driver's limit (SQLite allows 999 per statement).
+	for start := 0; start < len(permissions); start += appGrantChunk {
+		rows, params, args := strings.Builder{}, 0, make([]any, 0, len(permissions)*4)
+		for i, permission := range permissions[start:] {
+			if i >= appGrantChunk {
+				break
+			}
+			args = append(args, id, permission, actor, now)
+			if i > 0 {
+				rows.WriteByte(',')
+			}
+			fmt.Fprintf(&rows, "($%d,$%d,$%d,$%d)", params+1, params+2, params+3, params+4)
+			params += 4
+		}
+		query := `INSERT INTO app_role_permissions(role_id,permission_id,granted_by,created_at) VALUES ` + rows.String()
+		if _, err := r.db.ExecContext(ctx, query, args...); err != nil {
 			return err
 		}
 	}

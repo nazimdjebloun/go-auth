@@ -131,9 +131,13 @@ go run ./cmd/goauth permissions seed --driver sqlite --dsn "file:goauth.db" \
 go run ./cmd/goauth permissions seed --driver sqlite --dsn "file:goauth.db" \
   --actor-id "$ADMIN_ID" --all
 go run ./cmd/goauth permissions update --driver sqlite --dsn "file:goauth.db" \
-  --actor-id "$ADMIN_ID" --create goauth.app.users.read \
+  --actor-id "$ADMIN_ID" --yes --create goauth.app.users.read \
   --delete goauth.app.roles.create,goauth.app.roles.delete
 ```
+
+`permissions update` requires `--yes` before any `--delete` key, because removal
+deletes the affected definitions together with every custom-role grant that
+references them.
 
 Catalog needs no database. CLI writes require an initialized installation and
 an existing, non-banned protected admin for attribution. Local access to the
@@ -325,9 +329,10 @@ outside database locks. An email delivery failure leaves the committed invite
 or rotated code in place; use resend to retry delivery.
 
 Only the protected admin role requires email 2FA by default, including OAuth
-login. Every other role follows the non-admin policy, even with installed
-library grants: password login and library actions require MFA when
-`RequireEmail2FA` or the account's `TwoFactorEnabled` is on. Admin MFA settings
+login. Every other role follows the non-admin policy, for installed library
+grants and business permissions alike: password login and permission checks
+require MFA when `RequireEmail2FA` or the account's `TwoFactorEnabled` is on.
+Admin MFA settings
 do not affect these roles. Non-admin OAuth follows the same global and account-level MFA
 policy described in [Security](../security.mdx#authentication-policy-matrix).
 

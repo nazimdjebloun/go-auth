@@ -76,7 +76,7 @@ func TestAppPermissionsTargetAccessHTTP(t *testing.T) {
 		}
 	}
 	f.request(t, "GET", "/admin/authorization/users/not-a-uuid/access", "", f.token, 400)
-	f.request(t, "GET", "/admin/authorization/users/"+uuid.NewString()+"/access", "", f.token, 403)
+	f.request(t, "GET", "/admin/authorization/users/"+uuid.NewString()+"/access", "", f.token, 404)
 	if result, err := permissions.ListEffectivePermissions(ctx, api.ListAppEffectivePermissionsInput{Actor: f.admin, UserID: "not-a-uuid"}); err == nil || result != nil {
 		t.Fatalf("direct invalid target accepted: %+v, %v", result, err)
 	}

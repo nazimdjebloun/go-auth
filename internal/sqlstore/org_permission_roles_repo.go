@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nazimdjebloun/go-auth/domain"
@@ -78,11 +80,32 @@ func (r *OrgPermissionsRepository) RoleUserCount(ctx context.Context, orgID, id 
 
 // ReplaceRoleGrants joins the service transaction and records the grant actor.
 func (r *OrgPermissionsRepository) ReplaceRoleGrants(ctx context.Context, orgID, id string, permissions []string, actor string, now time.Time) error {
+	if _, ok := txFromContext(ctx); !ok {
+		return errors.New("org role grant replacement requires transaction")
+	}
 	if _, err := r.db.ExecContext(ctx, `DELETE FROM org_role_permissions WHERE org_id=$1 AND role_id=$2`, orgID, id); err != nil {
 		return err
 	}
-	for _, permission := range permissions {
-		if _, err := r.db.ExecContext(ctx, `INSERT INTO org_role_permissions(org_id,role_id,permission_id,granted_by,created_at) VALUES ($1,$2,$3,$4,$5)`, orgID, id, permission, actor, now); err != nil {
+	if len(permissions) == 0 {
+		return nil
+	}
+	// Bounded multi-row inserts keep each statement's parameter count inside
+	// every driver's limit (SQLite allows 999 per statement).
+	for start := 0; start < len(permissions); start += appGrantChunk {
+		rows, params, args := strings.Builder{}, 0, make([]any, 0, len(permissions)*5)
+		for i, permission := range permissions[start:] {
+			if i >= appGrantChunk {
+				break
+			}
+			args = append(args, orgID, id, permission, actor, now)
+			if i > 0 {
+				rows.WriteByte(',')
+			}
+			fmt.Fprintf(&rows, "($%d,$%d,$%d,$%d,$%d)", params+1, params+2, params+3, params+4, params+5)
+			params += 5
+		}
+		query := `INSERT INTO org_role_permissions(org_id,role_id,permission_id,granted_by,created_at) VALUES ` + rows.String()
+		if _, err := r.db.ExecContext(ctx, query, args...); err != nil {
 			return err
 		}
 	}
@@ -124,6 +147,9 @@ func (r *OrgPermissionsRepository) SetMemberRole(ctx context.Context, orgID, use
 
 // SetInviteRole freezes the selected role revision in the invitation transaction.
 func (r *OrgPermissionsRepository) SetInviteRole(ctx context.Context, orgID, inviteID, roleID string, revision uint64) error {
+	if _, ok := txFromContext(ctx); !ok {
+		return errors.New("org invite role freeze requires transaction")
+	}
 	_, err := r.db.ExecContext(ctx, `INSERT INTO org_invite_roles(org_id,invite_id,role_id,role_revision) VALUES ($1,$2,$3,$4)`, orgID, inviteID, roleID, revision)
 	return err
 }

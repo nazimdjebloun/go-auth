@@ -45,7 +45,7 @@ func orgPreset(identity string) []string {
 		return []string{"goauth.org.members.read", "goauth.org.organization.read"}
 	}
 	if identity == "admin" {
-		return []string{"goauth.org.invites.create", "goauth.org.invites.delete", "goauth.org.invites.read", "goauth.org.invites.resend", "goauth.org.members.create", "goauth.org.members.read", "goauth.org.members.remove", "goauth.org.organization.read", "goauth.org.roles.assign", "goauth.org.organization.update"}
+		return []string{"goauth.org.invites.create", "goauth.org.invites.delete", "goauth.org.invites.read", "goauth.org.invites.resend", "goauth.org.members.create", "goauth.org.members.read", "goauth.org.members.remove", "goauth.org.organization.read", "goauth.org.permissions.read", "goauth.org.roles.assign", "goauth.org.roles.read", "goauth.org.organization.update"}
 	}
 	return keys
 }

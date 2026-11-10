@@ -171,7 +171,7 @@ func (s *AppPermissionsService) CheckPermission(ctx context.Context, input api.C
 		return nil, err
 	}
 	library := strings.HasPrefix(input.PermissionKey, "goauth.app.")
-	if err := s.assurance(ctx, input.Actor, user, role, library); err != nil {
+	if err := s.assurance(ctx, input.Actor, user, role, true); err != nil {
 		return nil, err
 	}
 	if library {
@@ -290,12 +290,17 @@ func (s *AppPermissionsService) ListEffectivePermissions(ctx context.Context, in
 	if err != nil {
 		return nil, err
 	}
-	if err := s.assurance(ctx, input.Actor, actor, actorRole, false); err != nil {
+	if err := s.assurance(ctx, input.Actor, actor, actorRole, true); err != nil {
 		return nil, err
 	}
 	if target != input.Actor.UserID {
 		if err := s.require(ctx, input.Actor, "goauth.app.roles.read"); err != nil {
 			return nil, err
+		}
+		if missing, err := s.users.GetByID(ctx, target); err != nil {
+			return nil, fmt.Errorf("loading target account: %w", err)
+		} else if missing == nil {
+			return nil, domain.ErrUserNotFound
 		}
 	}
 	user, role, err := s.current(ctx, target)

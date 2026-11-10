@@ -92,6 +92,9 @@ func (r *OrgPermissionsRepository) PermissionGrantRoles(ctx context.Context, org
 
 // RemovePermissionGrants must participate in the definition deletion transaction.
 func (r *OrgPermissionsRepository) RemovePermissionGrants(ctx context.Context, orgID, id string) error {
+	if _, ok := txFromContext(ctx); !ok {
+		return errors.New("org permission grant removal requires transaction")
+	}
 	_, err := r.db.ExecContext(ctx, `DELETE FROM org_role_permissions WHERE org_id=$1 AND permission_id=$2`, orgID, id)
 	return err
 }

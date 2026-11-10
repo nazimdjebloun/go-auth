@@ -79,9 +79,10 @@ when `{id}` is the caller's own ID. The caller's session supplies actor identity
 `{id}` selects only the account being inspected. It does not impersonate that
 account or check assurance against that account's sessions.
 
-Malformed target IDs return 400. A missing, banned, unassigned, or disabled-role
-target returns 403; inspecting it does not return an effective access snapshot.
-Backend failures remain errors. All access checks still reload current state.
+Malformed target IDs return 400. A missing target account returns
+`user_not_found` (404); a banned, unassigned, or disabled-role target returns
+403 — inspecting it does not return an effective access snapshot. Backend
+failures remain errors. All access checks still reload current state.
 
 Permission-key checks, ownership protection, delegation limits and revision
 checks also run inside the services. Installation/removal of library keys

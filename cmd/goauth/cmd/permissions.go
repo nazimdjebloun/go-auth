@@ -39,6 +39,7 @@ func newPermissionsCommand() *cobra.Command {
 		} else {
 			command.Flags().StringSlice("create", nil, "Catalog keys to install")
 			command.Flags().StringSlice("delete", nil, "Catalog keys to remove, including all grants")
+			command.Flags().Bool("yes", false, "Confirm removal of library permissions and their grants")
 		}
 		for _, flag := range []string{"driver", "dsn", "actor-id"} {
 			mustMarkFlagRequired(command, flag)
@@ -59,6 +60,12 @@ func newPermissionsCommand() *cobra.Command {
 			} else {
 				create, _ = cmd.Flags().GetStringSlice("create")
 				remove, _ = cmd.Flags().GetStringSlice("delete")
+				if len(remove) > 0 {
+					yes, _ := cmd.Flags().GetBool("yes")
+					if !yes {
+						return fmt.Errorf("removing library permissions deletes their role grants; pass --yes to confirm")
+					}
+				}
 			}
 			if len(create)+len(remove) == 0 {
 				return fmt.Errorf("select at least one catalog key")
@@ -146,11 +153,19 @@ func seedAppAdministrator(ctx context.Context, user *domain.User, force bool, db
 		if role == nil || !role.IsAdmin() {
 			return domain.ErrAppRoleNotFound
 		}
+		now := time.Now().UTC()
 		user.AppRoleID = &role.ID
-		user.AppRoleAssignmentRevision = 1
 		if err := users.Create(ctx, user); err != nil {
 			return err
 		}
+		changed, err := repo.SetUserAppRole(ctx, user.ID, role.ID, user.AppRoleAssignmentRevision, now)
+		if err != nil {
+			return err
+		}
+		if !changed {
+			return domain.ErrAppAuthorizationConflict
+		}
+		user.AppRoleAssignmentRevision++
 		if err := repo.BumpAppState(ctx); err != nil {
 			return err
 		}
